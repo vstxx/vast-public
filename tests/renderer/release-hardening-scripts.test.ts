@@ -13,6 +13,15 @@ const localRelease = readFileSync(new URL('../../scripts/local-release-from-env.
 const releaseEnvExample = readFileSync(new URL('../../.env.release.example', import.meta.url), 'utf8')
 const privateUnsignedBuilder = readFileSync(new URL('../../scripts/electron-builder-private-unsigned.cjs', import.meta.url), 'utf8')
 const gitAttributes = readFileSync(new URL('../../.gitattributes', import.meta.url), 'utf8')
+const windowsCi = readFileSync(new URL('../../.github/workflows/windows-ci.yml', import.meta.url), 'utf8')
+const appTestRunner = readFileSync(new URL('../../scripts/run-app-test.cjs', import.meta.url), 'utf8')
+
+test('automated app smoke builds cannot register Relay installations', () => {
+  assert.match(windowsCi, /VAST_RELAY_ENABLED:\s*'0'/)
+  assert.match(packageJson.scripts['test:app'], /run-app-test\.cjs/)
+  assert.match(packageJson.scripts['test:split-view'], /run-app-test\.cjs --split-view-only/)
+  assert.match(appTestRunner, /VAST_RELAY_ENABLED:\s*'0'/)
+})
 
 test('package exposes the single-product hardened release pipeline', () => {
   assert.match(gitAttributes, /relay\/worker-configuration\.d\.ts text eol=lf/)

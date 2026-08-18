@@ -16,6 +16,7 @@ jobs:
     env:
       VAST_RELEASE_CHANNEL: dev
       VAST_PRIVATE_BUILD: '1'
+      VAST_RELAY_ENABLED: '0'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
