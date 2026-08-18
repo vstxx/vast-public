@@ -1,0 +1,6 @@
+{
+  "key_id": "relay-staging-2026-01",
+  "algorithm": "Ed25519",
+  "format": "DER-SPKI-base64",
+  "public_key_spki_base64": "MCowBQYDK2VwAyEAUdjyVaeSUezix+E2jaSJzfoLaVU3x/HH3iXsUyv433k="
+}

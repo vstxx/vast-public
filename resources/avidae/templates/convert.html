@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}Video &amp; Audio — Convert{% endblock %}
+{% block page_title %}Convert Video{% endblock %}
+
+{% block content %}
+<div class="page-centered">
+    <div class="card form-card">
+        <div class="card-header">
+            <h2><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#refresh"></use></svg> Video Conversion</h2>
+            <p class="text-muted">Upload or select a file to transcode</p>
+        </div>
+        <div class="card-body">
+            <form id="convertForm" onsubmit="submitConvert(event)">
+                <!-- File Upload Dropzone -->
+                <div class="form-group">
+                    <label>Upload File</label>
+                    <div class="dropzone" id="cvDropzone"
+                         ondragover="event.preventDefault(); this.classList.add('dragover')"
+                         ondragleave="this.classList.remove('dragover')"
+                         ondrop="handleDrop(event, 'cv')">
+                        <input type="file" id="cvFileInput" accept="video/*,audio/*" style="display:none" onchange="handleFileSelect(this, 'cv')">
+                        <div class="dropzone-content" onclick="document.getElementById('cvFileInput').click()">
+                            <span>Drop file here or click to upload</span>
+                            <span class="dropzone-hint" id="cvFileName">Max 2 GB</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="cvInput">Or enter file path</label>
+                    <input type="text" id="cvInput" name="input_file" placeholder="C:\path\to\video.mp4">
+                </div>
+
+                <div class="form-group">
+                    <label>Or select from completed jobs:</label>
+                    <select id="cvJobPicker" onchange="fillConvertInput()">
+                        <option value="">— Select a job output —</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="cvFormat">Output Format</label>
+                        <select id="cvFormat" name="format">
+                            <option value="mp4" selected>MP4</option>
+                            <option value="webm">WebM</option>
+                            <option value="mkv">MKV</option>
+                            <option value="avi">AVI</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="cvBitrate">Bitrate</label>
+                        <select id="cvBitrate" name="bitrate">
+                            <option value="">Auto</option>
+                            <option value="2M">2 Mbps</option>
+                            <option value="5M">5 Mbps</option>
+                            <option value="10M">10 Mbps</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="cvRes">Resolution</label>
+                        <select id="cvRes" name="resolution">
+                            <option value="">Original</option>
+                            <option value="1920x1080">1080p</option>
+                            <option value="1280x720">720p</option>
+                            <option value="854x480">480p</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="cvTitle">Title</label>
+                        <input type="text" id="cvTitle" name="title" placeholder="Conversion job">
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary btn-lg" id="convertBtn">
+                        <span class="btn-icon-inline"><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#refresh"></use></svg></span> Start Conversion
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', loadCompletedJobs);
+
+    async function loadCompletedJobs() {
+        try {
+            const resp = await fetch('/api/jobs?limit=50');
+            const data = await resp.json();
+            const picker = document.getElementById('cvJobPicker');
+            data.jobs.filter(j => j.status === 'completed' && j.output_file).forEach(j => {
+                const opt = document.createElement('option');
+                opt.value = j.folder + '/output/' + j.output_file;
+                opt.textContent = `${j.title || j.id} (${j.output_file})`;
+                picker.appendChild(opt);
+            });
+        } catch(e) {}
+    }
+
+    function fillConvertInput() {
+        const val = document.getElementById('cvJobPicker').value;
+        if (val) document.getElementById('cvInput').value = val;
+    }
+
+    function handleDrop(e, prefix) {
+        e.preventDefault();
+        e.currentTarget.classList.remove('dragover');
+        const file = e.dataTransfer.files[0];
+        if (file) uploadFile(file, prefix);
+    }
+
+    function handleFileSelect(input, prefix) {
+        const file = input.files[0];
+        if (file) uploadFile(file, prefix);
+    }
+
+    async function uploadFile(file, prefix) {
+        const hint = document.getElementById(prefix + 'FileName');
+        hint.textContent = `Uploading ${file.name}...`;
+        const fd = new FormData();
+        fd.append('file', file);
+        try {
+            const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+            const data = await resp.json();
+            if (data.ok) {
+                document.getElementById(prefix + 'Input').value = data.path;
+                hint.textContent = `Uploaded: ${data.filename}`;
+                showToast('File uploaded');
+            } else {
+                hint.textContent = `Error: ${data.error}`;
+                showToast(data.error, 'error');
+            }
+        } catch(e) {
+            hint.textContent = 'Upload failed';
+            showToast('Upload failed', 'error');
+        }
+    }
+
+    async function submitConvert(e) {
+        e.preventDefault();
+        const input = document.getElementById('cvInput').value;
+        if (!input) { showToast('Select or upload a file first', 'error'); return; }
+
+        const btn = document.getElementById('convertBtn');
+        btn.disabled = true;
+        const params = {
+            input_file: input,
+            format: document.getElementById('cvFormat').value,
+            bitrate: document.getElementById('cvBitrate').value || undefined,
+            resolution: document.getElementById('cvRes').value || undefined,
+            title: document.getElementById('cvTitle').value,
+        };
+        try {
+            const resp = await fetch('/api/jobs', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ type: 'convert', params })
+            });
+            const data = await resp.json();
+            if (data.ok) {
+                showToast('Conversion started');
+                setTimeout(() => window.location.href = '/jobs', 1000);
+            } else {
+                showToast('Error: ' + (data.error || 'Unknown'), 'error');
+            }
+        } catch(err) {
+            showToast('Network error', 'error');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+</script>
+{% endblock %}

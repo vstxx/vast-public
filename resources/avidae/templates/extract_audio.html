@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}Video &amp; Audio — Extract Audio{% endblock %}
+{% block page_title %}Extract Audio{% endblock %}
+
+{% block content %}
+<div class="page-centered">
+    <div class="card form-card">
+        <div class="card-header">
+            <h2><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#music"></use></svg> Audio Extraction</h2>
+            <p class="text-muted">Upload or select a video to extract audio</p>
+        </div>
+        <div class="card-body">
+            <form id="extractForm" onsubmit="submitExtract(event)">
+                <!-- Upload Dropzone -->
+                <div class="form-group">
+                    <label>Upload File</label>
+                    <div class="dropzone" id="exDropzone"
+                         ondragover="event.preventDefault(); this.classList.add('dragover')"
+                         ondragleave="this.classList.remove('dragover')"
+                         ondrop="handleDropEx(event)">
+                        <input type="file" id="exFileInput" accept="video/*,audio/*" style="display:none" onchange="handleFileSelectEx(this)">
+                        <div class="dropzone-content" onclick="document.getElementById('exFileInput').click()">
+                            <span>Drop file here or click to upload</span>
+                            <span class="dropzone-hint" id="exFileName">Max 2 GB</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="exInput">Or enter file path</label>
+                    <input type="text" id="exInput" name="input_file" placeholder="C:\path\to\video.mp4">
+                </div>
+
+                <div class="form-group">
+                    <label>Or select from completed jobs:</label>
+                    <select id="exJobPicker" onchange="fillExtractInput()">
+                        <option value="">— Select a job output —</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="exFormat">Audio Format</label>
+                        <select id="exFormat" name="audio_format">
+                            <option value="mp3" selected>MP3</option>
+                            <option value="wav">WAV</option>
+                            <option value="ogg">OGG</option>
+                            <option value="flac">FLAC</option>
+                            <option value="aac">AAC</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="exBitrate">Audio Bitrate</label>
+                        <select id="exBitrate" name="audio_bitrate">
+                            <option value="128k">128 kbps</option>
+                            <option value="192k" selected>192 kbps</option>
+                            <option value="256k">256 kbps</option>
+                            <option value="320k">320 kbps</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="exTitle">Title</label>
+                    <input type="text" id="exTitle" name="title" placeholder="Audio extraction">
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary btn-lg" id="extractBtn">
+                        <span class="btn-icon-inline"><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#music"></use></svg></span> Extract Audio
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', loadCompletedJobsExtract);
+
+    async function loadCompletedJobsExtract() {
+        try {
+            const resp = await fetch('/api/jobs?limit=50');
+            const data = await resp.json();
+            const picker = document.getElementById('exJobPicker');
+            data.jobs.filter(j => j.status === 'completed' && j.output_file).forEach(j => {
+                const opt = document.createElement('option');
+                opt.value = j.folder + '/output/' + j.output_file;
+                opt.textContent = `${j.title || j.id} (${j.output_file})`;
+                picker.appendChild(opt);
+            });
+        } catch(e) {}
+    }
+
+    function fillExtractInput() {
+        const val = document.getElementById('exJobPicker').value;
+        if (val) document.getElementById('exInput').value = val;
+    }
+
+    function handleDropEx(e) {
+        e.preventDefault();
+        e.currentTarget.classList.remove('dragover');
+        const file = e.dataTransfer.files[0];
+        if (file) uploadFileEx(file);
+    }
+    function handleFileSelectEx(input) {
+        const file = input.files[0];
+        if (file) uploadFileEx(file);
+    }
+    async function uploadFileEx(file) {
+        const hint = document.getElementById('exFileName');
+        hint.textContent = `Uploading ${file.name}...`;
+        const fd = new FormData();
+        fd.append('file', file);
+        try {
+            const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+            const data = await resp.json();
+            if (data.ok) {
+                document.getElementById('exInput').value = data.path;
+                hint.textContent = `Uploaded: ${data.filename}`;
+                showToast('File uploaded');
+            } else {
+                hint.textContent = `Error: ${data.error}`;
+            }
+        } catch(e) {
+            hint.textContent = 'Upload failed';
+        }
+    }
+
+    async function submitExtract(e) {
+        e.preventDefault();
+        const input = document.getElementById('exInput').value;
+        if (!input) { showToast('Select or upload a file first', 'error'); return; }
+
+        const btn = document.getElementById('extractBtn');
+        btn.disabled = true;
+        const params = {
+            input_file: input,
+            audio_format: document.getElementById('exFormat').value,
+            audio_bitrate: document.getElementById('exBitrate').value,
+            title: document.getElementById('exTitle').value,
+        };
+        const codecMap = {mp3:'libmp3lame', wav:'pcm_s16le', ogg:'libvorbis', flac:'flac', aac:'aac'};
+        params.acodec = codecMap[params.audio_format] || 'libmp3lame';
+
+        try {
+            const resp = await fetch('/api/jobs', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ type: 'extract_audio', params })
+            });
+            const data = await resp.json();
+            if (data.ok) {
+                showToast('Extraction started');
+                setTimeout(() => window.location.href = '/jobs', 1000);
+            } else {
+                showToast('Error: ' + (data.error || 'Unknown'), 'error');
+            }
+        } catch(err) {
+            showToast('Network error', 'error');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+</script>
+{% endblock %}

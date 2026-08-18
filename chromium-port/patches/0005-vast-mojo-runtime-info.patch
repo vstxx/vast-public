@@ -1,0 +1,286 @@
+diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
+index 311a3dfebc076092e33ff29c502ed77f1b0836c3..fe752114a87a7635655fee7c45403b89c6a00973 100644
+--- a/chrome/browser/BUILD.gn
++++ b/chrome/browser/BUILD.gn
+@@ -855,6 +855,8 @@ source_set("core") {
+     "//chrome/browser/ui/webui/signin/batch_upload:mojo_bindings",
+     "//chrome/browser/ui/webui/subresource_filter",
+     "//chrome/browser/ui/webui/usb_internals",
++    "//chrome/browser/ui/webui/vast",
++    "//chrome/browser/ui/webui/vast:mojo_bindings",
+     "//chrome/browser/update_client",
+     "//chrome/browser/updater",
+     "//chrome/browser/upgrade_detector",
+diff --git a/chrome/browser/chrome_browser_interface_binders_webui.cc b/chrome/browser/chrome_browser_interface_binders_webui.cc
+index b636ad272626824a31f4e781f12adf1c0e63bbb8..cd817b471de2827379a90931207b1765256f6007 100644
+--- a/chrome/browser/chrome_browser_interface_binders_webui.cc
++++ b/chrome/browser/chrome_browser_interface_binders_webui.cc
+@@ -36,6 +36,8 @@
+ #include "chrome/browser/ui/webui/subresource_filter/subresource_filter_internals_ui.h"
+ #include "chrome/browser/ui/webui/usb_internals/usb_internals.mojom.h"
+ #include "chrome/browser/ui/webui/usb_internals/usb_internals_ui.h"
++#include "chrome/browser/ui/webui/vast/vast.mojom.h"
++#include "chrome/browser/ui/webui/vast/vast_ui.h"
+ #include "chrome/common/webui_url_constants.h"
+ #include "components/actor/public/mojom/actor_internals.mojom.h"
+ #include "components/browsing_topics/mojom/browsing_topics_internals.mojom.h"
+@@ -173,6 +175,9 @@ void PopulateChromeWebUIFrameBindersPartsAllPlatforms(
+       chrome_finds_internals::mojom::PageHandlerFactory,
+       chrome_finds_internals::ChromeFindsInternalsUI>(map);
+ 
++  RegisterWebUIControllerInterfaceBinder<vast::mojom::PageHandlerFactory,
++                                         vast::VastUI>(map);
++
+   RegisterWebUIControllerInterfaceBinder<::mojom::BluetoothInternalsHandler,
+                                          BluetoothInternalsUI>(map);
+ 
+@@ -296,7 +301,7 @@ void PopulateChromeWebUIFrameBindersPartsAllPlatforms(
+ 
+ // For the case that's !IS_ANDROID, PageHandlerFactory is registered in
+ // chrome_browser_interface_binders_webui_parts_desktop.cc.
+-#if BUILDFLAG(IS_ANDROID) && \
++#if BUILDFLAG(IS_ANDROID) &&        \
+     (BUILDFLAG(ENABLE_WEBUI_NTP) || \
+      BUILDFLAG(ENABLE_WEBUI_CONTEXTUAL_TASKS_COMPOSEBOX))
+   RegisterWebUIControllerInterfaceBinder<composebox::mojom::PageHandlerFactory
+diff --git a/chrome/browser/resources/vast/BUILD.gn b/chrome/browser/resources/vast/BUILD.gn
+index b277f7ff00b460f39257e64c0bb70b78fd730f4f..91b20e4856965c8c552a67595b5a83590747adc1 100644
+--- a/chrome/browser/resources/vast/BUILD.gn
++++ b/chrome/browser/resources/vast/BUILD.gn
+@@ -15,5 +15,10 @@ build_webui("build") {
+ 
+   ts_files = [ "app.ts" ]
+ 
+-  ts_deps = [ "//ui/webui/resources/js:build_ts" ]
++  mojo_files_deps =
++      [ "//chrome/browser/ui/webui/vast:mojo_bindings_ts__generator" ]
++  mojo_files =
++      [ "$root_gen_dir/chrome/browser/ui/webui/vast/vast.mojom-webui.ts" ]
++
++  ts_deps = [ "//ui/webui/resources/mojo:build_ts" ]
+ }
+diff --git a/chrome/browser/resources/vast/app.ts b/chrome/browser/resources/vast/app.ts
+index 784292d498a1bffe847bb3a9dffdd21abc6dc11d..b92320ef053c5a4a1e43796b8bc1ec497a3cfc97 100644
+--- a/chrome/browser/resources/vast/app.ts
++++ b/chrome/browser/resources/vast/app.ts
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+-import {loadTimeData} from '//resources/js/load_time_data.js';
++import {PageHandlerFactory, PageHandlerRemote} from './vast.mojom-webui.js';
+ 
+ function setText(id: string, value: string) {
+   const element = document.querySelector<HTMLElement>(`#${id}`);
+@@ -12,17 +12,22 @@ function setText(id: string, value: string) {
+   element.textContent = value;
+ }
+ 
+-setText('runtime-architecture', loadTimeData.getString('runtimeArchitecture'));
+-setText(
+-    'product-version',
+-    `${loadTimeData.getString('productName')} ${loadTimeData.getString('productVersion')}`);
+-setText(
+-    'chromium-version',
+-    `Chromium ${loadTimeData.getString('chromiumVersion')}`);
+-setText(
+-    'runtime-proof',
+-    loadTimeData.getBoolean('electronRuntimeAbsent') ?
+-        'Electron runtime absent' :
+-        'Runtime audit required');
++async function initialize() {
++  const handler = new PageHandlerRemote();
++  PageHandlerFactory.getRemote().createPageHandler(
++      handler.$.bindNewPipeAndPassReceiver());
+ 
+-document.documentElement.dataset['vastReady'] = 'true';
++  const {info} = await handler.getRuntimeInfo();
++  setText('runtime-architecture', info.architecture);
++  setText('product-version', `${info.productName} ${info.productVersion}`);
++  setText('chromium-version', `Chromium ${info.chromiumVersion}`);
++  setText(
++      'runtime-proof',
++      info.electronRuntimeAbsent ?
++          'Electron runtime absent' :
++          'Runtime audit required');
++
++  document.documentElement.dataset['vastReady'] = 'true';
++}
++
++initialize();
+diff --git a/chrome/browser/ui/webui/vast/BUILD.gn b/chrome/browser/ui/webui/vast/BUILD.gn
+index f5c853dbe3ac1fb48243e7d29b6c7443da959204..b34ff07e68edda661719949b3913ce836d3763c6 100644
+--- a/chrome/browser/ui/webui/vast/BUILD.gn
++++ b/chrome/browser/ui/webui/vast/BUILD.gn
+@@ -2,13 +2,19 @@
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
+ 
++import("//mojo/public/tools/bindings/mojom.gni")
++
+ source_set("vast") {
+   sources = [
+     "vast_ui.cc",
+     "vast_ui.h",
+   ]
+ 
+-  public_deps = [ "//content/public/browser" ]
++  public_deps = [
++    ":mojo_bindings",
++    "//content/public/browser",
++    "//ui/webui",
++  ]
+ 
+   deps = [
+     "//chrome/browser/profiles:profile",
+@@ -16,6 +22,11 @@ source_set("vast") {
+     "//chrome/common:constants",
+     "//components/version_info",
+     "//content/public/common",
+-    "//ui/webui",
++    "//mojo/public/cpp/bindings",
+   ]
+ }
++
++mojom("mojo_bindings") {
++  sources = [ "vast.mojom" ]
++  webui_module_path = "/"
++}
+diff --git a/chrome/browser/ui/webui/vast/vast.mojom b/chrome/browser/ui/webui/vast/vast.mojom
+new file mode 100644
+index 0000000000000000000000000000000000000000..d0da394e859dfd24021e0c365b1db058d5f6d0d4
+--- /dev/null
++++ b/chrome/browser/ui/webui/vast/vast.mojom
+@@ -0,0 +1,24 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++module vast.mojom;
++
++// Runtime facts supplied by the native browser process.
++struct RuntimeInfo {
++  string product_name;
++  string product_version;
++  string chromium_version;
++  string architecture;
++  bool electron_runtime_absent;
++};
++
++// Renderer-to-browser operations for chrome://vast.
++interface PageHandler {
++  GetRuntimeInfo() => (RuntimeInfo info);
++};
++
++// Creates the page-scoped native handler.
++interface PageHandlerFactory {
++  CreatePageHandler(pending_receiver<PageHandler> receiver);
++};
+diff --git a/chrome/browser/ui/webui/vast/vast_ui.cc b/chrome/browser/ui/webui/vast/vast_ui.cc
+index 1f4d7b0cf95f2e66b915507e65b2b41664a29460..fdce2a6293307bcfdf28910bb7e522afa077977a 100644
+--- a/chrome/browser/ui/webui/vast/vast_ui.cc
++++ b/chrome/browser/ui/webui/vast/vast_ui.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "chrome/browser/ui/webui/vast/vast_ui.h"
+ 
++#include <utility>
++
+ #include "chrome/browser/profiles/profile.h"
+ #include "chrome/grit/vast_resources.h"
+ #include "chrome/grit/vast_resources_map.h"
+@@ -14,18 +16,37 @@
+ 
+ namespace vast {
+ 
+-VastUI::VastUI(content::WebUI* web_ui) : content::WebUIController(web_ui) {
++VastUI::VastUI(content::WebUI* web_ui) : ui::MojoWebUIController(web_ui) {
+   Profile* profile = Profile::FromWebUI(web_ui);
+   content::WebUIDataSource* source = content::WebUIDataSource::CreateAndAdd(
+       profile, chrome::kChromeUIVastHost);
+-  source->AddString("productName", "Vast");
+-  source->AddString("productVersion", "2.0.0-dev");
+-  source->AddString("chromiumVersion", version_info::GetVersionNumber());
+-  source->AddString("runtimeArchitecture", "Upstream Chromium //chrome");
+-  source->AddBoolean("electronRuntimeAbsent", true);
+   webui::SetupWebUIDataSource(source, kVastResources, IDR_VAST_INDEX_HTML);
+ }
+ 
+ VastUI::~VastUI() = default;
+ 
++void VastUI::BindInterface(
++    mojo::PendingReceiver<mojom::PageHandlerFactory> receiver) {
++  factory_receiver_.reset();
++  factory_receiver_.Bind(std::move(receiver));
++}
++
++void VastUI::CreatePageHandler(
++    mojo::PendingReceiver<mojom::PageHandler> receiver) {
++  page_handler_receiver_.reset();
++  page_handler_receiver_.Bind(std::move(receiver));
++}
++
++void VastUI::GetRuntimeInfo(GetRuntimeInfoCallback callback) {
++  auto info = mojom::RuntimeInfo::New();
++  info->product_name = "Vast";
++  info->product_version = "2.0.0-dev";
++  info->chromium_version = version_info::GetVersionNumber();
++  info->architecture = "Upstream Chromium //chrome";
++  info->electron_runtime_absent = true;
++  std::move(callback).Run(std::move(info));
++}
++
++WEB_UI_CONTROLLER_TYPE_IMPL(VastUI)
++
+ }  // namespace vast
+diff --git a/chrome/browser/ui/webui/vast/vast_ui.h b/chrome/browser/ui/webui/vast/vast_ui.h
+index 44f56f1adbc5ccd7564c154acfb856fd92b6dfd6..7b1f51e917e3a7af1a57bc0cd97f0d22648df269 100644
+--- a/chrome/browser/ui/webui/vast/vast_ui.h
++++ b/chrome/browser/ui/webui/vast/vast_ui.h
+@@ -5,10 +5,13 @@
+ #ifndef CHROME_BROWSER_UI_WEBUI_VAST_VAST_UI_H_
+ #define CHROME_BROWSER_UI_WEBUI_VAST_VAST_UI_H_
+ 
++#include "chrome/browser/ui/webui/vast/vast.mojom.h"
+ #include "chrome/common/webui_url_constants.h"
+-#include "content/public/browser/web_ui_controller.h"
+ #include "content/public/browser/webui_config.h"
+ #include "content/public/common/url_constants.h"
++#include "mojo/public/cpp/bindings/pending_receiver.h"
++#include "mojo/public/cpp/bindings/receiver.h"
++#include "ui/webui/mojo_web_ui_controller.h"
+ 
+ namespace vast {
+ 
+@@ -22,13 +25,30 @@ class VastUIConfig : public content::DefaultWebUIConfig<VastUI> {
+ };
+ 
+ // Profile-scoped controller for chrome://vast.
+-class VastUI : public content::WebUIController {
++class VastUI : public ui::MojoWebUIController,
++               public mojom::PageHandlerFactory,
++               public mojom::PageHandler {
+  public:
+   explicit VastUI(content::WebUI* web_ui);
+   ~VastUI() override;
+ 
+   VastUI(const VastUI&) = delete;
+   VastUI& operator=(const VastUI&) = delete;
++
++  void BindInterface(mojo::PendingReceiver<mojom::PageHandlerFactory> receiver);
++
++ private:
++  // mojom::PageHandlerFactory:
++  void CreatePageHandler(
++      mojo::PendingReceiver<mojom::PageHandler> receiver) override;
++
++  // mojom::PageHandler:
++  void GetRuntimeInfo(GetRuntimeInfoCallback callback) override;
++
++  mojo::Receiver<mojom::PageHandlerFactory> factory_receiver_{this};
++  mojo::Receiver<mojom::PageHandler> page_handler_receiver_{this};
++
++  WEB_UI_CONTROLLER_TYPE_DECL();
+ };
+ 
+ }  // namespace vast

@@ -1,0 +1,6 @@
+{
+  "key_id": "relay-2026-01",
+  "algorithm": "Ed25519",
+  "format": "DER-SPKI-base64",
+  "public_key_spki_base64": "MCowBQYDK2VwAyEAK2ESqwYH5ULmvRoNMGU7SwFF2pnk7yegAyxKUwhplI0="
+}

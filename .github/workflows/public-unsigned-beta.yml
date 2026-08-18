@@ -1,0 +1,161 @@
+name: Public unsigned beta
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_version:
+        description: Exact package version to publish as an unsigned prerelease
+        required: true
+        default: 0.1.5
+        type: string
+      risk_ack:
+        description: Type I_ACCEPT_UNSIGNED_PUBLIC_BETA_RISK
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-release
+  cancel-in-progress: false
+
+jobs:
+  build-verify-publish:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    environment: public-release
+    env:
+      VAST_RELEASE_CHANNEL: beta
+      VAST_PRIVATE_BUILD: '0'
+      VAST_PUBLIC_UNSIGNED_BETA: '1'
+      VAST_UNSIGNED_BETA_ACK: ${{ inputs.risk_ack }}
+      VAST_RELEASE_REPO: vstxx/vast-public
+      VAST_PREVIOUS_VERSION: 0.1.4
+      VAST_UPDATE_ENABLED: '1'
+      VAST_OBFUSCATE: '1'
+      VAST_RELAY_PRODUCTION_ENABLED: '0'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      GH_TOKEN: ${{ secrets.VAST_RELEASE_TOKEN }}
+
+    steps:
+      - name: GPL corresponding-source publication gate
+        shell: pwsh
+        run: |
+          throw 'Binary publication is disabled until the workflow uploads and verifies the complete corresponding source set for the exact bundled Gyan FFmpeg build. See docs/OPEN_SOURCE_LICENSE_AUDIT.md.'
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            relay/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Validate explicit unsigned-beta authorization and exact source
+        shell: pwsh
+        run: |
+          if ('${{ inputs.risk_ack }}' -ne 'I_ACCEPT_UNSIGNED_PUBLIC_BETA_RISK') { throw 'Exact unsigned-beta risk acknowledgement is required.' }
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          if ($version -ne '${{ inputs.expected_version }}') { throw "package.json version $version does not match the authorized version." }
+          git diff --exit-code
+          git diff --cached --exit-code
+          $head = git rev-parse HEAD
+          if ($head -ne '${{ github.sha }}') { throw "Checked out $head instead of workflow SHA ${{ github.sha }}." }
+          if (git tag --list "v$version") { throw "Tag v$version already exists and immutable unsigned artifacts must not be replaced." }
+          "VAST_RELEASE_COMMIT=$head" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Install exact dependencies
+        run: |
+          npm ci
+          npm ci --prefix relay
+          python -m pip install -r resources/avidae/requirements.txt -r resources/avidae/requirements-build.txt
+      - name: Install pinned FFmpeg distribution
+        shell: pwsh
+        run: |
+          winget install --id Gyan.FFmpeg --exact --version 9.0 --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+          $ffmpeg = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Filter ffmpeg.exe -Recurse -File | Where-Object FullName -Match 'ffmpeg-9\.0-full_build\bin\ffmpeg\.exe$' | Select-Object -First 1
+          $ffprobe = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Filter ffprobe.exe -Recurse -File | Where-Object FullName -Match 'ffmpeg-9\.0-full_build\bin\ffprobe\.exe$' | Select-Object -First 1
+          if (-not $ffmpeg -or -not $ffprobe) { throw 'Pinned FFmpeg 9.0 binaries were not found.' }
+          "VAST_AVIDAE_FFMPEG=$($ffmpeg.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "VAST_AVIDAE_FFPROBE=$($ffprobe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Full quality and dependency gate
+        run: |
+          npm run audit:ci
+          npm run lint
+          npm run check --prefix relay
+          npm test
+          npm run updater:stage
+          npm run test:updater
+          npm run release:audit
+      - name: Prepare self-contained Video & Audio runtime
+        run: npm run avidae:runtime:prepare
+      - name: Build explicitly unsigned public beta
+        run: npm run dist:upgrader
+      - name: Verify provenance, hashes, fuses, resources, and intentional NotSigned status
+        run: node scripts/verify-release-package.cjs
+
+      - name: Create draft prerelease and upload immutable assets
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          $notes = Join-Path $env:RUNNER_TEMP 'vast-unsigned-beta-notes.md'
+          @(
+            "# Vast $version — PUBLIC UNSIGNED BETA",
+            "",
+            "**Warning: Windows will show Unknown publisher and SmartScreen may warn.**",
+            "",
+            "This prerelease is intentionally not Authenticode-signed and has no trusted timestamp.",
+            "Source commit: $env:VAST_RELEASE_COMMIT",
+            "Verify SHA-256/SHA-512 before running. Download only from the official Vast website or this repository.",
+            "A future signed release will use a newer version; these assets are immutable."
+          ) | Set-Content -LiteralPath $notes -Encoding utf8
+          gh release create "v$version" --repo vstxx/vast-public --title "Vast $version — Public Unsigned Beta" --notes-file $notes --draft --prerelease
+          $assets = @(
+            "release/Installer/Vast-Setup-$version.exe",
+            "release/Installer/Vast-Setup-$version.exe.blockmap",
+            "release/Installer/Vast-$version-Portable.exe",
+            'release/Installer/latest.yml',
+            "release/Updater/VastUpdater-$version.exe",
+            'release/Downloads/update-manifest.json',
+            "release/Downloads/Vast-$version-update.zip",
+            'release/Checksums/checksums.json',
+            'release/Checksums/SHA256SUMS.txt',
+            'release/Checksums/SHA512SUMS.txt',
+            'release/Docs/release-manifest.json',
+            'release/version.json',
+            'release/PUBLIC-UNSIGNED-BETA.md'
+          )
+          gh release upload "v$version" @assets --repo vstxx/vast-public
+      - name: Re-download and verify draft assets
+        env:
+          VAST_GITHUB_DRAFT_RELEASE: '1'
+        run: npm run release:verify:published
+      - name: Publish verified unsigned prerelease
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          gh release edit "v$version" --repo vstxx/vast-public --draft=false --prerelease
+      - name: Re-download and verify public production URLs
+        run: npm run release:verify:published
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vast-public-unsigned-beta-${{ github.sha }}-verification
+          path: |
+            release/PUBLIC-UNSIGNED-BETA.md
+            release/version.json
+            release/Checksums/
+            release/Docs/release-manifest.json
+            out/release-build-metadata.json
+          if-no-files-found: warn

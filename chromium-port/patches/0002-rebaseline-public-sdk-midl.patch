@@ -1,0 +1,20 @@
+diff --git a/third_party/win_build_output/midl/chrome/windows_services/elevated_tracing_service/x64/tracing_service_idl.tlb b/third_party/win_build_output/midl/chrome/windows_services/elevated_tracing_service/x64/tracing_service_idl.tlb
+index f86462bf5a5cb56814c4bddb21d41d59f06afc71..5080e0684654f9cd98e6009c0408f18f9318e54d 100644
+GIT binary patch
+delta 58
+zcmZ1@x<+(E3mXRm5a=*6FidV_Z4hJuGX6tB1yEwc<crM8lP9opO!i>6V{*E)xr1GW
+F82~g*6eIuu
+
+delta 58
+zcmZ1@x<+(E3)|!m%q%QAj0_Bu8(A9!S%3@>_zwgXKzhUEi_FTCC$Mr%_F%VTdU|_v
+I2fGS000-I<Pyhe`
+
+diff --git a/third_party/win_build_output/midl/chrome/updater/app/server/win/x64/updater_legacy_idl.tlb b/third_party/win_build_output/midl/chrome/updater/app/server/win/x64/updater_legacy_idl.tlb
+index 6f219cfe7b2ee39489d8bb0da461c6ce312b1859..a4b15900493a0ee00e6f2a82e50f15eee32b5da6 100644
+GIT binary patch
+delta 44
+xcmeBq!`SnNaRZk$Q`@%9JkncOSQvm{^AY(3cJ}{3AkT1q@_#k?&0gw<`~Y{%5tRS{
+
+delta 44
+ycmeBq!`SnNaRZk$)A{+Ed8D_nu>1#t%}3-D*x4C?K%U|J<o{~&o4wQz`2hf?UlGRu
+

@@ -1,0 +1,989 @@
+diff --git a/chrome/browser/vast/BUILD.gn b/chrome/browser/vast/BUILD.gn
+index 7d610390b22570798a7ae1a7e839497bf1878316..4c11ed3f9b12d0ed097ba5124147c2d654cc9f23 100644
+--- a/chrome/browser/vast/BUILD.gn
++++ b/chrome/browser/vast/BUILD.gn
+@@ -6,6 +6,8 @@ import("//testing/test.gni")
+ 
+ source_set("vast_data") {
+   sources = [
++    "vast_backup_extractor.cc",
++    "vast_backup_extractor.h",
+     "vast_data_migration_preview.cc",
+     "vast_data_migration_preview.h",
+     "vast_data_migration_transaction.cc",
+@@ -15,11 +17,14 @@ source_set("vast_data") {
+   public_deps = [
+     "//base",
+     "//crypto",
++    "//third_party/zlib:minizip",
++    "//third_party/zlib/google:zip",
+   ]
+ }
+ 
+ test("vast_data_unittests") {
+   sources = [
++    "vast_backup_extractor_unittest.cc",
+     "vast_data_migration_preview_unittest.cc",
+     "vast_data_migration_transaction_unittest.cc",
+   ]
+diff --git a/chrome/browser/vast/vast_backup_extractor.cc b/chrome/browser/vast/vast_backup_extractor.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..cb1ed9f6e75fcfbe5dcb786292aa72d516756702
+--- /dev/null
++++ b/chrome/browser/vast/vast_backup_extractor.cc
+@@ -0,0 +1,623 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/vast/vast_backup_extractor.h"
++
++#include <algorithm>
++#include <array>
++#include <cstddef>
++#include <cstdint>
++#include <map>
++#include <optional>
++#include <set>
++#include <string>
++#include <string_view>
++#include <utility>
++#include <vector>
++
++#include "base/containers/span.h"
++#include "base/files/file.h"
++#include "base/files/file_util.h"
++#include "base/json/json_reader.h"
++#include "base/memory/raw_ptr.h"
++#include "base/strings/string_number_conversions.h"
++#include "base/strings/string_util.h"
++#include "base/values.h"
++#include "chrome/browser/vast/vast_data_migration_preview.h"
++#include "chrome/browser/vast/vast_data_migration_transaction.h"
++#include "crypto/hash.h"
++#include "third_party/zlib/google/zip_reader.h"
++
++namespace vast {
++namespace {
++
++constexpr uint64_t kMaxArchiveBytes = 512 * 1024 * 1024;
++constexpr uint64_t kMaxEntryBytes = 256 * 1024 * 1024;
++constexpr uint64_t kMaxTotalUncompressedBytes = 2ULL * 1024 * 1024 * 1024;
++constexpr uint64_t kMaxManifestBytes = 16 * 1024 * 1024;
++constexpr size_t kMaxArchiveEntries = 10000;
++constexpr uint64_t kMaxCompressionRatio = 250;
++constexpr size_t kEndOfCentralDirectorySize = 22;
++constexpr size_t kMaxZipCommentBytes = 0xffff;
++
++constexpr uint32_t kLocalHeaderSignature = 0x04034b50;
++constexpr uint32_t kCentralHeaderSignature = 0x02014b50;
++constexpr uint32_t kEndOfCentralDirectorySignature = 0x06054b50;
++
++struct ArchiveEntryMetadata {
++  std::string path;
++  uint64_t compressed_size = 0;
++  uint64_t uncompressed_size = 0;
++};
++
++struct ArchiveMetadata {
++  std::vector<ArchiveEntryMetadata> entries;
++  std::string error;
++};
++
++struct ExpectedFile {
++  uint64_t size = 0;
++  std::string sha256;
++};
++
++struct BackupManifest {
++  std::map<std::string, ExpectedFile> files;
++  bool password_vault_present = false;
++  std::string error;
++};
++
++uint16_t ReadUint16(std::string_view bytes, size_t offset) {
++  return static_cast<uint16_t>(static_cast<uint8_t>(bytes[offset])) |
++         static_cast<uint16_t>(static_cast<uint8_t>(bytes[offset + 1])) << 8;
++}
++
++uint32_t ReadUint32(std::string_view bytes, size_t offset) {
++  return static_cast<uint32_t>(ReadUint16(bytes, offset)) |
++         static_cast<uint32_t>(ReadUint16(bytes, offset + 2)) << 16;
++}
++
++bool IsSafeArchiveComponent(std::string_view component) {
++  if (component.empty() || component == "." || component == ".." ||
++      component.size() > 255 || component.back() == '.' ||
++      component.back() == ' ') {
++    return false;
++  }
++  for (unsigned char character : component) {
++    if (character < 0x20 || std::string_view("<>:\"|?*").contains(character)) {
++      return false;
++    }
++  }
++  const size_t extension = component.find('.');
++  const std::string device_name = base::ToUpperASCII(component.substr(
++      0, extension == std::string_view::npos ? component.size() : extension));
++  if (device_name == "CON" || device_name == "PRN" || device_name == "AUX" ||
++      device_name == "NUL") {
++    return false;
++  }
++  if (device_name.size() == 4 &&
++      (device_name.starts_with("COM") || device_name.starts_with("LPT")) &&
++      device_name[3] >= '1' && device_name[3] <= '9') {
++    return false;
++  }
++  return true;
++}
++
++std::optional<std::string> NormalizeArchivePath(std::string_view raw_path) {
++  if (raw_path.empty() || !base::IsStringUTF8(raw_path) ||
++      raw_path.find('\0') != std::string_view::npos || raw_path.size() > 4096) {
++    return std::nullopt;
++  }
++  std::string path(raw_path);
++  base::ReplaceChars(path, "\\", "/", &path);
++  if (path.empty() || path.front() == '/' || path.back() == '/' ||
++      (path.size() >= 2 && base::IsAsciiAlpha(path[0]) && path[1] == ':')) {
++    return std::nullopt;
++  }
++  size_t component_start = 0;
++  while (component_start <= path.size()) {
++    const size_t separator = path.find('/', component_start);
++    const size_t component_end =
++        separator == std::string::npos ? path.size() : separator;
++    const std::string_view component = std::string_view(path).substr(
++        component_start, component_end - component_start);
++    if (!IsSafeArchiveComponent(component)) {
++      return std::nullopt;
++    }
++    if (separator == std::string::npos) {
++      break;
++    }
++    component_start = separator + 1;
++  }
++  return path;
++}
++
++bool IsKnownVolatileBackupEntry(std::string_view archive_path) {
++  constexpr std::array<std::string_view, 12> kVolatileDirectories = {
++      "cache",
++      "code cache",
++      "gpucache",
++      "dawncache",
++      "dawngraphitecache",
++      "dawnwebgpucache",
++      "shadercache",
++      "crashpad",
++      "crash reports",
++      "updaterdownloads",
++      "updaterlogs",
++      "temp",
++  };
++  if (!archive_path.starts_with("data/")) {
++    return false;
++  }
++  std::string relative =
++      base::ToLowerASCII(archive_path.substr(std::string_view("data/").size()));
++  size_t component_start = 0;
++  while (component_start <= relative.size()) {
++    const size_t separator = relative.find('/', component_start);
++    const size_t component_end =
++        separator == std::string::npos ? relative.size() : separator;
++    const std::string_view component = std::string_view(relative).substr(
++        component_start, component_end - component_start);
++    if (std::ranges::find(kVolatileDirectories, component) !=
++        kVolatileDirectories.end()) {
++      return true;
++    }
++    if (separator == std::string::npos) {
++      break;
++    }
++    component_start = separator + 1;
++  }
++  return relative == "tmp" || relative.starts_with("tmp/");
++}
++
++ArchiveMetadata ParseArchiveMetadata(std::string_view archive) {
++  ArchiveMetadata result;
++  if (archive.size() < kEndOfCentralDirectorySize ||
++      archive.size() > kMaxArchiveBytes) {
++    result.error = "Vast backup archive is invalid or too large.";
++    return result;
++  }
++
++  const size_t minimum_offset =
++      archive.size() > kMaxZipCommentBytes + kEndOfCentralDirectorySize
++          ? archive.size() - kMaxZipCommentBytes - kEndOfCentralDirectorySize
++          : 0;
++  std::optional<size_t> end_offset;
++  for (size_t offset = archive.size() - kEndOfCentralDirectorySize;; --offset) {
++    if (ReadUint32(archive, offset) == kEndOfCentralDirectorySignature &&
++        offset + kEndOfCentralDirectorySize +
++                ReadUint16(archive, offset + 20) ==
++            archive.size()) {
++      end_offset = offset;
++      break;
++    }
++    if (offset == minimum_offset) {
++      break;
++    }
++  }
++  if (!end_offset) {
++    result.error = "Vast backup end-of-central-directory record is missing.";
++    return result;
++  }
++  const size_t eocd = *end_offset;
++  const uint16_t comment_length = ReadUint16(archive, eocd + 20);
++  if (eocd + kEndOfCentralDirectorySize + comment_length != archive.size() ||
++      ReadUint16(archive, eocd + 4) != 0 ||
++      ReadUint16(archive, eocd + 6) != 0) {
++    result.error = "Vast backup has an unsupported ZIP envelope.";
++    return result;
++  }
++  const uint16_t disk_entries = ReadUint16(archive, eocd + 8);
++  const uint16_t total_entries = ReadUint16(archive, eocd + 10);
++  const uint32_t central_size = ReadUint32(archive, eocd + 12);
++  const uint32_t central_offset = ReadUint32(archive, eocd + 16);
++  if (disk_entries != total_entries || total_entries > kMaxArchiveEntries ||
++      static_cast<uint64_t>(central_offset) + central_size != eocd) {
++    result.error = "Vast backup central directory is invalid.";
++    return result;
++  }
++
++  std::set<std::string> paths;
++  uint64_t total_uncompressed = 0;
++  size_t cursor = central_offset;
++  for (size_t index = 0; index < total_entries; ++index) {
++    if (cursor > eocd || eocd - cursor < 46 ||
++        ReadUint32(archive, cursor) != kCentralHeaderSignature) {
++      result.error = "Vast backup central entry is invalid.";
++      return result;
++    }
++    const uint16_t flags = ReadUint16(archive, cursor + 8);
++    const uint16_t method = ReadUint16(archive, cursor + 10);
++    const uint32_t compressed_size = ReadUint32(archive, cursor + 20);
++    const uint32_t uncompressed_size = ReadUint32(archive, cursor + 24);
++    const uint16_t name_length = ReadUint16(archive, cursor + 28);
++    const uint16_t extra_length = ReadUint16(archive, cursor + 30);
++    const uint16_t entry_comment_length = ReadUint16(archive, cursor + 32);
++    const uint32_t local_offset = ReadUint32(archive, cursor + 42);
++    const uint64_t central_entry_size =
++        46ULL + name_length + extra_length + entry_comment_length;
++    if (central_entry_size > eocd - cursor || name_length == 0) {
++      result.error = "Vast backup central entry bounds are invalid.";
++      return result;
++    }
++    const std::string_view raw_path = archive.substr(cursor + 46, name_length);
++    const std::optional<std::string> normalized =
++        NormalizeArchivePath(raw_path);
++    if (!normalized) {
++      result.error = "Vast backup contains an unsafe archive path.";
++      return result;
++    }
++    const std::string comparison_path = base::ToLowerASCII(*normalized);
++    if (!paths.insert(comparison_path).second) {
++      result.error = "Vast backup contains a duplicate archive path.";
++      return result;
++    }
++    if ((flags & 0x0001) != 0 || (method != 0 && method != 8)) {
++      result.error = "Vast backup contains an encrypted or unsupported entry.";
++      return result;
++    }
++    if (uncompressed_size > kMaxEntryBytes ||
++        uncompressed_size > kMaxTotalUncompressedBytes - total_uncompressed) {
++      result.error = "Vast backup exceeds uncompressed data limits.";
++      return result;
++    }
++    total_uncompressed += uncompressed_size;
++    if (uncompressed_size > 1024 * 1024 &&
++        (compressed_size == 0 ||
++         uncompressed_size > compressed_size * kMaxCompressionRatio) &&
++        !IsKnownVolatileBackupEntry(*normalized)) {
++      result.error = "Vast backup entry has a suspicious compression ratio.";
++      return result;
++    }
++
++    if (local_offset > central_offset || central_offset - local_offset < 30 ||
++        ReadUint32(archive, local_offset) != kLocalHeaderSignature) {
++      result.error = "Vast backup local entry is invalid.";
++      return result;
++    }
++    const uint16_t local_flags = ReadUint16(archive, local_offset + 6);
++    const uint16_t local_method = ReadUint16(archive, local_offset + 8);
++    const uint32_t local_compressed_size =
++        ReadUint32(archive, local_offset + 18);
++    const uint32_t local_uncompressed_size =
++        ReadUint32(archive, local_offset + 22);
++    const uint16_t local_name_length = ReadUint16(archive, local_offset + 26);
++    const uint16_t local_extra_length = ReadUint16(archive, local_offset + 28);
++    const uint64_t data_start = static_cast<uint64_t>(local_offset) + 30 +
++                                local_name_length + local_extra_length;
++    if (data_start + compressed_size > central_offset ||
++        local_name_length != name_length || local_flags != flags ||
++        local_method != method || local_compressed_size != compressed_size ||
++        local_uncompressed_size != uncompressed_size ||
++        archive.substr(local_offset + 30, local_name_length) != raw_path) {
++      result.error = "Vast backup local and central entries do not match.";
++      return result;
++    }
++
++    result.entries.push_back({*normalized, compressed_size, uncompressed_size});
++    cursor += static_cast<size_t>(central_entry_size);
++  }
++  if (cursor != eocd) {
++    result.error = "Vast backup central directory size does not match.";
++  }
++  return result;
++}
++
++std::optional<std::string> ExtractManifest(std::string* archive,
++                                           std::string* error) {
++  zip::ZipReader reader;
++  if (!reader.OpenFromString(*archive)) {
++    *error = "Vast backup could not be opened as ZIP.";
++    return std::nullopt;
++  }
++  while (const zip::ZipReader::Entry* entry = reader.Next()) {
++    const std::optional<std::string> path =
++        NormalizeArchivePath(entry->path_in_original_encoding);
++    if (!path) {
++      *error = "Vast backup contains an unsafe ZIP entry.";
++      return std::nullopt;
++    }
++    if (*path == "manifest.json") {
++      std::string manifest;
++      if (entry->is_directory || entry->is_encrypted ||
++          !reader.ExtractCurrentEntryToString(kMaxManifestBytes, &manifest)) {
++        *error = "Vast backup manifest could not be read safely.";
++        return std::nullopt;
++      }
++      return manifest;
++    }
++  }
++  *error = reader.ok() ? "Vast backup manifest is missing."
++                       : "Vast backup ZIP enumeration failed.";
++  return std::nullopt;
++}
++
++bool IsValidSha256(std::string_view value) {
++  return value.size() == crypto::hash::kSha256Size * 2 &&
++         std::ranges::all_of(
++             value, [](char character) { return base::IsHexDigit(character); });
++}
++
++BackupManifest ParseManifest(std::string_view contents) {
++  BackupManifest manifest;
++  std::optional<base::DictValue> root =
++      base::JSONReader::ReadDict(contents, base::JSON_PARSE_RFC, 100);
++  if (!root) {
++    manifest.error = "Vast backup manifest is not valid JSON.";
++    return manifest;
++  }
++  const std::string* product = root->FindString("product");
++  const std::optional<int> format = root->FindInt("exportFormatVersion");
++  const base::ListValue* included_sections = root->FindList("includedSections");
++  const std::optional<int> included_file_count =
++      root->FindInt("includedFileCount");
++  const std::optional<bool> vast_data_included =
++      root->FindBool("vastDataIncluded");
++  const base::DictValue* checksums = root->FindDict("checksums");
++  if (!product || *product != "Vast" || !format || *format != 1 ||
++      !included_sections || !included_file_count || *included_file_count < 0 ||
++      !vast_data_included || !*vast_data_included || !checksums) {
++    manifest.error = "Vast backup manifest is incompatible or incomplete.";
++    return manifest;
++  }
++  if (static_cast<size_t>(*included_file_count) != checksums->size() ||
++      checksums->size() > kMaxArchiveEntries) {
++    manifest.error =
++        "Vast backup manifest file count does not match its checksums.";
++    return manifest;
++  }
++
++  for (auto checksum_entry : *checksums) {
++    const std::string& path = checksum_entry.first;
++    const base::Value& value = checksum_entry.second;
++    const std::optional<std::string> normalized = NormalizeArchivePath(path);
++    const base::DictValue* checksum = value.GetIfDict();
++    if (!normalized || *normalized != path ||
++        !normalized->starts_with("data/") || *normalized == "data/" ||
++        !checksum) {
++      manifest.error = "Vast backup manifest has an invalid checksum path.";
++      return manifest;
++    }
++    const std::string* sha256 = checksum->FindString("sha256");
++    const std::optional<int> size = checksum->FindInt("sizeBytes");
++    if (!sha256 || !IsValidSha256(*sha256) || !size || *size < 0 ||
++        static_cast<uint64_t>(*size) > kMaxEntryBytes) {
++      manifest.error = "Vast backup manifest has an invalid checksum.";
++      return manifest;
++    }
++    ExpectedFile expected;
++    expected.size = *size;
++    expected.sha256 = base::ToLowerASCII(*sha256);
++    if (!manifest.files.emplace(path, std::move(expected)).second) {
++      manifest.error = "Vast backup manifest has a duplicate checksum path.";
++      return manifest;
++    }
++  }
++  if (!manifest.files.contains("data/vast-data.json")) {
++    manifest.error = "Vast backup lacks the required Vast data file.";
++    return manifest;
++  }
++  manifest.password_vault_present =
++      manifest.files.contains("data/password-vault.json");
++  return manifest;
++}
++
++bool ValidateArchiveEntries(const ArchiveMetadata& metadata,
++                            const BackupManifest& manifest,
++                            std::string* error) {
++  std::set<std::string> observed;
++  for (const ArchiveEntryMetadata& entry : metadata.entries) {
++    observed.insert(entry.path);
++    if (entry.path == "manifest.json" || entry.path == "README.md") {
++      continue;
++    }
++    const auto expected = manifest.files.find(entry.path);
++    if (expected == manifest.files.end()) {
++      *error = "Vast backup contains a file absent from its manifest.";
++      return false;
++    }
++    if (entry.uncompressed_size != expected->second.size) {
++      *error = "Vast backup entry size differs from its manifest.";
++      return false;
++    }
++  }
++  for (const auto& [path, expected] : manifest.files) {
++    if (!observed.contains(path)) {
++      *error = "Vast backup is missing a checksummed file.";
++      return false;
++    }
++  }
++  return true;
++}
++
++class VerifyingWriter final : public zip::WriterDelegate {
++ public:
++  VerifyingWriter(base::FilePath output_path,
++                  bool write_output,
++                  const ExpectedFile& expected,
++                  uint64_t* total_bytes)
++      : output_path_(std::move(output_path)),
++        write_output_(write_output),
++        expected_(expected),
++        total_bytes_(total_bytes),
++        hasher_(crypto::hash::kSha256) {}
++
++  bool PrepareOutput() override {
++    if (!write_output_) {
++      return true;
++    }
++    if (!base::CreateDirectory(output_path_.DirName())) {
++      return false;
++    }
++    file_ = base::File(output_path_,
++                       base::File::FLAG_CREATE_ALWAYS | base::File::FLAG_WRITE);
++    return file_.IsValid();
++  }
++
++  bool WriteBytes(base::span<const uint8_t> data) override {
++    if (bytes_written_ > expected_.size ||
++        data.size() > expected_.size - bytes_written_ ||
++        *total_bytes_ > kMaxTotalUncompressedBytes ||
++        data.size() > kMaxTotalUncompressedBytes - *total_bytes_) {
++      return false;
++    }
++    bytes_written_ += data.size();
++    *total_bytes_ += data.size();
++    hasher_.Update(data);
++    return !write_output_ || file_.WriteAtCurrentPosAndCheck(data);
++  }
++
++  void OnError() override {
++    file_.Close();
++    if (write_output_) {
++      base::DeleteFile(output_path_);
++    }
++  }
++
++  bool Finish() {
++    if (bytes_written_ != expected_.size) {
++      return false;
++    }
++    std::array<uint8_t, crypto::hash::kSha256Size> digest;
++    hasher_.Finish(digest);
++    return base::ToLowerASCII(base::HexEncode(digest)) == expected_.sha256;
++  }
++
++ private:
++  const base::FilePath output_path_;
++  const bool write_output_;
++  const ExpectedFile expected_;
++  raw_ptr<uint64_t> total_bytes_;
++  crypto::hash::Hasher hasher_;
++  base::File file_;
++  uint64_t bytes_written_ = 0;
++};
++
++base::FilePath ProductRelativePath(std::string_view archive_path) {
++  constexpr std::string_view kDataPrefix = "data/";
++  return base::FilePath::FromUTF8Unsafe(archive_path.substr(kDataPrefix.size()))
++      .NormalizePathSeparators();
++}
++
++bool ExtractAndVerifyFiles(std::string* archive,
++                           const BackupManifest& manifest,
++                           VastBackupExtractionResult* result) {
++  zip::ZipReader reader;
++  if (!reader.OpenFromString(*archive)) {
++    result->error = "Vast backup could not be reopened for verification.";
++    return false;
++  }
++  while (const zip::ZipReader::Entry* entry = reader.Next()) {
++    const std::optional<std::string> path =
++        NormalizeArchivePath(entry->path_in_original_encoding);
++    if (!path) {
++      result->error = "Vast backup contains an unsafe ZIP entry.";
++      return false;
++    }
++    const auto expected = manifest.files.find(*path);
++    if (expected == manifest.files.end()) {
++      continue;
++    }
++    const base::FilePath relative_path = ProductRelativePath(*path);
++    const bool extract_product = IsVastProductDataRelativePath(relative_path);
++    const base::FilePath output_path =
++        extract_product ? result->product_data_root.Append(relative_path)
++                        : base::FilePath();
++    VerifyingWriter writer(output_path, extract_product, expected->second,
++                           &result->verified_bytes);
++    if (entry->is_directory || entry->is_encrypted ||
++        !reader.ExtractCurrentEntry(&writer) || !writer.Finish()) {
++      result->error = "Vast backup checksum or extraction verification failed.";
++      return false;
++    }
++    ++result->verified_files;
++    if (extract_product) {
++      ++result->extracted_product_files;
++    }
++  }
++  if (!reader.ok() || result->verified_files != manifest.files.size()) {
++    result->error = "Vast backup ZIP verification did not complete.";
++    return false;
++  }
++  return true;
++}
++
++}  // namespace
++
++VastBackupExtractionResult ExtractVastBackupProductData(
++    const base::FilePath& archive_path,
++    const base::FilePath& extraction_parent) {
++  VastBackupExtractionResult result;
++  if (!archive_path.IsAbsolute() || !extraction_parent.IsAbsolute() ||
++      base::IsLink(archive_path)) {
++    result.error =
++        "Vast backup and extraction paths must be safe and absolute.";
++    return result;
++  }
++  const std::optional<int64_t> archive_size = base::GetFileSize(archive_path);
++  if (!archive_size || *archive_size < 0 ||
++      *archive_size > static_cast<int64_t>(kMaxArchiveBytes)) {
++    result.error = "Vast backup archive is unavailable or larger than 512 MiB.";
++    return result;
++  }
++  std::string archive;
++  if (!base::ReadFileToStringWithMaxSize(archive_path, &archive,
++                                         kMaxArchiveBytes) ||
++      archive.size() != static_cast<size_t>(*archive_size)) {
++    result.error = "Vast backup archive could not be read safely.";
++    return result;
++  }
++
++  const ArchiveMetadata metadata = ParseArchiveMetadata(archive);
++  if (!metadata.error.empty()) {
++    result.error = metadata.error;
++    return result;
++  }
++  std::optional<std::string> manifest_contents =
++      ExtractManifest(&archive, &result.error);
++  if (!manifest_contents) {
++    return result;
++  }
++  const BackupManifest manifest = ParseManifest(*manifest_contents);
++  if (!manifest.error.empty()) {
++    result.error = manifest.error;
++    return result;
++  }
++  if (!ValidateArchiveEntries(metadata, manifest, &result.error)) {
++    return result;
++  }
++
++  if (!base::CreateDirectory(extraction_parent) ||
++      !base::CreateTemporaryDirInDir(extraction_parent,
++                                     FILE_PATH_LITERAL(".vast-backup-extract-"),
++                                     &result.work_root)) {
++    result.error = "Vast backup extraction directory could not be created.";
++    return result;
++  }
++  result.product_data_root =
++      result.work_root.Append(FILE_PATH_LITERAL("product-data"));
++  if (!base::CreateDirectory(result.product_data_root) ||
++      !ExtractAndVerifyFiles(&archive, manifest, &result)) {
++    base::DeletePathRecursively(result.work_root);
++    result.work_root.clear();
++    result.product_data_root.clear();
++    return result;
++  }
++
++  const VastDataMigrationPreview preview =
++      ReadVastDataMigrationPreview(result.product_data_root);
++  if (!preview.compatible) {
++    result.error =
++        "Extracted Vast product data is incompatible: " + preview.error;
++    base::DeletePathRecursively(result.work_root);
++    result.work_root.clear();
++    result.product_data_root.clear();
++    return result;
++  }
++  result.password_vault_present = manifest.password_vault_present;
++  result.success = true;
++  return result;
++}
++
++}  // namespace vast
+diff --git a/chrome/browser/vast/vast_backup_extractor.h b/chrome/browser/vast/vast_backup_extractor.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..d9200768ac6447a026d1a4e24eb455ca0fccdf7f
+--- /dev/null
++++ b/chrome/browser/vast/vast_backup_extractor.h
+@@ -0,0 +1,41 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_VAST_VAST_BACKUP_EXTRACTOR_H_
++#define CHROME_BROWSER_VAST_VAST_BACKUP_EXTRACTOR_H_
++
++#include <cstdint>
++#include <string>
++
++#include "base/files/file_path.h"
++
++namespace vast {
++
++// Native-only result from verifying a .vastbackup v1 archive. The extracted
++// root contains only Vast-owned product data; all declared archive files are
++// still streamed and checksum-verified. Paths must not cross into WebUI.
++struct VastBackupExtractionResult {
++  bool success = false;
++  base::FilePath work_root;
++  base::FilePath product_data_root;
++  uint32_t verified_files = 0;
++  uint32_t extracted_product_files = 0;
++  uint64_t verified_bytes = 0;
++  bool password_vault_present = false;
++  std::string error;
++};
++
++// Validates the Electron 1.0.11 .vastbackup v1 envelope, manifest, entry
++// paths, bounded expansion, CRC (through ZipReader), declared sizes, and
++// SHA-256 checksums. On success, only allowlisted Vast product data is written
++// below a fresh temporary directory in extraction_parent. Browser cookies,
++// sessions, Local State, Preferences, and other profile artifacts are verified
++// but never extracted.
++VastBackupExtractionResult ExtractVastBackupProductData(
++    const base::FilePath& archive_path,
++    const base::FilePath& extraction_parent);
++
++}  // namespace vast
++
++#endif  // CHROME_BROWSER_VAST_VAST_BACKUP_EXTRACTOR_H_
+diff --git a/chrome/browser/vast/vast_backup_extractor_unittest.cc b/chrome/browser/vast/vast_backup_extractor_unittest.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..8c96824d2aebcb0275c31b0c9ef0ebfbabec96b9
+--- /dev/null
++++ b/chrome/browser/vast/vast_backup_extractor_unittest.cc
+@@ -0,0 +1,234 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/vast/vast_backup_extractor.h"
++
++#include <map>
++#include <string>
++#include <string_view>
++#include <vector>
++
++#include "base/files/file_util.h"
++#include "base/files/scoped_temp_dir.h"
++#include "base/json/json_writer.h"
++#include "base/strings/string_number_conversions.h"
++#include "base/strings/string_util.h"
++#include "base/values.h"
++#include "chrome/browser/vast/vast_data_migration_transaction.h"
++#include "crypto/hash.h"
++#include "testing/gtest/include/gtest/gtest.h"
++#include "third_party/zlib/google/zip.h"
++
++namespace vast {
++namespace {
++
++constexpr char kValidVastData[] = R"({
++  "schemaVersion": 5,
++  "activeWorkspaceId": "workspace-fixture",
++  "workspaces": [{"id":"workspace-fixture"}],
++  "tabGroups": [],
++  "tabs": [{"id":"tab-fixture","url":"https://example.test"}],
++  "bookmarks": [],
++  "bookmarkFolders": [],
++  "history": [],
++  "downloads": [],
++  "notes": [],
++  "readingList": [],
++  "quickLinks": [],
++  "settings": {}
++})";
++
++std::string Sha256(std::string_view contents) {
++  return base::ToLowerASCII(base::HexEncode(crypto::hash::Sha256(contents)));
++}
++
++class VastBackupExtractorTest : public testing::Test {
++ protected:
++  void SetUp() override { ASSERT_TRUE(temp_dir_.CreateUniqueTempDir()); }
++
++  base::FilePath CreateDirectory(std::string_view name) {
++    const base::FilePath path = temp_dir_.GetPath().AppendASCII(name);
++    EXPECT_TRUE(base::CreateDirectory(path));
++    return path;
++  }
++
++  void Write(const base::FilePath& path, std::string_view contents) {
++    ASSERT_TRUE(base::CreateDirectory(path.DirName()));
++    ASSERT_TRUE(base::WriteFile(path, contents));
++  }
++
++  std::string Read(const base::FilePath& path) {
++    std::string contents;
++    EXPECT_TRUE(base::ReadFileToString(path, &contents));
++    return contents;
++  }
++
++  base::FilePath CreateBackup(
++      const std::map<std::string, std::string>& data_files,
++      const std::map<std::string, std::string>& extra_files = {},
++      std::string_view tamper_after_manifest = {}) {
++    const base::FilePath input = CreateDirectory("ArchiveInput");
++    const base::FilePath archive =
++        temp_dir_.GetPath().Append(FILE_PATH_LITERAL("fixture.vastbackup"));
++
++    base::DictValue checksums;
++    std::vector<base::FilePath> archive_paths;
++    for (const auto& [relative_path, contents] : data_files) {
++      const std::string archive_path = "data/" + relative_path;
++      base::DictValue checksum;
++      checksum.Set("sha256", Sha256(contents));
++      checksum.Set("sizeBytes", static_cast<int>(contents.size()));
++      checksums.Set(archive_path, std::move(checksum));
++      const base::FilePath relative_file =
++          base::FilePath::FromUTF8Unsafe(archive_path)
++              .NormalizePathSeparators();
++      Write(input.Append(relative_file), contents);
++      archive_paths.push_back(relative_file);
++    }
++
++    base::DictValue manifest;
++    manifest.Set("product", "Vast");
++    manifest.Set("appId", "app.vast.browser");
++    manifest.Set("exportFormatVersion", 1);
++    manifest.Set("appVersion", "1.0.11");
++    manifest.Set("platform", "win32");
++    manifest.Set("createdAt", "2026-07-16T00:00:00.000Z");
++    base::ListValue included_sections;
++    included_sections.Append("Vast profile JSON");
++    manifest.Set("includedSections", std::move(included_sections));
++    manifest.Set("excludedSections", base::ListValue());
++    manifest.Set("includedFileCount", static_cast<int>(data_files.size()));
++    manifest.Set("skippedFileCount", 0);
++    manifest.Set("skippedFiles", base::ListValue());
++    manifest.Set("vastDataIncluded", data_files.contains("vast-data.json"));
++    manifest.Set("passwordVaultIncluded",
++                 data_files.contains("password-vault.json"));
++    manifest.Set("checksums", std::move(checksums));
++    manifest.Set("warnings", base::ListValue());
++    std::string serialized_manifest;
++    EXPECT_TRUE(base::JSONWriter::WriteWithOptions(
++        manifest, base::JSONWriter::OPTIONS_PRETTY_PRINT,
++        &serialized_manifest));
++    serialized_manifest.push_back('\n');
++    Write(input.Append(FILE_PATH_LITERAL("manifest.json")),
++          serialized_manifest);
++    Write(input.Append(FILE_PATH_LITERAL("README.md")), "Vast Backup\n");
++    archive_paths.push_back(base::FilePath(FILE_PATH_LITERAL("manifest.json")));
++    archive_paths.push_back(base::FilePath(FILE_PATH_LITERAL("README.md")));
++
++    for (const auto& [relative_path, contents] : extra_files) {
++      const base::FilePath relative_file =
++          base::FilePath::FromUTF8Unsafe(relative_path)
++              .NormalizePathSeparators();
++      Write(input.Append(relative_file), contents);
++      archive_paths.push_back(relative_file);
++    }
++    if (!tamper_after_manifest.empty()) {
++      const std::string relative_data_path = std::string(
++          tamper_after_manifest.substr(std::string_view("data/").size()));
++      const auto original = data_files.find(relative_data_path);
++      if (original == data_files.end()) {
++        ADD_FAILURE() << "Tamper target is absent from the manifest fixture.";
++        return base::FilePath();
++      }
++      Write(input.Append(base::FilePath::FromUTF8Unsafe(tamper_after_manifest)
++                             .NormalizePathSeparators()),
++            std::string(original->second.size(), 'x'));
++    }
++
++    zip::ZipParams params;
++    params.src_dir = input;
++    params.dest_file = archive;
++    params.src_files = archive_paths;
++    EXPECT_TRUE(zip::Zip(params));
++    return archive;
++  }
++
++  base::ScopedTempDir temp_dir_;
++};
++
++TEST_F(VastBackupExtractorTest,
++       VerifiesAllFilesExtractsOnlyProductDataAndFeedsTransaction) {
++  const base::FilePath archive = CreateBackup({
++      {"vast-data.json", kValidVastData},
++      {"password-vault.json", "opaque encrypted vault fixture"},
++      {"Cookies", "verified but never extracted"},
++  });
++  const base::FilePath extraction_parent = CreateDirectory("Extractions");
++
++  VastBackupExtractionResult extraction =
++      ExtractVastBackupProductData(archive, extraction_parent);
++
++  ASSERT_TRUE(extraction.success) << extraction.error;
++  EXPECT_EQ(extraction.verified_files, 3u);
++  EXPECT_EQ(extraction.extracted_product_files, 2u);
++  EXPECT_TRUE(extraction.password_vault_present);
++  EXPECT_EQ(Read(extraction.product_data_root.Append(
++                FILE_PATH_LITERAL("vast-data.json"))),
++            kValidVastData);
++  EXPECT_EQ(Read(extraction.product_data_root.Append(
++                FILE_PATH_LITERAL("password-vault.json"))),
++            "opaque encrypted vault fixture");
++  EXPECT_FALSE(base::PathExists(
++      extraction.product_data_root.Append(FILE_PATH_LITERAL("Cookies"))));
++
++  const base::FilePath transactions = CreateDirectory("Transactions");
++  const base::FilePath destination =
++      transactions.Append(FILE_PATH_LITERAL("ImportedData"));
++  VastDataMigrationTransaction transaction = PrepareVastDataMigration(
++      extraction.product_data_root, transactions, destination);
++  ASSERT_EQ(transaction.state, VastDataMigrationState::kPrepared)
++      << transaction.error;
++  ASSERT_TRUE(CommitVastDataMigration(&transaction)) << transaction.error;
++  EXPECT_TRUE(base::PathExists(
++      destination.Append(FILE_PATH_LITERAL("vast-data.json"))));
++  ASSERT_TRUE(RollbackVastDataMigration(&transaction)) << transaction.error;
++  EXPECT_FALSE(base::PathExists(destination));
++}
++
++TEST_F(VastBackupExtractorTest, RejectsChecksumMismatchWithoutActivatingData) {
++  const base::FilePath archive = CreateBackup(
++      {{"vast-data.json", kValidVastData}}, {}, "data/vast-data.json");
++  const base::FilePath extraction_parent = CreateDirectory("Extractions");
++
++  VastBackupExtractionResult extraction =
++      ExtractVastBackupProductData(archive, extraction_parent);
++
++  EXPECT_FALSE(extraction.success);
++  EXPECT_EQ(extraction.error,
++            "Vast backup checksum or extraction verification failed.");
++  EXPECT_TRUE(extraction.work_root.empty());
++  EXPECT_TRUE(extraction.product_data_root.empty());
++}
++
++TEST_F(VastBackupExtractorTest, RejectsFilesAbsentFromManifest) {
++  const base::FilePath archive = CreateBackup(
++      {{"vast-data.json", kValidVastData}}, {{"unexpected.txt", "nope"}});
++
++  VastBackupExtractionResult extraction =
++      ExtractVastBackupProductData(archive, CreateDirectory("Extractions"));
++
++  EXPECT_FALSE(extraction.success);
++  EXPECT_EQ(extraction.error,
++            "Vast backup contains a file absent from its manifest.");
++}
++
++TEST_F(VastBackupExtractorTest, RejectsZipSlipBeforeExtraction) {
++  const base::FilePath archive = CreateBackup(
++      {{"vast-data.json", kValidVastData}}, {{"aa/escape", "nope"}});
++  std::string archive_contents = Read(archive);
++  base::ReplaceSubstringsAfterOffset(&archive_contents, 0, "aa/escape",
++                                     "../escape");
++  Write(archive, archive_contents);
++
++  VastBackupExtractionResult extraction =
++      ExtractVastBackupProductData(archive, CreateDirectory("Extractions"));
++
++  EXPECT_FALSE(extraction.success);
++  EXPECT_EQ(extraction.error, "Vast backup contains an unsafe archive path.");
++  EXPECT_TRUE(extraction.work_root.empty());
++}
++
++}  // namespace
++}  // namespace vast
+diff --git a/chrome/browser/vast/vast_data_migration_transaction.cc b/chrome/browser/vast/vast_data_migration_transaction.cc
+index d53660ba04c503e6efea279f121904788903e98c..52ebf06473c31a9d6081306e06355971502ce022 100644
+--- a/chrome/browser/vast/vast_data_migration_transaction.cc
++++ b/chrome/browser/vast/vast_data_migration_transaction.cc
+@@ -298,6 +298,25 @@ bool FailPreparation(VastDataMigrationTransaction* transaction,
+ 
+ }  // namespace
+ 
++bool IsVastProductDataRelativePath(const base::FilePath& relative_path) {
++  if (relative_path.empty() || relative_path.IsAbsolute() ||
++      relative_path.ReferencesParent()) {
++    return false;
++  }
++  for (std::string_view name : kAllowlistedFiles) {
++    if (relative_path == base::FilePath::FromASCII(name)) {
++      return true;
++    }
++  }
++  for (std::string_view name : kAllowlistedDirectories) {
++    const base::FilePath directory = base::FilePath::FromASCII(name);
++    if (directory.IsParent(relative_path)) {
++      return true;
++    }
++  }
++  return false;
++}
++
+ VastDataMigrationTransaction PrepareVastDataMigration(
+     const base::FilePath& source_config_root,
+     const base::FilePath& transaction_parent,
+diff --git a/chrome/browser/vast/vast_data_migration_transaction.h b/chrome/browser/vast/vast_data_migration_transaction.h
+index 2e20fee7bde6585796a5048e0861db2621b9775c..c1d156d8e982429abeac70623375f6628e2a8f79 100644
+--- a/chrome/browser/vast/vast_data_migration_transaction.h
++++ b/chrome/browser/vast/vast_data_migration_transaction.h
+@@ -41,6 +41,10 @@ struct VastDataMigrationTransaction {
+   std::string error;
+ };
+ 
++// Returns whether a relative legacy data-root path belongs to the explicit
++// Vast product-data allowlist. Browser-profile state is intentionally false.
++bool IsVastProductDataRelativePath(const base::FilePath& relative_path);
++
+ // Creates an isolated transaction directory below transaction_parent, copies
+ // only allowlisted Vast-owned product data into a safety backup, validates that
+ // copy, then creates and verifies a second staging copy. The source is never

@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}Video &amp; Audio — Video Trim{% endblock %}
+{% block page_title %}Video Trim{% endblock %}
+
+{% block content %}
+<div class="page-centered">
+    <div class="card form-card">
+        <div class="card-header">
+            <h2><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#scissors"></use></svg> Video Trim</h2>
+            <p class="text-muted">Cut a segment from a video file</p>
+        </div>
+        <div class="card-body">
+            <form id="trimForm" onsubmit="submitTrim(event)">
+                <div class="form-group">
+                    <label>Upload File</label>
+                    <div class="dropzone" id="vtDropzone"
+                         ondragover="event.preventDefault(); this.classList.add('dragover')"
+                         ondragleave="this.classList.remove('dragover')"
+                         ondrop="handleDrop(event, 'vt')">
+                        <input type="file" id="vtFileInput" accept="video/*" style="display:none" onchange="handleFileSelect(this, 'vt')">
+                        <div class="dropzone-content" onclick="document.getElementById('vtFileInput').click()">
+                            <span>Drop video here or click to upload</span>
+                            <span class="dropzone-hint" id="vtFileName">Max 2 GB</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="vtInput">Or enter file path</label>
+                    <input type="text" id="vtInput" name="input_file" placeholder="C:\path\to\video.mp4">
+                </div>
+
+                <div class="form-group">
+                    <label>Or select from completed jobs:</label>
+                    <select id="vtJobPicker" onchange="fillInput()">
+                        <option value="">— Select a job output —</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="vtStart">Start Time</label>
+                        <input type="text" id="vtStart" name="start_time" placeholder="00:00:00 or seconds">
+                    </div>
+                    <div class="form-group">
+                        <label for="vtEnd">End Time</label>
+                        <input type="text" id="vtEnd" name="end_time" placeholder="00:01:30 or seconds">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="vtReencode" name="reencode">
+                            <span>Re-encode (slower, more accurate cuts)</span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label for="vtTitle">Title</label>
+                        <input type="text" id="vtTitle" name="title" placeholder="Trim job">
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary btn-lg" id="trimBtn">
+                        <span class="btn-icon-inline"><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#scissors"></use></svg></span> Start Trim
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', loadCompletedJobs);
+
+    async function loadCompletedJobs() {
+        try {
+            const resp = await fetch('/api/jobs?limit=50');
+            const data = await resp.json();
+            const picker = document.getElementById('vtJobPicker');
+            data.jobs.filter(j => j.status === 'completed' && j.output_file).forEach(j => {
+                const opt = document.createElement('option');
+                opt.value = j.folder + '/output/' + j.output_file;
+                opt.textContent = `${j.title || j.id} (${j.output_file})`;
+                picker.appendChild(opt);
+            });
+        } catch(e) {}
+    }
+
+    function fillInput() {
+        const val = document.getElementById('vtJobPicker').value;
+        if (val) document.getElementById('vtInput').value = val;
+    }
+
+    function handleDrop(e, prefix) {
+        e.preventDefault();
+        e.currentTarget.classList.remove('dragover');
+        const file = e.dataTransfer.files[0];
+        if (file) uploadFile(file, prefix);
+    }
+
+    function handleFileSelect(input, prefix) {
+        const file = input.files[0];
+        if (file) uploadFile(file, prefix);
+    }
+
+    async function uploadFile(file, prefix) {
+        const hint = document.getElementById(prefix + 'FileName');
+        hint.textContent = `Uploading ${file.name}...`;
+        const fd = new FormData();
+        fd.append('file', file);
+        try {
+            const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+            const data = await resp.json();
+            if (data.ok) {
+                document.getElementById(prefix + 'Input').value = data.path;
+                hint.textContent = `Uploaded: ${data.filename}`;
+                showToast('File uploaded');
+            } else {
+                hint.textContent = `Error: ${data.error}`;
+                showToast(data.error, 'error');
+            }
+        } catch(e) {
+            hint.textContent = 'Upload failed';
+            showToast('Upload failed', 'error');
+        }
+    }
+
+    async function submitTrim(e) {
+        e.preventDefault();
+        const input = document.getElementById('vtInput').value;
+        if (!input) { showToast('Select or upload a file first', 'error'); return; }
+
+        const start = document.getElementById('vtStart').value.trim();
+        const end = document.getElementById('vtEnd').value.trim();
+        if (!start && !end) { showToast('Set at least a start or end time', 'error'); return; }
+
+        const btn = document.getElementById('trimBtn');
+        btn.disabled = true;
+        const params = {
+            input_file: input,
+            start_time: start || undefined,
+            end_time: end || undefined,
+            reencode: document.getElementById('vtReencode').checked,
+            title: document.getElementById('vtTitle').value,
+        };
+        try {
+            const resp = await fetch('/api/jobs', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ type: 'video_trim', params })
+            });
+            const data = await resp.json();
+            if (data.ok) {
+                showToast('Trim started');
+                setTimeout(() => window.location.href = '/jobs', 1000);
+            } else {
+                showToast(data.error || 'Failed', 'error');
+            }
+        } catch(e) {
+            showToast('Request failed', 'error');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+</script>
+{% endblock %}

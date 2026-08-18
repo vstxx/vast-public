@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+{% block title %}Video &amp; Audio — Audio Converter{% endblock %}
+{% block page_title %}Audio Converter{% endblock %}
+
+{% block content %}
+<div class="page-centered">
+    <div class="card form-card">
+        <div class="card-header">
+            <h2><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#music"></use></svg> Audio Converter</h2>
+            <p class="text-muted">Convert between MP3, OGG, OPUS, WAV, FLAC, AAC — up to 30 files at once</p>
+        </div>
+        <div class="card-body">
+            <!-- Upload dropzone (multi) -->
+            <div class="dropzone" id="audioDropzone"
+                 ondragover="event.preventDefault(); this.classList.add('dragover')"
+                 ondragleave="this.classList.remove('dragover')"
+                 ondrop="handleDropAC(event)"
+                 onclick="document.getElementById('audioFileInput').click()">
+                <div class="dropzone-content" id="audioDropText">Drop audio files here or click to browse (max 30)</div>
+                <div class="dropzone-hint">MP3, OGG, WAV, FLAC, AAC, M4A, OPUS</div>
+                <input type="file" id="audioFileInput" accept=".mp3,.ogg,.wav,.flac,.aac,.m4a,.opus,.wma"
+                       multiple style="display:none" onchange="handleFileSelectAC(this)">
+            </div>
+
+            <!-- File queue list -->
+            <div id="fileQueue" class="file-queue" style="display:none">
+                <div class="file-queue-header">
+                    <strong>Files (<span id="fileCount">0</span>/30)</strong>
+                    <button type="button" class="btn btn-sm btn-ghost" onclick="clearQueue()">Clear all</button>
+                </div>
+                <ul id="fileList" class="file-list"></ul>
+            </div>
+
+            <form id="audioConvertForm" onsubmit="submitAudioConvert(event)">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="acFormat">Output Format</label>
+                        <select id="acFormat" name="format">
+                            <option value="ogg">OGG (Vorbis)</option>
+                            <option value="mp3">MP3</option>
+                            <option value="opus">OPUS</option>
+                            <option value="wav">WAV</option>
+                            <option value="flac">FLAC</option>
+                            <option value="aac">AAC</option>
+                            <option value="m4a">M4A (AAC)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="acBitrate">Bitrate</label>
+                        <select id="acBitrate" name="bitrate">
+                            <option value="64k">64 kbps (Low)</option>
+                            <option value="128k">128 kbps</option>
+                            <option value="192k" selected>192 kbps</option>
+                            <option value="256k">256 kbps</option>
+                            <option value="320k">320 kbps (High)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="acSampleRate">Sample Rate (optional)</label>
+                        <select id="acSampleRate" name="sample_rate">
+                            <option value="">Original</option>
+                            <option value="44100">44100 Hz</option>
+                            <option value="48000">48000 Hz</option>
+                            <option value="22050">22050 Hz</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="acChannels">Channels</label>
+                        <select id="acChannels" name="channels">
+                            <option value="">Original</option>
+                            <option value="2">Stereo</option>
+                            <option value="1">Mono</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary btn-lg" id="acBtn">
+                        <span class="btn-icon-inline"><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#music"></use></svg></span> Convert All
+                    </button>
+                </div>
+            </form>
+
+            <!-- Batch progress -->
+            <div id="batchProgress" style="display:none" class="mt-4">
+                <div class="section-title">Batch Progress</div>
+                <div id="batchList" class="file-list"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const uploadedFiles = []; // [{path, filename, status}]
+    const MAX_FILES = 30;
+
+    function handleDropAC(e) {
+        e.preventDefault();
+        e.currentTarget.classList.remove('dragover');
+        const files = [...e.dataTransfer.files];
+        addFilesToQueue(files);
+    }
+
+    function handleFileSelectAC(input) {
+        const files = [...input.files];
+        addFilesToQueue(files);
+        input.value = '';
+    }
+
+    function addFilesToQueue(files) {
+        const remaining = MAX_FILES - uploadedFiles.length;
+        if (remaining <= 0) {
+            showToast('Maximum 30 files reached', 'error');
+            return;
+        }
+        const batch = files.slice(0, remaining);
+        if (files.length > remaining) {
+            showToast(`Only adding ${remaining} files (limit 30)`, 'error');
+        }
+        batch.forEach(f => uploadOneFile(f));
+    }
+
+    async function uploadOneFile(file) {
+        const idx = uploadedFiles.length;
+        uploadedFiles.push({ path: null, filename: file.name, status: 'uploading' });
+        renderQueue();
+
+        const fd = new FormData();
+        fd.append('file', file);
+        try {
+            const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+            const data = await resp.json();
+            if (data.ok) {
+                uploadedFiles[idx].path = data.path;
+                uploadedFiles[idx].filename = data.filename;
+                uploadedFiles[idx].status = 'ready';
+            } else {
+                uploadedFiles[idx].status = 'error';
+                uploadedFiles[idx].error = data.error;
+            }
+        } catch(e) {
+            uploadedFiles[idx].status = 'error';
+            uploadedFiles[idx].error = 'Upload failed';
+        }
+        renderQueue();
+    }
+
+    function removeFromQueue(idx) {
+        uploadedFiles.splice(idx, 1);
+        renderQueue();
+    }
+
+    function clearQueue() {
+        uploadedFiles.length = 0;
+        renderQueue();
+    }
+
+    function renderQueue() {
+        const container = document.getElementById('fileQueue');
+        const list = document.getElementById('fileList');
+        const countEl = document.getElementById('fileCount');
+        const dropText = document.getElementById('audioDropText');
+
+        countEl.textContent = uploadedFiles.length;
+
+        if (uploadedFiles.length === 0) {
+            container.style.display = 'none';
+            dropText.textContent = 'Drop audio files here or click to browse (max 30)';
+            return;
+        }
+
+        container.style.display = 'block';
+        dropText.textContent = `${uploadedFiles.length} file(s) queued — drop more or click to add`;
+
+        list.innerHTML = uploadedFiles.map((f, i) => {
+            let icon = uiIcon('loader', 'is-spinning');
+            let cls = 'file-item-uploading';
+            if (f.status === 'ready') { icon = uiIcon('check'); cls = 'file-item-ready'; }
+            else if (f.status === 'error') { icon = uiIcon('x'); cls = 'file-item-error'; }
+            else if (f.status === 'started') { icon = uiIcon('loader', 'is-spinning'); cls = 'file-item-started'; }
+            else if (f.status === 'done') { icon = uiIcon('check-circle'); cls = 'file-item-done'; }
+            return `<li class="file-item ${cls}">
+                <span class="file-item-icon">${icon}</span>
+                <span class="file-item-name">${escHtml(f.filename)}</span>
+                ${f.error ? `<span class="text-error">${escHtml(f.error)}</span>` : ''}
+                ${f.status === 'ready' ? `<button class="btn-icon btn-xs" onclick="removeFromQueue(${i})" title="Remove">${uiIcon('x')}</button>` : ''}
+            </li>`;
+        }).join('');
+    }
+
+    async function submitAudioConvert(e) {
+        e.preventDefault();
+        const readyFiles = uploadedFiles.filter(f => f.status === 'ready');
+
+        if (readyFiles.length === 0) {
+            showToast('Upload at least one file first', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('acBtn');
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner"></span> Converting ${readyFiles.length} file(s)...`;
+
+        const format = document.getElementById('acFormat').value;
+        const bitrate = document.getElementById('acBitrate').value;
+        const sampleRate = document.getElementById('acSampleRate').value || null;
+        const channels = document.getElementById('acChannels').value || null;
+
+        let started = 0;
+        for (let i = 0; i < uploadedFiles.length; i++) {
+            const f = uploadedFiles[i];
+            if (f.status !== 'ready') continue;
+
+            f.status = 'started';
+            renderQueue();
+
+            try {
+                const resp = await fetch('/api/jobs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: 'audio_convert',
+                        params: {
+                            input_file: f.path,
+                            format, bitrate,
+                            sample_rate: sampleRate,
+                            channels: channels,
+                        }
+                    })
+                });
+                const data = await resp.json();
+                if (data.ok) {
+                    f.status = 'done';
+                    f.jobId = data.job_id;
+                    started++;
+                } else {
+                    f.status = 'error';
+                    f.error = data.error || 'Failed';
+                }
+            } catch(err) {
+                f.status = 'error';
+                f.error = 'Network error';
+            }
+            renderQueue();
+        }
+
+        btn.disabled = false;
+        btn.innerHTML = `<span class="btn-icon-inline">${uiIcon('music')}</span> Convert All`;
+        showToast(`Started ${started} conversion job(s)`);
+
+        if (started > 0) {
+            setTimeout(() => window.location.href = '/jobs', 1500);
+        }
+    }
+</script>
+{% endblock %}

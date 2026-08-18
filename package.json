@@ -1,0 +1,183 @@
+{
+  "name": "vast-browser",
+  "productName": "Vast",
+  "version": "0.1.5",
+  "description": "Vast - a local-first, power-user desktop browser shell built with Electron, React, TypeScript, Vite, and TailwindCSS.",
+  "author": "VastProductions",
+  "main": "out/main/main.js",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vstxx/vast-public.git"
+  },
+  "homepage": "https://github.com/vstxx/vast-public#readme",
+  "bugs": {
+    "url": "https://github.com/vstxx/vast-public/issues"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.cjs",
+    "build": "tsc --noEmit && electron-vite build && node scripts/write-release-build-metadata.cjs",
+    "cat-addon:assets": "python tools/cat_addon/build_cat_assets.py",
+    "cat-addon:bundle": "npm run cat-addon:assets && node scripts/build-cat-addon-archive.cjs",
+    "cat-addon:check": "python tools/cat_addon/build_cat_assets.py --check && node scripts/build-cat-addon-archive.cjs --check",
+    "cat-addon:studio": "python -m http.server 4174 --directory .",
+    "avidae:runtime:prepare": "node scripts/prepare-avidae-runtime.cjs",
+    "avidae:runtime:check": "node scripts/prepare-avidae-runtime.cjs --check",
+    "build:obfuscated": "npm run build && node scripts/obfuscate-build.cjs && npm run performance:budget",
+    "preview": "electron-vite preview",
+    "dist": "npm run build:obfuscated && electron-builder",
+    "dist:upgrader": "node scripts/build-release.cjs upgrader",
+    "lint": "tsc --noEmit",
+    "test": "node scripts/run-node-tests.cjs",
+    "test:unit": "node scripts/run-node-tests.cjs",
+    "test:updater": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/updater/vast-updater.test.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File tests/updater/vast-bootstrapper-release.test.ps1",
+    "test:upgrade:public": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/updater/vast-public-beta-upgrade.test.ps1",
+    "test:fuses:integration": "node scripts/test-electron-fuses-integration.cjs",
+    "updater:stage": "node scripts/stage-updater-sources.cjs",
+    "test:app": "npm run build && node scripts/smoke-e2e.cjs",
+    "test:split-view": "npm run build && node scripts/smoke-e2e.cjs --split-view-only",
+    "test:google-auth-email": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/google-auth-email-ui-check.ps1",
+    "test:google-auth-email:cdp": "node scripts/google-auth-email-check.cjs",
+    "performance:baseline": "node scripts/performance-suite.cjs --phase=baseline",
+    "performance:final": "node scripts/performance-suite.cjs --phase=final",
+    "performance:budget": "node scripts/check-performance-budget.cjs",
+    "performance:webcontents-view-spike": "node scripts/webcontents-view-spike.cjs",
+    "performance:compare": "node scripts/performance-compare.cjs",
+    "audit:ci": "npm audit --audit-level=high && npm audit --prefix relay --audit-level=high",
+    "ci": "npm run audit:ci && npm run lint && npm run test && npm run release:audit",
+    "release:check": "node scripts/release-check.cjs",
+    "release:audit": "node scripts/release-audit.cjs",
+    "release:local": "node scripts/local-release-from-env.cjs",
+    "release:internal": "node scripts/local-release-from-env.cjs --internal-unsigned",
+    "release:public-unsigned-beta": "node scripts/local-release-from-env.cjs --public-unsigned-beta",
+    "release:check:local": "node scripts/local-release-from-env.cjs release:check",
+    "release:verify:published": "node scripts/verify-published-release.cjs",
+    "dist:private": "npm run release:audit && npm run dist",
+    "dist:public": "npm run dist:upgrader",
+    "release:stable": "npm run dist:upgrader",
+    "release:windows:0.1.5": "npm run dist:upgrader"
+  },
+  "dependencies": {
+    "@electron-toolkit/preload": "3.0.2",
+    "@electron-toolkit/utils": "4.0.0",
+    "clsx": "2.1.1",
+    "electron-updater": "6.8.9",
+    "lucide-react": "1.16.0",
+    "pdfjs-dist": "6.2.108",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "semver": "^7.8.5",
+    "zustand": "5.0.13"
+  },
+  "devDependencies": {
+    "@electron/fuses": "2.1.2",
+    "@types/react": "19.2.15",
+    "@types/react-dom": "19.2.3",
+    "@types/semver": "^7.7.1",
+    "@vitejs/plugin-react": "5.2.0",
+    "autoprefixer": "10.5.0",
+    "electron": "42.6.1",
+    "electron-builder": "26.15.3",
+    "electron-vite": "5.0.0",
+    "javascript-obfuscator": "^5.4.3",
+    "postcss": "8.5.25",
+    "tailwindcss": "3.4.19",
+    "typescript": "6.0.3",
+    "vite": "7.3.6"
+  },
+  "overrides": {
+    "tmp": "0.2.7",
+    "esbuild": "0.28.1",
+    "@electron/get": {
+      "undici": "7.29.0"
+    }
+  },
+  "build": {
+    "appId": "app.vast.browser",
+    "productName": "Vast",
+    "icon": "assets/logos/vasticon.png",
+    "asar": true,
+    "forceCodeSigning": true,
+    "afterPack": "scripts/after-pack-hardening.cjs",
+    "directories": {
+      "output": "release"
+    },
+    "toolsets": {
+      "winCodeSign": "1.0.0"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/avidae",
+        "to": "avidae"
+      },
+      {
+        "from": "resources/avidae-runtime",
+        "to": "avidae-runtime"
+      },
+      {
+        "from": "assets/logos/vasticon.png",
+        "to": "app-icon.png"
+      },
+      {
+        "from": "assets/logos/vasticon-windows.png",
+        "to": "app-icon-windows.png"
+      },
+      {
+        "from": "assets/logos/vast.png",
+        "to": "app-wordmark.png"
+      }
+    ],
+    "protocols": [
+      {
+        "name": "Vast Browser",
+        "schemes": [
+          "vast"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "assets/logos/vasticon-windows.png",
+      "signAndEditExecutable": true,
+      "signExecutable": true,
+      "signtoolOptions": {
+        "publisherName": [
+          "VastProductions"
+        ]
+      }
+    },
+    "nsis": {
+      "artifactName": "Vast-Setup-${version}.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "portable": {
+      "artifactName": "Vast-${version}-Portable.${ext}"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/logos/vasticon.png",
+      "hardenedRuntime": true,
+      "entitlements": "resources/entitlements.mac.plist",
+      "entitlementsInherit": "resources/entitlements.mac.inherit.plist"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/logos/vasticon.png"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "vstxx",
+      "repo": "vast-public",
+      "releaseType": "release"
+    }
+  }
+}

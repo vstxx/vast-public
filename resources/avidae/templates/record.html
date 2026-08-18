@@ -1,0 +1,625 @@
+{% extends "base.html" %}
+{% block title %}Video &amp; Audio — Record{% endblock %}
+{% block page_title %}Record{% endblock %}
+
+{% block content %}
+<!-- Mode Toggle -->
+<div class="record-mode-toggle">
+    <button class="mode-tab active" onclick="switchTab('smart')" id="tabSmart">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+        Smart Record
+    </button>
+    <button class="mode-tab" onclick="switchTab('manual')" id="tabManual">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        Manual
+    </button>
+</div>
+
+<!-- ===== SMART RECORD PANEL ===== -->
+<div id="panelSmart" class="record-panel-content">
+    <div class="browse-container">
+        <!-- Chrome / URL Bar -->
+        <div class="browse-chrome">
+            <div class="browse-url-bar">
+                <svg class="browse-url-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                <input type="url" id="browseUrl" placeholder="Paste video URL — YouTube, Vimeo, or any page with video..." autocomplete="off" onkeydown="if(event.key==='Enter')openBrowse()">
+                <button class="btn btn-primary btn-sm" id="browseOpenBtn" onclick="openBrowse()">Open</button>
+            </div>
+            <div class="browse-settings">
+                <select id="browseRes" class="input-sm">
+                    <option value="1920x1080" selected>1920×1080</option>
+                    <option value="1280x720">1280×720</option>
+                    <option value="854x480">854×480</option>
+                    <option value="2560x1440">2560×1440</option>
+                </select>
+                <select id="browseFormat" class="input-sm">
+                    <option value="mp4" selected>MP4</option>
+                    <option value="webm">WebM</option>
+                    <option value="mkv">MKV</option>
+                </select>
+                <label class="browse-auto-label">
+                    <input type="checkbox" id="browseAutoRec" checked>
+                    Auto-detect &amp; record video
+                </label>
+            </div>
+        </div>
+
+        <!-- Viewport -->
+        <div class="browse-viewport" id="browseViewport">
+            <div class="browse-idle" id="browseIdle">
+                <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+                <h3>Open a URL to start</h3>
+                <p>Video &amp; Audio opens the page in a headless browser, detects <code>&lt;video&gt;</code> playback, and starts recording automatically. You can click on the preview to interact with the page.</p>
+            </div>
+            <img id="browsePreview" class="browse-preview-img" style="display:none" alt="Page preview" draggable="false">
+            <div class="browse-loading" id="browseLoading" style="display:none">
+                <div class="spinner"></div>
+                <span>Opening page...</span>
+            </div>
+        </div>
+
+        <!-- Footer / Status Bar -->
+        <div class="browse-footer">
+            <div class="browse-status">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">Ready</span>
+            </div>
+            <div class="browse-video-info" id="videoInfo" style="display:none">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                <span id="videoInfoText"></span>
+            </div>
+            <div class="rec-indicator" id="recIndicator" style="display:none">
+                <span>REC</span>
+                <span id="recTimer">00:00</span>
+            </div>
+            <div class="browse-controls">
+                <button class="btn btn-ghost btn-sm" id="browseCancelBtn" style="display:none" onclick="cancelBrowse()">Cancel</button>
+                <button class="btn btn-primary btn-sm" id="browseDownloadBtn" style="display:none" onclick="downloadEmbed()"><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#download"></use></svg> Download</button>
+                <button class="btn btn-danger btn-sm" id="browseStopBtn" style="display:none" onclick="stopBrowse()"><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#stop"></use></svg> Stop &amp; Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== MANUAL RECORD PANEL ===== -->
+<div id="panelManual" class="record-panel-content" style="display:none">
+    <div class="page-two-col">
+        <div class="card form-card">
+            <div class="card-header">
+                <h2>Manual Recording</h2>
+            </div>
+            <div class="card-body">
+                <form id="recordForm" onsubmit="submitRecord(event)">
+                    <div class="form-group">
+                        <label for="recUrl">Page URL <span class="required">*</span></label>
+                        <div class="input-with-btn">
+                            <input type="url" id="recUrl" name="url" placeholder="https://example.com/video" required>
+                            <button type="button" class="btn btn-sm" onclick="analyzeUrl()">Analyze</button>
+                        </div>
+                    </div>
+                    <div class="analysis-result" id="analysisResult" style="display:none;">
+                        <div class="card card-inner">
+                            <div class="card-body" id="analysisBody"></div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="recTitle">Title (optional)</label>
+                        <input type="text" id="recTitle" name="title" placeholder="My recording">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="recPlaySel">Play Button Selector</label>
+                            <input type="text" id="recPlaySel" name="play_selector" placeholder=".play-btn">
+                        </div>
+                        <div class="form-group">
+                            <label for="recVideoSel">Video Element Selector</label>
+                            <input type="text" id="recVideoSel" name="video_selector" placeholder="video">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="recDelay">Delay Before Recording (s)</label>
+                            <input type="number" id="recDelay" name="delay" value="3" min="0" max="60">
+                        </div>
+                        <div class="form-group">
+                            <label for="recDuration">Max Duration (s)</label>
+                            <input type="number" id="recDuration" name="max_duration" value="300" min="5" max="7200">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="recRes">Resolution</label>
+                            <select id="recRes" name="resolution">
+                                <option value="1920x1080" selected>1920×1080</option>
+                                <option value="1280x720">1280×720</option>
+                                <option value="854x480">854×480</option>
+                                <option value="2560x1440">2560×1440</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="recFps">FPS</label>
+                            <select id="recFps" name="fps">
+                                <option value="15">15</option>
+                                <option value="24">24</option>
+                                <option value="30" selected>30</option>
+                                <option value="60">60</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="recBitrate">Bitrate</label>
+                            <select id="recBitrate" name="bitrate">
+                                <option value="2M">Low (2 Mbps)</option>
+                                <option value="5M" selected>Medium (5 Mbps)</option>
+                                <option value="10M">High (10 Mbps)</option>
+                                <option value="20M">Ultra (20 Mbps)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="recFormat">Format</label>
+                            <select id="recFormat" name="format">
+                                <option value="mp4" selected>MP4</option>
+                                <option value="webm">WebM</option>
+                                <option value="mkv">MKV</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group checkbox-group">
+                            <label><input type="checkbox" id="recExtractAudio" name="extract_audio"> Extract Audio Track</label>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="recTrimStart">Trim Start (s)</label>
+                            <input type="number" id="recTrimStart" name="trim_start" placeholder="0" min="0" step="0.1">
+                        </div>
+                        <div class="form-group">
+                            <label for="recTrimEnd">Trim End (s)</label>
+                            <input type="number" id="recTrimEnd" name="trim_end" placeholder="(auto)" min="0" step="0.1">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="recPriority">Priority</label>
+                            <select id="recPriority" name="priority">
+                                <option value="0" selected>Normal</option>
+                                <option value="1">High</option>
+                                <option value="2">Urgent</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="recSchedule">Schedule (optional)</label>
+                            <input type="datetime-local" id="recSchedule" name="scheduled_at">
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary btn-lg" id="recordBtn">
+                            <span class="btn-icon-inline"><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#record"></use></svg></span> Start Recording
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <div class="side-panel">
+            <div class="card" id="livePreviewCard" style="display:none;">
+                <div class="card-header"><h3>Live Preview</h3></div>
+                <div class="card-body">
+                    <img id="livePreviewImg" class="live-preview-img" alt="Live preview">
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header"><h3>Active Recordings</h3></div>
+                <div class="card-body" id="activeRecordings">
+                    <p class="text-muted">No active recordings</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // ===== Tab Switching =====
+    function switchTab(tab) {
+        document.getElementById('panelSmart').style.display = tab === 'smart' ? '' : 'none';
+        document.getElementById('panelManual').style.display = tab === 'manual' ? '' : 'none';
+        document.getElementById('tabSmart').classList.toggle('active', tab === 'smart');
+        document.getElementById('tabManual').classList.toggle('active', tab === 'manual');
+    }
+
+    // ===================================================================
+    //  SMART RECORD — Embedded Browser with Auto Video Detection
+    // ===================================================================
+
+    let _sid = null;
+    let _vp = {w: 1920, h: 1080};
+    let _recStart = null;
+    let _timerInt = null;
+    let _embedUrls = [];
+
+    function openBrowse() {
+        const url = document.getElementById('browseUrl').value.trim();
+        if (!url) { showToast('Enter a URL first', 'error'); return; }
+
+        _sid = Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
+
+        window._socket.emit('browse_start', {
+            session_id: _sid,
+            url: url,
+            resolution: document.getElementById('browseRes').value,
+            auto_record: document.getElementById('browseAutoRec').checked,
+            format: document.getElementById('browseFormat').value,
+        });
+
+        setUIState('loading');
+    }
+
+    function stopBrowse() {
+        if (!_sid) return;
+        window._socket.emit('browse_stop', {session_id: _sid});
+        setUIState('saving');
+    }
+
+    function cancelBrowse() {
+        if (!_sid) return;
+        window._socket.emit('browse_cancel', {session_id: _sid});
+        resetBrowse();
+    }
+
+    function resetBrowse() {
+        _sid = null;
+        if (_timerInt) { clearInterval(_timerInt); _timerInt = null; }
+        _recStart = null;
+        _embedUrls = [];
+        setUIState('idle');
+    }
+
+    function downloadEmbed() {
+        if (!_embedUrls.length) {
+            showToast('No video embed detected', 'error');
+            return;
+        }
+        const url = _embedUrls[0];
+        const btn = document.getElementById('browseDownloadBtn');
+        btn.disabled = true;
+        btn.textContent = 'Starting...';
+        fetch('/api/jobs', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({type: 'download', params: {url: url}})
+        })
+        .then(r => r.json())
+        .then(d => {
+            if (d.ok) {
+                showToast('Download job started!');
+                setTimeout(() => { window.location.href = '/jobs'; }, 1500);
+            } else {
+                showToast(d.error || 'Failed to start download', 'error');
+                btn.disabled = false;
+                btn.innerHTML = `${uiIcon('download')} Download`;
+            }
+        })
+        .catch(e => {
+            showToast('Network error', 'error');
+            btn.disabled = false;
+            btn.innerHTML = `${uiIcon('download')} Download`;
+        });
+    }
+
+    function setUIState(state) {
+        const idle     = document.getElementById('browseIdle');
+        const loading  = document.getElementById('browseLoading');
+        const preview  = document.getElementById('browsePreview');
+        const stopBtn  = document.getElementById('browseStopBtn');
+        const cancelBtn= document.getElementById('browseCancelBtn');
+        const dlBtn    = document.getElementById('browseDownloadBtn');
+        const openBtn  = document.getElementById('browseOpenBtn');
+        const recInd   = document.getElementById('recIndicator');
+        const vidInfo  = document.getElementById('videoInfo');
+        const sTxt     = document.getElementById('statusText');
+        const sDot     = document.getElementById('statusDot');
+
+        // Reset all
+        idle.style.display = 'none';
+        loading.style.display = 'none';
+        preview.style.display = 'none';
+        stopBtn.style.display = 'none';
+        cancelBtn.style.display = 'none';
+        dlBtn.style.display = 'none';
+        recInd.style.display = 'none';
+
+        switch (state) {
+            case 'idle':
+                idle.style.display = 'flex';
+                openBtn.disabled = false;
+                openBtn.textContent = 'Open';
+                sTxt.textContent = 'Ready';
+                sDot.className = 'status-dot';
+                vidInfo.style.display = 'none';
+                break;
+            case 'loading':
+                loading.style.display = 'flex';
+                openBtn.disabled = true;
+                cancelBtn.style.display = '';
+                sTxt.textContent = 'Loading page...';
+                sDot.className = 'status-dot loading';
+                break;
+            case 'browsing':
+                preview.style.display = 'block';
+                stopBtn.style.display = '';
+                cancelBtn.style.display = '';
+                if (_embedUrls.length) dlBtn.style.display = '';
+                openBtn.disabled = true;
+                vidInfo.style.display = '';
+                sTxt.textContent = 'Browsing — click to interact';
+                sDot.className = 'status-dot active';
+                break;
+            case 'recording':
+                preview.style.display = 'block';
+                stopBtn.style.display = '';
+                cancelBtn.style.display = '';
+                if (_embedUrls.length) dlBtn.style.display = '';
+                openBtn.disabled = true;
+                recInd.style.display = 'flex';
+                vidInfo.style.display = '';
+                sTxt.textContent = 'Recording';
+                sDot.className = 'status-dot recording';
+                break;
+            case 'saving':
+                preview.style.display = 'block';
+                openBtn.disabled = true;
+                sTxt.textContent = 'Processing & saving...';
+                sDot.className = 'status-dot saving';
+                break;
+            case 'done':
+                openBtn.disabled = false;
+                openBtn.textContent = 'Open';
+                sTxt.textContent = 'Done — recording saved!';
+                sDot.className = 'status-dot done';
+                break;
+        }
+    }
+
+    // ===== SocketIO Handlers =====
+    if (window._socket) {
+        window._socket.on('browse_frame', (d) => {
+            if (d.session_id !== _sid) return;
+            const img = document.getElementById('browsePreview');
+            img.src = 'data:image/jpeg;base64,' + d.img;
+            if (img.style.display === 'none') setUIState('browsing');
+        });
+
+        window._socket.on('browse_status', (d) => {
+            if (d.session_id !== _sid) return;
+            if (d.status === 'loaded' && d.vw) _vp = {w: d.vw, h: d.vh};
+            if (d.status === 'stopping') setUIState('saving');
+        });
+
+        window._socket.on('browse_video_event', (d) => {
+            if (d.session_id !== _sid) return;
+            const el = document.getElementById('videoInfoText');
+            const box = document.getElementById('videoInfo');
+            box.style.display = '';
+            if (d.type === 'scan') {
+                el.textContent = d.videos ? d.videos + ' video(s) detected' : 'No videos found';
+            } else if (d.type === 'meta') {
+                el.textContent = d.dur > 0 ? 'Video found (' + Math.round(d.dur) + 's)' : 'Video found';
+            } else if (d.type === 'playing') {
+                el.textContent = 'Video is playing';
+            } else if (d.type === 'pause') {
+                el.textContent = 'Video paused';
+            } else if (d.type === 'ended') {
+                el.textContent = 'Video ended';
+            }
+        });
+
+        window._socket.on('browse_embed_found', (d) => {
+            if (d.session_id !== _sid) return;
+            const embeds = d.embeds || [];
+            if (embeds.length && !_embedUrls.length) {
+                _embedUrls = embeds;
+                const dlBtn = document.getElementById('browseDownloadBtn');
+                dlBtn.style.display = '';
+                const el = document.getElementById('videoInfoText');
+                const box = document.getElementById('videoInfo');
+                box.style.display = '';
+                el.textContent = 'Video embed detected — download available';
+                showToast('Video embed found! Click Download to save.');
+            }
+        });
+
+        window._socket.on('browse_auto_record', (d) => {
+            if (d.session_id !== _sid) return;
+            setUIState('recording');
+            _recStart = Date.now();
+            _timerInt = setInterval(updateRecTimer, 1000);
+            const dur = d.duration > 0 ? ' (' + Math.round(d.duration) + 's)' : '';
+            showToast('Video detected — recording automatically' + dur);
+        });
+
+        window._socket.on('browse_video_ended', (d) => {
+            if (d.session_id !== _sid) return;
+            if (_timerInt) { clearInterval(_timerInt); _timerInt = null; }
+            showToast('Video ended — saving recording...');
+        });
+
+        window._socket.on('browse_session_ended', (d) => {
+            if (d.session_id !== _sid) return;
+            if (_timerInt) { clearInterval(_timerInt); _timerInt = null; }
+            if (!d.saved) resetBrowse();
+        });
+
+        window._socket.on('browse_save_complete', (d) => {
+            if (d.session_id !== _sid) return;
+            setUIState('done');
+            showToast('Recording saved!');
+            setTimeout(() => { window.location.href = '/jobs'; }, 2000);
+        });
+
+        window._socket.on('browse_save_error', (d) => {
+            if (d.session_id !== _sid) return;
+            showToast(d.error || 'Save failed', 'error');
+            resetBrowse();
+        });
+
+        window._socket.on('browse_error', (d) => {
+            if (d.session_id !== _sid) return;
+            showToast(d.error || 'Browse error', 'error');
+            resetBrowse();
+        });
+    }
+
+    // ===== Click Forwarding =====
+    document.getElementById('browsePreview').addEventListener('click', (e) => {
+        if (!_sid) return;
+        const r = e.target.getBoundingClientRect();
+        const x = Math.round((e.clientX - r.left) / r.width * _vp.w);
+        const y = Math.round((e.clientY - r.top) / r.height * _vp.h);
+        window._socket.emit('browse_click', {session_id: _sid, x, y});
+    });
+
+    // ===== Scroll Forwarding =====
+    document.getElementById('browseViewport').addEventListener('wheel', (e) => {
+        if (!_sid) return;
+        e.preventDefault();
+        const img = document.getElementById('browsePreview');
+        const r = img.getBoundingClientRect();
+        const x = Math.round((e.clientX - r.left) / r.width * _vp.w);
+        const y = Math.round((e.clientY - r.top) / r.height * _vp.h);
+        window._socket.emit('browse_scroll', {session_id: _sid, x, y, delta: e.deltaY});
+    }, {passive: false});
+
+    function updateRecTimer() {
+        if (!_recStart) return;
+        const s = Math.floor((Date.now() - _recStart) / 1000);
+        document.getElementById('recTimer').textContent =
+            String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+    }
+
+    // ===================================================================
+    //  MANUAL RECORD (existing functionality)
+    // ===================================================================
+
+    let _activeRecordingId = null;
+
+    async function submitRecord(e) {
+        e.preventDefault();
+        const btn = document.getElementById('recordBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Starting...';
+
+        const form = document.getElementById('recordForm');
+        const fd = new FormData(form);
+        const params = {};
+        for (const [k, v] of fd.entries()) {
+            if (v !== '') params[k] = v;
+        }
+        params.extract_audio = document.getElementById('recExtractAudio').checked;
+
+        if (params.scheduled_at) {
+            params.scheduled_at = new Date(params.scheduled_at).toISOString();
+        }
+
+        try {
+            const resp = await fetch('/api/jobs', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ type: 'record', params })
+            });
+            const data = await resp.json();
+            if (data.ok) {
+                if (data.scheduled) {
+                    showToast('Recording scheduled: ' + data.job_id);
+                } else {
+                    showToast('Recording started: ' + data.job_id);
+                    _activeRecordingId = data.job_id;
+                    startLivePreview(data.job_id);
+                }
+                setTimeout(() => window.location.href = '/jobs', 1500);
+            } else {
+                showToast('Error: ' + (data.error || 'Unknown'), 'error');
+            }
+        } catch(err) {
+            showToast('Network error', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = `<span class="btn-icon-inline">${uiIcon('record')}</span> Start Recording`;
+        }
+    }
+
+    function startLivePreview(jobId) {
+        const card = document.getElementById('livePreviewCard');
+        const img = document.getElementById('livePreviewImg');
+        card.style.display = 'block';
+        const interval = setInterval(() => {
+            img.src = `/api/jobs/${jobId}/preview?t=${Date.now()}`;
+            img.onerror = () => { clearInterval(interval); card.style.display = 'none'; };
+        }, 3000);
+    }
+
+    async function analyzeUrl() {
+        const url = document.getElementById('recUrl').value;
+        if (!url) return;
+        const box = document.getElementById('analysisResult');
+        const body = document.getElementById('analysisBody');
+        box.style.display = 'block';
+        body.innerHTML = '<span class="spinner"></span> Analyzing...';
+        try {
+            const resp = await fetch('/api/analyze', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({url})
+            });
+            const data = await resp.json();
+            if (data.error) {
+                body.innerHTML = `<span class="text-error">${escHtml(data.error)}</span>`;
+            } else {
+                let html = `<strong>${escHtml(data.title || 'Untitled')}</strong><br>`;
+                html += `Videos: ${data.video_elements?.length || 0} | Iframes: ${data.iframes?.length || 0}<br>`;
+                if (data.play_buttons?.length) {
+                    html += `Play buttons: ${data.play_buttons.map(s => `<code>${escHtml(s)}</code>`).join(', ')}`;
+                }
+                body.innerHTML = html;
+                if (data.play_buttons?.length) document.getElementById('recPlaySel').value = data.play_buttons[0];
+                if (data.video_elements?.length) document.getElementById('recVideoSel').value = 'video';
+            }
+        } catch(e) {
+            body.innerHTML = '<span class="text-error">Analysis failed</span>';
+        }
+    }
+
+    if (window._socket) {
+        window._socket.on('job_update', (job) => { refreshActiveRecordings(); });
+    }
+    setInterval(refreshActiveRecordings, 5000);
+
+    async function refreshActiveRecordings() {
+        try {
+            const resp = await fetch('/api/jobs?limit=5');
+            const data = await resp.json();
+            const active = data.jobs.filter(j => ['queued','analyzing','recording','post-processing'].includes(j.status));
+            const el = document.getElementById('activeRecordings');
+            if (!el) return;
+            if (!active.length) {
+                el.innerHTML = '<p class="text-muted">No active recordings</p>';
+            } else {
+                el.innerHTML = active.map(j => `
+                    <div class="mini-job-card">
+                        <div class="mini-job-title">${escHtml(j.title || j.id)}</div>
+                        <div>${statusBadge(j.status)}</div>
+                        ${progressBar(j.progress)}
+                        <div class="mini-job-actions">
+                            <button class="btn-icon btn-xs" onclick="showLogs('${j.id}')" aria-label="Show logs">${uiIcon('clipboard')}</button>
+                            <button class="btn-icon btn-xs" onclick="cancelJob('${j.id}')" aria-label="Cancel job">${uiIcon('ban')}</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+            updateActiveJobCount(data.jobs);
+        } catch(e) {}
+    }
+</script>
+{% endblock %}

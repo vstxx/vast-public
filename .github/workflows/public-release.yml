@@ -1,0 +1,182 @@
+name: Public signed release
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Public distribution channel
+        required: true
+        type: choice
+        options: [beta, stable]
+      previous_version:
+        description: Previously published signed Vast version (for upgrade gate)
+        required: true
+        type: string
+      previous_release_base_url:
+        description: HTTPS production asset base URL for the previous signed release
+        required: true
+        type: string
+      bootstrap_first_beta:
+        description: One-time beta.1 bootstrap; allowed only while the release repository has no published releases
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-release
+  cancel-in-progress: false
+
+jobs:
+  build-sign-verify-publish:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    environment: public-release
+    env:
+      VAST_RELEASE_CHANNEL: ${{ inputs.channel }}
+      VAST_PRIVATE_BUILD: '0'
+      VAST_RELEASE_REPO: vstxx/vast-public
+      VAST_PREVIOUS_VERSION: ${{ inputs.previous_version }}
+      VAST_PREVIOUS_RELEASE_BASE_URL: ${{ inputs.previous_release_base_url }}
+      VAST_UPDATE_ENABLED: '1'
+      VAST_OBFUSCATE: '1'
+      VAST_EXPECTED_SIGNER_SUBJECT: VastProductions
+      VAST_RELAY_PRODUCTION_ENABLED: ${{ inputs.channel == 'stable' && '1' || '0' }}
+      WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      GH_TOKEN: ${{ secrets.VAST_RELEASE_TOKEN }}
+
+    steps:
+      - name: GPL corresponding-source publication gate
+        shell: pwsh
+        run: |
+          throw 'Binary publication is disabled until the workflow uploads and verifies the complete corresponding source set for the exact bundled Gyan FFmpeg build. See docs/OPEN_SOURCE_LICENSE_AUDIT.md.'
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            relay/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install exact JavaScript dependencies
+        run: |
+          npm ci
+          npm ci --prefix relay
+      - name: Install pinned Video & Audio build dependencies
+        run: python -m pip install -r resources/avidae/requirements.txt -r resources/avidae/requirements-build.txt
+      - name: Install pinned FFmpeg distribution
+        shell: pwsh
+        run: |
+          winget install --id Gyan.FFmpeg --exact --version 9.0 --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+          $ffmpeg = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Filter ffmpeg.exe -Recurse -File | Where-Object FullName -Match 'ffmpeg-9\.0-full_build\\bin\\ffmpeg\.exe$' | Select-Object -First 1
+          $ffprobe = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Filter ffprobe.exe -Recurse -File | Where-Object FullName -Match 'ffmpeg-9\.0-full_build\\bin\\ffprobe\.exe$' | Select-Object -First 1
+          if (-not $ffmpeg -or -not $ffprobe) { throw 'Pinned FFmpeg 9.0 binaries were not found.' }
+          "VAST_AVIDAE_FFMPEG=$($ffmpeg.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "VAST_AVIDAE_FFPROBE=$($ffprobe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Verify exact source commit is clean
+        shell: pwsh
+        run: |
+          git diff --exit-code
+          git diff --cached --exit-code
+          $head = git rev-parse HEAD
+          if ($head -ne '${{ github.sha }}') { throw "Checked out $head instead of workflow SHA ${{ github.sha }}." }
+          "VAST_RELEASE_COMMIT=$head" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Validate one-time first-beta bootstrap
+        if: ${{ inputs.bootstrap_first_beta }}
+        shell: pwsh
+        run: |
+          if ('${{ inputs.channel }}' -ne 'beta') { throw 'The first-release bootstrap is beta-only.' }
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          if ($version -notmatch '-beta\.1$') { throw "Bootstrap requires a beta.1 package version, got $version." }
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'User-Agent' = 'Vast-public-release-gate'
+          }
+          $published = @(Invoke-RestMethod -Headers $headers -Uri 'https://api.github.com/repos/vstxx/vast-public/releases?per_page=100' | Where-Object { -not $_.draft })
+          $publishedSigned = @($published | Where-Object { -not ($_.assets | Where-Object name -eq 'PUBLIC-UNSIGNED-BETA.md') })
+          if ($publishedSigned.Count -ne 0) { throw 'Bootstrap is forbidden after the release repository contains a published signed release.' }
+      - name: Dependency security gate
+        run: npm run audit:ci
+      - name: Compile and test client and Relay
+        run: |
+          npm run lint
+          npm run check --prefix relay
+          npm test
+          npm run updater:stage
+          npm run test:updater
+          npm run release:audit
+      - name: Prepare self-contained Video & Audio runtime
+        run: npm run avidae:runtime:prepare
+      - name: Build timestamped public distribution
+        run: npm run dist:upgrader
+      - name: Verify local signed release package
+        run: node scripts/verify-release-package.cjs
+      - name: Verify installed beta-to-next-release data preservation
+        if: ${{ inputs.bootstrap_first_beta == false }}
+        shell: pwsh
+        run: |
+          $env:VAST_CURRENT_RELEASE_ROOT = (Resolve-Path release).Path
+          $env:VAST_RELEASE_VERSION = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests/updater/vast-public-beta-upgrade.test.ps1
+
+      - name: Create draft production release and upload exact artifacts
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          $notes = Join-Path $env:RUNNER_TEMP 'vast-release-notes.md'
+          $upgradeGate = if ('${{ inputs.bootstrap_first_beta }}' -eq 'true') { 'Upgrade gate: not applicable to the first signed beta; beta.2 must upgrade from this release.' } else { "Upgrade gate: verified from $env:VAST_PREVIOUS_VERSION." }
+          @("Vast $version ($env:VAST_RELEASE_CHANNEL)", "", "Source commit: $env:VAST_RELEASE_COMMIT", "", "Built, timestamp-signed and verified by the public distribution gate.", $upgradeGate) | Set-Content -LiteralPath $notes -Encoding utf8
+          $flags = @('--repo', 'vstxx/vast-public', '--title', "Vast $version", '--notes-file', $notes, '--draft')
+          if ($env:VAST_RELEASE_CHANNEL -eq 'beta') { $flags += '--prerelease' }
+          gh release create "v$version" @flags
+          $assets = @(
+            "release/Installer/Vast-Setup-$version.exe",
+            "release/Installer/Vast-Setup-$version.exe.blockmap",
+            "release/Installer/Vast-$version-Portable.exe",
+            'release/Installer/latest.yml',
+            "release/Updater/VastUpdater-$version.exe",
+            'release/Downloads/update-manifest.json',
+            "release/Downloads/Vast-$version-update.zip",
+            'release/Checksums/checksums.json',
+            'release/Checksums/SHA256SUMS.txt',
+            'release/Checksums/SHA512SUMS.txt',
+            'release/Docs/release-manifest.json',
+            'release/version.json'
+          )
+          gh release upload "v$version" @assets --repo vstxx/vast-public --clobber
+      - name: Re-download and verify draft assets from production repository
+        env:
+          VAST_GITHUB_DRAFT_RELEASE: '1'
+        run: npm run release:verify:published
+      - name: Publish verified release
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          gh release edit "v$version" --repo vstxx/vast-public --draft=false
+      - name: Re-download and verify public production URLs
+        run: npm run release:verify:published
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vast-${{ inputs.channel }}-${{ github.sha }}-verification
+          path: |
+            release/version.json
+            release/Checksums/
+            release/Docs/release-manifest.json
+            out/release-build-metadata.json
+          if-no-files-found: warn

@@ -1,0 +1,549 @@
+diff --git a/chrome/browser/profiles/BUILD.gn b/chrome/browser/profiles/BUILD.gn
+index 516ed47f178bb8df893bcdabf94ccd75139c416e..4205dbc2355027469364c3adcc22213270717bf7 100644
+--- a/chrome/browser/profiles/BUILD.gn
++++ b/chrome/browser/profiles/BUILD.gn
+@@ -739,6 +739,7 @@ source_set("profiles_extra_parts_impl") {
+     "//chrome/browser/unified_consent",
+     "//chrome/browser/updates/announcement_notification",
+     "//chrome/browser/usb",
++    "//chrome/browser/vast:vast_service",
+     "//chrome/browser/visited_url_ranking",
+     "//chrome/browser/webauthn",
+     "//chrome/browser/webdata_services",
+diff --git a/chrome/browser/profiles/chrome_browser_main_extra_parts_profiles.cc b/chrome/browser/profiles/chrome_browser_main_extra_parts_profiles.cc
+index ca154d6788c547ee873c568a70e1d42227802487..1cc308639bb70e36aec259fb665f59c88c08e4e2 100644
+--- a/chrome/browser/profiles/chrome_browser_main_extra_parts_profiles.cc
++++ b/chrome/browser/profiles/chrome_browser_main_extra_parts_profiles.cc
+@@ -267,6 +267,7 @@
+ #include "chrome/browser/unified_consent/unified_consent_service_factory.h"
+ #include "chrome/browser/updates/announcement_notification/announcement_notification_service_factory.h"
+ #include "chrome/browser/usb/usb_chooser_context_factory.h"
++#include "chrome/browser/vast/vast_product_data_service_factory.h"
+ #include "chrome/browser/visited_url_ranking/group_suggestions_service_factory.h"
+ #include "chrome/browser/visited_url_ranking/visited_url_ranking_service_factory.h"
+ #include "chrome/browser/web_applications/isolated_web_apps/iwa_permissions_policy_cache.h"
+@@ -1520,6 +1521,7 @@ void ChromeBrowserMainExtraPartsProfiles::
+   UsbConnectionTrackerFactory::GetInstance();
+   UserEducationServiceFactory::GetInstance();
+ #endif
++  vast::VastProductDataServiceFactory::GetInstance();
+   visited_url_ranking::GroupSuggestionsServiceFactory::GetInstance();
+ #if !BUILDFLAG(IS_ANDROID)
+   WaapUIMetricsServiceFactory::GetInstance();
+diff --git a/chrome/browser/ui/webui/vast/BUILD.gn b/chrome/browser/ui/webui/vast/BUILD.gn
+index 5c858169fcdde64977a1e8dcb360949e8a42c421..5745f3b28dd8b19aa1be91f2d37bb6d5c58d211f 100644
+--- a/chrome/browser/ui/webui/vast/BUILD.gn
++++ b/chrome/browser/ui/webui/vast/BUILD.gn
+@@ -20,6 +20,7 @@ source_set("vast") {
+     "//chrome/browser/profiles:profile",
+     "//chrome/browser/resources/vast:resources",
+     "//chrome/browser/vast:vast_data",
++    "//chrome/browser/vast:vast_service",
+     "//chrome/common:constants",
+     "//components/version_info",
+     "//content/public/common",
+diff --git a/chrome/browser/ui/webui/vast/vast_ui.cc b/chrome/browser/ui/webui/vast/vast_ui.cc
+index b1924de13eab7026983af4eaf636fb3d938d1c19..70d23124bf133c8d09ac7f5190cf3a70376ede64 100644
+--- a/chrome/browser/ui/webui/vast/vast_ui.cc
++++ b/chrome/browser/ui/webui/vast/vast_ui.cc
+@@ -14,6 +14,8 @@
+ #include "chrome/browser/vast/vast_backup_extractor.h"
+ #include "chrome/browser/vast/vast_data_migration_preview.h"
+ #include "chrome/browser/vast/vast_product_data_root.h"
++#include "chrome/browser/vast/vast_product_data_service.h"
++#include "chrome/browser/vast/vast_product_data_service_factory.h"
+ #include "chrome/grit/vast_resources.h"
+ #include "chrome/grit/vast_resources_map.h"
+ #include "components/version_info/version_info.h"
+@@ -253,7 +255,9 @@ VastDataMigrationTransaction RollbackMigrationFixtureTransactionOnWorker(
+ 
+ VastUI::VastUI(content::WebUI* web_ui)
+     : ui::MojoWebUIController(web_ui),
+-      profile_path_(Profile::FromWebUI(web_ui)->GetPath()) {
++      profile_path_(Profile::FromWebUI(web_ui)->GetPath()),
++      product_data_service_(VastProductDataServiceFactory::GetForProfile(
++          Profile::FromWebUI(web_ui))) {
+   Profile* profile = Profile::FromWebUI(web_ui);
+   content::WebUIDataSource* source = content::WebUIDataSource::CreateAndAdd(
+       profile, chrome::kChromeUIVastHost);
+@@ -327,15 +331,14 @@ void VastUI::GetMigrationPreview(GetMigrationPreviewCallback callback) {
+ }
+ 
+ void VastUI::GetProductDataStatus(GetProductDataStatusCallback callback) {
+-  base::ThreadPool::PostTaskAndReplyWithResult(
+-      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+-      base::BindOnce(&RecoverVastProductDataRoot, profile_path_),
+-      base::BindOnce(
+-          [](GetProductDataStatusCallback callback,
+-             VastProductDataRootStatus status) {
+-            std::move(callback).Run(ToMojomProductDataStatus(status));
+-          },
+-          std::move(callback)));
++  product_data_service_->GetStatus(base::BindOnce(
++      [](base::WeakPtr<VastUI> self, GetProductDataStatusCallback callback,
++         VastProductDataRootStatus status) {
++        if (self) {
++          std::move(callback).Run(ToMojomProductDataStatus(status));
++        }
++      },
++      weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+ }
+ 
+ void VastUI::RunMigrationFixtureTransaction(
+@@ -407,6 +410,7 @@ void VastUI::OnMigrationFixtureTransactionComplete(
+     RunMigrationFixtureTransactionCallback callback,
+     VastDataMigrationTransaction transaction) {
+   migration_task_in_progress_ = false;
++  product_data_service_->Invalidate();
+   auto result = ToMojomMigrationTransactionResult(transaction, true);
+   if (transaction.state == VastDataMigrationState::kPrepared ||
+       transaction.state == VastDataMigrationState::kCommitted) {
+@@ -419,6 +423,7 @@ void VastUI::OnMigrationFixtureRollbackComplete(
+     RollbackMigrationFixtureTransactionCallback callback,
+     VastDataMigrationTransaction transaction) {
+   migration_task_in_progress_ = false;
++  product_data_service_->Invalidate();
+   auto result = ToMojomMigrationTransactionResult(transaction, true);
+   migration_transaction_ = std::move(transaction);
+   std::move(callback).Run(std::move(result));
+diff --git a/chrome/browser/ui/webui/vast/vast_ui.h b/chrome/browser/ui/webui/vast/vast_ui.h
+index e6688f7bd27d3325003e3615f347cd83d0043acf..8decd893cb0e57316693b2346c8147d899aff684 100644
+--- a/chrome/browser/ui/webui/vast/vast_ui.h
++++ b/chrome/browser/ui/webui/vast/vast_ui.h
+@@ -8,6 +8,7 @@
+ #include <optional>
+ 
+ #include "base/files/file_path.h"
++#include "base/memory/raw_ptr.h"
+ #include "base/memory/weak_ptr.h"
+ #include "chrome/browser/ui/webui/vast/vast.mojom.h"
+ #include "chrome/browser/vast/vast_data_migration_transaction.h"
+@@ -21,6 +22,7 @@
+ namespace vast {
+ 
+ class VastUI;
++class VastProductDataService;
+ 
+ class VastUIConfig : public content::DefaultWebUIConfig<VastUI> {
+  public:
+@@ -68,6 +70,7 @@ class VastUI : public ui::MojoWebUIController,
+   mojo::Receiver<mojom::PageHandlerFactory> factory_receiver_{this};
+   mojo::Receiver<mojom::PageHandler> page_handler_receiver_{this};
+   const base::FilePath profile_path_;
++  const raw_ptr<VastProductDataService> product_data_service_;
+   std::optional<VastDataMigrationTransaction> migration_transaction_;
+   bool migration_task_in_progress_ = false;
+   base::WeakPtrFactory<VastUI> weak_ptr_factory_{this};
+diff --git a/chrome/browser/vast/BUILD.gn b/chrome/browser/vast/BUILD.gn
+index c84372062248a9858fcf5779c72a90297573423d..6f037c0e4b54fedd1baad7ad2d0b702995141c08 100644
+--- a/chrome/browser/vast/BUILD.gn
++++ b/chrome/browser/vast/BUILD.gn
+@@ -26,6 +26,22 @@ source_set("vast_data") {
+   ]
+ }
+ 
++source_set("vast_service") {
++  sources = [
++    "vast_product_data_service.cc",
++    "vast_product_data_service.h",
++    "vast_product_data_service_factory.cc",
++    "vast_product_data_service_factory.h",
++  ]
++
++  public_deps = [ "//components/keyed_service/core" ]
++
++  deps = [
++    ":vast_data",
++    "//chrome/browser/profiles:profile",
++  ]
++}
++
+ test("vast_data_unittests") {
+   sources = [
+     "vast_backup_extractor_unittest.cc",
+@@ -33,11 +49,14 @@ test("vast_data_unittests") {
+     "vast_data_migration_transaction_unittest.cc",
+     "vast_data_projection_unittest.cc",
+     "vast_product_data_root_unittest.cc",
++    "vast_product_data_service_unittest.cc",
+   ]
+ 
+   deps = [
+     ":vast_data",
++    ":vast_service",
+     "//base/test:run_all_unittests",
++    "//base/test:test_support",
+     "//testing/gtest",
+   ]
+ }
+diff --git a/chrome/browser/vast/vast_product_data_service.cc b/chrome/browser/vast/vast_product_data_service.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..162b27aad89415756faca2528734987a8b2fb142
+--- /dev/null
++++ b/chrome/browser/vast/vast_product_data_service.cc
+@@ -0,0 +1,75 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/vast/vast_product_data_service.h"
++
++#include <utility>
++
++#include "base/functional/bind.h"
++#include "base/task/thread_pool.h"
++
++namespace vast {
++
++VastProductDataService::VastProductDataService(base::FilePath profile_path)
++    : profile_path_(std::move(profile_path)) {}
++
++VastProductDataService::~VastProductDataService() = default;
++
++void VastProductDataService::GetStatus(StatusCallback callback) {
++  if (shutdown_) {
++    VastProductDataRootStatus status;
++    status.error = "The Vast product-data service is shutting down.";
++    std::move(callback).Run(std::move(status));
++    return;
++  }
++  if (cached_status_ && !recovery_in_progress_) {
++    std::move(callback).Run(*cached_status_);
++    return;
++  }
++  pending_callbacks_.push_back(std::move(callback));
++  if (!recovery_in_progress_) {
++    StartRecovery();
++  }
++}
++
++void VastProductDataService::Invalidate() {
++  cached_status_.reset();
++  if (recovery_in_progress_) {
++    reload_after_recovery_ = true;
++  }
++}
++
++void VastProductDataService::Shutdown() {
++  shutdown_ = true;
++  cached_status_.reset();
++  pending_callbacks_.clear();
++  weak_ptr_factory_.InvalidateWeakPtrs();
++}
++
++void VastProductDataService::StartRecovery() {
++  recovery_in_progress_ = true;
++  base::ThreadPool::PostTaskAndReplyWithResult(
++      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
++      base::BindOnce(&RecoverVastProductDataRoot, profile_path_),
++      base::BindOnce(&VastProductDataService::OnRecoveryComplete,
++                     weak_ptr_factory_.GetWeakPtr()));
++}
++
++void VastProductDataService::OnRecoveryComplete(
++    VastProductDataRootStatus status) {
++  recovery_in_progress_ = false;
++  if (reload_after_recovery_) {
++    reload_after_recovery_ = false;
++    StartRecovery();
++    return;
++  }
++  cached_status_ = std::move(status);
++  std::vector<StatusCallback> callbacks = std::move(pending_callbacks_);
++  pending_callbacks_.clear();
++  for (StatusCallback& callback : callbacks) {
++    std::move(callback).Run(*cached_status_);
++  }
++}
++
++}  // namespace vast
+diff --git a/chrome/browser/vast/vast_product_data_service.h b/chrome/browser/vast/vast_product_data_service.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..cef03cb7fd9755041f57128a2aa395d7318838e8
+--- /dev/null
++++ b/chrome/browser/vast/vast_product_data_service.h
+@@ -0,0 +1,56 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_VAST_VAST_PRODUCT_DATA_SERVICE_H_
++#define CHROME_BROWSER_VAST_VAST_PRODUCT_DATA_SERVICE_H_
++
++#include <optional>
++#include <vector>
++
++#include "base/files/file_path.h"
++#include "base/functional/callback.h"
++#include "base/memory/weak_ptr.h"
++#include "chrome/browser/vast/vast_product_data_root.h"
++#include "components/keyed_service/core/keyed_service.h"
++
++namespace vast {
++
++// Profile-scoped owner of recovered Vast product-data state. Blocking
++// verification stays on the ThreadPool and multiple WebUI controllers share
++// one validated snapshot per browser process.
++class VastProductDataService : public KeyedService {
++ public:
++  using StatusCallback = base::OnceCallback<void(VastProductDataRootStatus)>;
++
++  explicit VastProductDataService(base::FilePath profile_path);
++  ~VastProductDataService() override;
++
++  VastProductDataService(const VastProductDataService&) = delete;
++  VastProductDataService& operator=(const VastProductDataService&) = delete;
++
++  void GetStatus(StatusCallback callback);
++
++  // Forces the next status request to revalidate disk state. If verification
++  // is already running, queued callers wait for one fresh follow-up pass.
++  void Invalidate();
++
++  // KeyedService:
++  void Shutdown() override;
++
++ private:
++  void StartRecovery();
++  void OnRecoveryComplete(VastProductDataRootStatus status);
++
++  const base::FilePath profile_path_;
++  std::optional<VastProductDataRootStatus> cached_status_;
++  std::vector<StatusCallback> pending_callbacks_;
++  bool recovery_in_progress_ = false;
++  bool reload_after_recovery_ = false;
++  bool shutdown_ = false;
++  base::WeakPtrFactory<VastProductDataService> weak_ptr_factory_{this};
++};
++
++}  // namespace vast
++
++#endif  // CHROME_BROWSER_VAST_VAST_PRODUCT_DATA_SERVICE_H_
+diff --git a/chrome/browser/vast/vast_product_data_service_factory.cc b/chrome/browser/vast/vast_product_data_service_factory.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..036854df4b457d63f2a4853a1542c72ade25bd3d
+--- /dev/null
++++ b/chrome/browser/vast/vast_product_data_service_factory.cc
+@@ -0,0 +1,40 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/vast/vast_product_data_service_factory.h"
++
++#include "chrome/browser/profiles/profile.h"
++#include "chrome/browser/vast/vast_product_data_service.h"
++#include "content/public/browser/browser_context.h"
++
++namespace vast {
++
++VastProductDataService* VastProductDataServiceFactory::GetForProfile(
++    Profile* profile) {
++  return static_cast<VastProductDataService*>(
++      GetInstance()->GetServiceForBrowserContext(profile, true));
++}
++
++VastProductDataServiceFactory* VastProductDataServiceFactory::GetInstance() {
++  static base::NoDestructor<VastProductDataServiceFactory> instance;
++  return instance.get();
++}
++
++VastProductDataServiceFactory::VastProductDataServiceFactory()
++    : ProfileKeyedServiceFactory(
++          "VastProductDataService",
++          ProfileSelections::Builder()
++              .WithRegular(ProfileSelection::kOwnInstance)
++              .Build()) {}
++
++VastProductDataServiceFactory::~VastProductDataServiceFactory() = default;
++
++std::unique_ptr<KeyedService>
++VastProductDataServiceFactory::BuildServiceInstanceForBrowserContext(
++    content::BrowserContext* context) const {
++  Profile* profile = Profile::FromBrowserContext(context);
++  return std::make_unique<VastProductDataService>(profile->GetPath());
++}
++
++}  // namespace vast
+diff --git a/chrome/browser/vast/vast_product_data_service_factory.h b/chrome/browser/vast/vast_product_data_service_factory.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..b534b0bbf6fd48b4ca4017782982ef22b0a038bb
+--- /dev/null
++++ b/chrome/browser/vast/vast_product_data_service_factory.h
+@@ -0,0 +1,44 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_VAST_VAST_PRODUCT_DATA_SERVICE_FACTORY_H_
++#define CHROME_BROWSER_VAST_VAST_PRODUCT_DATA_SERVICE_FACTORY_H_
++
++#include <memory>
++
++#include "base/no_destructor.h"
++#include "chrome/browser/profiles/profile_keyed_service_factory.h"
++
++class Profile;
++
++namespace content {
++class BrowserContext;
++}
++
++namespace vast {
++
++class VastProductDataService;
++
++class VastProductDataServiceFactory : public ProfileKeyedServiceFactory {
++ public:
++  static VastProductDataService* GetForProfile(Profile* profile);
++  static VastProductDataServiceFactory* GetInstance();
++
++  VastProductDataServiceFactory(const VastProductDataServiceFactory&) = delete;
++  VastProductDataServiceFactory& operator=(
++      const VastProductDataServiceFactory&) = delete;
++
++ private:
++  friend base::NoDestructor<VastProductDataServiceFactory>;
++
++  VastProductDataServiceFactory();
++  ~VastProductDataServiceFactory() override;
++
++  std::unique_ptr<KeyedService> BuildServiceInstanceForBrowserContext(
++      content::BrowserContext* context) const override;
++};
++
++}  // namespace vast
++
++#endif  // CHROME_BROWSER_VAST_VAST_PRODUCT_DATA_SERVICE_FACTORY_H_
+diff --git a/chrome/browser/vast/vast_product_data_service_unittest.cc b/chrome/browser/vast/vast_product_data_service_unittest.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..565b78e12886a32befd98a1322984139352f3ec1
+--- /dev/null
++++ b/chrome/browser/vast/vast_product_data_service_unittest.cc
+@@ -0,0 +1,126 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/vast/vast_product_data_service.h"
++
++#include <string>
++#include <string_view>
++
++#include "base/files/file_util.h"
++#include "base/files/scoped_temp_dir.h"
++#include "base/functional/bind.h"
++#include "base/run_loop.h"
++#include "base/test/task_environment.h"
++#include "testing/gtest/include/gtest/gtest.h"
++
++namespace vast {
++namespace {
++
++constexpr char kValidVastData[] = R"({
++  "schemaVersion": 5,
++  "activeWorkspaceId": "workspace",
++  "workspaces": [
++    {"id":"workspace","name":"Workspace","icon":"home","color":"#123456","order":0}
++  ],
++  "tabGroups": [],
++  "tabs": [],
++  "bookmarks": [],
++  "bookmarkFolders": [],
++  "history": [],
++  "downloads": [],
++  "notes": [],
++  "readingList": [],
++  "quickLinks": [],
++  "settings": {"theme":"dark"}
++})";
++
++class VastProductDataServiceTest : public testing::Test {
++ protected:
++  void SetUp() override { ASSERT_TRUE(temp_dir_.CreateUniqueTempDir()); }
++
++  base::FilePath CreateDirectory(std::string_view name) {
++    const base::FilePath path = temp_dir_.GetPath().AppendASCII(name);
++    EXPECT_TRUE(base::CreateDirectory(path));
++    return path;
++  }
++
++  void Write(const base::FilePath& path, std::string_view contents) {
++    ASSERT_TRUE(base::CreateDirectory(path.DirName()));
++    ASSERT_TRUE(base::WriteFile(path, contents));
++  }
++
++  VastDataMigrationTransaction CommitFixture(const base::FilePath& source,
++                                             const base::FilePath& parent) {
++    Write(source.Append(FILE_PATH_LITERAL("vast-data.json")), kValidVastData);
++    VastDataMigrationTransaction transaction = PrepareVastDataMigration(
++        source, parent, parent.Append(FILE_PATH_LITERAL("Vast2Data")));
++    EXPECT_EQ(transaction.state, VastDataMigrationState::kPrepared)
++        << transaction.error;
++    EXPECT_TRUE(CommitVastDataMigration(&transaction)) << transaction.error;
++    return transaction;
++  }
++
++  VastProductDataRootStatus GetStatus(VastProductDataService* service) {
++    VastProductDataRootStatus result;
++    base::RunLoop run_loop;
++    service->GetStatus(base::BindOnce(
++        [](VastProductDataRootStatus* output, base::OnceClosure quit,
++           VastProductDataRootStatus status) {
++          *output = std::move(status);
++          std::move(quit).Run();
++        },
++        &result, run_loop.QuitClosure()));
++    run_loop.Run();
++    return result;
++  }
++
++  base::test::TaskEnvironment task_environment_;
++  base::ScopedTempDir temp_dir_;
++};
++
++TEST_F(VastProductDataServiceTest, SharesCachedStatusAndRevalidatesOnDemand) {
++  const base::FilePath source = CreateDirectory("Source");
++  const base::FilePath transactions = CreateDirectory("Transactions");
++  const base::FilePath profile = CreateDirectory("Profile");
++  VastDataMigrationTransaction transaction =
++      CommitFixture(source, transactions);
++  std::string error;
++  ASSERT_TRUE(ActivateVastProductDataRoot(profile, transaction, &error))
++      << error;
++  VastProductDataService service(profile);
++
++  const VastProductDataRootStatus first = GetStatus(&service);
++  ASSERT_TRUE(first.compatible) << first.error;
++  ASSERT_EQ(first.projection.workspaces.size(), 1u);
++  EXPECT_EQ(first.projection.workspaces[0].name, "Workspace");
++
++  Write(
++      transaction.destination_root.Append(FILE_PATH_LITERAL("vast-data.json")),
++      "tampered after service recovery");
++  const VastProductDataRootStatus cached = GetStatus(&service);
++  EXPECT_TRUE(cached.compatible);
++
++  service.Invalidate();
++  const VastProductDataRootStatus revalidated = GetStatus(&service);
++  EXPECT_TRUE(revalidated.selected);
++  EXPECT_FALSE(revalidated.compatible);
++  EXPECT_EQ(revalidated.error,
++            "Recovered Vast product data has an unexpected file size.");
++}
++
++TEST_F(VastProductDataServiceTest, CachesAnUnselectedProfile) {
++  const base::FilePath profile = CreateDirectory("Profile");
++  VastProductDataService service(profile);
++
++  const VastProductDataRootStatus first = GetStatus(&service);
++  const VastProductDataRootStatus second = GetStatus(&service);
++
++  EXPECT_FALSE(first.selected);
++  EXPECT_TRUE(first.error.empty());
++  EXPECT_FALSE(second.selected);
++  EXPECT_TRUE(second.error.empty());
++}
++
++}  // namespace
++}  // namespace vast

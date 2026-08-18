@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}Video &amp; Audio — Audio Trim{% endblock %}
+{% block page_title %}Audio Trim{% endblock %}
+
+{% block content %}
+<div class="page-centered">
+    <div class="card form-card">
+        <div class="card-header">
+            <h2><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#scissors"></use></svg> Audio Trim</h2>
+            <p class="text-muted">Cut a segment from an audio file</p>
+        </div>
+        <div class="card-body">
+            <form id="atForm" onsubmit="submitTrim(event)">
+                <div class="form-group">
+                    <label>Upload File</label>
+                    <div class="dropzone" id="atDropzone"
+                         ondragover="event.preventDefault(); this.classList.add('dragover')"
+                         ondragleave="this.classList.remove('dragover')"
+                         ondrop="handleDrop(event, 'at')">
+                        <input type="file" id="atFileInput" accept="audio/*" style="display:none" onchange="handleFileSelect(this, 'at')">
+                        <div class="dropzone-content" onclick="document.getElementById('atFileInput').click()">
+                            <span>Drop audio file here or click to upload</span>
+                            <span class="dropzone-hint" id="atFileName">Max 2 GB</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="atInput">Or enter file path</label>
+                    <input type="text" id="atInput" name="input_file" placeholder="C:\path\to\audio.mp3">
+                </div>
+
+                <div class="form-group">
+                    <label>Or select from completed jobs:</label>
+                    <select id="atJobPicker" onchange="fillInput()">
+                        <option value="">— Select a job output —</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="atStart">Start Time</label>
+                        <input type="text" id="atStart" name="start_time" placeholder="00:00:00 or seconds">
+                    </div>
+                    <div class="form-group">
+                        <label for="atEnd">End Time</label>
+                        <input type="text" id="atEnd" name="end_time" placeholder="00:01:30 or seconds">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="atFadeIn">Fade In (seconds)</label>
+                        <input type="number" id="atFadeIn" name="fade_in" value="0" min="0" max="30" step="0.5">
+                    </div>
+                    <div class="form-group">
+                        <label for="atFadeOut">Fade Out (seconds)</label>
+                        <input type="number" id="atFadeOut" name="fade_out" value="0" min="0" max="30" step="0.5">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="atTitle">Title</label>
+                    <input type="text" id="atTitle" name="title" placeholder="Audio trim job">
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary btn-lg" id="trimBtn">
+                        <span class="btn-icon-inline"><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#scissors"></use></svg></span> Start Trim
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', loadCompletedJobs);
+
+    async function loadCompletedJobs() {
+        try {
+            const resp = await fetch('/api/jobs?limit=50');
+            const data = await resp.json();
+            const picker = document.getElementById('atJobPicker');
+            data.jobs.filter(j => j.status === 'completed' && j.output_file).forEach(j => {
+                const opt = document.createElement('option');
+                opt.value = j.folder + '/output/' + j.output_file;
+                opt.textContent = `${j.title || j.id} (${j.output_file})`;
+                picker.appendChild(opt);
+            });
+        } catch(e) {}
+    }
+
+    function fillInput() {
+        const val = document.getElementById('atJobPicker').value;
+        if (val) document.getElementById('atInput').value = val;
+    }
+
+    function handleDrop(e, prefix) {
+        e.preventDefault();
+        e.currentTarget.classList.remove('dragover');
+        const file = e.dataTransfer.files[0];
+        if (file) uploadFile(file, prefix);
+    }
+
+    function handleFileSelect(input, prefix) {
+        const file = input.files[0];
+        if (file) uploadFile(file, prefix);
+    }
+
+    async function uploadFile(file, prefix) {
+        const hint = document.getElementById(prefix + 'FileName');
+        hint.textContent = `Uploading ${file.name}...`;
+        const fd = new FormData();
+        fd.append('file', file);
+        try {
+            const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+            const data = await resp.json();
+            if (data.ok) {
+                document.getElementById(prefix + 'Input').value = data.path;
+                hint.textContent = `Uploaded: ${data.filename}`;
+                showToast('File uploaded');
+            } else {
+                hint.textContent = `Error: ${data.error}`;
+                showToast(data.error, 'error');
+            }
+        } catch(e) {
+            hint.textContent = 'Upload failed';
+            showToast('Upload failed', 'error');
+        }
+    }
+
+    async function submitTrim(e) {
+        e.preventDefault();
+        const input = document.getElementById('atInput').value;
+        if (!input) { showToast('Select or upload a file first', 'error'); return; }
+
+        const start = document.getElementById('atStart').value.trim();
+        const end = document.getElementById('atEnd').value.trim();
+        if (!start && !end) { showToast('Set at least a start or end time', 'error'); return; }
+
+        const btn = document.getElementById('trimBtn');
+        btn.disabled = true;
+        const params = {
+            input_file: input,
+            start_time: start || undefined,
+            end_time: end || undefined,
+            fade_in: parseFloat(document.getElementById('atFadeIn').value) || 0,
+            fade_out: parseFloat(document.getElementById('atFadeOut').value) || 0,
+            title: document.getElementById('atTitle').value,
+        };
+        try {
+            const resp = await fetch('/api/jobs', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ type: 'audio_trim', params })
+            });
+            const data = await resp.json();
+            if (data.ok) {
+                showToast('Audio trim started');
+                setTimeout(() => window.location.href = '/jobs', 1000);
+            } else {
+                showToast(data.error || 'Failed', 'error');
+            }
+        } catch(e) {
+            showToast('Request failed', 'error');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+</script>
+{% endblock %}

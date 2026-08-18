@@ -1,0 +1,1133 @@
+diff --git a/chrome/browser/resources/vast/app.css b/chrome/browser/resources/vast/app.css
+index fb32194e624e3f861f00a69b30c553e588d4298f..2895fbb917f3f7c981c45b6a6318cdf2365204cf 100644
+--- a/chrome/browser/resources/vast/app.css
++++ b/chrome/browser/resources/vast/app.css
+@@ -151,6 +151,23 @@ a {
+   transition: 160ms ease;
+ }
+ 
++.workspace-item {
++  padding: 0;
++  font-family: inherit;
++  cursor: pointer;
++}
++
++.workspace-item:hover:not(:disabled),
++.workspace-item:focus-visible {
++  border-color: color-mix(in srgb, var(--workspace-color, var(--vast-accent)) 48%, var(--vast-border));
++  color: var(--vast-text);
++  transform: translateY(-1px);
++}
++
++.workspace-item:disabled {
++  cursor: default;
++}
++
+ .workspace-item::before {
+   position: absolute;
+   left: -13px;
+diff --git a/chrome/browser/resources/vast/app.ts b/chrome/browser/resources/vast/app.ts
+index d4220fdba2535545207ed3a18e374b299cef9394..eca75300322ea762e42c06e6d1f9fb928341c491 100644
+--- a/chrome/browser/resources/vast/app.ts
++++ b/chrome/browser/resources/vast/app.ts
+@@ -33,6 +33,9 @@ interface ProductDataProjection {
+   error: string;
+ }
+ 
++let workspaceSelectionHandler:
++    ((workspaceId: string) => Promise<void>)|undefined;
++
+ function setText(id: string, value: string) {
+   const element = document.querySelector<HTMLElement>(`#${id}`);
+   if (!element) {
+@@ -82,7 +85,8 @@ function renderWorkspaceRail(workspaces: WorkspaceProjection[]) {
+ 
+   const ordered = [...workspaces].sort((left, right) => left.order - right.order);
+   for (const workspace of ordered) {
+-    const item = document.createElement('span');
++    const item = document.createElement('button');
++    item.type = 'button';
+     item.className =
+         `workspace-item${workspace.active ? ' active' : ''}` +
+         `${workspace.isPrivate ? ' private' : ''}`;
+@@ -91,7 +95,12 @@ function renderWorkspaceRail(workspaces: WorkspaceProjection[]) {
+     item.style.setProperty('--workspace-color', safeColor(workspace.color));
+     item.title = `${workspace.name}${workspace.isPrivate ? ' · private' : ''}`;
+     item.setAttribute('aria-label', item.title);
++    item.setAttribute('aria-pressed', String(workspace.active));
++    item.disabled = workspace.active;
+     item.textContent = workspaceInitial(workspace);
++    item.addEventListener('click', () => {
++      void workspaceSelectionHandler?.(workspace.id);
++    });
+     list.appendChild(item);
+   }
+ }
+@@ -110,6 +119,11 @@ function renderProductData(productData: ProductDataProjection) {
+ 
+   const activeWorkspace = workspaces.find(workspace => workspace.active) ||
+       workspaces[0];
++  if (activeWorkspace) {
++    document.documentElement.dataset['activeWorkspaceId'] = activeWorkspace.id;
++  } else {
++    delete document.documentElement.dataset['activeWorkspaceId'];
++  }
+   setText('active-workspace-name', activeWorkspace?.name || 'Vast');
+ 
+   if (workspaces.length > 0) {
+@@ -168,6 +182,31 @@ async function initialize() {
+   PageHandlerFactory.getRemote().createPageHandler(
+       handler.$.bindNewPipeAndPassReceiver());
+ 
++  workspaceSelectionHandler = async (workspaceId: string) => {
++    document.documentElement.dataset['workspaceSelection'] = 'working';
++    document.querySelectorAll<HTMLButtonElement>('.workspace-item').forEach(
++        item => item.disabled = true);
++    try {
++      const {result} = await handler.selectWorkspace(workspaceId);
++      showProductDataStatus(result.status);
++      if (result.success) {
++        document.documentElement.dataset['workspaceSelection'] = 'selected';
++        return;
++      }
++      document.documentElement.dataset['workspaceSelection'] = 'failed';
++      const status = getElement<HTMLParagraphElement>('product-data-status');
++      status.hidden = false;
++      status.textContent = result.error || 'Vast workspace selection failed.';
++    } catch (error) {
++      document.documentElement.dataset['workspaceSelection'] = 'failed';
++      const status = getElement<HTMLParagraphElement>('product-data-status');
++      status.hidden = false;
++      status.textContent = String(error);
++      document.querySelectorAll<HTMLButtonElement>('.workspace-item').forEach(
++          item => item.disabled = item.dataset['workspaceActive'] === 'true');
++    }
++  };
++
+   const [{info}, {preview}, {status: productData}] = await Promise.all([
+     handler.getRuntimeInfo(),
+     handler.getMigrationPreview(),
+diff --git a/chrome/browser/ui/views/toolbar/BUILD.gn b/chrome/browser/ui/views/toolbar/BUILD.gn
+index e47092465f2f5d76b73a144ba96620e178daeb12..6e5dcd4a7ade52a0cadf5dd46aacb0b726c7c586 100644
+--- a/chrome/browser/ui/views/toolbar/BUILD.gn
++++ b/chrome/browser/ui/views/toolbar/BUILD.gn
+@@ -279,7 +279,10 @@ source_set("impl") {
+       "vast_workspace_button.cc",
+       "vast_workspace_button.h",
+     ]
+-    deps += [ "//chrome/browser/vast:vast_service" ]
++    deps += [
++      "//chrome/browser/vast:vast_service",
++      "//ui/menus",
++    ]
+   }
+   if (is_chromeos) {
+     deps += [
+diff --git a/chrome/browser/ui/views/toolbar/vast_workspace_button.cc b/chrome/browser/ui/views/toolbar/vast_workspace_button.cc
+index 25d705d4ffe6164e9584ed35126ab2f38288fdd8..5c584fb71f523edd0eced1ef813eb58532383b11 100644
+--- a/chrome/browser/ui/views/toolbar/vast_workspace_button.cc
++++ b/chrome/browser/ui/views/toolbar/vast_workspace_button.cc
+@@ -5,9 +5,14 @@
+ #include "chrome/browser/ui/views/toolbar/vast_workspace_button.h"
+ 
+ #include <algorithm>
++#include <memory>
+ #include <string>
++#include <utility>
++#include <vector>
+ 
++#include "base/check.h"
+ #include "base/functional/bind.h"
++#include "base/logging.h"
+ #include "base/strings/utf_string_conversions.h"
+ #include "chrome/app/vector_icons/vector_icons.h"
+ #include "chrome/browser/profiles/profile.h"
+@@ -18,22 +23,78 @@
+ #include "chrome/browser/vast/vast_product_data_service_factory.h"
+ #include "chrome/common/webui_url_constants.h"
+ #include "ui/base/metadata/metadata_impl_macros.h"
++#include "ui/base/models/menu_separator_types.h"
++#include "ui/base/mojom/menu_source_type.mojom.h"
+ #include "ui/base/page_transition_types.h"
+ #include "ui/base/window_open_disposition_utils.h"
+ #include "ui/events/event.h"
+ #include "ui/gfx/geometry/size.h"
+ #include "ui/gfx/text_constants.h"
++#include "ui/menus/simple_menu_model.h"
+ #include "ui/views/accessibility/view_accessibility.h"
+ #include "ui/views/view_class_properties.h"
+ 
+ namespace {
+ 
+ constexpr int kMaximumButtonWidth = 180;
++constexpr int kFirstWorkspaceCommand = 1000;
++constexpr int kOpenWorkspaceHubCommand = 2000;
++constexpr int kWorkspaceRadioGroup = 1;
+ 
+ }  // namespace
+ 
+ DEFINE_CLASS_ELEMENT_IDENTIFIER_VALUE(VastWorkspaceButton, kElementId);
+ 
++class VastWorkspaceButton::WorkspaceMenuDelegate
++    : public ui::SimpleMenuModel::Delegate {
++ public:
++  WorkspaceMenuDelegate(VastWorkspaceButton* button,
++                        std::vector<vast::VastWorkspaceProjection> workspaces)
++      : button_(button), workspaces_(std::move(workspaces)), model_(this) {
++    CHECK(button_);
++    std::ranges::sort(workspaces_, {}, &vast::VastWorkspaceProjection::order);
++    for (size_t index = 0; index < workspaces_.size(); ++index) {
++      const vast::VastWorkspaceProjection& workspace = workspaces_[index];
++      std::u16string label = base::UTF8ToUTF16(workspace.name);
++      if (workspace.is_private) {
++        label += u" (private)";
++      }
++      model_.AddRadioItem(kFirstWorkspaceCommand + static_cast<int>(index),
++                          label, kWorkspaceRadioGroup);
++    }
++    model_.AddSeparator(ui::NORMAL_SEPARATOR);
++    model_.AddItem(kOpenWorkspaceHubCommand, u"Open Vast workspace hub");
++  }
++
++  WorkspaceMenuDelegate(const WorkspaceMenuDelegate&) = delete;
++  WorkspaceMenuDelegate& operator=(const WorkspaceMenuDelegate&) = delete;
++  ~WorkspaceMenuDelegate() override = default;
++
++  ui::SimpleMenuModel* model() { return &model_; }
++
++  bool IsCommandIdChecked(int command_id) const override {
++    const int index = command_id - kFirstWorkspaceCommand;
++    return index >= 0 && static_cast<size_t>(index) < workspaces_.size() &&
++           workspaces_[index].active;
++  }
++
++  void ExecuteCommand(int command_id, int event_flags) override {
++    if (command_id == kOpenWorkspaceHubCommand) {
++      button_->OpenWorkspaceHub(event_flags);
++      return;
++    }
++    const int index = command_id - kFirstWorkspaceCommand;
++    if (index >= 0 && static_cast<size_t>(index) < workspaces_.size()) {
++      button_->SelectWorkspace(workspaces_[index].id);
++    }
++  }
++
++ private:
++  const raw_ptr<VastWorkspaceButton> button_;
++  std::vector<vast::VastWorkspaceProjection> workspaces_;
++  ui::SimpleMenuModel model_;
++};
++
+ VastWorkspaceButton::VastWorkspaceButton(Browser* browser)
+     : ToolbarChipButton(base::BindRepeating(&VastWorkspaceButton::OnPressed,
+                                             base::Unretained(this))),
+@@ -62,12 +123,38 @@ VastWorkspaceButton::VastWorkspaceButton(Browser* browser)
+ VastWorkspaceButton::~VastWorkspaceButton() = default;
+ 
+ void VastWorkspaceButton::OnPressed(const ui::Event& event) {
++  if (!workspaces_.empty() && !(event.flags() & ui::EF_MIDDLE_MOUSE_BUTTON)) {
++    workspace_menu_delegate_ =
++        std::make_unique<WorkspaceMenuDelegate>(this, workspaces_);
++    ShowMenuForModel(event.IsKeyEvent() ? ui::mojom::MenuSourceType::kKeyboard
++                                        : ui::mojom::MenuSourceType::kMouse,
++                     workspace_menu_delegate_->model());
++    return;
++  }
++  OpenWorkspaceHub(event.flags());
++}
++
++void VastWorkspaceButton::OpenWorkspaceHub(int event_flags) {
+   NavigateParams params(browser_, GURL(chrome::kChromeUIVastURL),
+                         ui::PAGE_TRANSITION_AUTO_BOOKMARK);
+-  params.disposition = ui::DispositionFromEventFlags(event.flags());
++  params.disposition = ui::DispositionFromEventFlags(event_flags);
+   Navigate(&params);
+ }
+ 
++void VastWorkspaceButton::SelectWorkspace(std::string workspace_id) {
++  product_data_service_->SelectWorkspace(
++      std::move(workspace_id),
++      base::BindOnce(&VastWorkspaceButton::OnWorkspaceSelected,
++                     weak_ptr_factory_.GetWeakPtr()));
++}
++
++void VastWorkspaceButton::OnWorkspaceSelected(
++    vast::VastWorkspaceSelectionResult result) {
++  if (!result.success) {
++    LOG(WARNING) << "Native Vast workspace selection failed: " << result.error;
++  }
++}
++
+ void VastWorkspaceButton::RefreshStatus() {
+   product_data_service_->GetStatus(base::BindOnce(
+       &VastWorkspaceButton::OnInitialStatus, weak_ptr_factory_.GetWeakPtr()));
+@@ -81,6 +168,7 @@ void VastWorkspaceButton::OnInitialStatus(
+ void VastWorkspaceButton::OnStatusChanged(
+     const vast::VastProductDataRootStatus& status) {
+   if (!status.selected || !status.compatible || !status.projection.compatible) {
++    workspaces_.clear();
+     ApplyDefaultState(status.selected && !status.compatible);
+     return;
+   }
+@@ -91,12 +179,14 @@ void VastWorkspaceButton::OnStatusChanged(
+                              return workspace.active;
+                            });
+   if (active_workspace == status.projection.workspaces.end()) {
++    workspaces_.clear();
+     ApplyDefaultState(/*needs_attention=*/true);
+     return;
+   }
+ 
+   const std::u16string workspace_name =
+       base::UTF8ToUTF16(active_workspace->name);
++  workspaces_ = status.projection.workspaces;
+   SetText(workspace_name);
+   const std::u16string prefix = active_workspace->is_private
+                                     ? u"Private Vast workspace: "
+diff --git a/chrome/browser/ui/views/toolbar/vast_workspace_button.h b/chrome/browser/ui/views/toolbar/vast_workspace_button.h
+index 625c85da8539e4638d1ae6acbc112fd1488aca41..6b5b796d746b0725a99caedf149f10ca8d191f7f 100644
+--- a/chrome/browser/ui/views/toolbar/vast_workspace_button.h
++++ b/chrome/browser/ui/views/toolbar/vast_workspace_button.h
+@@ -5,10 +5,15 @@
+ #ifndef CHROME_BROWSER_UI_VIEWS_TOOLBAR_VAST_WORKSPACE_BUTTON_H_
+ #define CHROME_BROWSER_UI_VIEWS_TOOLBAR_VAST_WORKSPACE_BUTTON_H_
+ 
++#include <memory>
++#include <string>
++#include <vector>
++
+ #include "base/callback_list.h"
+ #include "base/memory/raw_ptr.h"
+ #include "base/memory/weak_ptr.h"
+ #include "chrome/browser/ui/views/toolbar/toolbar_chip_button.h"
++#include "chrome/browser/vast/vast_data_projection.h"
+ 
+ class Browser;
+ 
+@@ -19,6 +24,7 @@ class Event;
+ namespace vast {
+ class VastProductDataService;
+ struct VastProductDataRootStatus;
++struct VastWorkspaceSelectionResult;
+ }  // namespace vast
+ 
+ // Persistent native entry point for Vast-owned browser UI. Product data is
+@@ -35,7 +41,12 @@ class VastWorkspaceButton : public ToolbarChipButton {
+   ~VastWorkspaceButton() override;
+ 
+  private:
++  class WorkspaceMenuDelegate;
++
+   void OnPressed(const ui::Event& event);
++  void OpenWorkspaceHub(int event_flags);
++  void SelectWorkspace(std::string workspace_id);
++  void OnWorkspaceSelected(vast::VastWorkspaceSelectionResult result);
+   void RefreshStatus();
+   void OnInitialStatus(vast::VastProductDataRootStatus status);
+   void OnStatusChanged(const vast::VastProductDataRootStatus& status);
+@@ -43,6 +54,8 @@ class VastWorkspaceButton : public ToolbarChipButton {
+ 
+   const raw_ptr<Browser> browser_;
+   const raw_ptr<vast::VastProductDataService> product_data_service_;
++  std::vector<vast::VastWorkspaceProjection> workspaces_;
++  std::unique_ptr<WorkspaceMenuDelegate> workspace_menu_delegate_;
+   base::CallbackListSubscription status_changed_subscription_;
+   base::WeakPtrFactory<VastWorkspaceButton> weak_ptr_factory_{this};
+ };
+diff --git a/chrome/browser/ui/webui/vast/vast.mojom b/chrome/browser/ui/webui/vast/vast.mojom
+index 000b35083c4d54ee34a2c287b925b4fda41b7c35..b7f17601e96bdbed1014fee3af1f13b3e54b11f2 100644
+--- a/chrome/browser/ui/webui/vast/vast.mojom
++++ b/chrome/browser/ui/webui/vast/vast.mojom
+@@ -76,11 +76,20 @@ struct ProductDataStatus {
+   string error;
+ };
+ 
++// Outcome of a profile-local workspace selection. Imported Vast product files
++// remain read-only; the returned status is the revalidated effective state.
++struct WorkspaceSelectionResult {
++  bool success;
++  ProductDataStatus status;
++  string error;
++};
++
+ // Renderer-to-browser operations for chrome://vast.
+ interface PageHandler {
+   GetRuntimeInfo() => (RuntimeInfo info);
+   GetMigrationPreview() => (MigrationPreview preview);
+   GetProductDataStatus() => (ProductDataStatus status);
++  SelectWorkspace(string workspace_id) => (WorkspaceSelectionResult result);
+   RunMigrationFixtureTransaction(bool confirmed) =>
+       (MigrationTransactionResult result);
+   RollbackMigrationFixtureTransaction(bool confirmed) =>
+diff --git a/chrome/browser/ui/webui/vast/vast_ui.cc b/chrome/browser/ui/webui/vast/vast_ui.cc
+index 70d23124bf133c8d09ac7f5190cf3a70376ede64..9564fa56592d5d59d0fd0808e1e98a759f36b7ac 100644
+--- a/chrome/browser/ui/webui/vast/vast_ui.cc
++++ b/chrome/browser/ui/webui/vast/vast_ui.cc
+@@ -172,6 +172,15 @@ mojom::ProductDataStatusPtr ToMojomProductDataStatus(
+   return status;
+ }
+ 
++mojom::WorkspaceSelectionResultPtr ToMojomWorkspaceSelectionResult(
++    VastWorkspaceSelectionResult source) {
++  auto result = mojom::WorkspaceSelectionResult::New();
++  result->success = source.success;
++  result->status = ToMojomProductDataStatus(source.status);
++  result->error = std::move(source.error);
++  return result;
++}
++
+ VastDataMigrationTransaction RunMigrationFixtureTransactionOnWorker(
+     base::FilePath profile_path) {
+   const base::CommandLine* command_line =
+@@ -341,6 +350,21 @@ void VastUI::GetProductDataStatus(GetProductDataStatusCallback callback) {
+       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+ }
+ 
++void VastUI::SelectWorkspace(const std::string& workspace_id,
++                             SelectWorkspaceCallback callback) {
++  product_data_service_->SelectWorkspace(
++      workspace_id,
++      base::BindOnce(
++          [](base::WeakPtr<VastUI> self, SelectWorkspaceCallback callback,
++             VastWorkspaceSelectionResult result) {
++            if (self) {
++              std::move(callback).Run(
++                  ToMojomWorkspaceSelectionResult(std::move(result)));
++            }
++          },
++          weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
++}
++
+ void VastUI::RunMigrationFixtureTransaction(
+     bool confirmed,
+     RunMigrationFixtureTransactionCallback callback) {
+diff --git a/chrome/browser/ui/webui/vast/vast_ui.h b/chrome/browser/ui/webui/vast/vast_ui.h
+index 8decd893cb0e57316693b2346c8147d899aff684..3f3611da15daeaa06e11c02c84d1fca839b324c4 100644
+--- a/chrome/browser/ui/webui/vast/vast_ui.h
++++ b/chrome/browser/ui/webui/vast/vast_ui.h
+@@ -6,6 +6,7 @@
+ #define CHROME_BROWSER_UI_WEBUI_VAST_VAST_UI_H_
+ 
+ #include <optional>
++#include <string>
+ 
+ #include "base/files/file_path.h"
+ #include "base/memory/raw_ptr.h"
+@@ -53,6 +54,8 @@ class VastUI : public ui::MojoWebUIController,
+   void GetRuntimeInfo(GetRuntimeInfoCallback callback) override;
+   void GetMigrationPreview(GetMigrationPreviewCallback callback) override;
+   void GetProductDataStatus(GetProductDataStatusCallback callback) override;
++  void SelectWorkspace(const std::string& workspace_id,
++                       SelectWorkspaceCallback callback) override;
+   void RunMigrationFixtureTransaction(
+       bool confirmed,
+       RunMigrationFixtureTransactionCallback callback) override;
+diff --git a/chrome/browser/vast/BUILD.gn b/chrome/browser/vast/BUILD.gn
+index 6f037c0e4b54fedd1baad7ad2d0b702995141c08..f8bb8219370b95a420f56299e2aeef59ced6ff16 100644
+--- a/chrome/browser/vast/BUILD.gn
++++ b/chrome/browser/vast/BUILD.gn
+@@ -16,6 +16,8 @@ source_set("vast_data") {
+     "vast_data_projection.h",
+     "vast_product_data_root.cc",
+     "vast_product_data_root.h",
++    "vast_workspace_selection.cc",
++    "vast_workspace_selection.h",
+   ]
+ 
+   public_deps = [
+@@ -50,6 +52,7 @@ test("vast_data_unittests") {
+     "vast_data_projection_unittest.cc",
+     "vast_product_data_root_unittest.cc",
+     "vast_product_data_service_unittest.cc",
++    "vast_workspace_selection_unittest.cc",
+   ]
+ 
+   deps = [
+diff --git a/chrome/browser/vast/vast_product_data_service.cc b/chrome/browser/vast/vast_product_data_service.cc
+index 58e45d99e9b0e0e8983933f25ce3c6179e1116bf..45cfdd637f31c6c66d4d9294d7e6b99dc22093dc 100644
+--- a/chrome/browser/vast/vast_product_data_service.cc
++++ b/chrome/browser/vast/vast_product_data_service.cc
+@@ -4,12 +4,48 @@
+ 
+ #include "chrome/browser/vast/vast_product_data_service.h"
+ 
++#include <algorithm>
++#include <string>
+ #include <utility>
+ 
+ #include "base/functional/bind.h"
++#include "base/logging.h"
+ #include "base/task/thread_pool.h"
++#include "chrome/browser/vast/vast_workspace_selection.h"
+ 
+ namespace vast {
++namespace {
++
++VastProductDataRootStatus RecoverVastProductDataWithWorkspaceSelection(
++    const base::FilePath& profile_path) {
++  VastProductDataRootStatus status = RecoverVastProductDataRoot(profile_path);
++  if (!status.selected || !status.compatible || !status.projection.compatible ||
++      status.transaction.journal_path.empty()) {
++    return status;
++  }
++
++  bool applied = false;
++  std::string error;
++  if (!ApplyVastWorkspaceSelection(profile_path,
++                                   status.transaction.journal_path,
++                                   &status.projection, &applied, &error)) {
++    LOG(WARNING) << "Ignoring invalid Vast workspace selection: " << error;
++  }
++  return status;
++}
++
++std::string PersistWorkspaceSelectionOnWorker(base::FilePath profile_path,
++                                              base::FilePath journal_path,
++                                              std::string workspace_id) {
++  std::string error;
++  if (!PersistVastWorkspaceSelection(profile_path, journal_path, workspace_id,
++                                     &error)) {
++    return error;
++  }
++  return std::string();
++}
++
++}  // namespace
+ 
+ VastProductDataService::VastProductDataService(base::FilePath profile_path)
+     : profile_path_(std::move(profile_path)) {}
+@@ -33,6 +69,29 @@ void VastProductDataService::GetStatus(StatusCallback callback) {
+   }
+ }
+ 
++void VastProductDataService::SelectWorkspace(
++    std::string workspace_id,
++    WorkspaceSelectionCallback callback) {
++  if (shutdown_) {
++    VastWorkspaceSelectionResult result;
++    result.error = "The Vast product-data service is shutting down.";
++    std::move(callback).Run(std::move(result));
++    return;
++  }
++  if (workspace_selection_in_progress_) {
++    VastWorkspaceSelectionResult result;
++    result.error = "A Vast workspace selection is already in progress.";
++    std::move(callback).Run(std::move(result));
++    return;
++  }
++
++  workspace_selection_in_progress_ = true;
++  GetStatus(base::BindOnce(
++      &VastProductDataService::OnStatusReadyForWorkspaceSelection,
++      weak_ptr_factory_.GetWeakPtr(), std::move(workspace_id),
++      std::move(callback)));
++}
++
+ base::CallbackListSubscription VastProductDataService::AddStatusChangedCallback(
+     StatusChangedCallbackList::CallbackType callback) {
+   return status_changed_callbacks_.Add(std::move(callback));
+@@ -49,6 +108,7 @@ void VastProductDataService::Shutdown() {
+   shutdown_ = true;
+   cached_status_.reset();
+   pending_callbacks_.clear();
++  workspace_selection_in_progress_ = false;
+   weak_ptr_factory_.InvalidateWeakPtrs();
+ }
+ 
+@@ -56,7 +116,8 @@ void VastProductDataService::StartRecovery() {
+   recovery_in_progress_ = true;
+   base::ThreadPool::PostTaskAndReplyWithResult(
+       FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+-      base::BindOnce(&RecoverVastProductDataRoot, profile_path_),
++      base::BindOnce(&RecoverVastProductDataWithWorkspaceSelection,
++                     profile_path_),
+       base::BindOnce(&VastProductDataService::OnRecoveryComplete,
+                      weak_ptr_factory_.GetWeakPtr()));
+ }
+@@ -78,4 +139,99 @@ void VastProductDataService::OnRecoveryComplete(
+   status_changed_callbacks_.Notify(*cached_status_);
+ }
+ 
++void VastProductDataService::OnStatusReadyForWorkspaceSelection(
++    std::string workspace_id,
++    WorkspaceSelectionCallback callback,
++    VastProductDataRootStatus status) {
++  if (!status.selected || !status.compatible || !status.projection.compatible) {
++    VastWorkspaceSelectionResult result;
++    result.status = std::move(status);
++    result.error = result.status.error.empty()
++                       ? "No compatible Vast product data is selected."
++                       : result.status.error;
++    FinishWorkspaceSelection(std::move(callback), std::move(result));
++    return;
++  }
++
++  const auto workspace =
++      std::ranges::find_if(status.projection.workspaces,
++                           [&](const VastWorkspaceProjection& candidate) {
++                             return candidate.id == workspace_id;
++                           });
++  if (workspace == status.projection.workspaces.end()) {
++    VastWorkspaceSelectionResult result;
++    result.status = std::move(status);
++    result.error = "The requested Vast workspace does not exist.";
++    FinishWorkspaceSelection(std::move(callback), std::move(result));
++    return;
++  }
++  if (workspace->active) {
++    VastWorkspaceSelectionResult result;
++    result.success = true;
++    result.status = std::move(status);
++    FinishWorkspaceSelection(std::move(callback), std::move(result));
++    return;
++  }
++
++  const base::FilePath journal_path = status.transaction.journal_path;
++  std::string reload_workspace_id = workspace_id;
++  base::ThreadPool::PostTaskAndReplyWithResult(
++      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
++      base::BindOnce(&PersistWorkspaceSelectionOnWorker, profile_path_,
++                     journal_path, std::move(workspace_id)),
++      base::BindOnce(&VastProductDataService::OnWorkspaceSelectionPersisted,
++                     weak_ptr_factory_.GetWeakPtr(),
++                     std::move(reload_workspace_id), std::move(callback),
++                     std::move(status)));
++}
++
++void VastProductDataService::OnWorkspaceSelectionPersisted(
++    std::string workspace_id,
++    WorkspaceSelectionCallback callback,
++    VastProductDataRootStatus previous_status,
++    std::string error) {
++  if (!error.empty()) {
++    VastWorkspaceSelectionResult result;
++    result.status = std::move(previous_status);
++    result.error = std::move(error);
++    FinishWorkspaceSelection(std::move(callback), std::move(result));
++    return;
++  }
++
++  Invalidate();
++  GetStatus(
++      base::BindOnce(&VastProductDataService::OnWorkspaceSelectionReloaded,
++                     weak_ptr_factory_.GetWeakPtr(), std::move(workspace_id),
++                     std::move(callback)));
++}
++
++void VastProductDataService::OnWorkspaceSelectionReloaded(
++    std::string workspace_id,
++    WorkspaceSelectionCallback callback,
++    VastProductDataRootStatus status) {
++  VastWorkspaceSelectionResult result;
++  result.status = std::move(status);
++  const auto workspace = std::ranges::find_if(
++      result.status.projection.workspaces,
++      [&](const VastWorkspaceProjection& candidate) {
++        return candidate.id == workspace_id && candidate.active;
++      });
++  if (result.status.compatible && result.status.projection.compatible &&
++      workspace != result.status.projection.workspaces.end()) {
++    result.success = true;
++  } else {
++    result.error = result.status.error.empty()
++                       ? "Vast workspace selection did not survive reload."
++                       : result.status.error;
++  }
++  FinishWorkspaceSelection(std::move(callback), std::move(result));
++}
++
++void VastProductDataService::FinishWorkspaceSelection(
++    WorkspaceSelectionCallback callback,
++    VastWorkspaceSelectionResult result) {
++  workspace_selection_in_progress_ = false;
++  std::move(callback).Run(std::move(result));
++}
++
+ }  // namespace vast
+diff --git a/chrome/browser/vast/vast_product_data_service.h b/chrome/browser/vast/vast_product_data_service.h
+index 1d21b6a075abb113cbcd951d7a10a4333e416056..d0c7a495e0fb0fe3d0d3293936ef206ebd6a7ae0 100644
+--- a/chrome/browser/vast/vast_product_data_service.h
++++ b/chrome/browser/vast/vast_product_data_service.h
+@@ -6,6 +6,7 @@
+ #define CHROME_BROWSER_VAST_VAST_PRODUCT_DATA_SERVICE_H_
+ 
+ #include <optional>
++#include <string>
+ #include <vector>
+ 
+ #include "base/callback_list.h"
+@@ -17,12 +18,20 @@
+ 
+ namespace vast {
+ 
++struct VastWorkspaceSelectionResult {
++  bool success = false;
++  VastProductDataRootStatus status;
++  std::string error;
++};
++
+ // Profile-scoped owner of recovered Vast product-data state. Blocking
+ // verification stays on the ThreadPool and multiple WebUI controllers share
+ // one validated snapshot per browser process.
+ class VastProductDataService : public KeyedService {
+  public:
+   using StatusCallback = base::OnceCallback<void(VastProductDataRootStatus)>;
++  using WorkspaceSelectionCallback =
++      base::OnceCallback<void(VastWorkspaceSelectionResult)>;
+   using StatusChangedCallbackList =
+       base::RepeatingCallbackList<void(const VastProductDataRootStatus&)>;
+ 
+@@ -34,6 +43,12 @@ class VastProductDataService : public KeyedService {
+ 
+   void GetStatus(StatusCallback callback);
+ 
++  // Selects a validated workspace through profile-local metadata. Imported
++  // product files remain read-only and the selection is scoped to the exact
++  // recovered migration journal.
++  void SelectWorkspace(std::string workspace_id,
++                       WorkspaceSelectionCallback callback);
++
+   // Registers a browser-process-only listener for newly recovered, validated
+   // product state. The subscription must not outlive this keyed service.
+   [[nodiscard]] base::CallbackListSubscription AddStatusChangedCallback(
+@@ -49,12 +64,25 @@ class VastProductDataService : public KeyedService {
+  private:
+   void StartRecovery();
+   void OnRecoveryComplete(VastProductDataRootStatus status);
++  void OnStatusReadyForWorkspaceSelection(std::string workspace_id,
++                                          WorkspaceSelectionCallback callback,
++                                          VastProductDataRootStatus status);
++  void OnWorkspaceSelectionPersisted(std::string workspace_id,
++                                     WorkspaceSelectionCallback callback,
++                                     VastProductDataRootStatus previous_status,
++                                     std::string error);
++  void OnWorkspaceSelectionReloaded(std::string workspace_id,
++                                    WorkspaceSelectionCallback callback,
++                                    VastProductDataRootStatus status);
++  void FinishWorkspaceSelection(WorkspaceSelectionCallback callback,
++                                VastWorkspaceSelectionResult result);
+ 
+   const base::FilePath profile_path_;
+   std::optional<VastProductDataRootStatus> cached_status_;
+   std::vector<StatusCallback> pending_callbacks_;
+   bool recovery_in_progress_ = false;
+   bool reload_after_recovery_ = false;
++  bool workspace_selection_in_progress_ = false;
+   bool shutdown_ = false;
+   StatusChangedCallbackList status_changed_callbacks_;
+   base::WeakPtrFactory<VastProductDataService> weak_ptr_factory_{this};
+diff --git a/chrome/browser/vast/vast_product_data_service_unittest.cc b/chrome/browser/vast/vast_product_data_service_unittest.cc
+index 9aaddae14983963fe737354396d705e24738fa97..b87cc7cd9a99b966e229d52f4d6edecaa83ad42a 100644
+--- a/chrome/browser/vast/vast_product_data_service_unittest.cc
++++ b/chrome/browser/vast/vast_product_data_service_unittest.cc
+@@ -6,6 +6,7 @@
+ 
+ #include <string>
+ #include <string_view>
++#include <utility>
+ 
+ #include "base/files/file_util.h"
+ #include "base/files/scoped_temp_dir.h"
+@@ -21,7 +22,8 @@ constexpr char kValidVastData[] = R"({
+   "schemaVersion": 5,
+   "activeWorkspaceId": "workspace",
+   "workspaces": [
+-    {"id":"workspace","name":"Workspace","icon":"home","color":"#123456","order":0}
++    {"id":"workspace","name":"Workspace","icon":"home","color":"#123456","order":0},
++    {"id":"focus","name":"Focus","icon":"target","color":"#654321","order":1}
+   ],
+   "tabGroups": [],
+   "tabs": [],
+@@ -75,6 +77,23 @@ class VastProductDataServiceTest : public testing::Test {
+     return result;
+   }
+ 
++  VastWorkspaceSelectionResult SelectWorkspace(VastProductDataService* service,
++                                               std::string workspace_id) {
++    VastWorkspaceSelectionResult result;
++    base::RunLoop run_loop;
++    service->SelectWorkspace(
++        std::move(workspace_id),
++        base::BindOnce(
++            [](VastWorkspaceSelectionResult* output, base::OnceClosure quit,
++               VastWorkspaceSelectionResult selection_result) {
++              *output = std::move(selection_result);
++              std::move(quit).Run();
++            },
++            &result, run_loop.QuitClosure()));
++    run_loop.Run();
++    return result;
++  }
++
+   base::test::TaskEnvironment task_environment_;
+   base::ScopedTempDir temp_dir_;
+ };
+@@ -102,7 +121,7 @@ TEST_F(VastProductDataServiceTest, SharesCachedStatusAndRevalidatesOnDemand) {
+ 
+   const VastProductDataRootStatus first = GetStatus(&service);
+   ASSERT_TRUE(first.compatible) << first.error;
+-  ASSERT_EQ(first.projection.workspaces.size(), 1u);
++  ASSERT_EQ(first.projection.workspaces.size(), 2u);
+   EXPECT_EQ(first.projection.workspaces[0].name, "Workspace");
+   EXPECT_EQ(status_change_count, 1);
+   EXPECT_TRUE(latest_status_compatible);
+@@ -124,6 +143,66 @@ TEST_F(VastProductDataServiceTest, SharesCachedStatusAndRevalidatesOnDemand) {
+   EXPECT_FALSE(latest_status_compatible);
+ }
+ 
++TEST_F(VastProductDataServiceTest,
++       SelectsWorkspaceWithoutChangingImportedDataAndSurvivesRestart) {
++  const base::FilePath source = CreateDirectory("Source");
++  const base::FilePath transactions = CreateDirectory("Transactions");
++  const base::FilePath profile = CreateDirectory("Profile");
++  VastDataMigrationTransaction transaction =
++      CommitFixture(source, transactions);
++  std::string error;
++  ASSERT_TRUE(ActivateVastProductDataRoot(profile, transaction, &error))
++      << error;
++
++  std::string source_before;
++  std::string destination_before;
++  ASSERT_TRUE(base::ReadFileToString(
++      source.Append(FILE_PATH_LITERAL("vast-data.json")), &source_before));
++  ASSERT_TRUE(base::ReadFileToString(
++      transaction.destination_root.Append(FILE_PATH_LITERAL("vast-data.json")),
++      &destination_before));
++
++  {
++    VastProductDataService service(profile);
++    const VastProductDataRootStatus initial = GetStatus(&service);
++    ASSERT_TRUE(initial.compatible) << initial.error;
++    ASSERT_TRUE(profile.IsAbsolute()) << profile.AsUTF8Unsafe();
++    ASSERT_TRUE(initial.transaction.journal_path.IsAbsolute())
++        << initial.transaction.journal_path.AsUTF8Unsafe();
++    ASSERT_EQ(initial.projection.workspaces.size(), 2u);
++    EXPECT_TRUE(initial.projection.workspaces[0].active);
++    EXPECT_FALSE(initial.projection.workspaces[1].active);
++
++    VastWorkspaceSelectionResult selected = SelectWorkspace(&service, "focus");
++    ASSERT_TRUE(selected.success) << selected.error;
++    ASSERT_EQ(selected.status.projection.workspaces.size(), 2u);
++    EXPECT_FALSE(selected.status.projection.workspaces[0].active);
++    EXPECT_TRUE(selected.status.projection.workspaces[1].active);
++  }
++
++  VastProductDataService restarted_service(profile);
++  const VastProductDataRootStatus restarted = GetStatus(&restarted_service);
++  ASSERT_TRUE(restarted.compatible) << restarted.error;
++  ASSERT_EQ(restarted.projection.workspaces.size(), 2u);
++  EXPECT_FALSE(restarted.projection.workspaces[0].active);
++  EXPECT_TRUE(restarted.projection.workspaces[1].active);
++
++  VastWorkspaceSelectionResult unknown =
++      SelectWorkspace(&restarted_service, "missing");
++  EXPECT_FALSE(unknown.success);
++  EXPECT_EQ(unknown.error, "The requested Vast workspace does not exist.");
++
++  std::string source_after;
++  std::string destination_after;
++  ASSERT_TRUE(base::ReadFileToString(
++      source.Append(FILE_PATH_LITERAL("vast-data.json")), &source_after));
++  ASSERT_TRUE(base::ReadFileToString(
++      transaction.destination_root.Append(FILE_PATH_LITERAL("vast-data.json")),
++      &destination_after));
++  EXPECT_EQ(source_after, source_before);
++  EXPECT_EQ(destination_after, destination_before);
++}
++
+ TEST_F(VastProductDataServiceTest, CachesAnUnselectedProfile) {
+   const base::FilePath profile = CreateDirectory("Profile");
+   VastProductDataService service(profile);
+diff --git a/chrome/browser/vast/vast_workspace_selection.cc b/chrome/browser/vast/vast_workspace_selection.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..575dfdabfa44c3a510d51530dc911146b08a12ec
+--- /dev/null
++++ b/chrome/browser/vast/vast_workspace_selection.cc
+@@ -0,0 +1,151 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/vast/vast_workspace_selection.h"
++
++#include <algorithm>
++#include <cstddef>
++#include <optional>
++#include <string>
++
++#include "base/check.h"
++#include "base/files/file_util.h"
++#include "base/files/important_file_writer.h"
++#include "base/json/json_reader.h"
++#include "base/json/json_writer.h"
++#include "base/values.h"
++
++namespace vast {
++namespace {
++
++constexpr size_t kMaxSelectionBytes = 64 * 1024;
++constexpr size_t kMaxWorkspaceIdBytes = 256;
++constexpr size_t kMaxJournalPathBytes = 32768;
++constexpr base::FilePath::CharType kMetadataDirectory[] =
++    FILE_PATH_LITERAL("VastProductData");
++constexpr base::FilePath::CharType kSelectionFile[] =
++    FILE_PATH_LITERAL("workspace-selection.json");
++
++base::FilePath SelectionPath(const base::FilePath& profile_path) {
++  return profile_path.Append(kMetadataDirectory).Append(kSelectionFile);
++}
++
++}  // namespace
++
++bool ApplyVastWorkspaceSelection(const base::FilePath& profile_path,
++                                 const base::FilePath& journal_path,
++                                 VastDataProjection* projection,
++                                 bool* applied,
++                                 std::string* error) {
++  CHECK(projection);
++  CHECK(applied);
++  CHECK(error);
++  *applied = false;
++  error->clear();
++
++  const base::FilePath selection_path = SelectionPath(profile_path);
++  if (!base::PathExists(selection_path)) {
++    return true;
++  }
++  if (base::IsLink(selection_path) || base::IsLink(selection_path.DirName())) {
++    *error =
++        "Vast workspace selection metadata must not be a link or junction.";
++    return false;
++  }
++
++  std::string contents;
++  if (!base::ReadFileToStringWithMaxSize(selection_path, &contents,
++                                         kMaxSelectionBytes)) {
++    *error = "Vast workspace selection metadata is unavailable or oversized.";
++    return false;
++  }
++  std::optional<base::DictValue> root =
++      base::JSONReader::ReadDict(contents, base::JSON_PARSE_RFC, 20);
++  if (!root) {
++    *error = "Vast workspace selection metadata is not valid JSON.";
++    return false;
++  }
++
++  const std::optional<int> format_version = root->FindInt("formatVersion");
++  const std::string* selected_journal = root->FindString("journalPath");
++  const std::string* workspace_id = root->FindString("workspaceId");
++  if (!format_version || *format_version != 1 || !selected_journal ||
++      selected_journal->empty() ||
++      selected_journal->size() > kMaxJournalPathBytes || !workspace_id ||
++      workspace_id->empty() || workspace_id->size() > kMaxWorkspaceIdBytes) {
++    *error = "Vast workspace selection has an invalid envelope.";
++    return false;
++  }
++
++  const base::FilePath selected_journal_path =
++      base::FilePath::FromUTF8Unsafe(*selected_journal);
++  if (!selected_journal_path.IsAbsolute()) {
++    *error = "Vast workspace selection journal path must be absolute.";
++    return false;
++  }
++  if (selected_journal_path != journal_path) {
++    return true;
++  }
++
++  const auto selected_workspace = std::ranges::find_if(
++      projection->workspaces, [&](const VastWorkspaceProjection& workspace) {
++        return workspace.id == *workspace_id;
++      });
++  if (selected_workspace == projection->workspaces.end()) {
++    *error = "Vast workspace selection references an unknown workspace.";
++    return false;
++  }
++  for (VastWorkspaceProjection& workspace : projection->workspaces) {
++    workspace.active = workspace.id == *workspace_id;
++  }
++  *applied = true;
++  return true;
++}
++
++bool PersistVastWorkspaceSelection(const base::FilePath& profile_path,
++                                   const base::FilePath& journal_path,
++                                   std::string_view workspace_id,
++                                   std::string* error) {
++  CHECK(error);
++  error->clear();
++  if (!profile_path.IsAbsolute()) {
++    *error = "Vast workspace selection profile path must be absolute.";
++    return false;
++  }
++  if (!journal_path.IsAbsolute()) {
++    *error = "Vast workspace selection journal path must be absolute.";
++    return false;
++  }
++  if (workspace_id.empty() || workspace_id.size() > kMaxWorkspaceIdBytes) {
++    *error = "Vast workspace selection ID is invalid.";
++    return false;
++  }
++
++  const base::FilePath selection_path = SelectionPath(profile_path);
++  if (!base::CreateDirectory(selection_path.DirName()) ||
++      base::IsLink(selection_path.DirName()) || base::IsLink(selection_path)) {
++    *error = "Vast workspace selection directory is unavailable or unsafe.";
++    return false;
++  }
++
++  base::DictValue root;
++  root.Set("formatVersion", 1);
++  root.Set("journalPath", journal_path.AsUTF8Unsafe());
++  root.Set("workspaceId", std::string(workspace_id));
++  std::string serialized;
++  if (!base::JSONWriter::WriteWithOptions(
++          root, base::JSONWriter::OPTIONS_PRETTY_PRINT, &serialized)) {
++    *error = "Vast workspace selection could not be serialized.";
++    return false;
++  }
++  serialized.push_back('\n');
++  if (!base::ImportantFileWriter::WriteFileAtomically(selection_path,
++                                                      serialized)) {
++    *error = "Vast workspace selection could not be written.";
++    return false;
++  }
++  return true;
++}
++
++}  // namespace vast
+diff --git a/chrome/browser/vast/vast_workspace_selection.h b/chrome/browser/vast/vast_workspace_selection.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..c79c011c21f1bf3476507d41a9387018cf2d4f20
+--- /dev/null
++++ b/chrome/browser/vast/vast_workspace_selection.h
+@@ -0,0 +1,34 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_VAST_VAST_WORKSPACE_SELECTION_H_
++#define CHROME_BROWSER_VAST_VAST_WORKSPACE_SELECTION_H_
++
++#include <string>
++#include <string_view>
++
++#include "base/files/file_path.h"
++#include "chrome/browser/vast/vast_data_projection.h"
++
++namespace vast {
++
++// Applies a profile-local selection only when it belongs to the currently
++// recovered migration journal and references a validated workspace. Absence or
++// a record for a different migrated root is a successful no-op.
++bool ApplyVastWorkspaceSelection(const base::FilePath& profile_path,
++                                 const base::FilePath& journal_path,
++                                 VastDataProjection* projection,
++                                 bool* applied,
++                                 std::string* error);
++
++// Persists only workspace identity below the Chromium profile. The recovered
++// Vast product root and legacy vast-data.json remain read-only.
++bool PersistVastWorkspaceSelection(const base::FilePath& profile_path,
++                                   const base::FilePath& journal_path,
++                                   std::string_view workspace_id,
++                                   std::string* error);
++
++}  // namespace vast
++
++#endif  // CHROME_BROWSER_VAST_VAST_WORKSPACE_SELECTION_H_
+diff --git a/chrome/browser/vast/vast_workspace_selection_unittest.cc b/chrome/browser/vast/vast_workspace_selection_unittest.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..0d74ee871845599c6b3dcf7c272a51d3af7e9bdc
+--- /dev/null
++++ b/chrome/browser/vast/vast_workspace_selection_unittest.cc
+@@ -0,0 +1,90 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/vast/vast_workspace_selection.h"
++
++#include <string>
++
++#include "base/files/file_util.h"
++#include "base/files/scoped_temp_dir.h"
++#include "testing/gtest/include/gtest/gtest.h"
++
++namespace vast {
++namespace {
++
++VastDataProjection CreateProjection() {
++  VastDataProjection projection;
++  projection.compatible = true;
++  projection.schema_version = 5;
++  projection.workspaces = {
++      {.id = "one", .name = "One", .order = 0, .active = true},
++      {.id = "two", .name = "Two", .order = 1, .active = false},
++  };
++  return projection;
++}
++
++class VastWorkspaceSelectionTest : public testing::Test {
++ protected:
++  void SetUp() override {
++    ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
++    profile_path_ = temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Profile"));
++    ASSERT_TRUE(base::CreateDirectory(profile_path_));
++    journal_path_ =
++        temp_dir_.GetPath().Append(FILE_PATH_LITERAL("migration-journal.json"));
++  }
++
++  base::ScopedTempDir temp_dir_;
++  base::FilePath profile_path_;
++  base::FilePath journal_path_;
++};
++
++TEST_F(VastWorkspaceSelectionTest, PersistsAndAppliesKnownWorkspace) {
++  std::string error;
++  ASSERT_TRUE(PersistVastWorkspaceSelection(profile_path_, journal_path_, "two",
++                                            &error))
++      << error;
++  VastDataProjection projection = CreateProjection();
++  bool applied = false;
++  ASSERT_TRUE(ApplyVastWorkspaceSelection(profile_path_, journal_path_,
++                                          &projection, &applied, &error))
++      << error;
++  EXPECT_TRUE(applied);
++  EXPECT_FALSE(projection.workspaces[0].active);
++  EXPECT_TRUE(projection.workspaces[1].active);
++}
++
++TEST_F(VastWorkspaceSelectionTest, IgnoresSelectionForDifferentMigration) {
++  std::string error;
++  ASSERT_TRUE(PersistVastWorkspaceSelection(profile_path_, journal_path_, "two",
++                                            &error))
++      << error;
++  VastDataProjection projection = CreateProjection();
++  bool applied = true;
++  ASSERT_TRUE(ApplyVastWorkspaceSelection(
++      profile_path_,
++      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("other.json")), &projection,
++      &applied, &error));
++  EXPECT_FALSE(applied);
++  EXPECT_TRUE(projection.workspaces[0].active);
++  EXPECT_FALSE(projection.workspaces[1].active);
++}
++
++TEST_F(VastWorkspaceSelectionTest,
++       RejectsUnknownWorkspaceWithoutChangingState) {
++  std::string error;
++  ASSERT_TRUE(PersistVastWorkspaceSelection(profile_path_, journal_path_,
++                                            "unknown", &error))
++      << error;
++  VastDataProjection projection = CreateProjection();
++  bool applied = false;
++  EXPECT_FALSE(ApplyVastWorkspaceSelection(profile_path_, journal_path_,
++                                           &projection, &applied, &error));
++  EXPECT_FALSE(applied);
++  EXPECT_EQ(error, "Vast workspace selection references an unknown workspace.");
++  EXPECT_TRUE(projection.workspaces[0].active);
++  EXPECT_FALSE(projection.workspaces[1].active);
++}
++
++}  // namespace
++}  // namespace vast

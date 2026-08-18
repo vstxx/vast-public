@@ -1,0 +1,474 @@
+diff --git a/chrome/browser/ui/views/toolbar/BUILD.gn b/chrome/browser/ui/views/toolbar/BUILD.gn
+index 6e5dcd4a7a..2602bd3386 100644
+--- a/chrome/browser/ui/views/toolbar/BUILD.gn
++++ b/chrome/browser/ui/views/toolbar/BUILD.gn
+@@ -278,6 +278,8 @@ source_set("impl") {
+     sources += [
+       "vast_workspace_button.cc",
+       "vast_workspace_button.h",
++      "vast_workspace_tab_controller.cc",
++      "vast_workspace_tab_controller.h",
+     ]
+     deps += [
+       "//chrome/browser/vast:vast_service",
+diff --git a/chrome/browser/ui/views/toolbar/vast_workspace_button.cc b/chrome/browser/ui/views/toolbar/vast_workspace_button.cc
+index 5c584fb71f..bfc0243b0b 100644
+--- a/chrome/browser/ui/views/toolbar/vast_workspace_button.cc
++++ b/chrome/browser/ui/views/toolbar/vast_workspace_button.cc
+@@ -19,6 +19,7 @@
+ #include "chrome/browser/ui/browser.h"
+ #include "chrome/browser/ui/navigator/browser_navigator.h"
+ #include "chrome/browser/ui/navigator/browser_navigator_params.h"
++#include "chrome/browser/ui/views/toolbar/vast_workspace_tab_controller.h"
+ #include "chrome/browser/vast/vast_product_data_service.h"
+ #include "chrome/browser/vast/vast_product_data_service_factory.h"
+ #include "chrome/common/webui_url_constants.h"
+@@ -113,6 +114,9 @@ VastWorkspaceButton::VastWorkspaceButton(Browser* browser)
+                            ui::EF_MIDDLE_MOUSE_BUTTON);
+   ApplyDefaultState(/*needs_attention=*/false);
+ 
++  workspace_tab_controller_ = std::make_unique<VastWorkspaceTabController>(
++      browser_, product_data_service_);
++
+   status_changed_subscription_ =
+       product_data_service_->AddStatusChangedCallback(
+           base::BindRepeating(&VastWorkspaceButton::OnStatusChanged,
+diff --git a/chrome/browser/ui/views/toolbar/vast_workspace_button.h b/chrome/browser/ui/views/toolbar/vast_workspace_button.h
+index 6b5b796d74..c44829351a 100644
+--- a/chrome/browser/ui/views/toolbar/vast_workspace_button.h
++++ b/chrome/browser/ui/views/toolbar/vast_workspace_button.h
+@@ -16,6 +16,7 @@
+ #include "chrome/browser/vast/vast_data_projection.h"
+ 
+ class Browser;
++class VastWorkspaceTabController;
+ 
+ namespace ui {
+ class Event;
+@@ -55,6 +56,7 @@ class VastWorkspaceButton : public ToolbarChipButton {
+   const raw_ptr<Browser> browser_;
+   const raw_ptr<vast::VastProductDataService> product_data_service_;
+   std::vector<vast::VastWorkspaceProjection> workspaces_;
++  std::unique_ptr<VastWorkspaceTabController> workspace_tab_controller_;
+   std::unique_ptr<WorkspaceMenuDelegate> workspace_menu_delegate_;
+   base::CallbackListSubscription status_changed_subscription_;
+   base::WeakPtrFactory<VastWorkspaceButton> weak_ptr_factory_{this};
+diff --git a/chrome/browser/ui/views/toolbar/vast_workspace_tab_controller.cc b/chrome/browser/ui/views/toolbar/vast_workspace_tab_controller.cc
+new file mode 100644
+index 0000000000..ee45dde674
+--- /dev/null
++++ b/chrome/browser/ui/views/toolbar/vast_workspace_tab_controller.cc
+@@ -0,0 +1,326 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/ui/views/toolbar/vast_workspace_tab_controller.h"
++
++#include <algorithm>
++#include <optional>
++#include <string>
++#include <utility>
++#include <vector>
++
++#include "base/auto_reset.h"
++#include "base/check.h"
++#include "base/functional/bind.h"
++#include "base/hash/hash.h"
++#include "base/strings/utf_string_conversions.h"
++#include "base/task/sequenced_task_runner.h"
++#include "chrome/browser/ui/browser.h"
++#include "chrome/browser/ui/browser_tabstrip.h"
++#include "chrome/browser/ui/tabs/tab_group_model.h"
++#include "chrome/browser/ui/tabs/tab_strip_model.h"
++#include "chrome/browser/vast/vast_product_data_service.h"
++#include "components/tab_groups/tab_group_color.h"
++#include "components/tab_groups/tab_group_visual_data.h"
++#include "components/tabs/public/tab_group.h"
++#include "components/tabs/public/tab_interface.h"
++#include "content/public/browser/web_contents.h"
++
++namespace {
++
++constexpr char16_t kVastGroupPrefix[] = u"Vast · ";
++constexpr char kVastEmptyWorkspaceUrl[] =
++    "data:text/html,<title>Vast%20Workspace</title>";
++
++}  // namespace
++
++VastWorkspaceTabController::VastWorkspaceTabController(
++    Browser* browser,
++    vast::VastProductDataService* product_data_service)
++    : browser_(browser),
++      tab_strip_model_(browser->tab_strip_model()),
++      product_data_service_(product_data_service) {
++  CHECK(browser_);
++  CHECK(tab_strip_model_);
++  CHECK(product_data_service_);
++  tab_strip_model_->AddObserver(this);
++  status_changed_subscription_ =
++      product_data_service_->AddStatusChangedCallback(
++          base::BindRepeating(&VastWorkspaceTabController::OnStatusChanged,
++                              weak_ptr_factory_.GetWeakPtr()));
++  product_data_service_->GetStatus(
++      base::BindOnce(&VastWorkspaceTabController::OnInitialStatus,
++                     weak_ptr_factory_.GetWeakPtr()));
++}
++
++VastWorkspaceTabController::~VastWorkspaceTabController() {
++  tab_strip_model_->RemoveObserver(this);
++}
++
++void VastWorkspaceTabController::OnInitialStatus(
++    vast::VastProductDataRootStatus status) {
++  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
++      FROM_HERE,
++      base::BindOnce(&VastWorkspaceTabController::ApplyStatus,
++                     weak_ptr_factory_.GetWeakPtr(), std::move(status)));
++}
++
++void VastWorkspaceTabController::OnStatusChanged(
++    const vast::VastProductDataRootStatus& status) {
++  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
++      FROM_HERE, base::BindOnce(&VastWorkspaceTabController::ApplyStatus,
++                                weak_ptr_factory_.GetWeakPtr(), status));
++}
++
++void VastWorkspaceTabController::ApplyStatus(
++    const vast::VastProductDataRootStatus& status) {
++  if (!status.selected || !status.compatible || !status.projection.compatible ||
++      !tab_strip_model_->SupportsTabGroups()) {
++    workspaces_.clear();
++    active_workspace_id_.clear();
++    return;
++  }
++
++  const auto active_workspace =
++      std::ranges::find_if(status.projection.workspaces,
++                           [](const vast::VastWorkspaceProjection& workspace) {
++                             return workspace.active;
++                           });
++  if (active_workspace == status.projection.workspaces.end()) {
++    workspaces_.clear();
++    active_workspace_id_.clear();
++    return;
++  }
++
++  base::AutoReset<bool> applying(&applying_workspace_state_, true);
++  workspaces_ = status.projection.workspaces;
++  active_workspace_id_ = active_workspace->id;
++  ReconcileRestoredGroups();
++  const std::optional<tab_groups::TabGroupId> active_group =
++      EnsureWorkspaceGroup(*active_workspace);
++  if (active_group) {
++    UpdateGroupVisualsAndActivate(*active_workspace, *active_group);
++  }
++}
++
++void VastWorkspaceTabController::ReconcileRestoredGroups() {
++  for (auto iterator = workspace_groups_.begin();
++       iterator != workspace_groups_.end();) {
++    if (!tab_strip_model_->group_model()->ContainsTabGroup(iterator->second)) {
++      last_active_tabs_.erase(iterator->first);
++      iterator = workspace_groups_.erase(iterator);
++    } else {
++      ++iterator;
++    }
++  }
++
++  for (const tab_groups::TabGroupId& group_id :
++       tab_strip_model_->group_model()->ListTabGroups()) {
++    const bool already_owned = std::ranges::any_of(
++        workspace_groups_,
++        [&](const auto& entry) { return entry.second == group_id; });
++    if (already_owned) {
++      continue;
++    }
++    const std::u16string& title = tab_strip_model_->group_model()
++                                      ->GetTabGroup(group_id)
++                                      ->visual_data()
++                                      ->title();
++    const auto workspace = std::ranges::find_if(
++        workspaces_, [&](const vast::VastWorkspaceProjection& candidate) {
++          return WorkspaceGroupTitle(candidate) == title &&
++                 !workspace_groups_.contains(candidate.id);
++        });
++    if (workspace != workspaces_.end()) {
++      workspace_groups_.emplace(workspace->id, group_id);
++    }
++  }
++}
++
++std::optional<tab_groups::TabGroupId>
++VastWorkspaceTabController::EnsureWorkspaceGroup(
++    const vast::VastWorkspaceProjection& workspace) {
++  const auto existing = workspace_groups_.find(workspace.id);
++  if (existing != workspace_groups_.end() &&
++      tab_strip_model_->group_model()->ContainsTabGroup(existing->second)) {
++    return existing->second;
++  }
++
++  int candidate_index = tab_strip_model_->active_index();
++  if (candidate_index < 0 || tab_strip_model_->IsTabPinned(candidate_index) ||
++      tab_strip_model_->GetTabGroupForTab(candidate_index).has_value()) {
++    content::WebContents* contents = chrome::AddAndReturnTabAt(
++        browser_, GURL(kVastEmptyWorkspaceUrl), -1, true);
++    if (!contents) {
++      return std::nullopt;
++    }
++    candidate_index = tab_strip_model_->GetIndexOfWebContents(contents);
++  }
++  if (candidate_index < 0) {
++    return std::nullopt;
++  }
++
++  const tab_groups::TabGroupId group_id =
++      tab_strip_model_->AddToNewGroup({candidate_index});
++  workspace_groups_.insert_or_assign(workspace.id, group_id);
++  last_active_tabs_[workspace.id] =
++      tab_strip_model_->GetTabAtIndex(candidate_index)->GetWeakPtr();
++  return group_id;
++}
++
++void VastWorkspaceTabController::UpdateGroupVisualsAndActivate(
++    const vast::VastWorkspaceProjection& active_workspace,
++    tab_groups::TabGroupId active_group) {
++  // Never collapse the currently selected group before another group's tab is
++  // active. Doing so can temporarily leave the browser with a selected tab
++  // hidden behind a collapsed group while the tab strip is updating.
++  tab_strip_model_->ChangeTabGroupVisuals(
++      active_group, tab_groups::TabGroupVisualData(
++                        WorkspaceGroupTitle(active_workspace),
++                        WorkspaceGroupColor(active_workspace), false));
++
++  tabs::TabInterface* tab = nullptr;
++  const auto last_active = last_active_tabs_.find(active_workspace.id);
++  if (last_active != last_active_tabs_.end()) {
++    tab = last_active->second.get();
++    const int index = tab_strip_model_->GetIndexOfTab(tab);
++    if (index < 0 ||
++        tab_strip_model_->GetTabGroupForTab(index) != active_group) {
++      tab = nullptr;
++    }
++  }
++  if (!tab) {
++    tab = tab_strip_model_->group_model()
++              ->GetTabGroup(active_group)
++              ->GetFirstTab();
++  }
++  if (tab) {
++    const int index = tab_strip_model_->GetIndexOfTab(tab);
++    if (index >= 0) {
++      tab_strip_model_->ActivateTabAt(index);
++      last_active_tabs_[active_workspace.id] = tab->GetWeakPtr();
++    }
++  }
++
++  for (const vast::VastWorkspaceProjection& workspace : workspaces_) {
++    if (workspace.id == active_workspace.id) {
++      continue;
++    }
++    const auto group = workspace_groups_.find(workspace.id);
++    if (group == workspace_groups_.end() ||
++        !tab_strip_model_->group_model()->ContainsTabGroup(group->second)) {
++      continue;
++    }
++    tab_strip_model_->ChangeTabGroupVisuals(
++        group->second,
++        tab_groups::TabGroupVisualData(WorkspaceGroupTitle(workspace),
++                                       WorkspaceGroupColor(workspace), true));
++  }
++}
++
++void VastWorkspaceTabController::AssignInsertedTabs(
++    std::vector<base::WeakPtr<tabs::TabInterface>> inserted_tabs) {
++  if (applying_workspace_state_ || active_workspace_id_.empty()) {
++    return;
++  }
++  const auto active_group = workspace_groups_.find(active_workspace_id_);
++  if (active_group == workspace_groups_.end() ||
++      !tab_strip_model_->group_model()->ContainsTabGroup(
++          active_group->second)) {
++    return;
++  }
++
++  std::vector<int> indices;
++  for (const base::WeakPtr<tabs::TabInterface>& tab : inserted_tabs) {
++    if (!tab) {
++      continue;
++    }
++    const int index = tab_strip_model_->GetIndexOfTab(tab.get());
++    if (index >= 0 && !tab_strip_model_->IsTabPinned(index) &&
++        !tab_strip_model_->GetTabGroupForTab(index).has_value()) {
++      indices.push_back(index);
++    }
++  }
++  base::AutoReset<bool> applying(&applying_workspace_state_, true);
++  if (!indices.empty()) {
++    tab_strip_model_->AddToExistingGroup(indices, active_group->second);
++  }
++
++  // Startup and session restoration can apply their default group visuals
++  // after the initial product-data callback. Reapply only the already-owned
++  // Vast group; never claim or rename an unrelated native group.
++  const auto active_workspace = std::ranges::find_if(
++      workspaces_, [&](const vast::VastWorkspaceProjection& workspace) {
++        return workspace.id == active_workspace_id_;
++      });
++  if (active_workspace != workspaces_.end()) {
++    UpdateGroupVisualsAndActivate(*active_workspace, active_group->second);
++  }
++}
++
++std::u16string VastWorkspaceTabController::WorkspaceGroupTitle(
++    const vast::VastWorkspaceProjection& workspace) const {
++  return std::u16string(kVastGroupPrefix) + base::UTF8ToUTF16(workspace.name);
++}
++
++tab_groups::TabGroupColorId VastWorkspaceTabController::WorkspaceGroupColor(
++    const vast::VastWorkspaceProjection& workspace) const {
++  constexpr int kNonGreyColorCount = 8;
++  const int color_index =
++      1 +
++      static_cast<int>(base::PersistentHash(workspace.id) % kNonGreyColorCount);
++  return static_cast<tab_groups::TabGroupColorId>(color_index);
++}
++
++void VastWorkspaceTabController::OnTabStripModelChanged(
++    TabStripModel* tab_strip_model,
++    const TabStripModelChange& change,
++    const TabStripSelectionChange& selection) {
++  CHECK_EQ(tab_strip_model, tab_strip_model_);
++  if (applying_workspace_state_ || active_workspace_id_.empty()) {
++    return;
++  }
++
++  if (selection.new_tab) {
++    const int index = tab_strip_model_->GetIndexOfTab(selection.new_tab);
++    if (index >= 0) {
++      const std::optional<tab_groups::TabGroupId> group =
++          tab_strip_model_->GetTabGroupForTab(index);
++      if (group) {
++        const auto workspace = std::ranges::find_if(
++            workspace_groups_,
++            [&](const auto& entry) { return entry.second == *group; });
++        if (workspace != workspace_groups_.end()) {
++          last_active_tabs_[workspace->first] = selection.new_tab->GetWeakPtr();
++        }
++      }
++    }
++  }
++
++  const TabStripModelChange::Insert* insert = change.GetInsert();
++  if (!insert) {
++    return;
++  }
++  std::vector<base::WeakPtr<tabs::TabInterface>> inserted_tabs;
++  inserted_tabs.reserve(insert->contents.size());
++  for (const TabStripModelChange::ContentsWithIndex& inserted :
++       insert->contents) {
++    inserted_tabs.push_back(inserted.tab->GetWeakPtr());
++  }
++  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
++      FROM_HERE,
++      base::BindOnce(&VastWorkspaceTabController::AssignInsertedTabs,
++                     weak_ptr_factory_.GetWeakPtr(), std::move(inserted_tabs)));
++}
++
++void VastWorkspaceTabController::OnTabGroupWillBeRemoved(
++    const tab_groups::TabGroupId& group_id) {
++  const auto workspace = std::ranges::find_if(
++      workspace_groups_,
++      [&](const auto& entry) { return entry.second == group_id; });
++  if (workspace != workspace_groups_.end()) {
++    last_active_tabs_.erase(workspace->first);
++    workspace_groups_.erase(workspace);
++  }
++}
+diff --git a/chrome/browser/ui/views/toolbar/vast_workspace_tab_controller.h b/chrome/browser/ui/views/toolbar/vast_workspace_tab_controller.h
+new file mode 100644
+index 0000000000..86d3376432
+--- /dev/null
++++ b/chrome/browser/ui/views/toolbar/vast_workspace_tab_controller.h
+@@ -0,0 +1,81 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_UI_VIEWS_TOOLBAR_VAST_WORKSPACE_TAB_CONTROLLER_H_
++#define CHROME_BROWSER_UI_VIEWS_TOOLBAR_VAST_WORKSPACE_TAB_CONTROLLER_H_
++
++#include <map>
++#include <optional>
++#include <string>
++#include <vector>
++
++#include "base/callback_list.h"
++#include "base/memory/raw_ptr.h"
++#include "base/memory/weak_ptr.h"
++#include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
++#include "chrome/browser/vast/vast_data_projection.h"
++#include "components/tab_groups/tab_group_color.h"
++#include "components/tab_groups/tab_group_id.h"
++
++class Browser;
++class TabStripModel;
++
++namespace tabs {
++class TabInterface;
++}
++
++namespace vast {
++class VastProductDataService;
++struct VastProductDataRootStatus;
++}  // namespace vast
++
++// Browser-window-scoped adapter from validated Vast workspace selection to
++// native Chromium tab groups. It never receives or persists URLs.
++class VastWorkspaceTabController : public TabStripModelObserver {
++ public:
++  VastWorkspaceTabController(
++      Browser* browser,
++      vast::VastProductDataService* product_data_service);
++  VastWorkspaceTabController(const VastWorkspaceTabController&) = delete;
++  VastWorkspaceTabController& operator=(const VastWorkspaceTabController&) =
++      delete;
++  ~VastWorkspaceTabController() override;
++
++ private:
++  void OnInitialStatus(vast::VastProductDataRootStatus status);
++  void OnStatusChanged(const vast::VastProductDataRootStatus& status);
++  void ApplyStatus(const vast::VastProductDataRootStatus& status);
++  void ReconcileRestoredGroups();
++  std::optional<tab_groups::TabGroupId> EnsureWorkspaceGroup(
++      const vast::VastWorkspaceProjection& workspace);
++  void UpdateGroupVisualsAndActivate(
++      const vast::VastWorkspaceProjection& active_workspace,
++      tab_groups::TabGroupId active_group);
++  void AssignInsertedTabs(
++      std::vector<base::WeakPtr<tabs::TabInterface>> inserted_tabs);
++  std::u16string WorkspaceGroupTitle(
++      const vast::VastWorkspaceProjection& workspace) const;
++  tab_groups::TabGroupColorId WorkspaceGroupColor(
++      const vast::VastWorkspaceProjection& workspace) const;
++
++  // TabStripModelObserver:
++  void OnTabStripModelChanged(
++      TabStripModel* tab_strip_model,
++      const TabStripModelChange& change,
++      const TabStripSelectionChange& selection) override;
++  void OnTabGroupWillBeRemoved(const tab_groups::TabGroupId& group_id) override;
++
++  const raw_ptr<Browser> browser_;
++  const raw_ptr<TabStripModel> tab_strip_model_;
++  const raw_ptr<vast::VastProductDataService> product_data_service_;
++  std::vector<vast::VastWorkspaceProjection> workspaces_;
++  std::string active_workspace_id_;
++  std::map<std::string, tab_groups::TabGroupId> workspace_groups_;
++  std::map<std::string, base::WeakPtr<tabs::TabInterface>> last_active_tabs_;
++  bool applying_workspace_state_ = false;
++  base::CallbackListSubscription status_changed_subscription_;
++  base::WeakPtrFactory<VastWorkspaceTabController> weak_ptr_factory_{this};
++};
++
++#endif  // CHROME_BROWSER_UI_VIEWS_TOOLBAR_VAST_WORKSPACE_TAB_CONTROLLER_H_

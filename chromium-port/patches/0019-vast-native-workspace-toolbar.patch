@@ -1,0 +1,460 @@
+diff --git a/chrome/app/vector_icons/BUILD.gn b/chrome/app/vector_icons/BUILD.gn
+index 7549ff5614f9e4e45434047db8125858d5c754a0..1dd38d30530727d29bafcd0d1b9f545baecd26b0 100644
+--- a/chrome/app/vector_icons/BUILD.gn
++++ b/chrome/app/vector_icons/BUILD.gn
+@@ -2,6 +2,7 @@
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
+ 
++import("//build/config/chrome_build.gni")
+ import("//components/vector_icons/vector_icons.gni")
+ import("//device/vr/buildflags/buildflags.gni")
+ import("//ui/webui/webui_features.gni")
+@@ -431,6 +432,10 @@ aggregate_vector_icons("chrome_vector_icons") {
+   if (is_chromeos) {
+     sources += [ "notification_google.icon" ]
+   }
++
++  if (is_vast_branded) {
++    sources += [ "vast_workspace.icon" ]
++  }
+ }
+ 
+ source_set("vector_icons") {
+diff --git a/chrome/app/vector_icons/vast_workspace.icon b/chrome/app/vector_icons/vast_workspace.icon
+new file mode 100644
+index 0000000000000000000000000000000000000000..a176f5c5c20b78adac9aa271b4dd4f3808105f57
+--- /dev/null
++++ b/chrome/app/vector_icons/vast_workspace.icon
+@@ -0,0 +1,17 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++CANVAS_DIMENSIONS, 16,
++FILL_RULE_NONZERO,
++MOVE_TO, 1.5f, 3,
++LINE_TO, 4.5f, 3,
++LINE_TO, 6.5f, 10,
++LINE_TO, 8, 5,
++LINE_TO, 9.5f, 10,
++LINE_TO, 11.5f, 3,
++LINE_TO, 14.5f, 3,
++LINE_TO, 11, 14,
++LINE_TO, 8, 9,
++LINE_TO, 5, 14,
++CLOSE
+diff --git a/chrome/browser/ui/views/toolbar/BUILD.gn b/chrome/browser/ui/views/toolbar/BUILD.gn
+index 3824574a9b561927048abcfa3b34da8d22169515..e47092465f2f5d76b73a144ba96620e178daeb12 100644
+--- a/chrome/browser/ui/views/toolbar/BUILD.gn
++++ b/chrome/browser/ui/views/toolbar/BUILD.gn
+@@ -4,6 +4,7 @@
+ 
+ assert(is_win || is_mac || is_linux || is_chromeos)
+ 
++import("//build/config/chrome_build.gni")
+ import("//build/config/ui.gni")
+ import("//ui/webui/webui_features.gni")
+ 
+@@ -100,6 +101,10 @@ source_set("toolbar") {
+   if (is_chromeos) {
+     public_deps += [ "//chromeos/ash/experiences/arc/intent_helper" ]
+   }
++
++  if (is_vast_branded) {
++    public += [ "vast_workspace_button.h" ]
++  }
+ }
+ 
+ source_set("impl") {
+@@ -268,6 +273,14 @@ source_set("impl") {
+   if (use_aura) {
+     deps += [ "//ui/aura" ]
+   }
++
++  if (is_vast_branded) {
++    sources += [
++      "vast_workspace_button.cc",
++      "vast_workspace_button.h",
++    ]
++    deps += [ "//chrome/browser/vast:vast_service" ]
++  }
+   if (is_chromeos) {
+     deps += [
+       "//chrome/browser/ash/ownership",
+diff --git a/chrome/browser/ui/views/toolbar/toolbar_view.cc b/chrome/browser/ui/views/toolbar/toolbar_view.cc
+index 9f1ad065ba766c0991bf34845ea597bcd33838a5..239ed2c84853994d3a7ca31d73ec0fa504f75cd8 100644
+--- a/chrome/browser/ui/views/toolbar/toolbar_view.cc
++++ b/chrome/browser/ui/views/toolbar/toolbar_view.cc
+@@ -20,6 +20,7 @@
+ #include "base/notimplemented.h"
+ #include "base/strings/utf_string_conversions.h"
+ #include "base/trace_event/trace_event.h"
++#include "build/branding_buildflags.h"
+ #include "build/build_config.h"
+ #include "chrome/app/chrome_command_ids.h"
+ #include "chrome/browser/actor/ui/actor_ui_metrics.h"
+@@ -107,6 +108,9 @@
+ #include "chrome/browser/ui/views/toolbar/toolbar_glic_actor_task_icon.h"
+ #include "chrome/browser/ui/views/toolbar/toolbar_glic_button.h"
+ #include "chrome/browser/ui/views/toolbar/toolbar_icon_container_view.h"
++#if BUILDFLAG(VAST_BRANDING)
++#include "chrome/browser/ui/views/toolbar/vast_workspace_button.h"
++#endif
+ #include "chrome/browser/ui/views/toolbar/webui_back_forward_control.h"
+ #include "chrome/browser/ui/views/toolbar/webui_toolbar_web_view.h"
+ #include "chrome/browser/ui/views/zoom/zoom_view_controller.h"
+@@ -444,6 +448,13 @@ void ToolbarView::Init() {
+         AddChildView(std::make_unique<SplitTabsToolbarButton>(browser_));
+   }
+ 
++#if BUILDFLAG(VAST_BRANDING)
++  if (browser_->profile()->IsRegularProfile()) {
++    vast_workspace_button_ =
++        AddChildView(std::make_unique<VastWorkspaceButton>(browser_));
++  }
++#endif
++
+   if (base::FeatureList::IsEnabled(contextual_tasks::kContextualTasks) &&
+       contextual_tasks::kShowEntryPoint.Get() ==
+           contextual_tasks::EntryPointOption::kToolbarEphemeralBranded) {
+@@ -1597,6 +1608,15 @@ void ToolbarView::InitLayout() {
+             views::MaximumFlexSizeRule::kPreferred));
+   }
+ 
++#if BUILDFLAG(VAST_BRANDING)
++  if (vast_workspace_button_) {
++    vast_workspace_button_->SetProperty(
++        views::kFlexBehaviorKey,
++        views::FlexSpecification(views::MinimumFlexSizeRule::kScaleToMinimum,
++                                 views::MaximumFlexSizeRule::kPreferred));
++  }
++#endif
++
+   // Order 1 is reserved for the location bar if kOmniboxResizingPrioritization
+   // is enabled.
+   constexpr int kToolbarFlexOrderStart = 2;
+diff --git a/chrome/browser/ui/views/toolbar/toolbar_view.h b/chrome/browser/ui/views/toolbar/toolbar_view.h
+index ec0ca1d40c6089d22ddb8dd8f665e7911b3f1566..a5a8bb4f53b7498f56b60ab0a616c76f1d291ee1 100644
+--- a/chrome/browser/ui/views/toolbar/toolbar_view.h
++++ b/chrome/browser/ui/views/toolbar/toolbar_view.h
+@@ -11,6 +11,7 @@
+ 
+ #include "base/memory/raw_ptr.h"
+ #include "base/scoped_observation.h"
++#include "build/branding_buildflags.h"
+ #include "chrome/browser/command_observer.h"
+ #include "chrome/browser/glic/browser_ui/glic_actor_nudge_delegate.h"
+ #include "chrome/browser/glic/browser_ui/glic_button_controller_delegate.h"
+@@ -67,6 +68,9 @@ class ToolbarController;
+ class ToolbarDivider;
+ class OverflowButton;
+ class PerformanceInterventionButton;
++#if BUILDFLAG(VAST_BRANDING)
++class VastWorkspaceButton;
++#endif
+ 
+ namespace views {
+ class FlexLayout;
+@@ -380,6 +384,9 @@ class ToolbarView : public views::AccessiblePaneView,
+   raw_ptr<WebUIToolbarWebView> toolbar_webview_ = nullptr;
+   std::unique_ptr<WebUIToolbarWebView> detached_toolbar_webview_;
+   raw_ptr<HomeButton> home_ = nullptr;
++#if BUILDFLAG(VAST_BRANDING)
++  raw_ptr<VastWorkspaceButton> vast_workspace_button_ = nullptr;
++#endif
+   raw_ptr<SplitTabsToolbarButton> split_tabs_ = nullptr;
+   raw_ptr<CustomTabBarView> custom_tab_bar_ = nullptr;
+   raw_ptr<LocationBarView> location_bar_view_ = nullptr;
+diff --git a/chrome/browser/ui/views/toolbar/vast_workspace_button.cc b/chrome/browser/ui/views/toolbar/vast_workspace_button.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..25d705d4ffe6164e9584ed35126ab2f38288fdd8
+--- /dev/null
++++ b/chrome/browser/ui/views/toolbar/vast_workspace_button.cc
+@@ -0,0 +1,121 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/ui/views/toolbar/vast_workspace_button.h"
++
++#include <algorithm>
++#include <string>
++
++#include "base/functional/bind.h"
++#include "base/strings/utf_string_conversions.h"
++#include "chrome/app/vector_icons/vector_icons.h"
++#include "chrome/browser/profiles/profile.h"
++#include "chrome/browser/ui/browser.h"
++#include "chrome/browser/ui/navigator/browser_navigator.h"
++#include "chrome/browser/ui/navigator/browser_navigator_params.h"
++#include "chrome/browser/vast/vast_product_data_service.h"
++#include "chrome/browser/vast/vast_product_data_service_factory.h"
++#include "chrome/common/webui_url_constants.h"
++#include "ui/base/metadata/metadata_impl_macros.h"
++#include "ui/base/page_transition_types.h"
++#include "ui/base/window_open_disposition_utils.h"
++#include "ui/events/event.h"
++#include "ui/gfx/geometry/size.h"
++#include "ui/gfx/text_constants.h"
++#include "ui/views/accessibility/view_accessibility.h"
++#include "ui/views/view_class_properties.h"
++
++namespace {
++
++constexpr int kMaximumButtonWidth = 180;
++
++}  // namespace
++
++DEFINE_CLASS_ELEMENT_IDENTIFIER_VALUE(VastWorkspaceButton, kElementId);
++
++VastWorkspaceButton::VastWorkspaceButton(Browser* browser)
++    : ToolbarChipButton(base::BindRepeating(&VastWorkspaceButton::OnPressed,
++                                            base::Unretained(this))),
++      browser_(browser),
++      product_data_service_(vast::VastProductDataServiceFactory::GetForProfile(
++          browser->profile())) {
++  CHECK(browser_);
++  CHECK(product_data_service_);
++  CHECK(browser_->profile()->IsRegularProfile());
++
++  SetProperty(views::kElementIdentifierKey, kElementId);
++  SetVectorIcon(kVastWorkspaceIcon);
++  SetMaxSize(gfx::Size(kMaximumButtonWidth, 0));
++  label()->SetElideBehavior(gfx::ELIDE_TAIL);
++  SetTriggerableEventFlags(ui::EF_LEFT_MOUSE_BUTTON |
++                           ui::EF_MIDDLE_MOUSE_BUTTON);
++  ApplyDefaultState(/*needs_attention=*/false);
++
++  status_changed_subscription_ =
++      product_data_service_->AddStatusChangedCallback(
++          base::BindRepeating(&VastWorkspaceButton::OnStatusChanged,
++                              weak_ptr_factory_.GetWeakPtr()));
++  RefreshStatus();
++}
++
++VastWorkspaceButton::~VastWorkspaceButton() = default;
++
++void VastWorkspaceButton::OnPressed(const ui::Event& event) {
++  NavigateParams params(browser_, GURL(chrome::kChromeUIVastURL),
++                        ui::PAGE_TRANSITION_AUTO_BOOKMARK);
++  params.disposition = ui::DispositionFromEventFlags(event.flags());
++  Navigate(&params);
++}
++
++void VastWorkspaceButton::RefreshStatus() {
++  product_data_service_->GetStatus(base::BindOnce(
++      &VastWorkspaceButton::OnInitialStatus, weak_ptr_factory_.GetWeakPtr()));
++}
++
++void VastWorkspaceButton::OnInitialStatus(
++    vast::VastProductDataRootStatus status) {
++  OnStatusChanged(status);
++}
++
++void VastWorkspaceButton::OnStatusChanged(
++    const vast::VastProductDataRootStatus& status) {
++  if (!status.selected || !status.compatible || !status.projection.compatible) {
++    ApplyDefaultState(status.selected && !status.compatible);
++    return;
++  }
++
++  const auto active_workspace =
++      std::ranges::find_if(status.projection.workspaces,
++                           [](const vast::VastWorkspaceProjection& workspace) {
++                             return workspace.active;
++                           });
++  if (active_workspace == status.projection.workspaces.end()) {
++    ApplyDefaultState(/*needs_attention=*/true);
++    return;
++  }
++
++  const std::u16string workspace_name =
++      base::UTF8ToUTF16(active_workspace->name);
++  SetText(workspace_name);
++  const std::u16string prefix = active_workspace->is_private
++                                    ? u"Private Vast workspace: "
++                                    : u"Vast workspace: ";
++  const std::u16string description = prefix + workspace_name;
++  SetTooltipText(description);
++  GetViewAccessibility().SetName(description);
++  PreferredSizeChanged();
++}
++
++void VastWorkspaceButton::ApplyDefaultState(bool needs_attention) {
++  SetText(u"Vast");
++  const std::u16string description =
++      needs_attention ? u"Open Vast - workspace data needs attention"
++                      : u"Open Vast workspace hub";
++  SetTooltipText(description);
++  GetViewAccessibility().SetName(description);
++  PreferredSizeChanged();
++}
++
++BEGIN_METADATA(VastWorkspaceButton)
++END_METADATA
+diff --git a/chrome/browser/ui/views/toolbar/vast_workspace_button.h b/chrome/browser/ui/views/toolbar/vast_workspace_button.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..625c85da8539e4638d1ae6acbc112fd1488aca41
+--- /dev/null
++++ b/chrome/browser/ui/views/toolbar/vast_workspace_button.h
+@@ -0,0 +1,50 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_UI_VIEWS_TOOLBAR_VAST_WORKSPACE_BUTTON_H_
++#define CHROME_BROWSER_UI_VIEWS_TOOLBAR_VAST_WORKSPACE_BUTTON_H_
++
++#include "base/callback_list.h"
++#include "base/memory/raw_ptr.h"
++#include "base/memory/weak_ptr.h"
++#include "chrome/browser/ui/views/toolbar/toolbar_chip_button.h"
++
++class Browser;
++
++namespace ui {
++class Event;
++}
++
++namespace vast {
++class VastProductDataService;
++struct VastProductDataRootStatus;
++}  // namespace vast
++
++// Persistent native entry point for Vast-owned browser UI. Product data is
++// read only in the browser process through the profile-keyed service.
++class VastWorkspaceButton : public ToolbarChipButton {
++  METADATA_HEADER(VastWorkspaceButton, ToolbarChipButton)
++
++ public:
++  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kElementId);
++
++  explicit VastWorkspaceButton(Browser* browser);
++  VastWorkspaceButton(const VastWorkspaceButton&) = delete;
++  VastWorkspaceButton& operator=(const VastWorkspaceButton&) = delete;
++  ~VastWorkspaceButton() override;
++
++ private:
++  void OnPressed(const ui::Event& event);
++  void RefreshStatus();
++  void OnInitialStatus(vast::VastProductDataRootStatus status);
++  void OnStatusChanged(const vast::VastProductDataRootStatus& status);
++  void ApplyDefaultState(bool needs_attention);
++
++  const raw_ptr<Browser> browser_;
++  const raw_ptr<vast::VastProductDataService> product_data_service_;
++  base::CallbackListSubscription status_changed_subscription_;
++  base::WeakPtrFactory<VastWorkspaceButton> weak_ptr_factory_{this};
++};
++
++#endif  // CHROME_BROWSER_UI_VIEWS_TOOLBAR_VAST_WORKSPACE_BUTTON_H_
+diff --git a/chrome/browser/vast/vast_product_data_service.cc b/chrome/browser/vast/vast_product_data_service.cc
+index 162b27aad89415756faca2528734987a8b2fb142..58e45d99e9b0e0e8983933f25ce3c6179e1116bf 100644
+--- a/chrome/browser/vast/vast_product_data_service.cc
++++ b/chrome/browser/vast/vast_product_data_service.cc
+@@ -33,6 +33,11 @@ void VastProductDataService::GetStatus(StatusCallback callback) {
+   }
+ }
+ 
++base::CallbackListSubscription VastProductDataService::AddStatusChangedCallback(
++    StatusChangedCallbackList::CallbackType callback) {
++  return status_changed_callbacks_.Add(std::move(callback));
++}
++
+ void VastProductDataService::Invalidate() {
+   cached_status_.reset();
+   if (recovery_in_progress_) {
+@@ -70,6 +75,7 @@ void VastProductDataService::OnRecoveryComplete(
+   for (StatusCallback& callback : callbacks) {
+     std::move(callback).Run(*cached_status_);
+   }
++  status_changed_callbacks_.Notify(*cached_status_);
+ }
+ 
+ }  // namespace vast
+diff --git a/chrome/browser/vast/vast_product_data_service.h b/chrome/browser/vast/vast_product_data_service.h
+index cef03cb7fd9755041f57128a2aa395d7318838e8..1d21b6a075abb113cbcd951d7a10a4333e416056 100644
+--- a/chrome/browser/vast/vast_product_data_service.h
++++ b/chrome/browser/vast/vast_product_data_service.h
+@@ -8,6 +8,7 @@
+ #include <optional>
+ #include <vector>
+ 
++#include "base/callback_list.h"
+ #include "base/files/file_path.h"
+ #include "base/functional/callback.h"
+ #include "base/memory/weak_ptr.h"
+@@ -22,6 +23,8 @@ namespace vast {
+ class VastProductDataService : public KeyedService {
+  public:
+   using StatusCallback = base::OnceCallback<void(VastProductDataRootStatus)>;
++  using StatusChangedCallbackList =
++      base::RepeatingCallbackList<void(const VastProductDataRootStatus&)>;
+ 
+   explicit VastProductDataService(base::FilePath profile_path);
+   ~VastProductDataService() override;
+@@ -31,6 +34,11 @@ class VastProductDataService : public KeyedService {
+ 
+   void GetStatus(StatusCallback callback);
+ 
++  // Registers a browser-process-only listener for newly recovered, validated
++  // product state. The subscription must not outlive this keyed service.
++  [[nodiscard]] base::CallbackListSubscription AddStatusChangedCallback(
++      StatusChangedCallbackList::CallbackType callback);
++
+   // Forces the next status request to revalidate disk state. If verification
+   // is already running, queued callers wait for one fresh follow-up pass.
+   void Invalidate();
+@@ -48,6 +56,7 @@ class VastProductDataService : public KeyedService {
+   bool recovery_in_progress_ = false;
+   bool reload_after_recovery_ = false;
+   bool shutdown_ = false;
++  StatusChangedCallbackList status_changed_callbacks_;
+   base::WeakPtrFactory<VastProductDataService> weak_ptr_factory_{this};
+ };
+ 
+diff --git a/chrome/browser/vast/vast_product_data_service_unittest.cc b/chrome/browser/vast/vast_product_data_service_unittest.cc
+index 565b78e12886a32befd98a1322984139352f3ec1..9aaddae14983963fe737354396d705e24738fa97 100644
+--- a/chrome/browser/vast/vast_product_data_service_unittest.cc
++++ b/chrome/browser/vast/vast_product_data_service_unittest.cc
+@@ -89,17 +89,30 @@ TEST_F(VastProductDataServiceTest, SharesCachedStatusAndRevalidatesOnDemand) {
+   ASSERT_TRUE(ActivateVastProductDataRoot(profile, transaction, &error))
+       << error;
+   VastProductDataService service(profile);
++  int status_change_count = 0;
++  bool latest_status_compatible = false;
++  base::CallbackListSubscription subscription =
++      service.AddStatusChangedCallback(base::BindRepeating(
++          [](int* count, bool* compatible,
++             const VastProductDataRootStatus& status) {
++            ++*count;
++            *compatible = status.compatible;
++          },
++          &status_change_count, &latest_status_compatible));
+ 
+   const VastProductDataRootStatus first = GetStatus(&service);
+   ASSERT_TRUE(first.compatible) << first.error;
+   ASSERT_EQ(first.projection.workspaces.size(), 1u);
+   EXPECT_EQ(first.projection.workspaces[0].name, "Workspace");
++  EXPECT_EQ(status_change_count, 1);
++  EXPECT_TRUE(latest_status_compatible);
+ 
+   Write(
+       transaction.destination_root.Append(FILE_PATH_LITERAL("vast-data.json")),
+       "tampered after service recovery");
+   const VastProductDataRootStatus cached = GetStatus(&service);
+   EXPECT_TRUE(cached.compatible);
++  EXPECT_EQ(status_change_count, 1);
+ 
+   service.Invalidate();
+   const VastProductDataRootStatus revalidated = GetStatus(&service);
+@@ -107,6 +120,8 @@ TEST_F(VastProductDataServiceTest, SharesCachedStatusAndRevalidatesOnDemand) {
+   EXPECT_FALSE(revalidated.compatible);
+   EXPECT_EQ(revalidated.error,
+             "Recovered Vast product data has an unexpected file size.");
++  EXPECT_EQ(status_change_count, 2);
++  EXPECT_FALSE(latest_status_compatible);
+ }
+ 
+ TEST_F(VastProductDataServiceTest, CachesAnUnselectedProfile) {

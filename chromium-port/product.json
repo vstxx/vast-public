@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "productName": "Vast",
+  "appId": "app.vast.browser",
+  "version": "2.0.0-dev",
+  "platform": "win32",
+  "architecture": "x64"
+}

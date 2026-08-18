@@ -1,0 +1,42 @@
+import type { BrowserTabOpenRequest, ID, Tab } from '../../shared/types'
+
+interface BrowserTabModel {
+  tabs: Tab[]
+  createTab: (options: {
+    url: string
+    title: string
+    workspaceId?: ID
+    groupId?: ID
+    activate: boolean
+  }) => Tab
+}
+
+export interface BrowserTabOpenContext {
+  getTabIdForWebContents: (webContentsId: number) => ID | undefined
+  getTabModel: () => BrowserTabModel
+  isSafeUrl: (url: string) => boolean
+  routeUrl: (url: string) => string
+  titleForUrl: (url: string) => string
+}
+
+export function handleBrowserTabOpenRequest(
+  request: BrowserTabOpenRequest,
+  context: BrowserTabOpenContext
+): Tab | undefined {
+  if (!context.isSafeUrl(request.url)) return undefined
+
+  const routedUrl = context.routeUrl(request.url)
+  const model = context.getTabModel()
+  const sourceTabId = request.sourceWebContentsId
+    ? context.getTabIdForWebContents(request.sourceWebContentsId)
+    : undefined
+  const sourceTab = sourceTabId ? model.tabs.find((tab) => tab.id === sourceTabId) : undefined
+
+  return model.createTab({
+    url: routedUrl,
+    title: context.titleForUrl(routedUrl),
+    workspaceId: sourceTab?.workspaceId,
+    groupId: sourceTab?.groupId,
+    activate: request.activate
+  })
+}

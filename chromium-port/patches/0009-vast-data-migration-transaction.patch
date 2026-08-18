@@ -1,0 +1,884 @@
+diff --git a/chrome/browser/vast/BUILD.gn b/chrome/browser/vast/BUILD.gn
+index b45f97f2ed7faca154d6fa5c8448429bde96ad8c..7d610390b22570798a7ae1a7e839497bf1878316 100644
+--- a/chrome/browser/vast/BUILD.gn
++++ b/chrome/browser/vast/BUILD.gn
+@@ -8,13 +8,21 @@ source_set("vast_data") {
+   sources = [
+     "vast_data_migration_preview.cc",
+     "vast_data_migration_preview.h",
++    "vast_data_migration_transaction.cc",
++    "vast_data_migration_transaction.h",
+   ]
+ 
+-  public_deps = [ "//base" ]
++  public_deps = [
++    "//base",
++    "//crypto",
++  ]
+ }
+ 
+ test("vast_data_unittests") {
+-  sources = [ "vast_data_migration_preview_unittest.cc" ]
++  sources = [
++    "vast_data_migration_preview_unittest.cc",
++    "vast_data_migration_transaction_unittest.cc",
++  ]
+ 
+   deps = [
+     ":vast_data",
+diff --git a/chrome/browser/vast/vast_data_migration_preview.cc b/chrome/browser/vast/vast_data_migration_preview.cc
+index e0cad60b7e7a7260eac1a844cfdcca4d14dd7ae8..3238c9ee8349ea36400ef7dfd467fcc86bf9fbc3 100644
+--- a/chrome/browser/vast/vast_data_migration_preview.cc
++++ b/chrome/browser/vast/vast_data_migration_preview.cc
+@@ -157,47 +157,62 @@ VastDataMigrationPreview ReadVastDataMigrationPreview(
+ 
+ VastDataMigrationPreview ReadVastDataMigrationPreviewFromConfigRoot(
+     const base::FilePath& config_root) {
++  const VastDataRootResolution resolution = ResolveVastDataRoot(config_root);
++  if (!resolution.valid) {
++    VastDataMigrationPreview preview;
++    preview.error = resolution.error;
++    return preview;
++  }
++  return ReadVastDataMigrationPreview(resolution.data_root);
++}
++
++VastDataRootResolution ResolveVastDataRoot(const base::FilePath& config_root) {
++  VastDataRootResolution resolution;
+   const base::FilePath config_path =
+       config_root.Append(FILE_PATH_LITERAL("data-root.json"));
+   if (!base::PathExists(config_path)) {
+-    return ReadVastDataMigrationPreview(config_root);
++    resolution.valid = true;
++    resolution.data_root = config_root;
++    return resolution;
+   }
+ 
+-  VastDataMigrationPreview preview;
+   const std::optional<int64_t> config_size = base::GetFileSize(config_path);
+   if (!config_size || *config_size < 0 ||
+       *config_size > static_cast<int64_t>(kMaxDataRootConfigBytes)) {
+-    preview.error = "data-root.json is unavailable or too large.";
+-    return preview;
++    resolution.error = "data-root.json is unavailable or too large.";
++    return resolution;
+   }
+ 
+   std::string contents;
+   if (!base::ReadFileToStringWithMaxSize(config_path, &contents,
+                                          kMaxDataRootConfigBytes)) {
+-    preview.error = "data-root.json could not be read safely.";
+-    return preview;
++    resolution.error = "data-root.json could not be read safely.";
++    return resolution;
+   }
+   std::optional<base::DictValue> root =
+       base::JSONReader::ReadDict(contents, base::JSON_PARSE_RFC, 20);
+   if (!root) {
+-    preview.error = "data-root.json is not valid JSON.";
+-    return preview;
++    resolution.error = "data-root.json is not valid JSON.";
++    return resolution;
+   }
+ 
+   const std::string* configured = root->FindString("customDataRoot");
+   if (!configured) {
+-    preview.error = "data-root.json does not contain customDataRoot.";
+-    return preview;
++    resolution.error = "data-root.json does not contain customDataRoot.";
++    return resolution;
+   }
+   const std::string_view trimmed =
+       base::TrimWhitespaceASCII(*configured, base::TRIM_ALL);
+   const base::FilePath configured_root =
+       base::FilePath::FromUTF8Unsafe(trimmed);
+   if (trimmed.empty() || !configured_root.IsAbsolute()) {
+-    preview.error = "data-root.json must contain an absolute customDataRoot.";
+-    return preview;
++    resolution.error =
++        "data-root.json must contain an absolute customDataRoot.";
++    return resolution;
+   }
+-  return ReadVastDataMigrationPreview(configured_root);
++  resolution.valid = true;
++  resolution.data_root = configured_root;
++  return resolution;
+ }
+ 
+ }  // namespace vast
+diff --git a/chrome/browser/vast/vast_data_migration_preview.h b/chrome/browser/vast/vast_data_migration_preview.h
+index c947e7b47c173159450b3d704319afb0c10b33d8..cfc9361ca5941c1ac92730188fc4d39b69f7cae8 100644
+--- a/chrome/browser/vast/vast_data_migration_preview.h
++++ b/chrome/browser/vast/vast_data_migration_preview.h
+@@ -12,6 +12,12 @@
+ 
+ namespace vast {
+ 
++struct VastDataRootResolution {
++  bool valid = false;
++  base::FilePath data_root;
++  std::string error;
++};
++
+ // Aggregated, non-sensitive facts from a legacy Vast data root. This preview
+ // never returns record contents, URLs, credentials, cookies, or file paths.
+ struct VastDataMigrationPreview {
+@@ -32,6 +38,11 @@ struct VastDataMigrationPreview {
+ VastDataMigrationPreview ReadVastDataMigrationPreview(
+     const base::FilePath& data_root);
+ 
++// Resolves Electron's stable data-root.json contract entirely inside the
++// browser process. The returned path is intended for native migration code and
++// must not be exposed to WebUI.
++VastDataRootResolution ResolveVastDataRoot(const base::FilePath& config_root);
++
+ // Resolves Electron's stable data-root.json contract without exposing the
+ // configured path. If the config file is absent, config_root is the data root.
+ VastDataMigrationPreview ReadVastDataMigrationPreviewFromConfigRoot(
+diff --git a/chrome/browser/vast/vast_data_migration_transaction.cc b/chrome/browser/vast/vast_data_migration_transaction.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..d53660ba04c503e6efea279f121904788903e98c
+--- /dev/null
++++ b/chrome/browser/vast/vast_data_migration_transaction.cc
+@@ -0,0 +1,459 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/vast/vast_data_migration_transaction.h"
++
++#include <algorithm>
++#include <array>
++#include <cstddef>
++#include <optional>
++#include <string>
++#include <string_view>
++#include <utility>
++
++#include "base/files/file_enumerator.h"
++#include "base/files/file_util.h"
++#include "base/json/json_writer.h"
++#include "base/strings/string_number_conversions.h"
++#include "base/values.h"
++#include "chrome/browser/vast/vast_data_migration_preview.h"
++#include "crypto/hash.h"
++
++namespace vast {
++namespace {
++
++constexpr uint64_t kMaxMigrationFileBytes = 64 * 1024 * 1024;
++constexpr uint64_t kMaxMigrationTotalBytes = 512 * 1024 * 1024;
++constexpr size_t kMaxMigrationFiles = 10000;
++constexpr size_t kMaxMigrationDepth = 32;
++
++constexpr std::array<std::string_view, 4> kAllowlistedFiles = {
++    "vast-data.json", "password-vault.json", "vast-network-devices.json",
++    "integrations.json",
++};
++
++constexpr std::array<std::string_view, 2> kAllowlistedDirectories = {
++    "storage-backups",
++    "avidae",
++};
++
++bool PathsOverlap(const base::FilePath& left, const base::FilePath& right) {
++  return left == right || left.IsParent(right) || right.IsParent(left);
++}
++
++std::string StateName(VastDataMigrationState state) {
++  switch (state) {
++    case VastDataMigrationState::kFailed:
++      return "failed";
++    case VastDataMigrationState::kPrepared:
++      return "prepared";
++    case VastDataMigrationState::kCommitted:
++      return "committed";
++    case VastDataMigrationState::kRolledBack:
++      return "rolled-back";
++  }
++}
++
++bool WriteJournal(VastDataMigrationTransaction* transaction) {
++  base::DictValue root;
++  root.Set("formatVersion", 1);
++  root.Set("state", StateName(transaction->state));
++  root.Set("sourceRoot", transaction->source_root.AsUTF8Unsafe());
++  root.Set("destinationRoot", transaction->destination_root.AsUTF8Unsafe());
++  root.Set("safetyBackupRoot", transaction->safety_backup_root.AsUTF8Unsafe());
++  root.Set("totalBytes", base::NumberToString(transaction->total_bytes));
++  if (!transaction->error.empty()) {
++    root.Set("error", transaction->error);
++  }
++
++  base::ListValue files;
++  for (const VastDataMigrationFile& file : transaction->files) {
++    base::DictValue entry;
++    entry.Set("path", file.relative_path.AsUTF8Unsafe());
++    entry.Set("size", base::NumberToString(file.size));
++    entry.Set("sha256", file.sha256);
++    files.Append(std::move(entry));
++  }
++  root.Set("files", std::move(files));
++
++  std::string serialized;
++  if (!base::JSONWriter::WriteWithOptions(
++          root, base::JSONWriter::OPTIONS_PRETTY_PRINT, &serialized)) {
++    return false;
++  }
++  serialized.push_back('\n');
++
++  const base::FilePath temporary_path =
++      transaction->journal_path.AddExtension(FILE_PATH_LITERAL("tmp"));
++  if (!base::WriteFile(temporary_path, serialized)) {
++    return false;
++  }
++  if (!base::PathExists(transaction->journal_path)) {
++    return base::Move(temporary_path, transaction->journal_path);
++  }
++  base::File::Error replace_error = base::File::FILE_OK;
++  return base::ReplaceFile(temporary_path, transaction->journal_path,
++                           &replace_error);
++}
++
++bool ReadBoundedFile(const base::FilePath& path,
++                     std::string* contents,
++                     std::string* error) {
++  if (base::IsLink(path)) {
++    *error = "Allowlisted Vast data contains a link or junction.";
++    return false;
++  }
++  const std::optional<int64_t> size = base::GetFileSize(path);
++  if (!size || *size < 0 ||
++      *size > static_cast<int64_t>(kMaxMigrationFileBytes)) {
++    *error = "A Vast product-data file exceeds the 64 MiB migration limit.";
++    return false;
++  }
++  if (!base::ReadFileToStringWithMaxSize(path, contents,
++                                         kMaxMigrationFileBytes)) {
++    *error = "A Vast product-data file could not be read safely.";
++    return false;
++  }
++  if (contents->size() != static_cast<size_t>(*size)) {
++    *error = "A Vast product-data file changed while it was being copied.";
++    return false;
++  }
++  return true;
++}
++
++std::string Sha256(std::string_view contents) {
++  return base::HexEncode(crypto::hash::Sha256(contents));
++}
++
++bool CopyFileIntoBackup(const base::FilePath& source_path,
++                        const base::FilePath& relative_path,
++                        const base::FilePath& backup_root,
++                        VastDataMigrationTransaction* transaction) {
++  if (transaction->files.size() >= kMaxMigrationFiles) {
++    transaction->error = "Vast product data contains too many files.";
++    return false;
++  }
++
++  std::string contents;
++  if (!ReadBoundedFile(source_path, &contents, &transaction->error)) {
++    return false;
++  }
++  if (contents.size() > kMaxMigrationTotalBytes - transaction->total_bytes) {
++    transaction->error =
++        "Vast product data exceeds the 512 MiB migration limit.";
++    return false;
++  }
++
++  const base::FilePath destination = backup_root.Append(relative_path);
++  if (!base::CreateDirectory(destination.DirName()) ||
++      !base::WriteFile(destination, contents)) {
++    transaction->error = "The migration safety backup could not be written.";
++    return false;
++  }
++
++  VastDataMigrationFile file;
++  file.relative_path = relative_path;
++  file.size = contents.size();
++  file.sha256 = Sha256(contents);
++  transaction->total_bytes += file.size;
++  transaction->files.push_back(std::move(file));
++  return true;
++}
++
++bool CopyDirectoryIntoBackup(const base::FilePath& source_root,
++                             const base::FilePath& relative_root,
++                             const base::FilePath& backup_root,
++                             size_t depth,
++                             VastDataMigrationTransaction* transaction) {
++  if (depth > kMaxMigrationDepth) {
++    transaction->error = "Vast product data exceeds the directory-depth limit.";
++    return false;
++  }
++  const base::FilePath source_directory = source_root.Append(relative_root);
++  if (base::IsLink(source_directory)) {
++    transaction->error = "Allowlisted Vast data contains a link or junction.";
++    return false;
++  }
++
++  base::FileEnumerator enumerator(
++      source_directory, false,
++      base::FileEnumerator::FILES | base::FileEnumerator::DIRECTORIES,
++      base::FilePath::StringType(),
++      base::FileEnumerator::FolderSearchPolicy::MATCH_ONLY,
++      base::FileEnumerator::ErrorPolicy::STOP_ENUMERATION);
++  for (base::FilePath path = enumerator.Next(); !path.empty();
++       path = enumerator.Next()) {
++    const base::FilePath relative_path = relative_root.Append(path.BaseName());
++    if (base::IsLink(path)) {
++      transaction->error = "Allowlisted Vast data contains a link or junction.";
++      return false;
++    }
++    if (enumerator.GetInfo().IsDirectory()) {
++      if (!CopyDirectoryIntoBackup(source_root, relative_path, backup_root,
++                                   depth + 1, transaction)) {
++        return false;
++      }
++    } else if (!CopyFileIntoBackup(path, relative_path, backup_root,
++                                   transaction)) {
++      return false;
++    }
++  }
++  if (enumerator.GetError() != base::File::FILE_OK) {
++    transaction->error = "A Vast product-data directory could not be read.";
++    return false;
++  }
++  return true;
++}
++
++bool CopyAllowlistedDataToBackup(VastDataMigrationTransaction* transaction) {
++  for (std::string_view name : kAllowlistedFiles) {
++    const base::FilePath relative_path = base::FilePath::FromASCII(name);
++    const base::FilePath source_path =
++        transaction->source_root.Append(relative_path);
++    if (!base::PathExists(source_path)) {
++      continue;
++    }
++    if (!CopyFileIntoBackup(source_path, relative_path,
++                            transaction->safety_backup_root, transaction)) {
++      return false;
++    }
++  }
++  for (std::string_view name : kAllowlistedDirectories) {
++    const base::FilePath relative_path = base::FilePath::FromASCII(name);
++    const base::FilePath source_path =
++        transaction->source_root.Append(relative_path);
++    if (!base::PathExists(source_path)) {
++      continue;
++    }
++    if (!base::DirectoryExists(source_path)) {
++      transaction->error = "An allowlisted Vast data directory is invalid.";
++      return false;
++    }
++    if (!CopyDirectoryIntoBackup(transaction->source_root, relative_path,
++                                 transaction->safety_backup_root, 1,
++                                 transaction)) {
++      return false;
++    }
++  }
++
++  const base::FilePath required_data = transaction->safety_backup_root.Append(
++      FILE_PATH_LITERAL("vast-data.json"));
++  if (!base::PathExists(required_data)) {
++    transaction->error = "The migration safety backup lacks vast-data.json.";
++    return false;
++  }
++  std::sort(transaction->files.begin(), transaction->files.end(),
++            [](const VastDataMigrationFile& left,
++               const VastDataMigrationFile& right) {
++              return left.relative_path.value() < right.relative_path.value();
++            });
++  return true;
++}
++
++bool CreateVerifiedStagingCopy(VastDataMigrationTransaction* transaction) {
++  for (const VastDataMigrationFile& expected : transaction->files) {
++    const base::FilePath source =
++        transaction->safety_backup_root.Append(expected.relative_path);
++    std::string contents;
++    if (!ReadBoundedFile(source, &contents, &transaction->error)) {
++      return false;
++    }
++    if (contents.size() != expected.size ||
++        Sha256(contents) != expected.sha256) {
++      transaction->error =
++          "The migration safety backup failed checksum verification.";
++      return false;
++    }
++
++    const base::FilePath destination =
++        transaction->staging_root.Append(expected.relative_path);
++    if (!base::CreateDirectory(destination.DirName()) ||
++        !base::WriteFile(destination, contents)) {
++      transaction->error = "The migration staging copy could not be written.";
++      return false;
++    }
++    std::string verification_contents;
++    if (!ReadBoundedFile(destination, &verification_contents,
++                         &transaction->error) ||
++        verification_contents.size() != expected.size ||
++        Sha256(verification_contents) != expected.sha256) {
++      transaction->error =
++          "The migration staging copy failed checksum verification.";
++      return false;
++    }
++  }
++  return true;
++}
++
++bool FailPreparation(VastDataMigrationTransaction* transaction,
++                     std::string error) {
++  transaction->state = VastDataMigrationState::kFailed;
++  transaction->error = std::move(error);
++  if (!transaction->journal_path.empty()) {
++    WriteJournal(transaction);
++  }
++  return false;
++}
++
++}  // namespace
++
++VastDataMigrationTransaction PrepareVastDataMigration(
++    const base::FilePath& source_config_root,
++    const base::FilePath& transaction_parent,
++    const base::FilePath& destination_root) {
++  VastDataMigrationTransaction transaction;
++  if (!source_config_root.IsAbsolute() || !transaction_parent.IsAbsolute() ||
++      !destination_root.IsAbsolute()) {
++    transaction.error = "Migration paths must be absolute.";
++    return transaction;
++  }
++  if (!base::CreateDirectory(transaction_parent)) {
++    transaction.error = "The migration transaction directory is unavailable.";
++    return transaction;
++  }
++
++  const base::FilePath absolute_config_root =
++      base::MakeAbsoluteFilePath(source_config_root);
++  const base::FilePath absolute_parent =
++      base::MakeAbsoluteFilePath(transaction_parent);
++  if (absolute_config_root.empty() || absolute_parent.empty()) {
++    transaction.error = "Migration paths could not be resolved safely.";
++    return transaction;
++  }
++  if (destination_root.DirName() != transaction_parent) {
++    transaction.error =
++        "The migration destination must be a direct child of its transaction "
++        "directory.";
++    return transaction;
++  }
++  transaction.destination_root =
++      absolute_parent.Append(destination_root.BaseName());
++  if (base::PathExists(transaction.destination_root)) {
++    transaction.error = "The migration destination already exists.";
++    return transaction;
++  }
++
++  const VastDataRootResolution resolution =
++      ResolveVastDataRoot(absolute_config_root);
++  if (!resolution.valid) {
++    transaction.error = resolution.error;
++    return transaction;
++  }
++  transaction.source_root = base::MakeAbsoluteFilePath(resolution.data_root);
++  if (transaction.source_root.empty() ||
++      !base::DirectoryExists(transaction.source_root)) {
++    transaction.error = "The configured Vast source directory is unavailable.";
++    return transaction;
++  }
++  if (PathsOverlap(transaction.source_root, absolute_parent) ||
++      PathsOverlap(transaction.source_root, transaction.destination_root)) {
++    transaction.error =
++        "Migration source, transaction, and destination paths must not "
++        "overlap.";
++    return transaction;
++  }
++
++  if (!base::CreateTemporaryDirInDir(absolute_parent,
++                                     FILE_PATH_LITERAL(".vast-migration-"),
++                                     &transaction.transaction_root)) {
++    transaction.error = "The migration transaction could not be created.";
++    return transaction;
++  }
++  transaction.safety_backup_root =
++      transaction.transaction_root.Append(FILE_PATH_LITERAL("safety-backup"));
++  transaction.staging_root =
++      transaction.transaction_root.Append(FILE_PATH_LITERAL("staging"));
++  transaction.journal_path = transaction.transaction_root.Append(
++      FILE_PATH_LITERAL("migration-journal.json"));
++  if (!base::CreateDirectory(transaction.safety_backup_root) ||
++      !base::CreateDirectory(transaction.staging_root)) {
++    FailPreparation(&transaction,
++                    "The migration working directories could not be created.");
++    return transaction;
++  }
++
++  if (!CopyAllowlistedDataToBackup(&transaction)) {
++    FailPreparation(&transaction, transaction.error);
++    return transaction;
++  }
++  const VastDataMigrationPreview preview =
++      ReadVastDataMigrationPreview(transaction.safety_backup_root);
++  if (!preview.compatible) {
++    FailPreparation(&transaction,
++                    "The safety backup is incompatible: " + preview.error);
++    return transaction;
++  }
++  if (!CreateVerifiedStagingCopy(&transaction)) {
++    FailPreparation(&transaction, transaction.error);
++    return transaction;
++  }
++
++  transaction.state = VastDataMigrationState::kPrepared;
++  if (!WriteJournal(&transaction)) {
++    FailPreparation(&transaction,
++                    "The migration journal could not be written.");
++  }
++  return transaction;
++}
++
++bool CommitVastDataMigration(VastDataMigrationTransaction* transaction) {
++  if (!transaction || transaction->state != VastDataMigrationState::kPrepared) {
++    return false;
++  }
++  if (base::PathExists(transaction->destination_root) ||
++      !base::DirectoryExists(transaction->staging_root) ||
++      !transaction->transaction_root.IsParent(transaction->staging_root)) {
++    transaction->error = "The prepared migration cannot be committed safely.";
++    WriteJournal(transaction);
++    return false;
++  }
++  if (!base::Move(transaction->staging_root, transaction->destination_root)) {
++    transaction->error = "The staged migration could not be promoted.";
++    WriteJournal(transaction);
++    return false;
++  }
++  transaction->state = VastDataMigrationState::kCommitted;
++  transaction->error.clear();
++  if (!WriteJournal(transaction)) {
++    transaction->error =
++        "Migration committed, but its journal could not be updated.";
++    return false;
++  }
++  return true;
++}
++
++bool RollbackVastDataMigration(VastDataMigrationTransaction* transaction) {
++  if (!transaction ||
++      (transaction->state != VastDataMigrationState::kPrepared &&
++       transaction->state != VastDataMigrationState::kCommitted)) {
++    return false;
++  }
++  const base::FilePath rollback_root = transaction->transaction_root.Append(
++      FILE_PATH_LITERAL("rolled-back-data"));
++  if (base::PathExists(rollback_root)) {
++    transaction->error = "The migration rollback holding directory exists.";
++    WriteJournal(transaction);
++    return false;
++  }
++  const base::FilePath current_data =
++      transaction->state == VastDataMigrationState::kCommitted
++          ? transaction->destination_root
++          : transaction->staging_root;
++  if (!base::DirectoryExists(current_data) ||
++      !base::Move(current_data, rollback_root)) {
++    transaction->error = "The migration data could not be rolled back safely.";
++    WriteJournal(transaction);
++    return false;
++  }
++  transaction->state = VastDataMigrationState::kRolledBack;
++  transaction->error.clear();
++  if (!WriteJournal(transaction)) {
++    transaction->error =
++        "Migration rolled back, but its journal could not be updated.";
++    return false;
++  }
++  return true;
++}
++
++}  // namespace vast
+diff --git a/chrome/browser/vast/vast_data_migration_transaction.h b/chrome/browser/vast/vast_data_migration_transaction.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..2e20fee7bde6585796a5048e0861db2621b9775c
+--- /dev/null
++++ b/chrome/browser/vast/vast_data_migration_transaction.h
+@@ -0,0 +1,63 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_VAST_VAST_DATA_MIGRATION_TRANSACTION_H_
++#define CHROME_BROWSER_VAST_VAST_DATA_MIGRATION_TRANSACTION_H_
++
++#include <cstdint>
++#include <string>
++#include <vector>
++
++#include "base/files/file_path.h"
++
++namespace vast {
++
++enum class VastDataMigrationState {
++  kFailed,
++  kPrepared,
++  kCommitted,
++  kRolledBack,
++};
++
++struct VastDataMigrationFile {
++  base::FilePath relative_path;
++  uint64_t size = 0;
++  std::string sha256;
++};
++
++// Native-only transaction state. Paths and checksums must not cross the WebUI
++// boundary because they may reveal local profile details.
++struct VastDataMigrationTransaction {
++  VastDataMigrationState state = VastDataMigrationState::kFailed;
++  base::FilePath source_root;
++  base::FilePath destination_root;
++  base::FilePath transaction_root;
++  base::FilePath safety_backup_root;
++  base::FilePath staging_root;
++  base::FilePath journal_path;
++  std::vector<VastDataMigrationFile> files;
++  uint64_t total_bytes = 0;
++  std::string error;
++};
++
++// Creates an isolated transaction directory below transaction_parent, copies
++// only allowlisted Vast-owned product data into a safety backup, validates that
++// copy, then creates and verifies a second staging copy. The source is never
++// modified. The destination must not exist.
++VastDataMigrationTransaction PrepareVastDataMigration(
++    const base::FilePath& source_config_root,
++    const base::FilePath& transaction_parent,
++    const base::FilePath& destination_root);
++
++// Atomically promotes the prepared staging directory to destination_root. Both
++// paths must remain on the same volume.
++bool CommitVastDataMigration(VastDataMigrationTransaction* transaction);
++
++// Moves any prepared or committed destination into the transaction directory
++// and records the rollback. The original Electron source remains untouched.
++bool RollbackVastDataMigration(VastDataMigrationTransaction* transaction);
++
++}  // namespace vast
++
++#endif  // CHROME_BROWSER_VAST_VAST_DATA_MIGRATION_TRANSACTION_H_
+diff --git a/chrome/browser/vast/vast_data_migration_transaction_unittest.cc b/chrome/browser/vast/vast_data_migration_transaction_unittest.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..6e75927824fd345c680327d7ee94c9cb8318323b
+--- /dev/null
++++ b/chrome/browser/vast/vast_data_migration_transaction_unittest.cc
+@@ -0,0 +1,207 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/vast/vast_data_migration_transaction.h"
++
++#include <string>
++#include <string_view>
++
++#include "base/files/file_util.h"
++#include "base/files/scoped_temp_dir.h"
++#include "base/json/json_reader.h"
++#include "base/json/json_writer.h"
++#include "base/values.h"
++#include "testing/gtest/include/gtest/gtest.h"
++
++namespace vast {
++namespace {
++
++constexpr char kValidVastData[] = R"({
++  "schemaVersion": 5,
++  "activeWorkspaceId": "workspace-fixture",
++  "workspaces": [{"id":"workspace-fixture"}],
++  "tabGroups": [],
++  "tabs": [{"id":"tab-fixture","url":"https://example.test"}],
++  "bookmarks": [],
++  "bookmarkFolders": [],
++  "history": [],
++  "downloads": [],
++  "notes": [],
++  "readingList": [],
++  "quickLinks": [],
++  "settings": {}
++})";
++
++class VastDataMigrationTransactionTest : public testing::Test {
++ protected:
++  void SetUp() override { ASSERT_TRUE(temp_dir_.CreateUniqueTempDir()); }
++
++  base::FilePath CreateDirectory(std::string_view name) {
++    const base::FilePath path = temp_dir_.GetPath().AppendASCII(name);
++    EXPECT_TRUE(base::CreateDirectory(path));
++    return path;
++  }
++
++  void Write(const base::FilePath& path, std::string_view contents) {
++    ASSERT_TRUE(base::CreateDirectory(path.DirName()));
++    ASSERT_TRUE(base::WriteFile(path, contents));
++  }
++
++  std::string Read(const base::FilePath& path) {
++    std::string contents;
++    EXPECT_TRUE(base::ReadFileToString(path, &contents));
++    return contents;
++  }
++
++  void WriteConfig(const base::FilePath& config_root,
++                   const base::FilePath& data_root) {
++    base::DictValue value;
++    value.Set("customDataRoot", data_root.AsUTF8Unsafe());
++    std::string serialized;
++    ASSERT_TRUE(base::JSONWriter::Write(value, &serialized));
++    Write(config_root.Append(FILE_PATH_LITERAL("data-root.json")), serialized);
++  }
++
++  base::ScopedTempDir temp_dir_;
++};
++
++TEST_F(VastDataMigrationTransactionTest,
++       PreparesCommitsAndRollsBackWithoutChangingSource) {
++  const base::FilePath source = CreateDirectory("Source");
++  const base::FilePath transactions = CreateDirectory("Transactions");
++  const base::FilePath destination =
++      transactions.Append(FILE_PATH_LITERAL("Vast2Data"));
++  Write(source.Append(FILE_PATH_LITERAL("vast-data.json")), kValidVastData);
++  Write(source.Append(FILE_PATH_LITERAL("password-vault.json")),
++        "opaque encrypted vault fixture");
++  Write(source.Append(FILE_PATH_LITERAL("storage-backups/previous.json")),
++        "storage backup fixture");
++  Write(source.Append(FILE_PATH_LITERAL("avidae/memory.json")),
++        "avidae fixture");
++  Write(source.Append(FILE_PATH_LITERAL("Cookies")), "must not migrate");
++  Write(source.Append(FILE_PATH_LITERAL("Local State")), "must not migrate");
++  Write(source.Append(FILE_PATH_LITERAL("Sessions/session")),
++        "must not migrate");
++  const std::string source_before =
++      Read(source.Append(FILE_PATH_LITERAL("vast-data.json")));
++
++  VastDataMigrationTransaction transaction =
++      PrepareVastDataMigration(source, transactions, destination);
++
++  ASSERT_EQ(transaction.state, VastDataMigrationState::kPrepared)
++      << transaction.error;
++  EXPECT_EQ(transaction.files.size(), 4u);
++  EXPECT_FALSE(transaction.transaction_root.empty());
++  EXPECT_TRUE(base::PathExists(transaction.journal_path));
++  EXPECT_EQ(Read(source.Append(FILE_PATH_LITERAL("vast-data.json"))),
++            source_before);
++  EXPECT_EQ(Read(transaction.safety_backup_root.Append(
++                FILE_PATH_LITERAL("password-vault.json"))),
++            "opaque encrypted vault fixture");
++  EXPECT_FALSE(base::PathExists(
++      transaction.safety_backup_root.Append(FILE_PATH_LITERAL("Cookies"))));
++  EXPECT_FALSE(base::PathExists(
++      transaction.staging_root.Append(FILE_PATH_LITERAL("Local State"))));
++  EXPECT_FALSE(base::PathExists(
++      transaction.staging_root.Append(FILE_PATH_LITERAL("Sessions"))));
++  EXPECT_NE(Read(transaction.journal_path).find("sha256"), std::string::npos);
++
++  ASSERT_TRUE(CommitVastDataMigration(&transaction)) << transaction.error;
++  EXPECT_EQ(transaction.state, VastDataMigrationState::kCommitted);
++  EXPECT_TRUE(base::PathExists(
++      destination.Append(FILE_PATH_LITERAL("vast-data.json"))));
++  EXPECT_FALSE(base::PathExists(transaction.staging_root));
++  EXPECT_TRUE(base::PathExists(transaction.safety_backup_root));
++  EXPECT_EQ(Read(source.Append(FILE_PATH_LITERAL("vast-data.json"))),
++            source_before);
++
++  ASSERT_TRUE(RollbackVastDataMigration(&transaction)) << transaction.error;
++  EXPECT_EQ(transaction.state, VastDataMigrationState::kRolledBack);
++  EXPECT_FALSE(base::PathExists(destination));
++  EXPECT_TRUE(base::PathExists(transaction.transaction_root.Append(
++      FILE_PATH_LITERAL("rolled-back-data/vast-data.json"))));
++  EXPECT_EQ(Read(source.Append(FILE_PATH_LITERAL("vast-data.json"))),
++            source_before);
++}
++
++TEST_F(VastDataMigrationTransactionTest, ResolvesCustomRootBeforeCopying) {
++  const base::FilePath config = CreateDirectory("Config");
++  const base::FilePath source = CreateDirectory("CustomData");
++  const base::FilePath transactions = CreateDirectory("Transactions");
++  const base::FilePath destination =
++      transactions.Append(FILE_PATH_LITERAL("Vast2Data"));
++  Write(source.Append(FILE_PATH_LITERAL("vast-data.json")), kValidVastData);
++  WriteConfig(config, source);
++
++  VastDataMigrationTransaction transaction =
++      PrepareVastDataMigration(config, transactions, destination);
++
++  ASSERT_EQ(transaction.state, VastDataMigrationState::kPrepared)
++      << transaction.error;
++  EXPECT_EQ(transaction.source_root, base::MakeAbsoluteFilePath(source));
++  EXPECT_TRUE(base::PathExists(transaction.safety_backup_root.Append(
++      FILE_PATH_LITERAL("vast-data.json"))));
++}
++
++TEST_F(VastDataMigrationTransactionTest, RejectsExistingDestination) {
++  const base::FilePath source = CreateDirectory("Source");
++  const base::FilePath transactions = CreateDirectory("Transactions");
++  const base::FilePath destination =
++      transactions.Append(FILE_PATH_LITERAL("Existing"));
++  Write(source.Append(FILE_PATH_LITERAL("vast-data.json")), kValidVastData);
++  Write(destination.Append(FILE_PATH_LITERAL("keep.txt")), "keep");
++
++  VastDataMigrationTransaction transaction =
++      PrepareVastDataMigration(source, transactions, destination);
++
++  EXPECT_EQ(transaction.state, VastDataMigrationState::kFailed);
++  EXPECT_EQ(transaction.error, "The migration destination already exists.");
++  EXPECT_EQ(Read(destination.Append(FILE_PATH_LITERAL("keep.txt"))), "keep");
++  EXPECT_TRUE(transaction.transaction_root.empty());
++}
++
++TEST_F(VastDataMigrationTransactionTest, RejectsOverlappingPaths) {
++  const base::FilePath source = CreateDirectory("Source");
++  const base::FilePath transactions =
++      source.Append(FILE_PATH_LITERAL("Transactions"));
++  ASSERT_TRUE(base::CreateDirectory(transactions));
++  const base::FilePath destination =
++      transactions.Append(FILE_PATH_LITERAL("Vast2Data"));
++  Write(source.Append(FILE_PATH_LITERAL("vast-data.json")), kValidVastData);
++
++  VastDataMigrationTransaction transaction =
++      PrepareVastDataMigration(source, transactions, destination);
++
++  EXPECT_EQ(transaction.state, VastDataMigrationState::kFailed);
++  EXPECT_EQ(
++      transaction.error,
++      "Migration source, transaction, and destination paths must not overlap.");
++  EXPECT_FALSE(base::PathExists(destination));
++}
++
++TEST_F(VastDataMigrationTransactionTest,
++       RejectsMalformedDataAfterCreatingSafetyBackup) {
++  const base::FilePath source = CreateDirectory("Source");
++  const base::FilePath transactions = CreateDirectory("Transactions");
++  const base::FilePath destination =
++      transactions.Append(FILE_PATH_LITERAL("Vast2Data"));
++  Write(source.Append(FILE_PATH_LITERAL("vast-data.json")),
++        "{\"schemaVersion\":");
++
++  VastDataMigrationTransaction transaction =
++      PrepareVastDataMigration(source, transactions, destination);
++
++  EXPECT_EQ(transaction.state, VastDataMigrationState::kFailed);
++  EXPECT_NE(transaction.error.find("safety backup is incompatible"),
++            std::string::npos);
++  EXPECT_TRUE(base::PathExists(transaction.safety_backup_root.Append(
++      FILE_PATH_LITERAL("vast-data.json"))));
++  EXPECT_TRUE(base::PathExists(transaction.journal_path));
++  EXPECT_FALSE(base::PathExists(destination));
++  EXPECT_EQ(Read(source.Append(FILE_PATH_LITERAL("vast-data.json"))),
++            "{\"schemaVersion\":");
++}
++
++}  // namespace
++}  // namespace vast

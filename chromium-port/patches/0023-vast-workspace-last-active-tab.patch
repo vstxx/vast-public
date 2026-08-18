@@ -1,0 +1,944 @@
+diff --git a/chrome/browser/ui/views/toolbar/BUILD.gn b/chrome/browser/ui/views/toolbar/BUILD.gn
+index 2602bd3386..e30fad02af 100644
+--- a/chrome/browser/ui/views/toolbar/BUILD.gn
++++ b/chrome/browser/ui/views/toolbar/BUILD.gn
+@@ -275,6 +275,7 @@ source_set("impl") {
+   }
+ 
+   if (is_vast_branded) {
++    deps += [ "//chrome/browser/sessions" ]
+     sources += [
+       "vast_workspace_button.cc",
+       "vast_workspace_button.h",
+diff --git a/chrome/browser/ui/views/toolbar/vast_workspace_tab_controller.cc b/chrome/browser/ui/views/toolbar/vast_workspace_tab_controller.cc
+index 7069ac0bd1..751f6c10ff 100644
+--- a/chrome/browser/ui/views/toolbar/vast_workspace_tab_controller.cc
++++ b/chrome/browser/ui/views/toolbar/vast_workspace_tab_controller.cc
+@@ -17,7 +17,10 @@
+ #include "base/logging.h"
+ #include "base/strings/utf_string_conversions.h"
+ #include "base/task/sequenced_task_runner.h"
++#include "base/time/time.h"
+ #include "base/token.h"
++#include "chrome/browser/sessions/session_restore.h"
++#include "chrome/browser/sessions/session_service_factory.h"
+ #include "chrome/browser/ui/browser.h"
+ #include "chrome/browser/ui/browser_tabstrip.h"
+ #include "chrome/browser/ui/tabs/tab_group_model.h"
+@@ -50,6 +53,10 @@ VastWorkspaceTabController::VastWorkspaceTabController(
+       product_data_service_->AddStatusChangedCallback(
+           base::BindRepeating(&VastWorkspaceTabController::OnStatusChanged,
+                               weak_ptr_factory_.GetWeakPtr()));
++  session_restored_subscription_ =
++      SessionRestore::RegisterOnSessionRestoredCallback(
++          base::BindRepeating(&VastWorkspaceTabController::OnSessionRestored,
++                              weak_ptr_factory_.GetWeakPtr()));
+   product_data_service_->GetStatus(
+       base::BindOnce(&VastWorkspaceTabController::OnInitialStatus,
+                      weak_ptr_factory_.GetWeakPtr()));
+@@ -74,12 +81,24 @@ void VastWorkspaceTabController::OnStatusChanged(
+                                 weak_ptr_factory_.GetWeakPtr(), status));
+ }
+ 
++void VastWorkspaceTabController::OnSessionRestored(Profile* profile,
++                                                   int /*tabs_restored*/) {
++  if (profile != browser_->profile() || workspaces_.empty()) {
++    return;
++  }
++  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
++      FROM_HERE,
++      base::BindOnce(&VastWorkspaceTabController::ApplyCurrentWorkspaceState,
++                     weak_ptr_factory_.GetWeakPtr()));
++}
++
+ void VastWorkspaceTabController::RequestApplyStatus(
+     vast::VastProductDataRootStatus status) {
+   const uint64_t generation = ++status_generation_;
+   if (!status.selected || !status.compatible || !status.projection.compatible ||
+       !tab_strip_model_->SupportsTabGroups()) {
+     registered_workspace_groups_.clear();
++    registered_last_active_tab_indices_.clear();
+     allow_title_recovery_ = false;
+     ApplyStatus(status);
+     return;
+@@ -97,6 +116,7 @@ void VastWorkspaceTabController::OnWorkspaceGroupRegistryLoaded(
+     return;
+   }
+   registered_workspace_groups_.clear();
++  registered_last_active_tab_indices_.clear();
+   allow_title_recovery_ = result.success;
+   if (!result.success) {
+     LOG(WARNING) << "Ignoring invalid Vast workspace group registry: "
+@@ -110,6 +130,11 @@ void VastWorkspaceTabController::OnWorkspaceGroupRegistryLoaded(
+         registered_workspace_groups_.insert_or_assign(
+             tab_groups::TabGroupId::FromRawToken(*token),
+             registration.workspace_id);
++        if (registration.last_active_tab_index) {
++          registered_last_active_tab_indices_.insert_or_assign(
++              tab_groups::TabGroupId::FromRawToken(*token),
++              *registration.last_active_tab_index);
++        }
+       }
+     }
+   }
+@@ -136,12 +161,34 @@ void VastWorkspaceTabController::ApplyStatus(
+     return;
+   }
+ 
+-  base::AutoReset<bool> applying(&applying_workspace_state_, true);
+   workspaces_ = status.projection.workspaces;
+   active_workspace_id_ = active_workspace->id;
++  ApplyCurrentWorkspaceState();
++}
++
++void VastWorkspaceTabController::ApplyCurrentWorkspaceState() {
++  if (workspaces_.empty() || active_workspace_id_.empty() ||
++      !tab_strip_model_->SupportsTabGroups()) {
++    return;
++  }
++  const auto active_workspace = std::ranges::find_if(
++      workspaces_, [&](const vast::VastWorkspaceProjection& workspace) {
++        return workspace.id == active_workspace_id_;
++      });
++  if (active_workspace == workspaces_.end()) {
++    return;
++  }
++
++  base::AutoReset<bool> applying(&applying_workspace_state_, true);
+   ReconcileRestoredGroups();
+-  const std::optional<tab_groups::TabGroupId> active_group =
+-      EnsureWorkspaceGroup(*active_workspace);
++  std::optional<tab_groups::TabGroupId> active_group;
++  const auto existing = workspace_groups_.find(active_workspace->id);
++  if (existing != workspace_groups_.end() &&
++      tab_strip_model_->group_model()->ContainsTabGroup(existing->second)) {
++    active_group = existing->second;
++  } else if (!ShouldWaitForRegisteredGroup(active_workspace->id)) {
++    active_group = EnsureWorkspaceGroup(*active_workspace);
++  }
+   if (active_group) {
+     UpdateGroupVisualsAndActivate(*active_workspace, *active_group);
+     AssignExistingUngroupedTabs(*active_group);
+@@ -159,26 +206,72 @@ void VastWorkspaceTabController::ReconcileRestoredGroups() {
+     }
+   }
+ 
+-  for (const tab_groups::TabGroupId& group_id :
+-       tab_strip_model_->group_model()->ListTabGroups()) {
++  const std::vector<tab_groups::TabGroupId> local_groups =
++      tab_strip_model_->group_model()->ListTabGroups();
++  const std::optional<tab_groups::TabGroupId> active_group =
++      tab_strip_model_->active_index() >= 0
++          ? tab_strip_model_->GetTabGroupForTab(
++                tab_strip_model_->active_index())
++          : std::nullopt;
++
++  // A profile registry intentionally contains groups from every browser
++  // window. For each local workspace choose one exact registered group,
++  // preferring the group with the most restored tabs and then the active
++  // group. This avoids binding a one-tab startup placeholder when the real
++  // session group is also present in this window.
++  for (const vast::VastWorkspaceProjection& workspace : workspaces_) {
++    std::optional<tab_groups::TabGroupId> best_group;
++    bool best_is_active = false;
++    int best_tab_count = -1;
++    std::string best_token;
++    for (const tab_groups::TabGroupId& group_id : local_groups) {
++      const auto registered = registered_workspace_groups_.find(group_id);
++      const auto current_owner = std::ranges::find_if(
++          workspace_groups_,
++          [&](const auto& entry) { return entry.second == group_id; });
++      if (registered == registered_workspace_groups_.end() ||
++          registered->second != workspace.id ||
++          (current_owner != workspace_groups_.end() &&
++           current_owner->first != workspace.id)) {
++        continue;
++      }
++      const bool is_active = active_group && *active_group == group_id;
++      const int tab_count =
++          tab_strip_model_->group_model()->GetTabGroup(group_id)->tab_count();
++      const std::string token = group_id.ToString();
++      VLOG(1) << "Vast workspace candidate workspace=" << workspace.id
++              << " token=" << token << " tabs=" << tab_count
++              << " active=" << is_active;
++      if (!best_group || tab_count > best_tab_count ||
++          (tab_count == best_tab_count && is_active && !best_is_active) ||
++          (tab_count == best_tab_count && is_active == best_is_active &&
++           token < best_token)) {
++        best_group = group_id;
++        best_is_active = is_active;
++        best_tab_count = tab_count;
++        best_token = token;
++      }
++    }
++    if (best_group) {
++      const auto current = workspace_groups_.find(workspace.id);
++      if (current != workspace_groups_.end() &&
++          current->second != *best_group) {
++        last_active_tabs_.erase(workspace.id);
++      }
++      workspace_groups_.insert_or_assign(workspace.id, *best_group);
++      VLOG(1) << "Vast workspace chose workspace=" << workspace.id
++              << " token=" << best_group->ToString()
++              << " tabs=" << best_tab_count;
++    }
++  }
++
++  for (const tab_groups::TabGroupId& group_id : local_groups) {
+     const bool already_owned = std::ranges::any_of(
+         workspace_groups_,
+         [&](const auto& entry) { return entry.second == group_id; });
+     if (already_owned) {
+       continue;
+     }
+-    const auto registered = registered_workspace_groups_.find(group_id);
+-    if (registered != registered_workspace_groups_.end() &&
+-        !workspace_groups_.contains(registered->second)) {
+-      const bool known_workspace = std::ranges::any_of(
+-          workspaces_, [&](const vast::VastWorkspaceProjection& workspace) {
+-            return workspace.id == registered->second;
+-          });
+-      if (known_workspace) {
+-        workspace_groups_.insert_or_assign(registered->second, group_id);
+-        continue;
+-      }
+-    }
+     if (!allow_title_recovery_) {
+       continue;
+     }
+@@ -198,6 +291,17 @@ void VastWorkspaceTabController::ReconcileRestoredGroups() {
+   }
+ }
+ 
++bool VastWorkspaceTabController::ShouldWaitForRegisteredGroup(
++    std::string_view workspace_id) const {
++  if (!SessionRestore::IsRestoring(browser_->profile())) {
++    return false;
++  }
++  return std::ranges::any_of(registered_workspace_groups_,
++                             [&](const auto& registration) {
++                               return registration.second == workspace_id;
++                             });
++}
++
+ std::optional<tab_groups::TabGroupId>
+ VastWorkspaceTabController::EnsureWorkspaceGroup(
+     const vast::VastWorkspaceProjection& workspace) {
+@@ -242,8 +346,23 @@ void VastWorkspaceTabController::UpdateGroupVisualsAndActivate(
+                         WorkspaceGroupColor(active_workspace), false));
+ 
+   tabs::TabInterface* tab = nullptr;
++  const auto restored_index =
++      registered_last_active_tab_indices_.find(active_group);
++  if (restored_index != registered_last_active_tab_indices_.end()) {
++    const gfx::Range group_range =
++        tab_strip_model_->group_model()->GetTabGroup(active_group)->ListTabs();
++    if (restored_index->second >= 0 &&
++        static_cast<size_t>(restored_index->second) < group_range.length()) {
++      tab = tab_strip_model_->GetTabAtIndex(
++          static_cast<int>(group_range.start()) + restored_index->second);
++    }
++    VLOG(1) << "Vast workspace restore token=" << active_group.ToString()
++            << " saved_index=" << restored_index->second
++            << " group_tabs=" << group_range.length()
++            << " resolved=" << (tab != nullptr);
++  }
+   const auto last_active = last_active_tabs_.find(active_workspace.id);
+-  if (last_active != last_active_tabs_.end()) {
++  if (!tab && last_active != last_active_tabs_.end()) {
+     tab = last_active->second.get();
+     const int index = tab_strip_model_->GetIndexOfTab(tab);
+     if (index < 0 ||
+@@ -259,6 +378,9 @@ void VastWorkspaceTabController::UpdateGroupVisualsAndActivate(
+   if (tab) {
+     const int index = tab_strip_model_->GetIndexOfTab(tab);
+     if (index >= 0) {
++      VLOG(1) << "Vast workspace activating workspace=" << active_workspace.id
++              << " token=" << active_group.ToString()
++              << " model_index=" << index;
+       tab_strip_model_->ActivateTabAt(index);
+       last_active_tabs_[active_workspace.id] = tab->GetWeakPtr();
+     }
+@@ -307,6 +429,7 @@ void VastWorkspaceTabController::AssignInsertedTabs(
+     return;
+   }
+ 
++  tabs::TabInterface* active_tab = tab_strip_model_->GetActiveTab();
+   std::vector<int> indices;
+   for (const base::WeakPtr<tabs::TabInterface>& tab : inserted_tabs) {
+     if (!tab) {
+@@ -323,6 +446,15 @@ void VastWorkspaceTabController::AssignInsertedTabs(
+     tab_strip_model_->AddToExistingGroup(indices, active_group->second);
+   }
+ 
++  if (active_tab) {
++    const std::optional<int> active_tab_index =
++        RelativeTabIndex(active_group->second, active_tab);
++    if (active_tab_index) {
++      RememberActiveTab(active_workspace_id_, active_group->second, active_tab,
++                        true);
++    }
++  }
++
+   // Startup and session restoration can apply their default group visuals
+   // after the initial product-data callback. Reapply only the already-owned
+   // Vast group; never claim or rename an unrelated native group.
+@@ -335,14 +467,87 @@ void VastWorkspaceTabController::AssignInsertedTabs(
+   }
+ }
+ 
++std::optional<int> VastWorkspaceTabController::RelativeTabIndex(
++    tab_groups::TabGroupId group_id,
++    const tabs::TabInterface* tab) const {
++  if (!tab || !tab_strip_model_->group_model()->ContainsTabGroup(group_id)) {
++    return std::nullopt;
++  }
++  const int tab_index = tab_strip_model_->GetIndexOfTab(tab);
++  const gfx::Range group_range =
++      tab_strip_model_->group_model()->GetTabGroup(group_id)->ListTabs();
++  const int group_start = static_cast<int>(group_range.start());
++  const int group_end = static_cast<int>(group_range.end());
++  if (tab_index < group_start || tab_index >= group_end) {
++    return std::nullopt;
++  }
++  return tab_index - group_start;
++}
++
++std::optional<int> VastWorkspaceTabController::WorkspaceLastActiveTabIndex(
++    std::string_view workspace_id) const {
++  for (const auto& [group_id, registered_workspace_id] :
++       registered_workspace_groups_) {
++    if (registered_workspace_id != workspace_id) {
++      continue;
++    }
++    const auto active_index =
++        registered_last_active_tab_indices_.find(group_id);
++    if (active_index != registered_last_active_tab_indices_.end()) {
++      return active_index->second;
++    }
++  }
++  return std::nullopt;
++}
++
++void VastWorkspaceTabController::RememberActiveTab(
++    std::string workspace_id,
++    tab_groups::TabGroupId group_id,
++    tabs::TabInterface* tab,
++    bool persist) {
++  const std::optional<int> relative_index = RelativeTabIndex(group_id, tab);
++  if (!relative_index) {
++    return;
++  }
++  last_active_tabs_.insert_or_assign(workspace_id, tab->GetWeakPtr());
++  registered_workspace_groups_.insert_or_assign(group_id, workspace_id);
++  for (const auto& [registered_group_id, registered_workspace_id] :
++       registered_workspace_groups_) {
++    if (registered_workspace_id == workspace_id) {
++      registered_last_active_tab_indices_.insert_or_assign(registered_group_id,
++                                                           *relative_index);
++    }
++  }
++  if (persist) {
++    product_data_service_->UpdateWorkspaceGroupRegistration(
++        std::move(workspace_id), group_id.ToString(), relative_index, true,
++        base::BindOnce(&VastWorkspaceTabController::OnWorkspaceGroupRegistered,
++                       weak_ptr_factory_.GetWeakPtr()));
++  }
++}
++
+ void VastWorkspaceTabController::RegisterWorkspaceGroup(
+     std::string workspace_id,
+     tab_groups::TabGroupId group_id) {
++  const std::optional<int> inherited_index =
++      WorkspaceLastActiveTabIndex(workspace_id);
+   registered_workspace_groups_.insert_or_assign(group_id, workspace_id);
+-  product_data_service_->UpdateWorkspaceGroupRegistration(
+-      std::move(workspace_id), group_id.ToString(), true,
+-      base::BindOnce(&VastWorkspaceTabController::OnWorkspaceGroupRegistered,
+-                     weak_ptr_factory_.GetWeakPtr()));
++  if (inherited_index) {
++    registered_last_active_tab_indices_.insert_or_assign(group_id,
++                                                         *inherited_index);
++    product_data_service_->UpdateWorkspaceGroupRegistration(
++        std::move(workspace_id), group_id.ToString(), inherited_index, true,
++        base::BindOnce(&VastWorkspaceTabController::OnWorkspaceGroupRegistered,
++                       weak_ptr_factory_.GetWeakPtr()));
++    return;
++  }
++  tabs::TabInterface* tab = tab_strip_model_->GetActiveTab();
++  if (!RelativeTabIndex(group_id, tab)) {
++    tab = tab_strip_model_->group_model()->GetTabGroup(group_id)->GetFirstTab();
++  }
++  if (tab) {
++    RememberActiveTab(std::move(workspace_id), group_id, tab, true);
++  }
+ }
+ 
+ void VastWorkspaceTabController::OnWorkspaceGroupRegistered(
+@@ -350,6 +555,26 @@ void VastWorkspaceTabController::OnWorkspaceGroupRegistered(
+   if (!result.success) {
+     LOG(WARNING) << "Could not persist Vast workspace group identity: "
+                  << result.error;
++    return;
++  }
++  ScheduleSessionSnapshot();
++}
++
++void VastWorkspaceTabController::ScheduleSessionSnapshot() {
++  if (SessionRestore::IsRestoring(browser_->profile())) {
++    return;
++  }
++  session_snapshot_timer_.Start(
++      FROM_HERE, base::Seconds(1),
++      base::BindOnce(&VastWorkspaceTabController::WriteSessionSnapshot,
++                     weak_ptr_factory_.GetWeakPtr()));
++}
++
++void VastWorkspaceTabController::WriteSessionSnapshot() {
++  SessionService* session_service =
++      SessionServiceFactory::GetForProfileIfExisting(browser_->profile());
++  if (session_service) {
++    session_service->ResetFromCurrentBrowsers();
+   }
+ }
+ 
+@@ -386,7 +611,7 @@ void VastWorkspaceTabController::OnTabStripModelChanged(
+             workspace_groups_,
+             [&](const auto& entry) { return entry.second == *group; });
+         if (workspace != workspace_groups_.end()) {
+-          last_active_tabs_[workspace->first] = selection.new_tab->GetWeakPtr();
++          RememberActiveTab(workspace->first, *group, selection.new_tab, true);
+         }
+       }
+     }
+@@ -408,6 +633,38 @@ void VastWorkspaceTabController::OnTabStripModelChanged(
+                      weak_ptr_factory_.GetWeakPtr(), std::move(inserted_tabs)));
+ }
+ 
++void VastWorkspaceTabController::TabGroupedStateChanged(
++    TabStripModel* tab_strip_model,
++    std::optional<tab_groups::TabGroupId> /*old_group*/,
++    std::optional<tab_groups::TabGroupId> new_group,
++    tabs::TabInterface* /*tab*/,
++    int /*index*/) {
++  CHECK_EQ(tab_strip_model, tab_strip_model_);
++  if (applying_workspace_state_ || !new_group ||
++      (!registered_workspace_groups_.contains(*new_group) &&
++       !std::ranges::any_of(workspace_groups_, [&](const auto& entry) {
++         return entry.second == *new_group;
++       }))) {
++    return;
++  }
++  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
++      FROM_HERE,
++      base::BindOnce(&VastWorkspaceTabController::ApplyCurrentWorkspaceState,
++                     weak_ptr_factory_.GetWeakPtr()));
++}
++
++void VastWorkspaceTabController::OnTabGroupAdded(
++    const tab_groups::TabGroupId& group_id) {
++  if (applying_workspace_state_ ||
++      !registered_workspace_groups_.contains(group_id)) {
++    return;
++  }
++  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
++      FROM_HERE,
++      base::BindOnce(&VastWorkspaceTabController::ApplyCurrentWorkspaceState,
++                     weak_ptr_factory_.GetWeakPtr()));
++}
++
+ void VastWorkspaceTabController::OnTabGroupWillBeRemoved(
+     const tab_groups::TabGroupId& group_id) {
+   const auto workspace = std::ranges::find_if(
+@@ -417,4 +674,6 @@ void VastWorkspaceTabController::OnTabGroupWillBeRemoved(
+     last_active_tabs_.erase(workspace->first);
+     workspace_groups_.erase(workspace);
+   }
++  registered_workspace_groups_.erase(group_id);
++  registered_last_active_tab_indices_.erase(group_id);
+ }
+diff --git a/chrome/browser/ui/views/toolbar/vast_workspace_tab_controller.h b/chrome/browser/ui/views/toolbar/vast_workspace_tab_controller.h
+index 11282a5179..72fcb40f01 100644
+--- a/chrome/browser/ui/views/toolbar/vast_workspace_tab_controller.h
++++ b/chrome/browser/ui/views/toolbar/vast_workspace_tab_controller.h
+@@ -9,17 +9,20 @@
+ #include <map>
+ #include <optional>
+ #include <string>
++#include <string_view>
+ #include <vector>
+ 
+ #include "base/callback_list.h"
+ #include "base/memory/raw_ptr.h"
+ #include "base/memory/weak_ptr.h"
++#include "base/timer/timer.h"
+ #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
+ #include "chrome/browser/vast/vast_data_projection.h"
+ #include "components/tab_groups/tab_group_color.h"
+ #include "components/tab_groups/tab_group_id.h"
+ 
+ class Browser;
++class Profile;
+ class TabStripModel;
+ 
+ namespace tabs {
+@@ -47,13 +50,16 @@ class VastWorkspaceTabController : public TabStripModelObserver {
+  private:
+   void OnInitialStatus(vast::VastProductDataRootStatus status);
+   void OnStatusChanged(const vast::VastProductDataRootStatus& status);
++  void OnSessionRestored(Profile* profile, int tabs_restored);
+   void RequestApplyStatus(vast::VastProductDataRootStatus status);
+   void OnWorkspaceGroupRegistryLoaded(
+       uint64_t status_generation,
+       vast::VastProductDataRootStatus status,
+       vast::VastWorkspaceGroupRegistryResult result);
+   void ApplyStatus(const vast::VastProductDataRootStatus& status);
++  void ApplyCurrentWorkspaceState();
+   void ReconcileRestoredGroups();
++  bool ShouldWaitForRegisteredGroup(std::string_view workspace_id) const;
+   std::optional<tab_groups::TabGroupId> EnsureWorkspaceGroup(
+       const vast::VastWorkspaceProjection& workspace);
+   void UpdateGroupVisualsAndActivate(
+@@ -62,10 +68,20 @@ class VastWorkspaceTabController : public TabStripModelObserver {
+   void AssignExistingUngroupedTabs(tab_groups::TabGroupId active_group);
+   void AssignInsertedTabs(
+       std::vector<base::WeakPtr<tabs::TabInterface>> inserted_tabs);
++  std::optional<int> RelativeTabIndex(tab_groups::TabGroupId group_id,
++                                      const tabs::TabInterface* tab) const;
++  std::optional<int> WorkspaceLastActiveTabIndex(
++      std::string_view workspace_id) const;
++  void RememberActiveTab(std::string workspace_id,
++                         tab_groups::TabGroupId group_id,
++                         tabs::TabInterface* tab,
++                         bool persist);
+   void RegisterWorkspaceGroup(std::string workspace_id,
+                               tab_groups::TabGroupId group_id);
+   void OnWorkspaceGroupRegistered(
+       vast::VastWorkspaceGroupRegistryResult result);
++  void ScheduleSessionSnapshot();
++  void WriteSessionSnapshot();
+   std::u16string WorkspaceGroupTitle(
+       const vast::VastWorkspaceProjection& workspace) const;
+   tab_groups::TabGroupColorId WorkspaceGroupColor(
+@@ -76,6 +92,12 @@ class VastWorkspaceTabController : public TabStripModelObserver {
+       TabStripModel* tab_strip_model,
+       const TabStripModelChange& change,
+       const TabStripSelectionChange& selection) override;
++  void TabGroupedStateChanged(TabStripModel* tab_strip_model,
++                              std::optional<tab_groups::TabGroupId> old_group,
++                              std::optional<tab_groups::TabGroupId> new_group,
++                              tabs::TabInterface* tab,
++                              int index) override;
++  void OnTabGroupAdded(const tab_groups::TabGroupId& group_id) override;
+   void OnTabGroupWillBeRemoved(const tab_groups::TabGroupId& group_id) override;
+ 
+   const raw_ptr<Browser> browser_;
+@@ -85,11 +107,14 @@ class VastWorkspaceTabController : public TabStripModelObserver {
+   std::string active_workspace_id_;
+   std::map<std::string, tab_groups::TabGroupId> workspace_groups_;
+   std::map<tab_groups::TabGroupId, std::string> registered_workspace_groups_;
++  std::map<tab_groups::TabGroupId, int> registered_last_active_tab_indices_;
+   std::map<std::string, base::WeakPtr<tabs::TabInterface>> last_active_tabs_;
+   uint64_t status_generation_ = 0;
+   bool allow_title_recovery_ = false;
+   bool applying_workspace_state_ = false;
++  base::OneShotTimer session_snapshot_timer_;
+   base::CallbackListSubscription status_changed_subscription_;
++  base::CallbackListSubscription session_restored_subscription_;
+   base::WeakPtrFactory<VastWorkspaceTabController> weak_ptr_factory_{this};
+ };
+ 
+diff --git a/chrome/browser/vast/vast_product_data_service.cc b/chrome/browser/vast/vast_product_data_service.cc
+index c4ea9cca58..95673808ba 100644
+--- a/chrome/browser/vast/vast_product_data_service.cc
++++ b/chrome/browser/vast/vast_product_data_service.cc
+@@ -73,11 +73,12 @@ VastWorkspaceGroupRegistryResult UpdateWorkspaceGroupRegistryOnWorker(
+     std::vector<std::string> workspace_ids,
+     std::string workspace_id,
+     std::string group_token,
++    std::optional<int> last_active_tab_index,
+     bool present) {
+   VastWorkspaceGroupRegistryResult result;
+   result.success = UpdateVastWorkspaceGroupRegistration(
+       profile_path, journal_path, workspace_ids, workspace_id, group_token,
+-      present, &result.registry, &result.error);
++      last_active_tab_index, present, &result.registry, &result.error);
+   return result;
+ }
+ 
+@@ -144,6 +145,7 @@ void VastProductDataService::GetWorkspaceGroupRegistry(
+ void VastProductDataService::UpdateWorkspaceGroupRegistration(
+     std::string workspace_id,
+     std::string group_token,
++    std::optional<int> last_active_tab_index,
+     bool present,
+     WorkspaceGroupRegistryCallback callback) {
+   if (shutdown_) {
+@@ -155,6 +157,7 @@ void VastProductDataService::UpdateWorkspaceGroupRegistration(
+   pending_workspace_group_updates_.push_back(
+       {.workspace_id = std::move(workspace_id),
+        .group_token = std::move(group_token),
++       .last_active_tab_index = last_active_tab_index,
+        .present = present,
+        .callback = std::move(callback)});
+   StartNextWorkspaceGroupUpdate();
+@@ -363,7 +366,8 @@ void VastProductDataService::OnStatusReadyForWorkspaceGroupUpdate(
+       FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+       base::BindOnce(&UpdateWorkspaceGroupRegistryOnWorker, profile_path_,
+                      status.transaction.journal_path, WorkspaceIds(status),
+-                     update.workspace_id, update.group_token, update.present),
++                     update.workspace_id, update.group_token,
++                     update.last_active_tab_index, update.present),
+       base::BindOnce(&VastProductDataService::OnWorkspaceGroupUpdateComplete,
+                      weak_ptr_factory_.GetWeakPtr()));
+ }
+diff --git a/chrome/browser/vast/vast_product_data_service.h b/chrome/browser/vast/vast_product_data_service.h
+index b9bb64e47e..7e4c2456e2 100644
+--- a/chrome/browser/vast/vast_product_data_service.h
++++ b/chrome/browser/vast/vast_product_data_service.h
+@@ -66,6 +66,7 @@ class VastProductDataService : public KeyedService {
+   void UpdateWorkspaceGroupRegistration(
+       std::string workspace_id,
+       std::string group_token,
++      std::optional<int> last_active_tab_index,
+       bool present,
+       WorkspaceGroupRegistryCallback callback);
+ 
+@@ -85,6 +86,7 @@ class VastProductDataService : public KeyedService {
+   struct PendingWorkspaceGroupUpdate {
+     std::string workspace_id;
+     std::string group_token;
++    std::optional<int> last_active_tab_index;
+     bool present = false;
+     WorkspaceGroupRegistryCallback callback;
+   };
+diff --git a/chrome/browser/vast/vast_product_data_service_unittest.cc b/chrome/browser/vast/vast_product_data_service_unittest.cc
+index a355613572..ee5a125ee6 100644
+--- a/chrome/browser/vast/vast_product_data_service_unittest.cc
++++ b/chrome/browser/vast/vast_product_data_service_unittest.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "chrome/browser/vast/vast_product_data_service.h"
+ 
++#include <algorithm>
++#include <optional>
+ #include <string>
+ #include <string_view>
+ #include <utility>
+@@ -260,10 +262,10 @@ TEST_F(VastProductDataServiceTest,
+           }
+         },
+         &callbacks, run_loop.QuitClosure());
+-    service.UpdateWorkspaceGroupRegistration("workspace", first_token, true,
+-                                             base::BindOnce(on_updated));
+-    service.UpdateWorkspaceGroupRegistration("focus", second_token, true,
++    service.UpdateWorkspaceGroupRegistration("workspace", first_token, 1, true,
+                                              base::BindOnce(on_updated));
++    service.UpdateWorkspaceGroupRegistration(
++        "focus", second_token, std::nullopt, true, base::BindOnce(on_updated));
+     run_loop.Run();
+     EXPECT_EQ(callbacks, 2);
+   }
+@@ -277,11 +279,18 @@ TEST_F(VastProductDataServiceTest,
+             std::min(first_token, second_token));
+   EXPECT_EQ(loaded.registry.registrations[1].group_token,
+             std::max(first_token, second_token));
++  const auto first_registration = std::ranges::find_if(
++      loaded.registry.registrations,
++      [&](const VastWorkspaceGroupRegistration& registration) {
++        return registration.group_token == first_token;
++      });
++  ASSERT_NE(first_registration, loaded.registry.registrations.end());
++  EXPECT_EQ(first_registration->last_active_tab_index, 1);
+ 
+   base::RunLoop remove_loop;
+   VastWorkspaceGroupRegistryResult removed;
+   restarted_service.UpdateWorkspaceGroupRegistration(
+-      "workspace", first_token, false,
++      "workspace", first_token, std::nullopt, false,
+       base::BindOnce(
+           [](VastWorkspaceGroupRegistryResult* output, base::OnceClosure quit,
+              VastWorkspaceGroupRegistryResult result) {
+diff --git a/chrome/browser/vast/vast_workspace_group_registry.cc b/chrome/browser/vast/vast_workspace_group_registry.cc
+index 41924657fb..763799e6fc 100644
+--- a/chrome/browser/vast/vast_workspace_group_registry.cc
++++ b/chrome/browser/vast/vast_workspace_group_registry.cc
+@@ -25,6 +25,7 @@ constexpr size_t kMaxRegistryBytes = 64 * 1024;
+ constexpr size_t kMaxRegistrations = 128;
+ constexpr size_t kMaxWorkspaceIdBytes = 256;
+ constexpr size_t kMaxJournalPathBytes = 32768;
++constexpr int kMaxLastActiveTabIndex = 10000;
+ constexpr base::FilePath::CharType kMetadataDirectory[] =
+     FILE_PATH_LITERAL("VastProductData");
+ constexpr base::FilePath::CharType kRegistryFile[] =
+@@ -63,6 +64,9 @@ bool PersistRegistry(const base::FilePath& profile_path,
+     base::DictValue group;
+     group.Set("workspaceId", registration.workspace_id);
+     group.Set("groupToken", registration.group_token);
++    if (registration.last_active_tab_index) {
++      group.Set("lastActiveTabIndex", *registration.last_active_tab_index);
++    }
+     groups.Append(std::move(group));
+   }
+   base::DictValue root;
+@@ -152,10 +156,18 @@ bool LoadVastWorkspaceGroupRegistry(
+         group ? group->FindString("workspaceId") : nullptr;
+     const std::string* group_token =
+         group ? group->FindString("groupToken") : nullptr;
+-    if (!group || group->size() != 2u || !workspace_id ||
++    const base::Value* last_active_tab_value =
++        group ? group->Find("lastActiveTabIndex") : nullptr;
++    const std::optional<int> last_active_tab_index =
++        group ? group->FindInt("lastActiveTabIndex") : std::nullopt;
++    const size_t expected_entry_size = last_active_tab_value ? 3u : 2u;
++    if (!group || group->size() != expected_entry_size || !workspace_id ||
+         workspace_id->empty() || workspace_id->size() > kMaxWorkspaceIdBytes ||
+         !IsKnownWorkspace(known_workspace_ids, *workspace_id) || !group_token ||
+-        !IsCanonicalGroupToken(*group_token)) {
++        !IsCanonicalGroupToken(*group_token) ||
++        (last_active_tab_value &&
++         (!last_active_tab_index || *last_active_tab_index < 0 ||
++          *last_active_tab_index > kMaxLastActiveTabIndex))) {
+       *error = "Vast workspace group registry contains an invalid entry.";
+       registry->registrations.clear();
+       return false;
+@@ -171,8 +183,27 @@ bool LoadVastWorkspaceGroupRegistry(
+       registry->registrations.clear();
+       return false;
+     }
++    const bool conflicting_workspace_index =
++        last_active_tab_index &&
++        std::ranges::any_of(
++            registry->registrations,
++            [&](const VastWorkspaceGroupRegistration& registration) {
++              return registration.workspace_id == *workspace_id &&
++                     registration.last_active_tab_index &&
++                     registration.last_active_tab_index !=
++                         last_active_tab_index;
++            });
++    if (conflicting_workspace_index) {
++      *error =
++          "Vast workspace group registry contains conflicting active "
++          "tab positions.";
++      registry->registrations.clear();
++      return false;
++    }
+     registry->registrations.push_back(
+-        {.workspace_id = *workspace_id, .group_token = *group_token});
++        {.workspace_id = *workspace_id,
++         .group_token = *group_token,
++         .last_active_tab_index = last_active_tab_index});
+   }
+   return true;
+ }
+@@ -183,6 +214,7 @@ bool UpdateVastWorkspaceGroupRegistration(
+     base::span<const std::string> known_workspace_ids,
+     std::string_view workspace_id,
+     std::string_view group_token,
++    std::optional<int> last_active_tab_index,
+     bool present,
+     VastWorkspaceGroupRegistry* registry,
+     std::string* error) {
+@@ -190,7 +222,10 @@ bool UpdateVastWorkspaceGroupRegistration(
+   CHECK(error);
+   if (!IsKnownWorkspace(known_workspace_ids, workspace_id) ||
+       workspace_id.empty() || workspace_id.size() > kMaxWorkspaceIdBytes ||
+-      !IsCanonicalGroupToken(group_token)) {
++      !IsCanonicalGroupToken(group_token) ||
++      (last_active_tab_index &&
++       (*last_active_tab_index < 0 ||
++        *last_active_tab_index > kMaxLastActiveTabIndex))) {
+     *error = "Vast workspace group registration is invalid.";
+     return false;
+   }
+@@ -199,6 +234,18 @@ bool UpdateVastWorkspaceGroupRegistration(
+     return false;
+   }
+ 
++  // Chromium remaps local tab-group tokens during session restoration. Keep
++  // one URL-free relative active-tab position across every group instance of
++  // a workspace so a replacement token can inherit it.
++  if (present && last_active_tab_index) {
++    for (VastWorkspaceGroupRegistration& registration :
++         registry->registrations) {
++      if (registration.workspace_id == workspace_id) {
++        registration.last_active_tab_index = last_active_tab_index;
++      }
++    }
++  }
++
+   std::erase_if(registry->registrations,
+                 [&](const VastWorkspaceGroupRegistration& registration) {
+                   return registration.group_token == group_token;
+@@ -210,7 +257,8 @@ bool UpdateVastWorkspaceGroupRegistration(
+     }
+     registry->registrations.push_back(
+         {.workspace_id = std::string(workspace_id),
+-         .group_token = std::string(group_token)});
++         .group_token = std::string(group_token),
++         .last_active_tab_index = last_active_tab_index});
+   }
+   std::ranges::sort(registry->registrations, {},
+                     &VastWorkspaceGroupRegistration::group_token);
+diff --git a/chrome/browser/vast/vast_workspace_group_registry.h b/chrome/browser/vast/vast_workspace_group_registry.h
+index e97c91870e..d81bb15491 100644
+--- a/chrome/browser/vast/vast_workspace_group_registry.h
++++ b/chrome/browser/vast/vast_workspace_group_registry.h
+@@ -5,6 +5,7 @@
+ #ifndef CHROME_BROWSER_VAST_VAST_WORKSPACE_GROUP_REGISTRY_H_
+ #define CHROME_BROWSER_VAST_VAST_WORKSPACE_GROUP_REGISTRY_H_
+ 
++#include <optional>
+ #include <string>
+ #include <string_view>
+ #include <vector>
+@@ -17,6 +18,7 @@ namespace vast {
+ struct VastWorkspaceGroupRegistration {
+   std::string workspace_id;
+   std::string group_token;
++  std::optional<int> last_active_tab_index;
+ 
+   friend bool operator==(const VastWorkspaceGroupRegistration&,
+                          const VastWorkspaceGroupRegistration&) = default;
+@@ -45,6 +47,7 @@ bool UpdateVastWorkspaceGroupRegistration(
+     base::span<const std::string> known_workspace_ids,
+     std::string_view workspace_id,
+     std::string_view group_token,
++    std::optional<int> last_active_tab_index,
+     bool present,
+     VastWorkspaceGroupRegistry* registry,
+     std::string* error);
+diff --git a/chrome/browser/vast/vast_workspace_group_registry_unittest.cc b/chrome/browser/vast/vast_workspace_group_registry_unittest.cc
+index d016c4ca62..42d0473fd1 100644
+--- a/chrome/browser/vast/vast_workspace_group_registry_unittest.cc
++++ b/chrome/browser/vast/vast_workspace_group_registry_unittest.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "chrome/browser/vast/vast_workspace_group_registry.h"
+ 
++#include <algorithm>
++#include <optional>
+ #include <string>
+ #include <vector>
+ 
+@@ -52,12 +54,12 @@ TEST_F(VastWorkspaceGroupRegistryTest,
+   VastWorkspaceGroupRegistry registry;
+   std::string error;
+   ASSERT_TRUE(UpdateVastWorkspaceGroupRegistration(
+-      profile_path_, journal_path_, workspace_ids_, "one", first_token, true,
++      profile_path_, journal_path_, workspace_ids_, "one", first_token, 2, true,
+       &registry, &error))
+       << error;
+   ASSERT_TRUE(UpdateVastWorkspaceGroupRegistration(
+-      profile_path_, journal_path_, workspace_ids_, "two", second_token, true,
+-      &registry, &error))
++      profile_path_, journal_path_, workspace_ids_, "two", second_token,
++      std::nullopt, true, &registry, &error))
+       << error;
+   ASSERT_EQ(registry.registrations.size(), 2u);
+ 
+@@ -67,10 +69,17 @@ TEST_F(VastWorkspaceGroupRegistryTest,
+       << error;
+   EXPECT_EQ(loaded.registrations, registry.registrations);
+   EXPECT_FALSE(loaded.stale);
++  const auto first_registration = std::ranges::find_if(
++      loaded.registrations,
++      [&](const VastWorkspaceGroupRegistration& registration) {
++        return registration.group_token == first_token;
++      });
++  ASSERT_NE(first_registration, loaded.registrations.end());
++  EXPECT_EQ(first_registration->last_active_tab_index, 2);
+ 
+   ASSERT_TRUE(UpdateVastWorkspaceGroupRegistration(
+-      profile_path_, journal_path_, workspace_ids_, "one", first_token, false,
+-      &registry, &error))
++      profile_path_, journal_path_, workspace_ids_, "one", first_token,
++      std::nullopt, false, &registry, &error))
+       << error;
+   ASSERT_EQ(registry.registrations.size(), 1u);
+   EXPECT_EQ(registry.registrations[0].group_token, second_token);
+@@ -88,15 +97,81 @@ TEST_F(VastWorkspaceGroupRegistryTest, RejectsUnknownWorkspaceAndInvalidToken) {
+   std::string error;
+   EXPECT_FALSE(UpdateVastWorkspaceGroupRegistration(
+       profile_path_, journal_path_, workspace_ids_, "unknown",
+-      base::Token::CreateRandom().ToString(), true, &registry, &error));
++      base::Token::CreateRandom().ToString(), std::nullopt, true, &registry,
++      &error));
+   EXPECT_FALSE(error.empty());
+   EXPECT_FALSE(UpdateVastWorkspaceGroupRegistration(
+-      profile_path_, journal_path_, workspace_ids_, "one", "not-a-token", true,
+-      &registry, &error));
++      profile_path_, journal_path_, workspace_ids_, "one", "not-a-token",
++      std::nullopt, true, &registry, &error));
+   EXPECT_FALSE(error.empty());
+   EXPECT_FALSE(base::PathExists(RegistryPath()));
+ }
+ 
++TEST_F(VastWorkspaceGroupRegistryTest, RejectsInvalidLastActiveTabIndex) {
++  const std::string token = base::Token::CreateRandom().ToString();
++  VastWorkspaceGroupRegistry registry;
++  std::string error;
++  EXPECT_FALSE(UpdateVastWorkspaceGroupRegistration(
++      profile_path_, journal_path_, workspace_ids_, "one", token, -1, true,
++      &registry, &error));
++  EXPECT_FALSE(error.empty());
++
++  base::ListValue groups;
++  base::DictValue group;
++  group.Set("workspaceId", "one");
++  group.Set("groupToken", token);
++  group.Set("lastActiveTabIndex", "not-an-index");
++  groups.Append(std::move(group));
++  base::DictValue root;
++  root.Set("formatVersion", 1);
++  root.Set("journalPath", journal_path_.AsUTF8Unsafe());
++  root.Set("groups", std::move(groups));
++  WriteRegistry(std::move(root));
++
++  EXPECT_FALSE(LoadVastWorkspaceGroupRegistry(
++      profile_path_, journal_path_, workspace_ids_, &registry, &error));
++  EXPECT_EQ(error, "Vast workspace group registry contains an invalid entry.");
++}
++
++TEST_F(VastWorkspaceGroupRegistryTest,
++       PropagatesWorkspaceIndexAcrossRemappedTokensAndRejectsConflict) {
++  const std::string first_token = base::Token::CreateRandom().ToString();
++  const std::string second_token = base::Token::CreateRandom().ToString();
++  VastWorkspaceGroupRegistry registry;
++  std::string error;
++  ASSERT_TRUE(UpdateVastWorkspaceGroupRegistration(
++      profile_path_, journal_path_, workspace_ids_, "one", first_token, 1, true,
++      &registry, &error))
++      << error;
++  ASSERT_TRUE(UpdateVastWorkspaceGroupRegistration(
++      profile_path_, journal_path_, workspace_ids_, "one", second_token, 3,
++      true, &registry, &error))
++      << error;
++  ASSERT_EQ(registry.registrations.size(), 2u);
++  EXPECT_EQ(registry.registrations[0].last_active_tab_index, 3);
++  EXPECT_EQ(registry.registrations[1].last_active_tab_index, 3);
++
++  base::ListValue groups;
++  for (int index = 0; index < 2; ++index) {
++    base::DictValue group;
++    group.Set("workspaceId", "one");
++    group.Set("groupToken", index == 0 ? first_token : second_token);
++    group.Set("lastActiveTabIndex", index);
++    groups.Append(std::move(group));
++  }
++  base::DictValue root;
++  root.Set("formatVersion", 1);
++  root.Set("journalPath", journal_path_.AsUTF8Unsafe());
++  root.Set("groups", std::move(groups));
++  WriteRegistry(std::move(root));
++
++  EXPECT_FALSE(LoadVastWorkspaceGroupRegistry(
++      profile_path_, journal_path_, workspace_ids_, &registry, &error));
++  EXPECT_EQ(error,
++            "Vast workspace group registry contains conflicting active tab "
++            "positions.");
++}
++
+ TEST_F(VastWorkspaceGroupRegistryTest, RejectsDuplicateGroupTokens) {
+   const std::string token = base::Token::CreateRandom().ToString();
+   base::ListValue groups;

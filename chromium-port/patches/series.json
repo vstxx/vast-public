@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "patches": [
+    {
+      "file": "0001-vast-product-foundation.patch",
+      "description": "Add open-source Vast branding and isolated Windows product identity."
+    },
+    {
+      "file": "0002-rebaseline-public-sdk-midl.patch",
+      "description": "Rebaseline two upstream x64 TLBs with the supported public Windows SDK 10.0.26100.7705 MIDL."
+    },
+    {
+      "file": "0003-vast-windows-icon.patch",
+      "description": "Embed the Vast multi-resolution icon in the native Windows executable and browser resource DLL."
+    },
+    {
+      "file": "0004-vast-webui-foundation.patch",
+      "description": "Register chrome://vast with a profile-scoped native controller and bundled TypeScript WebUI resources."
+    },
+    {
+      "file": "0005-vast-mojo-runtime-info.patch",
+      "description": "Connect chrome://vast to the browser process through a typed, profile-scoped Mojo runtime-info handler."
+    },
+    {
+      "file": "0006-vast-data-migration-preview.patch",
+      "description": "Add an asynchronous read-only schema preview for copied Vast data fixtures and expose non-sensitive counts through Mojo."
+    },
+    {
+      "file": "0007-vast-data-root-resolution.patch",
+      "description": "Resolve Electron data-root.json inside the native preview service while keeping configured source paths out of WebUI."
+    },
+    {
+      "file": "0008-vast-data-migration-unittests.patch",
+      "description": "Add a native Chromium unit-test target for bounded Vast data parsing and data-root resolution."
+    },
+    {
+      "file": "0009-vast-data-migration-transaction.patch",
+      "description": "Add a copy-first native migration transaction with allowlisted product data, SHA-256 verification, journaled commit, and non-destructive rollback."
+    },
+    {
+      "file": "0010-vast-migration-transaction-webui.patch",
+      "description": "Expose the native transaction to chrome://vast only through opt-in development switches, explicit confirmation, pathless Mojo results, and tested rollback controls."
+    },
+    {
+      "file": "0011-vast-backup-v1-extractor.patch",
+      "description": "Add a bounded native .vastbackup v1 verifier that checks ZIP structure, manifest, CRC/SHA-256, extracts only Vast product data, and feeds the existing transaction."
+    },
+    {
+      "file": "0012-vast-native-backup-audit-tool.patch",
+      "description": "Add an aggregate-only native backup audit executable that removes its temporary extracted product data before returning."
+    },
+    {
+      "file": "0013-vast-backup-fixture-webui-transaction.patch",
+      "description": "Feed a pre-authorized .vastbackup fixture through aggregate preview and the existing pathless Mojo commit/rollback transaction."
+    },
+    {
+      "file": "0014-vast-workspace-settings-projection.patch",
+      "description": "Add a bounded read-only projection for workspace identity and a safe appearance/layout settings subset without exposing tabs, URLs, history, notes, or secrets."
+    },
+    {
+      "file": "0015-vast-product-data-root-recovery.patch",
+      "description": "Persist a profile-local Vast 2 product-root selection and recover only a checksum-verified committed migration with its safety backup after restart."
+    },
+    {
+      "file": "0016-vast-product-root-webui-restart.patch",
+      "description": "Activate, project, recover, and roll back the selected Vast 2 root through pathless typed Mojo, including recovery after a real browser-process restart."
+    },
+    {
+      "file": "0017-vast-profile-keyed-data-service.patch",
+      "description": "Move recovered product-data state into an early-registered profile-scoped keyed service shared by all Vast WebUI controllers."
+    },
+    {
+      "file": "0018-vast-native-shell-new-tab.patch",
+      "description": "Make chrome://vast the regular-profile New Tab surface, apply the Vast palette to native browser chrome, and render safe workspace/settings state in the product dashboard."
+    },
+    {
+      "file": "0019-vast-native-workspace-toolbar.patch",
+      "description": "Add a persistent native Vast workspace chip to Chromium's toolbar, backed by validated profile-scoped product state and normal top-level navigation."
+    },
+    {
+      "file": "0020-vast-workspace-selection.patch",
+      "description": "Add restart-safe profile-local workspace selection through native toolbar and WebUI controls without modifying imported Vast product data."
+    },
+    {
+      "file": "0021-vast-native-workspace-tab-groups.patch",
+      "description": "Map validated Vast workspaces to browser-window-scoped native Chromium tab groups with safe current-session switching and automatic tab assignment."
+    },
+    {
+      "file": "0022-vast-workspace-group-registry.patch",
+      "description": "Persist journal-scoped URL-free native group identity, restore exact workspace groups across process restarts, and harden tab-observer and WebUI accessibility lifecycles."
+    },
+    {
+      "file": "0023-vast-workspace-last-active-tab.patch",
+      "description": "Persist a URL-free workspace-relative active-tab position, reconcile Chromium-remapped group tokens after session restore, and flush crash-safe native session snapshots."
+    }
+  ]
+}

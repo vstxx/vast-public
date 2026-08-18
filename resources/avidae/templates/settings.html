@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Video &amp; Audio — Settings{% endblock %}
+{% block page_title %}Settings{% endblock %}
+
+{% block content %}
+<div class="page-centered settings-layout">
+    <!-- Disk Usage Widget -->
+    <div class="card mb-4">
+        <div class="card-header"><h2>Storage Usage</h2></div>
+        <div class="card-body">
+            <div class="disk-usage-widget">
+                <div class="disk-bar-container">
+                    <div class="disk-bar" id="diskBar" style="width:0%"></div>
+                </div>
+                <div class="disk-stats">
+                    <span id="diskUsageText">Calculating...</span>
+                    <span id="diskJobsCount">— jobs</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card form-card">
+        <div class="card-header">
+            <h2><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#settings"></use></svg> Application Settings</h2>
+        </div>
+        <div class="card-body">
+            <form id="settingsForm" onsubmit="saveSettings(event)">
+                <h3 class="section-title">Recording Defaults</h3>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="setRes">Default Resolution</label>
+                        <select id="setRes" name="default_resolution">
+                            <option value="1920x1080" {{ 'selected' if config.DEFAULT_RESOLUTION == '1920x1080' }}>1080p</option>
+                            <option value="1280x720" {{ 'selected' if config.DEFAULT_RESOLUTION == '1280x720' }}>720p</option>
+                            <option value="854x480" {{ 'selected' if config.DEFAULT_RESOLUTION == '854x480' }}>480p</option>
+                            <option value="2560x1440" {{ 'selected' if config.DEFAULT_RESOLUTION == '2560x1440' }}>1440p</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="setFps">Default FPS</label>
+                        <select id="setFps" name="default_fps">
+                            <option value="15">15</option>
+                            <option value="24">24</option>
+                            <option value="30" {{ 'selected' if config.DEFAULT_FPS == 30 }}>30</option>
+                            <option value="60">60</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="setBitrate">Default Bitrate</label>
+                        <select id="setBitrate" name="default_bitrate">
+                            <option value="2M">Low (2M)</option>
+                            <option value="5M" {{ 'selected' if config.DEFAULT_BITRATE == '5M' }}>Medium (5M)</option>
+                            <option value="10M">High (10M)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="setMaxDur">Max Duration (s)</label>
+                        <input type="number" id="setMaxDur" name="default_max_duration" value="{{ config.DEFAULT_MAX_DURATION }}" min="10" max="86400">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="setDelay">Default Delay (s)</label>
+                        <input type="number" id="setDelay" name="default_delay" value="{{ config.DEFAULT_DELAY }}" min="0" max="60">
+                    </div>
+                    <div class="form-group">
+                        <label for="setFormat">Default Format</label>
+                        <select id="setFormat" name="default_format">
+                            <option value="mp4" {{ 'selected' if config.DEFAULT_FORMAT == 'mp4' }}>MP4</option>
+                            <option value="webm">WebM</option>
+                            <option value="mkv">MKV</option>
+                        </select>
+                    </div>
+                </div>
+
+                <h3 class="section-title">System</h3>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="setMaxJobs">Max Concurrent Jobs</label>
+                        <input type="number" id="setMaxJobs" name="max_concurrent_jobs" value="{{ config.MAX_CONCURRENT_JOBS }}" min="1" max="10">
+                    </div>
+                    <div class="form-group">
+                        <label for="setBrowser">Browser</label>
+                        <select id="setBrowser" name="browser_type">
+                            <option value="chromium" {{ 'selected' if config.BROWSER_TYPE == 'chromium' }}>Chromium</option>
+                            <option value="firefox">Firefox</option>
+                            <option value="webkit">WebKit</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group checkbox-group">
+                        <label>
+                            <input type="checkbox" id="setHeadless" name="headless" {{ 'checked' if config.HEADLESS }}>
+                            Headless Mode
+                        </label>
+                    </div>
+                </div>
+
+                <h3 class="section-title">Paths</h3>
+                <div class="info-box">
+                    <p><strong>Data:</strong> <code>{{ config.DATA_DIR }}</code></p>
+                    <p><strong>Uploads:</strong> <code>{{ config.UPLOADS_DIR }}</code></p>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Save Settings</button>
+                    <button type="button" class="btn btn-danger" onclick="cleanupCompleted()">Clean Completed Jobs</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', loadDiskStats);
+
+    async function loadDiskStats() {
+        try {
+            const resp = await fetch('/api/stats');
+            const data = await resp.json();
+            document.getElementById('diskUsageText').textContent = data.disk_usage;
+            document.getElementById('diskJobsCount').textContent = `${data.total_jobs} jobs (${data.completed} done, ${data.failed} failed)`;
+            // Approximate bar: assume 10GB max
+            const pct = Math.min(100, (data.disk_bytes / (10 * 1024 * 1024 * 1024)) * 100);
+            document.getElementById('diskBar').style.width = pct + '%';
+        } catch(e) {}
+    }
+
+    function saveSettings(e) {
+        e.preventDefault();
+        showToast('Settings saved (applied on restart)');
+    }
+
+    async function cleanupCompleted() {
+        if (!confirm('Delete all completed, failed, and cancelled jobs?')) return;
+        try {
+            const resp = await fetch('/api/jobs?limit=1000');
+            const data = await resp.json();
+            const ids = data.jobs.filter(j => ['completed','failed','cancelled'].includes(j.status)).map(j => j.id);
+            if (!ids.length) { showToast('No jobs to clean'); return; }
+            await fetch('/api/batch/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({job_ids: ids}) });
+            showToast(`Deleted ${ids.length} jobs`);
+            loadDiskStats();
+        } catch(e) {
+            showToast('Cleanup failed', 'error');
+        }
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,14 @@
+{
+  "verified_at": "2026-08-11T08:18:59.194Z",
+  "public_url": "https://relay-staging.vastbrowser.com",
+  "control_panel_url": "https://controlpanel-staging.vastbrowser.com",
+  "install_id": "4e4d5609-ad1c-48e4-9e57-f25b74234f8f",
+  "disabled_broadcast_id": "cf7bda71-2514-4694-a142-9baf552e8e52",
+  "enabled_broadcast_id": "24178f5a-3c25-45c4-827b-6c1066ceb92a",
+  "asset_id": "3f07b9f9-0868-47c6-8561-744a5d7a0f85.png",
+  "fixtures_removed": true,
+  "key_id": "relay-staging-2026-01",
+  "public_key_spki_base64": "MCowBQYDK2VwAyEAUdjyVaeSUezix+E2jaSJzfoLaVU3x/HH3iXsUyv433k=",
+  "production_installation_count_before": 0,
+  "production_installation_count_after": 0
+}

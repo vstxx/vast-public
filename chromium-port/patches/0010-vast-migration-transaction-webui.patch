@@ -1,0 +1,483 @@
+diff --git a/chrome/browser/resources/vast/app.css b/chrome/browser/resources/vast/app.css
+index 0056dd423daf138faaed191e04985578436b9104..acc39e7739575ad9092ca7a550253a7087a0dbed 100644
+--- a/chrome/browser/resources/vast/app.css
++++ b/chrome/browser/resources/vast/app.css
+@@ -14,6 +14,10 @@
+   box-sizing: border-box;
+ }
+ 
++[hidden] {
++  display: none !important;
++}
++
+ html,
+ body {
+   min-height: 100%;
+@@ -185,6 +189,51 @@ h1 span {
+   line-height: 1.55;
+ }
+ 
++.migration-controls {
++  margin-top: 18px;
++  padding-top: 16px;
++  border-top: 1px solid var(--vast-border);
++}
++
++.confirmation {
++  display: flex;
++  align-items: flex-start;
++  gap: 9px;
++  color: #b3b8c2;
++  font-size: 12px;
++  line-height: 1.4;
++}
++
++.confirmation input {
++  margin: 2px 0 0;
++  accent-color: var(--vast-accent-secondary);
++}
++
++.migration-controls button {
++  width: 100%;
++  margin-top: 11px;
++  padding: 10px 12px;
++  border: 1px solid rgba(184, 108, 255, 0.35);
++  border-radius: 11px;
++  color: var(--vast-text);
++  background: rgba(184, 108, 255, 0.14);
++  font: inherit;
++  font-size: 12px;
++  font-weight: 700;
++  cursor: pointer;
++}
++
++.migration-controls button:disabled {
++  opacity: 0.42;
++  cursor: default;
++}
++
++.migration-controls .migration-result {
++  min-height: 18px;
++  margin-top: 10px;
++  font-size: 11px;
++}
++
+ footer {
+   gap: 10px;
+   padding-top: 28px;
+diff --git a/chrome/browser/resources/vast/app.ts b/chrome/browser/resources/vast/app.ts
+index 2e6180a03b73fe5295e4a980996a68e37a468ae2..64228a24cb0f8a9c5659f8e00538f3dae6772a4a 100644
+--- a/chrome/browser/resources/vast/app.ts
++++ b/chrome/browser/resources/vast/app.ts
+@@ -12,6 +12,19 @@ function setText(id: string, value: string) {
+   element.textContent = value;
+ }
+ 
++function getElement<T extends HTMLElement>(id: string): T {
++  const element = document.querySelector<T>(`#${id}`);
++  if (!element) {
++    throw new Error(`Missing Vast WebUI element: ${id}`);
++  }
++  return element;
++}
++
++function setMigrationResult(state: string, message: string) {
++  document.documentElement.dataset['migrationTransaction'] = state;
++  setText('migration-result', message);
++}
++
+ async function initialize() {
+   const handler = new PageHandlerRemote();
+   PageHandlerFactory.getRemote().createPageHandler(
+@@ -26,14 +39,12 @@ async function initialize() {
+   setText('chromium-version', `Chromium ${info.chromiumVersion}`);
+   setText(
+       'runtime-proof',
+-      info.electronRuntimeAbsent ?
+-          'Electron runtime absent' :
+-          'Runtime audit required');
++      info.electronRuntimeAbsent ? 'Electron runtime absent' :
++                                   'Runtime audit required');
+ 
+   if (preview.available && preview.compatible) {
+     setText(
+-        'migration-summary',
+-        `Schema ${preview.schemaVersion} fixture ready`);
++        'migration-summary', `Schema ${preview.schemaVersion} fixture ready`);
+     setText(
+         'migration-details',
+         `${preview.workspaces} workspace(s), ${preview.tabs} tab(s), ` +
+@@ -43,6 +54,74 @@ async function initialize() {
+                  'Password vault detected but excluded from preview.' :
+                  'No password vault detected.'));
+     document.documentElement.dataset['migrationPreview'] = 'compatible';
++
++    if (info.migrationFixtureCommitEnabled) {
++      const controls = getElement<HTMLDivElement>('migration-controls');
++      const confirmation = getElement<HTMLInputElement>('migration-confirm');
++      const runButton = getElement<HTMLButtonElement>('migration-run');
++      const rollbackConfirmation =
++          getElement<HTMLLabelElement>('rollback-confirmation');
++      const rollbackCheckbox = getElement<HTMLInputElement>('rollback-confirm');
++      const rollbackButton =
++          getElement<HTMLButtonElement>('migration-rollback');
++      controls.hidden = false;
++      document.documentElement.dataset['migrationTransaction'] = 'ready';
++
++      confirmation.addEventListener('change', () => {
++        runButton.disabled = !confirmation.checked;
++      });
++      rollbackCheckbox.addEventListener('change', () => {
++        rollbackButton.disabled = !rollbackCheckbox.checked;
++      });
++      runButton.addEventListener('click', async () => {
++        if (!confirmation.checked) {
++          return;
++        }
++        runButton.disabled = true;
++        confirmation.disabled = true;
++        setMigrationResult('working', 'Creating safety and staging copies...');
++        try {
++          const {result} = await handler.runMigrationFixtureTransaction(true);
++          if (!result.committed) {
++            setMigrationResult(
++                result.state,
++                result.error || 'The fixture transaction did not commit.');
++            if (result.prepared) {
++              rollbackConfirmation.hidden = false;
++              rollbackButton.hidden = false;
++            }
++            return;
++          }
++          setMigrationResult(
++              'committed',
++              `${result.files} product-data file(s) committed. ` +
++                  'The Electron source was not modified.');
++          rollbackConfirmation.hidden = false;
++          rollbackButton.hidden = false;
++        } catch (error) {
++          setMigrationResult('failed', String(error));
++        }
++      });
++      rollbackButton.addEventListener('click', async () => {
++        if (!rollbackCheckbox.checked) {
++          return;
++        }
++        rollbackButton.disabled = true;
++        rollbackCheckbox.disabled = true;
++        setMigrationResult('rolling-back', 'Moving the committed copy...');
++        try {
++          const {result} =
++              await handler.rollbackMigrationFixtureTransaction(true);
++          setMigrationResult(
++              result.state,
++              result.rolledBack ?
++                  'Copied data moved into rollback holding. Source unchanged.' :
++                  (result.error || 'The fixture rollback did not complete.'));
++        } catch (error) {
++          setMigrationResult('failed', String(error));
++        }
++      });
++    }
+   } else if (preview.available) {
+     setText('migration-summary', 'Fixture requires attention');
+     setText('migration-details', preview.error);
+diff --git a/chrome/browser/resources/vast/index.html b/chrome/browser/resources/vast/index.html
+index c6b2b0d340704b404c6e576086672589f9ef7e97..50d388089f926a35f6dc287a1c66ddd9d0be5f54 100644
+--- a/chrome/browser/resources/vast/index.html
++++ b/chrome/browser/resources/vast/index.html
+@@ -42,6 +42,19 @@
+         <div class="status-line"><span class="status-dot active"></span><span>Data compatibility</span></div>
+         <strong id="migration-summary">Read-only preview ready</strong>
+         <p id="migration-details">A copied schema fixture can be inspected without returning record contents, paths, credentials, or cookies.</p>
++        <div id="migration-controls" class="migration-controls" hidden>
++          <label id="migration-confirmation" class="confirmation">
++            <input id="migration-confirm" type="checkbox">
++            <span>Use only this copied development fixture.</span>
++          </label>
++          <button id="migration-run" type="button" disabled>Commit fixture copy</button>
++          <label id="rollback-confirmation" class="confirmation" hidden>
++            <input id="rollback-confirm" type="checkbox">
++            <span>Move the committed copy into rollback holding.</span>
++          </label>
++          <button id="migration-rollback" type="button" hidden disabled>Roll back copied data</button>
++          <p id="migration-result" class="migration-result" role="status" aria-live="polite"></p>
++        </div>
+       </article>
+     </section>
+ 
+diff --git a/chrome/browser/ui/webui/vast/vast.mojom b/chrome/browser/ui/webui/vast/vast.mojom
+index a89a011b265faa7aa516bf8cca9518f58dfc30bf..10b7b7b4abbcc03f95224c5684128ad4285713fb 100644
+--- a/chrome/browser/ui/webui/vast/vast.mojom
++++ b/chrome/browser/ui/webui/vast/vast.mojom
+@@ -11,6 +11,7 @@ struct RuntimeInfo {
+   string chromium_version;
+   string architecture;
+   bool electron_runtime_absent;
++  bool migration_fixture_commit_enabled;
+ };
+ 
+ // Non-sensitive counts from a copied legacy Vast data fixture.
+@@ -27,10 +28,26 @@ struct MigrationPreview {
+   string error;
+ };
+ 
++// Non-sensitive outcome from the development-fixture transaction. Native
++// paths, record contents, checksums, and credentials never cross this boundary.
++struct MigrationTransactionResult {
++  bool attempted;
++  bool prepared;
++  bool committed;
++  bool rolled_back;
++  uint32 files;
++  string state;
++  string error;
++};
++
+ // Renderer-to-browser operations for chrome://vast.
+ interface PageHandler {
+   GetRuntimeInfo() => (RuntimeInfo info);
+   GetMigrationPreview() => (MigrationPreview preview);
++  RunMigrationFixtureTransaction(bool confirmed) =>
++      (MigrationTransactionResult result);
++  RollbackMigrationFixtureTransaction(bool confirmed) =>
++      (MigrationTransactionResult result);
+ };
+ 
+ // Creates the page-scoped native handler.
+diff --git a/chrome/browser/ui/webui/vast/vast_ui.cc b/chrome/browser/ui/webui/vast/vast_ui.cc
+index 17c2a349e735c5efe85a51281b06626afcf5fdec..f438c6d03e27244a08a80881fd441ea4657f43f9 100644
+--- a/chrome/browser/ui/webui/vast/vast_ui.cc
++++ b/chrome/browser/ui/webui/vast/vast_ui.cc
+@@ -22,6 +22,21 @@ namespace vast {
+ namespace {
+ 
+ constexpr char kMigrationFixtureSwitch[] = "vast-migration-fixture";
++constexpr char kMigrationTransactionParentSwitch[] =
++    "vast-migration-transaction-parent";
++constexpr char kEnableMigrationFixtureCommitSwitch[] =
++    "vast-enable-migration-fixture-commit";
++constexpr base::FilePath::CharType kMigrationDestinationName[] =
++    FILE_PATH_LITERAL("migrated-vast-data");
++
++bool IsMigrationFixtureCommitEnabled() {
++  const base::CommandLine* command_line =
++      base::CommandLine::ForCurrentProcess();
++  return command_line->HasSwitch(kEnableMigrationFixtureCommitSwitch) &&
++         !command_line->GetSwitchValuePath(kMigrationFixtureSwitch).empty() &&
++         !command_line->GetSwitchValuePath(kMigrationTransactionParentSwitch)
++              .empty();
++}
+ 
+ mojom::MigrationPreviewPtr ToMojomMigrationPreview(
+     const VastDataMigrationPreview& source) {
+@@ -39,6 +54,66 @@ mojom::MigrationPreviewPtr ToMojomMigrationPreview(
+   return preview;
+ }
+ 
++mojom::MigrationTransactionResultPtr ToMojomMigrationTransactionResult(
++    const VastDataMigrationTransaction& transaction,
++    bool attempted) {
++  auto result = mojom::MigrationTransactionResult::New();
++  result->attempted = attempted;
++  result->prepared = transaction.state == VastDataMigrationState::kPrepared ||
++                     transaction.state == VastDataMigrationState::kCommitted ||
++                     transaction.state == VastDataMigrationState::kRolledBack;
++  result->committed = transaction.state == VastDataMigrationState::kCommitted;
++  result->rolled_back =
++      transaction.state == VastDataMigrationState::kRolledBack;
++  result->files = static_cast<uint32_t>(transaction.files.size());
++  switch (transaction.state) {
++    case VastDataMigrationState::kFailed:
++      result->state = "failed";
++      break;
++    case VastDataMigrationState::kPrepared:
++      result->state = "prepared";
++      break;
++    case VastDataMigrationState::kCommitted:
++      result->state = "committed";
++      break;
++    case VastDataMigrationState::kRolledBack:
++      result->state = "rolled-back";
++      break;
++  }
++  result->error = transaction.error;
++  return result;
++}
++
++mojom::MigrationTransactionResultPtr MigrationTransactionError(
++    std::string error,
++    bool attempted) {
++  VastDataMigrationTransaction transaction;
++  transaction.error = std::move(error);
++  return ToMojomMigrationTransactionResult(transaction, attempted);
++}
++
++VastDataMigrationTransaction RunMigrationFixtureTransactionOnWorker() {
++  const base::CommandLine* command_line =
++      base::CommandLine::ForCurrentProcess();
++  const base::FilePath fixture_root =
++      command_line->GetSwitchValuePath(kMigrationFixtureSwitch);
++  const base::FilePath transaction_parent =
++      command_line->GetSwitchValuePath(kMigrationTransactionParentSwitch);
++  VastDataMigrationTransaction transaction = PrepareVastDataMigration(
++      fixture_root, transaction_parent,
++      transaction_parent.Append(kMigrationDestinationName));
++  if (transaction.state == VastDataMigrationState::kPrepared) {
++    CommitVastDataMigration(&transaction);
++  }
++  return transaction;
++}
++
++VastDataMigrationTransaction RollbackMigrationFixtureTransactionOnWorker(
++    VastDataMigrationTransaction transaction) {
++  RollbackVastDataMigration(&transaction);
++  return transaction;
++}
++
+ }  // namespace
+ 
+ VastUI::VastUI(content::WebUI* web_ui) : ui::MojoWebUIController(web_ui) {
+@@ -69,6 +144,7 @@ void VastUI::GetRuntimeInfo(GetRuntimeInfoCallback callback) {
+   info->chromium_version = version_info::GetVersionNumber();
+   info->architecture = "Upstream Chromium //chrome";
+   info->electron_runtime_absent = true;
++  info->migration_fixture_commit_enabled = IsMigrationFixtureCommitEnabled();
+   std::move(callback).Run(std::move(info));
+ }
+ 
+@@ -93,6 +169,92 @@ void VastUI::GetMigrationPreview(GetMigrationPreviewCallback callback) {
+           std::move(callback)));
+ }
+ 
++void VastUI::RunMigrationFixtureTransaction(
++    bool confirmed,
++    RunMigrationFixtureTransactionCallback callback) {
++  if (!confirmed) {
++    std::move(callback).Run(MigrationTransactionError(
++        "Explicit migration confirmation is required.", false));
++    return;
++  }
++  if (!IsMigrationFixtureCommitEnabled()) {
++    std::move(callback).Run(MigrationTransactionError(
++        "Development fixture migration is disabled.", false));
++    return;
++  }
++  if (migration_task_in_progress_) {
++    std::move(callback).Run(MigrationTransactionError(
++        "A migration task is already running.", false));
++    return;
++  }
++  if (migration_transaction_) {
++    std::move(callback).Run(MigrationTransactionError(
++        "This page already ran its one-shot migration transaction.", false));
++    return;
++  }
++
++  migration_task_in_progress_ = true;
++  base::ThreadPool::PostTaskAndReplyWithResult(
++      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
++      base::BindOnce(&RunMigrationFixtureTransactionOnWorker),
++      base::BindOnce(&VastUI::OnMigrationFixtureTransactionComplete,
++                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
++}
++
++void VastUI::RollbackMigrationFixtureTransaction(
++    bool confirmed,
++    RollbackMigrationFixtureTransactionCallback callback) {
++  if (!confirmed) {
++    std::move(callback).Run(MigrationTransactionError(
++        "Explicit rollback confirmation is required.", false));
++    return;
++  }
++  if (migration_task_in_progress_) {
++    std::move(callback).Run(MigrationTransactionError(
++        "A migration task is already running.", false));
++    return;
++  }
++  if (!migration_transaction_ ||
++      (migration_transaction_->state != VastDataMigrationState::kPrepared &&
++       migration_transaction_->state != VastDataMigrationState::kCommitted)) {
++    std::move(callback).Run(MigrationTransactionError(
++        "There is no prepared or committed fixture migration to roll back.",
++        false));
++    return;
++  }
++
++  migration_task_in_progress_ = true;
++  VastDataMigrationTransaction transaction = std::move(*migration_transaction_);
++  migration_transaction_.reset();
++  base::ThreadPool::PostTaskAndReplyWithResult(
++      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
++      base::BindOnce(&RollbackMigrationFixtureTransactionOnWorker,
++                     std::move(transaction)),
++      base::BindOnce(&VastUI::OnMigrationFixtureRollbackComplete,
++                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
++}
++
++void VastUI::OnMigrationFixtureTransactionComplete(
++    RunMigrationFixtureTransactionCallback callback,
++    VastDataMigrationTransaction transaction) {
++  migration_task_in_progress_ = false;
++  auto result = ToMojomMigrationTransactionResult(transaction, true);
++  if (transaction.state == VastDataMigrationState::kPrepared ||
++      transaction.state == VastDataMigrationState::kCommitted) {
++    migration_transaction_ = std::move(transaction);
++  }
++  std::move(callback).Run(std::move(result));
++}
++
++void VastUI::OnMigrationFixtureRollbackComplete(
++    RollbackMigrationFixtureTransactionCallback callback,
++    VastDataMigrationTransaction transaction) {
++  migration_task_in_progress_ = false;
++  auto result = ToMojomMigrationTransactionResult(transaction, true);
++  migration_transaction_ = std::move(transaction);
++  std::move(callback).Run(std::move(result));
++}
++
+ WEB_UI_CONTROLLER_TYPE_IMPL(VastUI)
+ 
+ }  // namespace vast
+diff --git a/chrome/browser/ui/webui/vast/vast_ui.h b/chrome/browser/ui/webui/vast/vast_ui.h
+index c4d097e081f271ba57aa4991aa04cd66f36d5693..a71b1bd41422e21dbc18bb19fd8b70e089e7cdad 100644
+--- a/chrome/browser/ui/webui/vast/vast_ui.h
++++ b/chrome/browser/ui/webui/vast/vast_ui.h
+@@ -5,7 +5,11 @@
+ #ifndef CHROME_BROWSER_UI_WEBUI_VAST_VAST_UI_H_
+ #define CHROME_BROWSER_UI_WEBUI_VAST_VAST_UI_H_
+ 
++#include <optional>
++
++#include "base/memory/weak_ptr.h"
+ #include "chrome/browser/ui/webui/vast/vast.mojom.h"
++#include "chrome/browser/vast/vast_data_migration_transaction.h"
+ #include "chrome/common/webui_url_constants.h"
+ #include "content/public/browser/webui_config.h"
+ #include "content/public/common/url_constants.h"
+@@ -45,9 +49,25 @@ class VastUI : public ui::MojoWebUIController,
+   // mojom::PageHandler:
+   void GetRuntimeInfo(GetRuntimeInfoCallback callback) override;
+   void GetMigrationPreview(GetMigrationPreviewCallback callback) override;
++  void RunMigrationFixtureTransaction(
++      bool confirmed,
++      RunMigrationFixtureTransactionCallback callback) override;
++  void RollbackMigrationFixtureTransaction(
++      bool confirmed,
++      RollbackMigrationFixtureTransactionCallback callback) override;
++
++  void OnMigrationFixtureTransactionComplete(
++      RunMigrationFixtureTransactionCallback callback,
++      VastDataMigrationTransaction transaction);
++  void OnMigrationFixtureRollbackComplete(
++      RollbackMigrationFixtureTransactionCallback callback,
++      VastDataMigrationTransaction transaction);
+ 
+   mojo::Receiver<mojom::PageHandlerFactory> factory_receiver_{this};
+   mojo::Receiver<mojom::PageHandler> page_handler_receiver_{this};
++  std::optional<VastDataMigrationTransaction> migration_transaction_;
++  bool migration_task_in_progress_ = false;
++  base::WeakPtrFactory<VastUI> weak_ptr_factory_{this};
+ 
+   WEB_UI_CONTROLLER_TYPE_DECL();
+ };

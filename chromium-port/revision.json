@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "channel": "stable",
+  "version": "150.0.7871.125",
+  "commit": "0e1f2fbe541be34886118f3d54cf53f7e12bf905",
+  "depotToolsCommit": "9073d17d5650ede601bc1f59c822973d2c25b86a",
+  "chromiumMainBranchPosition": 1639810,
+  "selectedAt": "2026-07-15T00:00:00Z",
+  "windowsSdk": {
+    "folderVersion": "10.0.26100.0",
+    "servicingVersion": "10.0.26100.7705",
+    "isoUrl": "https://download.microsoft.com/download/f4b30f2a-4fc3-430e-9b03-c842b5f5f9f1/26100.7705.260126-1049.ge_release_svc_prod3_WindowsSDK.iso",
+    "isoSha256": "E6CEA47A82CCCDC92AE385E1D23315CC28DFE4B1036F07C04B5510CCFBE432EC",
+    "midlX64Sha256": "53CCBCBC2FF14B2D08D029AD07B3D1AA4FF3B103F712199A15248A6CCCF6D2A3",
+    "cdbX64Sha256": "67C3D1DA6A3F2869FEE12186D0C27ECB263FD9ED302B3D45D6AB10A32BF586A1"
+  },
+  "sources": {
+    "releases": "https://chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Windows&num=1",
+    "repository": "https://chromium.googlesource.com/chromium/src.git",
+    "buildInstructions": "https://chromium.googlesource.com/chromium/src.git/+/HEAD/docs/windows_build_instructions.md",
+    "windowsSdkDownloads": "https://learn.microsoft.com/windows/apps/windows-sdk/downloads"
+  }
+}

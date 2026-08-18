@@ -1,0 +1,173 @@
+diff --git a/chrome/browser/vast/BUILD.gn b/chrome/browser/vast/BUILD.gn
+index dfa42369e766a9909a3fe1c0cc0ebf69d6401996..b45f97f2ed7faca154d6fa5c8448429bde96ad8c 100644
+--- a/chrome/browser/vast/BUILD.gn
++++ b/chrome/browser/vast/BUILD.gn
+@@ -2,6 +2,8 @@
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
+ 
++import("//testing/test.gni")
++
+ source_set("vast_data") {
+   sources = [
+     "vast_data_migration_preview.cc",
+@@ -10,3 +12,13 @@ source_set("vast_data") {
+ 
+   public_deps = [ "//base" ]
+ }
++
++test("vast_data_unittests") {
++  sources = [ "vast_data_migration_preview_unittest.cc" ]
++
++  deps = [
++    ":vast_data",
++    "//base/test:run_all_unittests",
++    "//testing/gtest",
++  ]
++}
+diff --git a/chrome/browser/vast/vast_data_migration_preview_unittest.cc b/chrome/browser/vast/vast_data_migration_preview_unittest.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..a45682a2c885ee5f45fd4e9d6117bc0a53ba5889
+--- /dev/null
++++ b/chrome/browser/vast/vast_data_migration_preview_unittest.cc
+@@ -0,0 +1,140 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/vast/vast_data_migration_preview.h"
++
++#include <string>
++#include <string_view>
++
++#include "base/files/file_util.h"
++#include "base/files/scoped_temp_dir.h"
++#include "base/json/json_writer.h"
++#include "base/values.h"
++#include "testing/gtest/include/gtest/gtest.h"
++
++namespace vast {
++namespace {
++
++constexpr char kValidVastData[] = R"({
++  "schemaVersion": 5,
++  "activeWorkspaceId": "workspace-fixture",
++  "workspaces": [{}, {}],
++  "tabGroups": [],
++  "tabs": [{}, {}, {}],
++  "bookmarks": [{}, {}, {}, {}],
++  "bookmarkFolders": [],
++  "history": [{}],
++  "downloads": [],
++  "notes": [{}, {}],
++  "readingList": [],
++  "quickLinks": [],
++  "settings": {}
++})";
++
++class VastDataMigrationPreviewTest : public testing::Test {
++ protected:
++  void SetUp() override { ASSERT_TRUE(temp_dir_.CreateUniqueTempDir()); }
++
++  base::FilePath CreateDirectory(std::string_view name) {
++    base::FilePath path = temp_dir_.GetPath().AppendASCII(name);
++    EXPECT_TRUE(base::CreateDirectory(path));
++    return path;
++  }
++
++  void WriteData(const base::FilePath& root,
++                 std::string_view contents = kValidVastData) {
++    ASSERT_TRUE(base::WriteFile(
++        root.Append(FILE_PATH_LITERAL("vast-data.json")), contents));
++  }
++
++  void WriteConfig(const base::FilePath& config_root,
++                   std::string_view configured_root) {
++    base::DictValue value;
++    value.Set("customDataRoot", configured_root);
++    value.Set("updatedAt", 1);
++    std::string serialized;
++    ASSERT_TRUE(base::JSONWriter::Write(value, &serialized));
++    ASSERT_TRUE(base::WriteFile(
++        config_root.Append(FILE_PATH_LITERAL("data-root.json")), serialized));
++  }
++
++  base::ScopedTempDir temp_dir_;
++};
++
++TEST_F(VastDataMigrationPreviewTest, ReadsDefaultRootAndOnlyDetectsVault) {
++  const base::FilePath root = CreateDirectory("Default");
++  WriteData(root);
++  ASSERT_TRUE(
++      base::WriteFile(root.Append(FILE_PATH_LITERAL("password-vault.json")),
++                      "fixture secret that must never be parsed"));
++
++  const VastDataMigrationPreview preview =
++      ReadVastDataMigrationPreviewFromConfigRoot(root);
++
++  EXPECT_TRUE(preview.available);
++  EXPECT_TRUE(preview.compatible);
++  EXPECT_EQ(preview.schema_version, 5);
++  EXPECT_EQ(preview.workspaces, 2u);
++  EXPECT_EQ(preview.tabs, 3u);
++  EXPECT_EQ(preview.bookmarks, 4u);
++  EXPECT_EQ(preview.notes, 2u);
++  EXPECT_EQ(preview.history, 1u);
++  EXPECT_TRUE(preview.password_vault_present);
++  EXPECT_TRUE(preview.error.empty());
++}
++
++TEST_F(VastDataMigrationPreviewTest, ResolvesAbsoluteCustomDataRoot) {
++  const base::FilePath config_root = CreateDirectory("Config");
++  const base::FilePath data_root = CreateDirectory("CustomData");
++  WriteData(data_root);
++  WriteConfig(config_root, data_root.AsUTF8Unsafe());
++
++  const VastDataMigrationPreview preview =
++      ReadVastDataMigrationPreviewFromConfigRoot(config_root);
++
++  EXPECT_TRUE(preview.available);
++  EXPECT_TRUE(preview.compatible);
++  EXPECT_EQ(preview.tabs, 3u);
++}
++
++TEST_F(VastDataMigrationPreviewTest, RejectsRelativeCustomDataRoot) {
++  const base::FilePath config_root = CreateDirectory("Config");
++  WriteConfig(config_root, "relative-profile");
++
++  const VastDataMigrationPreview preview =
++      ReadVastDataMigrationPreviewFromConfigRoot(config_root);
++
++  EXPECT_FALSE(preview.available);
++  EXPECT_FALSE(preview.compatible);
++  EXPECT_EQ(preview.error,
++            "data-root.json must contain an absolute customDataRoot.");
++}
++
++TEST_F(VastDataMigrationPreviewTest, RejectsMalformedVastData) {
++  const base::FilePath root = CreateDirectory("Malformed");
++  WriteData(root, "{\"schemaVersion\":");
++
++  const VastDataMigrationPreview preview =
++      ReadVastDataMigrationPreviewFromConfigRoot(root);
++
++  EXPECT_TRUE(preview.available);
++  EXPECT_FALSE(preview.compatible);
++  EXPECT_EQ(preview.error, "Vast data file is not valid JSON.");
++}
++
++TEST_F(VastDataMigrationPreviewTest, RejectsVastDataLargerThanEightMiB) {
++  const base::FilePath root = CreateDirectory("Oversized");
++  WriteData(root, std::string(8 * 1024 * 1024 + 1, 'x'));
++
++  const VastDataMigrationPreview preview =
++      ReadVastDataMigrationPreviewFromConfigRoot(root);
++
++  EXPECT_TRUE(preview.available);
++  EXPECT_FALSE(preview.compatible);
++  EXPECT_EQ(preview.error,
++            "Vast data file is unavailable or larger than 8 MiB.");
++}
++
++}  // namespace
++}  // namespace vast

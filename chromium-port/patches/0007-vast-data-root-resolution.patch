@@ -1,0 +1,98 @@
+diff --git a/chrome/browser/ui/webui/vast/vast_ui.cc b/chrome/browser/ui/webui/vast/vast_ui.cc
+index 88feada25d71b10eb77433d3731ac8c10d1bfa6d..17c2a349e735c5efe85a51281b06626afcf5fdec 100644
+--- a/chrome/browser/ui/webui/vast/vast_ui.cc
++++ b/chrome/browser/ui/webui/vast/vast_ui.cc
+@@ -84,7 +84,7 @@ void VastUI::GetMigrationPreview(GetMigrationPreviewCallback callback) {
+ 
+   base::ThreadPool::PostTaskAndReplyWithResult(
+       FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+-      base::BindOnce(&ReadVastDataMigrationPreview, fixture_root),
++      base::BindOnce(&ReadVastDataMigrationPreviewFromConfigRoot, fixture_root),
+       base::BindOnce(
+           [](GetMigrationPreviewCallback callback,
+              VastDataMigrationPreview preview) {
+diff --git a/chrome/browser/vast/vast_data_migration_preview.cc b/chrome/browser/vast/vast_data_migration_preview.cc
+index 10b66e40b32767ffa080e6ef065629ee81098de6..e0cad60b7e7a7260eac1a844cfdcca4d14dd7ae8 100644
+--- a/chrome/browser/vast/vast_data_migration_preview.cc
++++ b/chrome/browser/vast/vast_data_migration_preview.cc
+@@ -10,12 +10,14 @@
+ 
+ #include "base/files/file_util.h"
+ #include "base/json/json_reader.h"
++#include "base/strings/string_util.h"
+ #include "base/values.h"
+ 
+ namespace vast {
+ namespace {
+ 
+ constexpr size_t kMaxStorageBytes = 8 * 1024 * 1024;
++constexpr size_t kMaxDataRootConfigBytes = 64 * 1024;
+ bool ReadCollectionCount(const base::DictValue& root,
+                          std::string_view key,
+                          size_t normalized_limit,
+@@ -153,4 +155,49 @@ VastDataMigrationPreview ReadVastDataMigrationPreview(
+   return preview;
+ }
+ 
++VastDataMigrationPreview ReadVastDataMigrationPreviewFromConfigRoot(
++    const base::FilePath& config_root) {
++  const base::FilePath config_path =
++      config_root.Append(FILE_PATH_LITERAL("data-root.json"));
++  if (!base::PathExists(config_path)) {
++    return ReadVastDataMigrationPreview(config_root);
++  }
++
++  VastDataMigrationPreview preview;
++  const std::optional<int64_t> config_size = base::GetFileSize(config_path);
++  if (!config_size || *config_size < 0 ||
++      *config_size > static_cast<int64_t>(kMaxDataRootConfigBytes)) {
++    preview.error = "data-root.json is unavailable or too large.";
++    return preview;
++  }
++
++  std::string contents;
++  if (!base::ReadFileToStringWithMaxSize(config_path, &contents,
++                                         kMaxDataRootConfigBytes)) {
++    preview.error = "data-root.json could not be read safely.";
++    return preview;
++  }
++  std::optional<base::DictValue> root =
++      base::JSONReader::ReadDict(contents, base::JSON_PARSE_RFC, 20);
++  if (!root) {
++    preview.error = "data-root.json is not valid JSON.";
++    return preview;
++  }
++
++  const std::string* configured = root->FindString("customDataRoot");
++  if (!configured) {
++    preview.error = "data-root.json does not contain customDataRoot.";
++    return preview;
++  }
++  const std::string_view trimmed =
++      base::TrimWhitespaceASCII(*configured, base::TRIM_ALL);
++  const base::FilePath configured_root =
++      base::FilePath::FromUTF8Unsafe(trimmed);
++  if (trimmed.empty() || !configured_root.IsAbsolute()) {
++    preview.error = "data-root.json must contain an absolute customDataRoot.";
++    return preview;
++  }
++  return ReadVastDataMigrationPreview(configured_root);
++}
++
+ }  // namespace vast
+diff --git a/chrome/browser/vast/vast_data_migration_preview.h b/chrome/browser/vast/vast_data_migration_preview.h
+index 18ab3394d07b21d4b6ab98a0585d119f09e0d245..c947e7b47c173159450b3d704319afb0c10b33d8 100644
+--- a/chrome/browser/vast/vast_data_migration_preview.h
++++ b/chrome/browser/vast/vast_data_migration_preview.h
+@@ -32,6 +32,11 @@ struct VastDataMigrationPreview {
+ VastDataMigrationPreview ReadVastDataMigrationPreview(
+     const base::FilePath& data_root);
+ 
++// Resolves Electron's stable data-root.json contract without exposing the
++// configured path. If the config file is absent, config_root is the data root.
++VastDataMigrationPreview ReadVastDataMigrationPreviewFromConfigRoot(
++    const base::FilePath& config_root);
++
+ }  // namespace vast
+ 
+ #endif  // CHROME_BROWSER_VAST_VAST_DATA_MIGRATION_PREVIEW_H_

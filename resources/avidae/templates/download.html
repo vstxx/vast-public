@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Video &amp; Audio — Download{% endblock %}
+{% block page_title %}Download{% endblock %}
+
+{% block content %}
+<div class="page-centered">
+    <div class="card form-card">
+        <div class="card-header">
+            <h2><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#download"></use></svg> Download Media</h2>
+            <p class="text-muted">Download from YouTube, Vimeo, TikTok, Twitter, or any direct URL</p>
+        </div>
+        <div class="card-body">
+            <form id="downloadForm" onsubmit="submitDownload(event)">
+                <div class="form-group">
+                    <label for="dlUrl">URL <span class="required">*</span></label>
+                    <input type="url" id="dlUrl" name="url" placeholder="https://www.youtube.com/watch?v=... or direct file URL" required>
+                    <small class="form-hint">YouTube, Vimeo, TikTok, Twitter/X, SoundCloud, Reddit, Dailymotion, PornHub, DoodStream, TezFiles, and hundreds more — or direct .mp4/.webm/.mp3 links</small>
+                </div>
+                <div class="form-group">
+                    <label for="dlTitle">Title (optional)</label>
+                    <input type="text" id="dlTitle" name="title" placeholder="My download">
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary btn-lg" id="downloadBtn">
+                        <span class="btn-icon-inline"><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#download"></use></svg></span> Start Download
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function submitDownload(e) {
+        e.preventDefault();
+        const btn = document.getElementById('downloadBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Starting...';
+
+        const params = {
+            url: document.getElementById('dlUrl').value.trim(),
+            title: document.getElementById('dlTitle').value.trim(),
+        };
+
+        try {
+            const resp = await fetch('/api/jobs', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ type: 'download', params })
+            });
+            const data = await resp.json();
+            if (data.ok) {
+                showToast('Download started: ' + data.job_id);
+                setTimeout(() => window.location.href = '/jobs', 1000);
+            } else {
+                showToast('Error: ' + (data.error || 'Unknown'), 'error');
+            }
+        } catch(err) {
+            showToast('Network error', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = `<span class="btn-icon-inline">${uiIcon('download')}</span> Start Download`;
+        }
+    }
+</script>
+{% endblock %}

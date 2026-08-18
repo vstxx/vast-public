@@ -1,0 +1,665 @@
+diff --git a/chrome/browser/vast/BUILD.gn b/chrome/browser/vast/BUILD.gn
+index 0f916f28774f7d28c32f4fa6ed9305b53cd8fa04..c84372062248a9858fcf5779c72a90297573423d 100644
+--- a/chrome/browser/vast/BUILD.gn
++++ b/chrome/browser/vast/BUILD.gn
+@@ -14,6 +14,8 @@ source_set("vast_data") {
+     "vast_data_migration_transaction.h",
+     "vast_data_projection.cc",
+     "vast_data_projection.h",
++    "vast_product_data_root.cc",
++    "vast_product_data_root.h",
+   ]
+ 
+   public_deps = [
+@@ -30,6 +32,7 @@ test("vast_data_unittests") {
+     "vast_data_migration_preview_unittest.cc",
+     "vast_data_migration_transaction_unittest.cc",
+     "vast_data_projection_unittest.cc",
++    "vast_product_data_root_unittest.cc",
+   ]
+ 
+   deps = [
+diff --git a/chrome/browser/vast/vast_product_data_root.cc b/chrome/browser/vast/vast_product_data_root.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..da9a433614cf86e7fb87a2fb47fcb02def920bd5
+--- /dev/null
++++ b/chrome/browser/vast/vast_product_data_root.cc
+@@ -0,0 +1,396 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/vast/vast_product_data_root.h"
++
++#include <algorithm>
++#include <cstddef>
++#include <optional>
++#include <set>
++#include <string>
++#include <string_view>
++#include <utility>
++
++#include "base/files/file_util.h"
++#include "base/json/json_reader.h"
++#include "base/json/json_writer.h"
++#include "base/strings/string_number_conversions.h"
++#include "base/strings/string_util.h"
++#include "base/values.h"
++#include "chrome/browser/vast/vast_data_projection.h"
++#include "crypto/hash.h"
++
++namespace vast {
++namespace {
++
++constexpr size_t kMaxSelectionBytes = 64 * 1024;
++constexpr size_t kMaxJournalBytes = 4 * 1024 * 1024;
++constexpr uint64_t kMaxFileBytes = 64 * 1024 * 1024;
++constexpr uint64_t kMaxTotalBytes = 512 * 1024 * 1024;
++constexpr size_t kMaxFiles = 10000;
++constexpr base::FilePath::CharType kMetadataDirectory[] =
++    FILE_PATH_LITERAL("VastProductData");
++constexpr base::FilePath::CharType kSelectionFile[] =
++    FILE_PATH_LITERAL("root-selection.json");
++
++struct SelectionMetadata {
++  base::FilePath data_root;
++  base::FilePath journal_path;
++};
++
++base::FilePath SelectionPath(const base::FilePath& profile_path) {
++  return profile_path.Append(kMetadataDirectory).Append(kSelectionFile);
++}
++
++bool PathsOverlap(const base::FilePath& left, const base::FilePath& right) {
++  return left == right || left.IsParent(right) || right.IsParent(left);
++}
++
++bool ReadJsonDict(const base::FilePath& path,
++                  size_t max_bytes,
++                  base::DictValue* value,
++                  std::string* error) {
++  if (base::IsLink(path) || base::IsLink(path.DirName())) {
++    *error = "Vast product-root metadata must not be a link or junction.";
++    return false;
++  }
++  std::string contents;
++  if (!base::ReadFileToStringWithMaxSize(path, &contents, max_bytes)) {
++    *error = "Vast product-root metadata is unavailable or oversized.";
++    return false;
++  }
++  std::optional<base::DictValue> parsed =
++      base::JSONReader::ReadDict(contents, base::JSON_PARSE_RFC, 100);
++  if (!parsed) {
++    *error = "Vast product-root metadata is not valid JSON.";
++    return false;
++  }
++  *value = std::move(*parsed);
++  return true;
++}
++
++bool ReadSelection(const base::FilePath& profile_path,
++                   SelectionMetadata* metadata,
++                   std::string* error) {
++  const base::FilePath selection_path = SelectionPath(profile_path);
++  base::DictValue root;
++  if (!ReadJsonDict(selection_path, kMaxSelectionBytes, &root, error)) {
++    return false;
++  }
++  const std::optional<int> format_version = root.FindInt("formatVersion");
++  const std::string* state = root.FindString("state");
++  const std::string* data_root = root.FindString("dataRoot");
++  const std::string* journal_path = root.FindString("journalPath");
++  if (!format_version || *format_version != 1 || !state || *state != "active" ||
++      !data_root || data_root->empty() || data_root->size() > 32768 ||
++      !journal_path || journal_path->empty() || journal_path->size() > 32768) {
++    *error = "Vast product-root selection has an invalid envelope.";
++    return false;
++  }
++  metadata->data_root = base::FilePath::FromUTF8Unsafe(*data_root);
++  metadata->journal_path = base::FilePath::FromUTF8Unsafe(*journal_path);
++  if (!metadata->data_root.IsAbsolute() ||
++      !metadata->journal_path.IsAbsolute()) {
++    *error = "Vast product-root selection paths must be absolute.";
++    return false;
++  }
++  return true;
++}
++
++bool IsSha256(std::string_view value) {
++  return value.size() == 64 && std::ranges::all_of(value, [](char character) {
++           return (character >= '0' && character <= '9') ||
++                  (character >= 'a' && character <= 'f') ||
++                  (character >= 'A' && character <= 'F');
++         });
++}
++
++bool VerifyFile(const base::FilePath& path,
++                uint64_t expected_size,
++                std::string_view expected_sha256,
++                std::string* error) {
++  if (base::IsLink(path)) {
++    *error = "Recovered Vast product data contains a link or junction.";
++    return false;
++  }
++  const std::optional<int64_t> size = base::GetFileSize(path);
++  if (!size || *size < 0 || static_cast<uint64_t>(*size) != expected_size ||
++      expected_size > kMaxFileBytes) {
++    *error = "Recovered Vast product data has an unexpected file size.";
++    return false;
++  }
++  std::string contents;
++  if (!base::ReadFileToStringWithMaxSize(path, &contents, kMaxFileBytes) ||
++      contents.size() != expected_size ||
++      !base::EqualsCaseInsensitiveASCII(
++          base::HexEncode(crypto::hash::Sha256(contents)), expected_sha256)) {
++    *error = "Recovered Vast product data failed SHA-256 verification.";
++    return false;
++  }
++  return true;
++}
++
++bool RecoverCommittedTransaction(const base::FilePath& journal_path,
++                                 const base::FilePath& expected_data_root,
++                                 VastDataMigrationTransaction* transaction,
++                                 std::string* error) {
++  const base::FilePath absolute_journal =
++      base::MakeAbsoluteFilePath(journal_path);
++  const base::FilePath absolute_data_root =
++      base::MakeAbsoluteFilePath(expected_data_root);
++  if (absolute_journal.empty() || absolute_data_root.empty() ||
++      !base::DirectoryExists(absolute_data_root) ||
++      base::IsLink(absolute_data_root)) {
++    *error = "The selected Vast product root is unavailable or unsafe.";
++    return false;
++  }
++
++  base::DictValue root;
++  if (!ReadJsonDict(absolute_journal, kMaxJournalBytes, &root, error)) {
++    return false;
++  }
++  const std::optional<int> format_version = root.FindInt("formatVersion");
++  const std::string* state = root.FindString("state");
++  const std::string* source_root_value = root.FindString("sourceRoot");
++  const std::string* destination_root_value =
++      root.FindString("destinationRoot");
++  const std::string* safety_backup_root_value =
++      root.FindString("safetyBackupRoot");
++  const std::string* total_bytes_value = root.FindString("totalBytes");
++  const base::ListValue* files = root.FindList("files");
++  uint64_t expected_total_bytes = 0;
++  if (!format_version || *format_version != 1 || !state ||
++      *state != "committed" || !source_root_value || !destination_root_value ||
++      !safety_backup_root_value || !total_bytes_value ||
++      !base::StringToUint64(*total_bytes_value, &expected_total_bytes) ||
++      expected_total_bytes > kMaxTotalBytes || !files || files->empty() ||
++      files->size() > kMaxFiles) {
++    *error = "The Vast migration journal is not a committed v1 transaction.";
++    return false;
++  }
++
++  const base::FilePath source_root =
++      base::FilePath::FromUTF8Unsafe(*source_root_value);
++  const base::FilePath destination_root =
++      base::FilePath::FromUTF8Unsafe(*destination_root_value);
++  const base::FilePath safety_backup_root =
++      base::FilePath::FromUTF8Unsafe(*safety_backup_root_value);
++  const base::FilePath transaction_root = absolute_journal.DirName();
++  if (!source_root.IsAbsolute() || !destination_root.IsAbsolute() ||
++      !safety_backup_root.IsAbsolute() ||
++      absolute_journal.BaseName() !=
++          base::FilePath(FILE_PATH_LITERAL("migration-journal.json")) ||
++      !base::StartsWith(transaction_root.BaseName().value(),
++                        FILE_PATH_LITERAL(".vast-migration-"),
++                        base::CompareCase::SENSITIVE) ||
++      destination_root != absolute_data_root ||
++      destination_root.DirName() != transaction_root.DirName() ||
++      safety_backup_root !=
++          transaction_root.Append(FILE_PATH_LITERAL("safety-backup")) ||
++      PathsOverlap(source_root, transaction_root) ||
++      PathsOverlap(source_root, destination_root) ||
++      !base::DirectoryExists(safety_backup_root) ||
++      base::IsLink(safety_backup_root)) {
++    *error = "The Vast migration journal contains unsafe path relationships.";
++    return false;
++  }
++
++  std::set<std::string> relative_paths;
++  uint64_t actual_total_bytes = 0;
++  std::vector<VastDataMigrationFile> recovered_files;
++  recovered_files.reserve(files->size());
++  for (const base::Value& value : *files) {
++    const base::DictValue* file = value.GetIfDict();
++    const std::string* path_value = file ? file->FindString("path") : nullptr;
++    const std::string* size_value = file ? file->FindString("size") : nullptr;
++    const std::string* sha256 = file ? file->FindString("sha256") : nullptr;
++    uint64_t size = 0;
++    if (!path_value || path_value->empty() || path_value->size() > 32768 ||
++        !size_value || !base::StringToUint64(*size_value, &size) ||
++        size > kMaxFileBytes || !sha256 || !IsSha256(*sha256)) {
++      *error = "The Vast migration journal contains invalid file metadata.";
++      return false;
++    }
++    const base::FilePath relative_path =
++        base::FilePath::FromUTF8Unsafe(*path_value);
++    const std::string path_key =
++        base::ToLowerASCII(relative_path.AsUTF8Unsafe());
++    if (!IsVastProductDataRelativePath(relative_path) ||
++        !relative_paths.insert(path_key).second ||
++        size > kMaxTotalBytes - actual_total_bytes) {
++      *error = "The Vast migration journal contains unsafe product files.";
++      return false;
++    }
++    if (!VerifyFile(destination_root.Append(relative_path), size, *sha256,
++                    error) ||
++        !VerifyFile(safety_backup_root.Append(relative_path), size, *sha256,
++                    error)) {
++      return false;
++    }
++    VastDataMigrationFile recovered_file;
++    recovered_file.relative_path = relative_path;
++    recovered_file.size = size;
++    recovered_file.sha256 = *sha256;
++    recovered_files.push_back(std::move(recovered_file));
++    actual_total_bytes += size;
++  }
++  if (actual_total_bytes != expected_total_bytes ||
++      !relative_paths.contains("vast-data.json")) {
++    *error = "The Vast migration journal total or required data is invalid.";
++    return false;
++  }
++
++  transaction->state = VastDataMigrationState::kCommitted;
++  transaction->source_root = source_root;
++  transaction->destination_root = destination_root;
++  transaction->transaction_root = transaction_root;
++  transaction->safety_backup_root = safety_backup_root;
++  transaction->staging_root =
++      transaction_root.Append(FILE_PATH_LITERAL("staging"));
++  transaction->journal_path = absolute_journal;
++  transaction->files = std::move(recovered_files);
++  transaction->total_bytes = actual_total_bytes;
++  transaction->error.clear();
++  return true;
++}
++
++bool WriteSelection(const base::FilePath& profile_path,
++                    const VastDataMigrationTransaction& transaction,
++                    std::string* error) {
++  const base::FilePath metadata_directory =
++      profile_path.Append(kMetadataDirectory);
++  if (!base::CreateDirectory(metadata_directory) ||
++      base::IsLink(metadata_directory)) {
++    *error = "The profile-local Vast product metadata directory is unsafe.";
++    return false;
++  }
++  const base::FilePath selection_path =
++      metadata_directory.Append(kSelectionFile);
++  if (base::PathExists(selection_path)) {
++    *error = "A Vast product root is already selected for this profile.";
++    return false;
++  }
++
++  base::DictValue root;
++  root.Set("formatVersion", 1);
++  root.Set("state", "active");
++  root.Set("dataRoot", transaction.destination_root.AsUTF8Unsafe());
++  root.Set("journalPath", transaction.journal_path.AsUTF8Unsafe());
++  std::string serialized;
++  if (!base::JSONWriter::WriteWithOptions(
++          root, base::JSONWriter::OPTIONS_PRETTY_PRINT, &serialized)) {
++    *error = "The Vast product-root selection could not be serialized.";
++    return false;
++  }
++  serialized.push_back('\n');
++  const base::FilePath temporary_path =
++      selection_path.AddExtension(FILE_PATH_LITERAL("tmp"));
++  base::DeleteFile(temporary_path);
++  if (!base::WriteFile(temporary_path, serialized) ||
++      !base::Move(temporary_path, selection_path)) {
++    base::DeleteFile(temporary_path);
++    *error = "The Vast product-root selection could not be written.";
++    return false;
++  }
++  return true;
++}
++
++}  // namespace
++
++bool ActivateVastProductDataRoot(
++    const base::FilePath& profile_path,
++    const VastDataMigrationTransaction& transaction,
++    std::string* error) {
++  if (!error) {
++    return false;
++  }
++  error->clear();
++  const base::FilePath absolute_profile =
++      base::MakeAbsoluteFilePath(profile_path);
++  if (absolute_profile.empty() ||
++      transaction.state != VastDataMigrationState::kCommitted) {
++    *error = "Only a committed migration can select a Vast product root.";
++    return false;
++  }
++  VastDataMigrationTransaction recovered;
++  if (!RecoverCommittedTransaction(transaction.journal_path,
++                                   transaction.destination_root, &recovered,
++                                   error)) {
++    return false;
++  }
++  const VastDataProjection projection =
++      ReadVastDataProjection(recovered.destination_root);
++  if (!projection.compatible) {
++    *error =
++        "The selected Vast product root is incompatible: " + projection.error;
++    return false;
++  }
++  return WriteSelection(absolute_profile, recovered, error);
++}
++
++VastProductDataRootStatus RecoverVastProductDataRoot(
++    const base::FilePath& profile_path) {
++  VastProductDataRootStatus status;
++  const base::FilePath absolute_profile =
++      base::MakeAbsoluteFilePath(profile_path);
++  if (absolute_profile.empty()) {
++    status.error = "The Chromium profile path is unavailable.";
++    return status;
++  }
++  if (!base::PathExists(SelectionPath(absolute_profile))) {
++    return status;
++  }
++  status.selected = true;
++  SelectionMetadata metadata;
++  if (!ReadSelection(absolute_profile, &metadata, &status.error)) {
++    return status;
++  }
++  if (!RecoverCommittedTransaction(metadata.journal_path, metadata.data_root,
++                                   &status.transaction, &status.error)) {
++    return status;
++  }
++  const VastDataProjection projection =
++      ReadVastDataProjection(status.transaction.destination_root);
++  if (!projection.compatible) {
++    status.error =
++        "The recovered Vast product root is incompatible: " + projection.error;
++    return status;
++  }
++  status.compatible = true;
++  status.schema_version = projection.schema_version;
++  status.data_root = status.transaction.destination_root;
++  return status;
++}
++
++bool DeactivateVastProductDataRoot(const base::FilePath& profile_path,
++                                   const base::FilePath& expected_data_root,
++                                   const base::FilePath& expected_journal_path,
++                                   std::string* error) {
++  if (!error) {
++    return false;
++  }
++  error->clear();
++  const base::FilePath absolute_profile =
++      base::MakeAbsoluteFilePath(profile_path);
++  if (absolute_profile.empty()) {
++    *error = "The Chromium profile path is unavailable.";
++    return false;
++  }
++  SelectionMetadata metadata;
++  if (!ReadSelection(absolute_profile, &metadata, error)) {
++    return false;
++  }
++  if (metadata.data_root != expected_data_root ||
++      metadata.journal_path != expected_journal_path) {
++    *error = "The Vast product-root selection changed before deactivation.";
++    return false;
++  }
++  if (!base::DeleteFile(SelectionPath(absolute_profile))) {
++    *error = "The Vast product-root selection could not be cleared.";
++    return false;
++  }
++  return true;
++}
++
++}  // namespace vast
+diff --git a/chrome/browser/vast/vast_product_data_root.h b/chrome/browser/vast/vast_product_data_root.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..e337b39919279a9e1ca33aeda93a27f6913a9055
+--- /dev/null
++++ b/chrome/browser/vast/vast_product_data_root.h
+@@ -0,0 +1,49 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_VAST_VAST_PRODUCT_DATA_ROOT_H_
++#define CHROME_BROWSER_VAST_VAST_PRODUCT_DATA_ROOT_H_
++
++#include <cstdint>
++#include <string>
++
++#include "base/files/file_path.h"
++#include "chrome/browser/vast/vast_data_migration_transaction.h"
++
++namespace vast {
++
++// Native-only recovery result. Paths and transaction metadata must never be
++// exposed to a renderer.
++struct VastProductDataRootStatus {
++  bool selected = false;
++  bool compatible = false;
++  int32_t schema_version = -1;
++  base::FilePath data_root;
++  VastDataMigrationTransaction transaction;
++  std::string error;
++};
++
++// Persists a committed, fully verified migration root below profile_path. The
++// selected product data can remain outside the Chromium profile, but no path is
++// accepted unless it is backed by the transaction journal and safety backup.
++bool ActivateVastProductDataRoot(
++    const base::FilePath& profile_path,
++    const VastDataMigrationTransaction& transaction,
++    std::string* error);
++
++// Recovers and re-verifies the selected root and committed transaction after a
++// browser restart. Absence of a selection is not an error.
++VastProductDataRootStatus RecoverVastProductDataRoot(
++    const base::FilePath& profile_path);
++
++// Removes only the small profile-local selection record after a successful
++// rollback. Product data and safety backups are never deleted here.
++bool DeactivateVastProductDataRoot(const base::FilePath& profile_path,
++                                   const base::FilePath& expected_data_root,
++                                   const base::FilePath& expected_journal_path,
++                                   std::string* error);
++
++}  // namespace vast
++
++#endif  // CHROME_BROWSER_VAST_VAST_PRODUCT_DATA_ROOT_H_
+diff --git a/chrome/browser/vast/vast_product_data_root_unittest.cc b/chrome/browser/vast/vast_product_data_root_unittest.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..630f3684c3bfc86caede630b5660edfc93c70feb
+--- /dev/null
++++ b/chrome/browser/vast/vast_product_data_root_unittest.cc
+@@ -0,0 +1,181 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/vast/vast_product_data_root.h"
++
++#include <string>
++#include <string_view>
++
++#include "base/files/file_util.h"
++#include "base/files/scoped_temp_dir.h"
++#include "base/json/json_writer.h"
++#include "base/values.h"
++#include "testing/gtest/include/gtest/gtest.h"
++
++namespace vast {
++namespace {
++
++constexpr char kValidVastData[] = R"({
++  "schemaVersion": 5,
++  "activeWorkspaceId": "workspace",
++  "workspaces": [
++    {"id":"workspace","name":"Workspace","icon":"home","color":"#123456","order":0}
++  ],
++  "tabGroups": [],
++  "tabs": [],
++  "bookmarks": [],
++  "bookmarkFolders": [],
++  "history": [],
++  "downloads": [],
++  "notes": [],
++  "readingList": [],
++  "quickLinks": [],
++  "settings": {"theme":"dark"}
++})";
++
++class VastProductDataRootTest : public testing::Test {
++ protected:
++  void SetUp() override { ASSERT_TRUE(temp_dir_.CreateUniqueTempDir()); }
++
++  base::FilePath CreateDirectory(std::string_view name) {
++    const base::FilePath path = temp_dir_.GetPath().AppendASCII(name);
++    EXPECT_TRUE(base::CreateDirectory(path));
++    return path;
++  }
++
++  void Write(const base::FilePath& path, std::string_view contents) {
++    ASSERT_TRUE(base::CreateDirectory(path.DirName()));
++    ASSERT_TRUE(base::WriteFile(path, contents));
++  }
++
++  std::string Read(const base::FilePath& path) {
++    std::string contents;
++    EXPECT_TRUE(base::ReadFileToString(path, &contents));
++    return contents;
++  }
++
++  VastDataMigrationTransaction CommitFixture(const base::FilePath& source,
++                                             const base::FilePath& parent) {
++    Write(source.Append(FILE_PATH_LITERAL("vast-data.json")), kValidVastData);
++    Write(source.Append(FILE_PATH_LITERAL("password-vault.json")),
++          "opaque vault fixture");
++    VastDataMigrationTransaction transaction = PrepareVastDataMigration(
++        source, parent, parent.Append(FILE_PATH_LITERAL("Vast2Data")));
++    EXPECT_EQ(transaction.state, VastDataMigrationState::kPrepared)
++        << transaction.error;
++    EXPECT_TRUE(CommitVastDataMigration(&transaction)) << transaction.error;
++    return transaction;
++  }
++
++  base::FilePath SelectionPath(const base::FilePath& profile) {
++    return profile.Append(
++        FILE_PATH_LITERAL("VastProductData/root-selection.json"));
++  }
++
++  base::ScopedTempDir temp_dir_;
++};
++
++TEST_F(VastProductDataRootTest,
++       PersistsRecoversRollsBackAndClearsWithoutChangingSource) {
++  const base::FilePath source = CreateDirectory("Source");
++  const base::FilePath transactions = CreateDirectory("Transactions");
++  const base::FilePath profile = CreateDirectory("Profile");
++  VastDataMigrationTransaction transaction =
++      CommitFixture(source, transactions);
++  const std::string source_before =
++      Read(source.Append(FILE_PATH_LITERAL("vast-data.json")));
++
++  std::string error;
++  ASSERT_TRUE(ActivateVastProductDataRoot(profile, transaction, &error))
++      << error;
++  EXPECT_TRUE(base::PathExists(SelectionPath(profile)));
++
++  // A fresh call models a new browser-process instance after restart.
++  VastProductDataRootStatus recovered = RecoverVastProductDataRoot(profile);
++  ASSERT_TRUE(recovered.selected);
++  ASSERT_TRUE(recovered.compatible) << recovered.error;
++  EXPECT_EQ(recovered.schema_version, 5);
++  EXPECT_EQ(recovered.data_root, transaction.destination_root);
++  EXPECT_EQ(recovered.transaction.state, VastDataMigrationState::kCommitted);
++
++  ASSERT_TRUE(RollbackVastDataMigration(&recovered.transaction))
++      << recovered.transaction.error;
++  ASSERT_TRUE(DeactivateVastProductDataRoot(
++      profile, transaction.destination_root, transaction.journal_path, &error))
++      << error;
++  EXPECT_FALSE(base::PathExists(SelectionPath(profile)));
++  EXPECT_FALSE(base::PathExists(transaction.destination_root));
++  EXPECT_TRUE(base::PathExists(transaction.transaction_root.Append(
++      FILE_PATH_LITERAL("rolled-back-data/vast-data.json"))));
++  EXPECT_EQ(Read(source.Append(FILE_PATH_LITERAL("vast-data.json"))),
++            source_before);
++
++  const VastProductDataRootStatus after_clear =
++      RecoverVastProductDataRoot(profile);
++  EXPECT_FALSE(after_clear.selected);
++  EXPECT_TRUE(after_clear.error.empty());
++}
++
++TEST_F(VastProductDataRootTest, RejectsUncommittedTransaction) {
++  const base::FilePath source = CreateDirectory("Source");
++  const base::FilePath transactions = CreateDirectory("Transactions");
++  const base::FilePath profile = CreateDirectory("Profile");
++  Write(source.Append(FILE_PATH_LITERAL("vast-data.json")), kValidVastData);
++  VastDataMigrationTransaction transaction = PrepareVastDataMigration(
++      source, transactions,
++      transactions.Append(FILE_PATH_LITERAL("Vast2Data")));
++  ASSERT_EQ(transaction.state, VastDataMigrationState::kPrepared)
++      << transaction.error;
++
++  std::string error;
++  EXPECT_FALSE(ActivateVastProductDataRoot(profile, transaction, &error));
++  EXPECT_EQ(error,
++            "Only a committed migration can select a Vast product root.");
++  EXPECT_FALSE(base::PathExists(SelectionPath(profile)));
++}
++
++TEST_F(VastProductDataRootTest, RejectsDestinationChangedAfterActivation) {
++  const base::FilePath source = CreateDirectory("Source");
++  const base::FilePath transactions = CreateDirectory("Transactions");
++  const base::FilePath profile = CreateDirectory("Profile");
++  VastDataMigrationTransaction transaction =
++      CommitFixture(source, transactions);
++  std::string error;
++  ASSERT_TRUE(ActivateVastProductDataRoot(profile, transaction, &error))
++      << error;
++  Write(
++      transaction.destination_root.Append(FILE_PATH_LITERAL("vast-data.json")),
++      "tampered after activation");
++
++  const VastProductDataRootStatus recovered =
++      RecoverVastProductDataRoot(profile);
++
++  EXPECT_TRUE(recovered.selected);
++  EXPECT_FALSE(recovered.compatible);
++  EXPECT_EQ(recovered.error,
++            "Recovered Vast product data has an unexpected file size.");
++}
++
++TEST_F(VastProductDataRootTest, RejectsRelativeSelectionPaths) {
++  const base::FilePath profile = CreateDirectory("Profile");
++  base::DictValue selection;
++  selection.Set("formatVersion", 1);
++  selection.Set("state", "active");
++  selection.Set("dataRoot", "relative-data");
++  selection.Set("journalPath", "relative-journal.json");
++  std::string serialized;
++  ASSERT_TRUE(base::JSONWriter::Write(selection, &serialized));
++  Write(SelectionPath(profile), serialized);
++
++  const VastProductDataRootStatus recovered =
++      RecoverVastProductDataRoot(profile);
++
++  EXPECT_TRUE(recovered.selected);
++  EXPECT_FALSE(recovered.compatible);
++  EXPECT_EQ(recovered.error,
++            "Vast product-root selection paths must be absolute.");
++}
++
++}  // namespace
++}  // namespace vast

@@ -1,0 +1,203 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "vast-relay-admin-local",
+  "main": "../src/admin/index.ts",
+  "compatibility_date": "2026-08-10",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": {
+    "ACCESS_AUD": "configure-after-access-application-creation",
+    "ACCESS_TEAM_DOMAIN": "https://vast-browser.cloudflareaccess.com",
+    "CONTROL_PANEL_ORIGIN": "http://localhost:8787",
+    "ENVIRONMENT": "local",
+    "RELAY_KEY_ID": "relay-test-1"
+  },
+  "assets": {
+    "binding": "CONTROL_PANEL_ASSETS",
+    "directory": "../control-panel/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "vast-relay-local",
+      "migrations_dir": "../migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ASSETS",
+      "bucket_name": "vast-relay-assets-local"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "ADMIN_SOURCE_RATE_LIMIT",
+      "namespace_id": "864001",
+      "simple": {
+        "limit": 240,
+        "period": 60
+      }
+    },
+    {
+      "name": "ADMIN_ACTOR_RATE_LIMIT",
+      "namespace_id": "864002",
+      "simple": {
+        "limit": 180,
+        "period": 60
+      }
+    },
+    {
+      "name": "ADMIN_MUTATION_RATE_LIMIT",
+      "namespace_id": "864003",
+      "simple": {
+        "limit": 60,
+        "period": 60
+      }
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.05
+    }
+  },
+  "env": {
+    "staging": {
+      "name": "vast-relay-admin-staging",
+      "workers_dev": false,
+      "preview_urls": false,
+      "routes": [
+        {
+          "pattern": "controlpanel-staging.vastbrowser.com",
+          "custom_domain": true
+        }
+      ],
+      "vars": {
+        "ACCESS_AUD": "d57429a0aa7ef593c1a7eac956cfce93eb284f518625454b55b6a25787ef0866",
+        "ACCESS_TEAM_DOMAIN": "https://vast-browser.cloudflareaccess.com",
+        "CONTROL_PANEL_ORIGIN": "https://controlpanel-staging.vastbrowser.com",
+        "ENVIRONMENT": "staging",
+        "RELAY_KEY_ID": "relay-staging-2026-01"
+      },
+      "assets": {
+        "binding": "CONTROL_PANEL_ASSETS",
+        "directory": "../control-panel/dist",
+        "not_found_handling": "single-page-application",
+        "run_worker_first": true
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "vast-relay-staging",
+          "migrations_dir": "../migrations",
+          "database_id": "786cd3fa-013f-43fe-bdc4-1ac610e98c87"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "ASSETS",
+          "bucket_name": "vast-relay-assets-staging"
+        }
+      ],
+      "ratelimits": [
+        {
+          "name": "ADMIN_SOURCE_RATE_LIMIT",
+          "namespace_id": "865001",
+          "simple": {
+            "limit": 240,
+            "period": 60
+          }
+        },
+        {
+          "name": "ADMIN_ACTOR_RATE_LIMIT",
+          "namespace_id": "865002",
+          "simple": {
+            "limit": 180,
+            "period": 60
+          }
+        },
+        {
+          "name": "ADMIN_MUTATION_RATE_LIMIT",
+          "namespace_id": "865003",
+          "simple": {
+            "limit": 60,
+            "period": 60
+          }
+        }
+      ]
+    },
+    "production": {
+      "name": "vast-relay-admin-production",
+      "workers_dev": false,
+      "preview_urls": false,
+      "routes": [
+        {
+          "pattern": "controlpanel.vastbrowser.com",
+          "custom_domain": true
+        }
+      ],
+      "vars": {
+        "ACCESS_AUD": "c17baacc642c0b105daaed3561596520d3702e60dac54876d000fc672e9690d3",
+        "ACCESS_TEAM_DOMAIN": "https://vast-browser.cloudflareaccess.com",
+        "CONTROL_PANEL_ORIGIN": "https://controlpanel.vastbrowser.com",
+        "ENVIRONMENT": "production",
+        "RELAY_KEY_ID": "relay-2026-01"
+      },
+      "assets": {
+        "binding": "CONTROL_PANEL_ASSETS",
+        "directory": "../control-panel/dist",
+        "not_found_handling": "single-page-application",
+        "run_worker_first": true
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "vast-relay-production",
+          "migrations_dir": "../migrations",
+          "database_id": "462a6d89-872e-4b7b-837e-9828f2338983"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "ASSETS",
+          "bucket_name": "vast-relay-assets-production"
+        }
+      ],
+      "ratelimits": [
+        {
+          "name": "ADMIN_SOURCE_RATE_LIMIT",
+          "namespace_id": "866001",
+          "simple": {
+            "limit": 240,
+            "period": 60
+          }
+        },
+        {
+          "name": "ADMIN_ACTOR_RATE_LIMIT",
+          "namespace_id": "866002",
+          "simple": {
+            "limit": 180,
+            "period": 60
+          }
+        },
+        {
+          "name": "ADMIN_MUTATION_RATE_LIMIT",
+          "namespace_id": "866003",
+          "simple": {
+            "limit": 60,
+            "period": 60
+          }
+        }
+      ]
+    }
+  }
+}

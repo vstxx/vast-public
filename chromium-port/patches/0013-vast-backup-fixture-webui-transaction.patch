@@ -1,0 +1,220 @@
+diff --git a/chrome/browser/resources/vast/app.ts b/chrome/browser/resources/vast/app.ts
+index 64228a24cb0f8a9c5659f8e00538f3dae6772a4a..e91341b1745f8127d11a3a33774c7e67b0e6aa7d 100644
+--- a/chrome/browser/resources/vast/app.ts
++++ b/chrome/browser/resources/vast/app.ts
+@@ -47,7 +47,13 @@ async function initialize() {
+         'migration-summary', `Schema ${preview.schemaVersion} fixture ready`);
+     setText(
+         'migration-details',
+-        `${preview.workspaces} workspace(s), ${preview.tabs} tab(s), ` +
++        (preview.archiveSource ?
++             `${preview.verifiedArchiveFiles} archive file(s) verified; ` +
++                 `${
++                     preview
++                         .selectedProductFiles} Vast product file(s) selected. ` :
++             '') +
++            `${preview.workspaces} workspace(s), ${preview.tabs} tab(s), ` +
+             `${preview.bookmarks} bookmark(s), ${preview.notes} note(s), and ` +
+             `${preview.history} history item(s). ` +
+             (preview.passwordVaultPresent ?
+diff --git a/chrome/browser/ui/webui/vast/vast.mojom b/chrome/browser/ui/webui/vast/vast.mojom
+index 10b7b7b4abbcc03f95224c5684128ad4285713fb..a9c551d24eb33a0281325fc32c7989d4d8a10720 100644
+--- a/chrome/browser/ui/webui/vast/vast.mojom
++++ b/chrome/browser/ui/webui/vast/vast.mojom
+@@ -25,6 +25,9 @@ struct MigrationPreview {
+   uint32 notes;
+   uint32 history;
+   bool password_vault_present;
++  bool archive_source;
++  uint32 verified_archive_files;
++  uint32 selected_product_files;
+   string error;
+ };
+ 
+diff --git a/chrome/browser/ui/webui/vast/vast_ui.cc b/chrome/browser/ui/webui/vast/vast_ui.cc
+index f438c6d03e27244a08a80881fd441ea4657f43f9..eea887c42b9242ba336f2c74439804dca995ee61 100644
+--- a/chrome/browser/ui/webui/vast/vast_ui.cc
++++ b/chrome/browser/ui/webui/vast/vast_ui.cc
+@@ -7,9 +7,11 @@
+ #include <utility>
+ 
+ #include "base/command_line.h"
++#include "base/files/file_util.h"
+ #include "base/functional/bind.h"
+ #include "base/task/thread_pool.h"
+ #include "chrome/browser/profiles/profile.h"
++#include "chrome/browser/vast/vast_backup_extractor.h"
+ #include "chrome/browser/vast/vast_data_migration_preview.h"
+ #include "chrome/grit/vast_resources.h"
+ #include "chrome/grit/vast_resources_map.h"
+@@ -22,6 +24,7 @@ namespace vast {
+ namespace {
+ 
+ constexpr char kMigrationFixtureSwitch[] = "vast-migration-fixture";
++constexpr char kBackupFixtureSwitch[] = "vast-backup-fixture";
+ constexpr char kMigrationTransactionParentSwitch[] =
+     "vast-migration-transaction-parent";
+ constexpr char kEnableMigrationFixtureCommitSwitch[] =
+@@ -32,25 +35,66 @@ constexpr base::FilePath::CharType kMigrationDestinationName[] =
+ bool IsMigrationFixtureCommitEnabled() {
+   const base::CommandLine* command_line =
+       base::CommandLine::ForCurrentProcess();
++  const bool has_data_fixture =
++      !command_line->GetSwitchValuePath(kMigrationFixtureSwitch).empty();
++  const bool has_backup_fixture =
++      !command_line->GetSwitchValuePath(kBackupFixtureSwitch).empty();
+   return command_line->HasSwitch(kEnableMigrationFixtureCommitSwitch) &&
+-         !command_line->GetSwitchValuePath(kMigrationFixtureSwitch).empty() &&
++         has_data_fixture != has_backup_fixture &&
+          !command_line->GetSwitchValuePath(kMigrationTransactionParentSwitch)
+               .empty();
+ }
+ 
++struct NativeMigrationPreview {
++  VastDataMigrationPreview data;
++  bool archive_source = false;
++  uint32_t verified_archive_files = 0;
++  uint32_t selected_product_files = 0;
++};
++
+ mojom::MigrationPreviewPtr ToMojomMigrationPreview(
+-    const VastDataMigrationPreview& source) {
++    const NativeMigrationPreview& source) {
+   auto preview = mojom::MigrationPreview::New();
+-  preview->available = source.available;
+-  preview->compatible = source.compatible;
+-  preview->schema_version = source.schema_version;
+-  preview->workspaces = source.workspaces;
+-  preview->tabs = source.tabs;
+-  preview->bookmarks = source.bookmarks;
+-  preview->notes = source.notes;
+-  preview->history = source.history;
+-  preview->password_vault_present = source.password_vault_present;
+-  preview->error = source.error;
++  preview->available = source.data.available;
++  preview->compatible = source.data.compatible;
++  preview->schema_version = source.data.schema_version;
++  preview->workspaces = source.data.workspaces;
++  preview->tabs = source.data.tabs;
++  preview->bookmarks = source.data.bookmarks;
++  preview->notes = source.data.notes;
++  preview->history = source.data.history;
++  preview->password_vault_present = source.data.password_vault_present;
++  preview->archive_source = source.archive_source;
++  preview->verified_archive_files = source.verified_archive_files;
++  preview->selected_product_files = source.selected_product_files;
++  preview->error = source.data.error;
++  return preview;
++}
++
++NativeMigrationPreview ReadMigrationPreviewOnWorker(
++    base::FilePath data_fixture,
++    base::FilePath backup_fixture,
++    base::FilePath transaction_parent) {
++  NativeMigrationPreview preview;
++  if (!backup_fixture.empty()) {
++    preview.archive_source = true;
++    VastBackupExtractionResult extraction = ExtractVastBackupProductData(
++        backup_fixture, transaction_parent.DirName());
++    preview.verified_archive_files = extraction.verified_files;
++    preview.selected_product_files = extraction.extracted_product_files;
++    if (!extraction.success) {
++      preview.data.error = extraction.error;
++      return preview;
++    }
++    preview.data = ReadVastDataMigrationPreview(extraction.product_data_root);
++    if (!base::DeletePathRecursively(extraction.work_root)) {
++      preview.data.compatible = false;
++      preview.data.error =
++          "Backup preview succeeded, but temporary data cleanup failed.";
++    }
++    return preview;
++  }
++  preview.data = ReadVastDataMigrationPreviewFromConfigRoot(data_fixture);
+   return preview;
+ }
+ 
+@@ -97,11 +141,31 @@ VastDataMigrationTransaction RunMigrationFixtureTransactionOnWorker() {
+       base::CommandLine::ForCurrentProcess();
+   const base::FilePath fixture_root =
+       command_line->GetSwitchValuePath(kMigrationFixtureSwitch);
++  const base::FilePath backup_fixture =
++      command_line->GetSwitchValuePath(kBackupFixtureSwitch);
+   const base::FilePath transaction_parent =
+       command_line->GetSwitchValuePath(kMigrationTransactionParentSwitch);
+-  VastDataMigrationTransaction transaction = PrepareVastDataMigration(
+-      fixture_root, transaction_parent,
+-      transaction_parent.Append(kMigrationDestinationName));
++  VastDataMigrationTransaction transaction;
++  if (!backup_fixture.empty()) {
++    VastBackupExtractionResult extraction = ExtractVastBackupProductData(
++        backup_fixture, transaction_parent.DirName());
++    if (!extraction.success) {
++      transaction.error = extraction.error;
++      return transaction;
++    }
++    transaction = PrepareVastDataMigration(
++        extraction.product_data_root, transaction_parent,
++        transaction_parent.Append(kMigrationDestinationName));
++    if (!base::DeletePathRecursively(extraction.work_root)) {
++      transaction.error =
++          "Backup was prepared, but temporary data cleanup failed.";
++      return transaction;
++    }
++  } else {
++    transaction = PrepareVastDataMigration(
++        fixture_root, transaction_parent,
++        transaction_parent.Append(kMigrationDestinationName));
++  }
+   if (transaction.state == VastDataMigrationState::kPrepared) {
+     CommitVastDataMigration(&transaction);
+   }
+@@ -149,21 +213,41 @@ void VastUI::GetRuntimeInfo(GetRuntimeInfoCallback callback) {
+ }
+ 
+ void VastUI::GetMigrationPreview(GetMigrationPreviewCallback callback) {
++  const base::CommandLine* command_line =
++      base::CommandLine::ForCurrentProcess();
+   const base::FilePath fixture_root =
+-      base::CommandLine::ForCurrentProcess()->GetSwitchValuePath(
+-          kMigrationFixtureSwitch);
+-  if (fixture_root.empty()) {
+-    std::move(callback).Run(
+-        ToMojomMigrationPreview(VastDataMigrationPreview()));
++      command_line->GetSwitchValuePath(kMigrationFixtureSwitch);
++  const base::FilePath backup_fixture =
++      command_line->GetSwitchValuePath(kBackupFixtureSwitch);
++  const base::FilePath transaction_parent =
++      command_line->GetSwitchValuePath(kMigrationTransactionParentSwitch);
++  if (fixture_root.empty() && backup_fixture.empty()) {
++    std::move(callback).Run(ToMojomMigrationPreview(NativeMigrationPreview()));
++    return;
++  }
++  if (!fixture_root.empty() && !backup_fixture.empty()) {
++    NativeMigrationPreview preview;
++    preview.data.error =
++        "Only one development migration source may be configured.";
++    std::move(callback).Run(ToMojomMigrationPreview(preview));
++    return;
++  }
++  if (!backup_fixture.empty() && transaction_parent.empty()) {
++    NativeMigrationPreview preview;
++    preview.archive_source = true;
++    preview.data.error =
++        "Backup preview requires a native transaction directory.";
++    std::move(callback).Run(ToMojomMigrationPreview(preview));
+     return;
+   }
+ 
+   base::ThreadPool::PostTaskAndReplyWithResult(
+       FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+-      base::BindOnce(&ReadVastDataMigrationPreviewFromConfigRoot, fixture_root),
++      base::BindOnce(&ReadMigrationPreviewOnWorker, fixture_root,
++                     backup_fixture, transaction_parent),
+       base::BindOnce(
+           [](GetMigrationPreviewCallback callback,
+-             VastDataMigrationPreview preview) {
++             NativeMigrationPreview preview) {
+             std::move(callback).Run(ToMojomMigrationPreview(preview));
+           },
+           std::move(callback)));

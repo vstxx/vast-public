@@ -1,0 +1,7 @@
+assets/cat-addon/generated/*.json text eol=lf
+assets/cat-addon/package/*.json text eol=lf
+assets/cat-addon/package/animations/*.json text eol=lf
+resources/cat-addon/*.sha256 text eol=lf
+src/shared/cat-addon-bundle.ts text eol=lf
+relay/worker-configuration.d.ts text eol=lf
+relay/admin-configuration.d.ts text eol=lf

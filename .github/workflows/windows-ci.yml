@@ -1,0 +1,65 @@
+name: Windows CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      VAST_RELEASE_CHANNEL: dev
+      VAST_PRIVATE_BUILD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - name: Install Vast Relay dependencies
+        run: npm ci --prefix relay
+      - name: Reject high or critical npm vulnerabilities
+        run: npm run audit:ci
+      - name: Ensure Electron runtime is installed
+        shell: pwsh
+        run: |
+          Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+          node node_modules/electron/install.js
+          if (-not (Test-Path 'node_modules/electron/dist/electron.exe')) {
+            throw 'Electron runtime installation did not produce electron.exe.'
+          }
+      - run: python -m pip install -r resources/avidae/requirements.txt
+      - run: npm run lint
+      - name: Validate Vast Relay Workers
+        run: npm run check --prefix relay
+      - run: npm test
+      - run: npm run build
+      - run: npm run test:app
+      - run: npm run updater:stage
+      - run: npm run test:updater
+      - run: npm run release:audit
+      - run: npm run release:check
+      - name: Package unsigned CI application
+        env:
+          VAST_ALLOW_UNSIGNED_PRIVATE_BUILD: '1'
+        run: npx electron-builder --dir --win --x64 --config scripts/electron-builder-private-unsigned.cjs
+      - name: Smoke packaged application
+        shell: pwsh
+        run: |
+          $exe = Resolve-Path 'release/win-unpacked/Vast.exe'
+          $profile = Join-Path $env:RUNNER_TEMP 'vast-packaged-smoke'
+          $env:VAST_TEST_USER_DATA_DIR = $profile
+          $process = Start-Process -FilePath $exe -ArgumentList '--disable-gpu' -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 10
+          if ($process.HasExited) { throw "Packaged Vast exited early with code $($process.ExitCode)." }
+          Stop-Process -Id $process.Id -Force

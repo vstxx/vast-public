@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+{% block title %}Video &amp; Audio — Video Merge{% endblock %}
+{% block page_title %}Video Merge{% endblock %}
+
+{% block content %}
+<div class="page-centered">
+    <div class="card form-card">
+        <div class="card-header">
+            <h2><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#merge"></use></svg> Video Merge</h2>
+            <p class="text-muted">Combine multiple video files into one</p>
+        </div>
+        <div class="card-body">
+            <form id="mergeForm" onsubmit="submitMerge(event)">
+                <div class="form-group">
+                    <label>Upload Files (select multiple)</label>
+                    <div class="dropzone" id="vmDropzone"
+                         ondragover="event.preventDefault(); this.classList.add('dragover')"
+                         ondragleave="this.classList.remove('dragover')"
+                         ondrop="handleMultiDrop(event)">
+                        <input type="file" id="vmFileInput" accept="video/*" multiple style="display:none" onchange="handleMultiSelect(this)">
+                        <div class="dropzone-content" onclick="document.getElementById('vmFileInput').click()">
+                            <span>Drop files here or click to upload</span>
+                            <span class="dropzone-hint" id="vmFileName">Select at least 2 videos</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group" id="vmFileList" style="display:none">
+                    <label>Files to merge (drag to reorder):</label>
+                    <ul class="merge-file-list" id="vmFiles"></ul>
+                </div>
+
+                <div class="form-group">
+                    <label>Or select from completed jobs:</label>
+                    <select id="vmJobPicker" onchange="addJobFile()">
+                        <option value="">— Add a job output —</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="vmFormat">Output Format</label>
+                        <select id="vmFormat" name="format">
+                            <option value="mp4" selected>MP4</option>
+                            <option value="mkv">MKV</option>
+                            <option value="webm">WebM</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="vmReencode" name="reencode">
+                            <span>Re-encode (handles different resolutions/codecs)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="vmTitle">Title</label>
+                    <input type="text" id="vmTitle" name="title" placeholder="Merge job">
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary btn-lg" id="mergeBtn">
+                        <span class="btn-icon-inline"><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#merge"></use></svg></span> Start Merge
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const mergeFiles = [];
+
+    document.addEventListener('DOMContentLoaded', loadCompletedJobs);
+
+    async function loadCompletedJobs() {
+        try {
+            const resp = await fetch('/api/jobs?limit=50');
+            const data = await resp.json();
+            const picker = document.getElementById('vmJobPicker');
+            data.jobs.filter(j => j.status === 'completed' && j.output_file).forEach(j => {
+                const opt = document.createElement('option');
+                opt.value = j.folder + '/output/' + j.output_file;
+                opt.textContent = `${j.title || j.id} (${j.output_file})`;
+                picker.appendChild(opt);
+            });
+        } catch(e) {}
+    }
+
+    function addJobFile() {
+        const picker = document.getElementById('vmJobPicker');
+        const val = picker.value;
+        if (val) {
+            mergeFiles.push(val);
+            renderFileList();
+            picker.value = '';
+        }
+    }
+
+    function handleMultiDrop(e) {
+        e.preventDefault();
+        e.currentTarget.classList.remove('dragover');
+        const files = Array.from(e.dataTransfer.files);
+        files.forEach(f => uploadMergeFile(f));
+    }
+
+    function handleMultiSelect(input) {
+        const files = Array.from(input.files);
+        files.forEach(f => uploadMergeFile(f));
+    }
+
+    async function uploadMergeFile(file) {
+        const hint = document.getElementById('vmFileName');
+        hint.textContent = `Uploading ${file.name}...`;
+        const fd = new FormData();
+        fd.append('file', file);
+        try {
+            const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+            const data = await resp.json();
+            if (data.ok) {
+                mergeFiles.push(data.path);
+                renderFileList();
+                hint.textContent = `${mergeFiles.length} files selected`;
+                showToast(`Uploaded: ${data.filename}`);
+            } else {
+                showToast(data.error, 'error');
+            }
+        } catch(e) {
+            showToast('Upload failed', 'error');
+        }
+    }
+
+    function renderFileList() {
+        const list = document.getElementById('vmFiles');
+        const container = document.getElementById('vmFileList');
+        list.innerHTML = '';
+        if (mergeFiles.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+        container.style.display = '';
+        mergeFiles.forEach((f, i) => {
+            const li = document.createElement('li');
+            li.className = 'merge-file-item';
+            const name = f.split(/[\\/]/).pop();
+            li.innerHTML = `
+                <span class="merge-file-num">${i + 1}.</span>
+                <span class="merge-file-name">${name}</span>
+                <button type="button" class="btn btn-sm btn-ghost" onclick="moveFile(${i}, -1)" ${i === 0 ? 'disabled' : ''} aria-label="Move up">${uiIcon('arrow-up')}</button>
+                <button type="button" class="btn btn-sm btn-ghost" onclick="moveFile(${i}, 1)" ${i === mergeFiles.length - 1 ? 'disabled' : ''} aria-label="Move down">${uiIcon('arrow-down')}</button>
+                <button type="button" class="btn btn-sm btn-danger" onclick="removeFile(${i})" aria-label="Remove">${uiIcon('x')}</button>
+            `;
+            list.appendChild(li);
+        });
+    }
+
+    function moveFile(i, dir) {
+        const j = i + dir;
+        if (j < 0 || j >= mergeFiles.length) return;
+        [mergeFiles[i], mergeFiles[j]] = [mergeFiles[j], mergeFiles[i]];
+        renderFileList();
+    }
+
+    function removeFile(i) {
+        mergeFiles.splice(i, 1);
+        renderFileList();
+        document.getElementById('vmFileName').textContent = mergeFiles.length ? `${mergeFiles.length} files selected` : 'Select at least 2 videos';
+    }
+
+    async function submitMerge(e) {
+        e.preventDefault();
+        if (mergeFiles.length < 2) {
+            showToast('Add at least 2 video files', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('mergeBtn');
+        btn.disabled = true;
+        const params = {
+            input_files: [...mergeFiles],
+            format: document.getElementById('vmFormat').value,
+            reencode: document.getElementById('vmReencode').checked,
+            title: document.getElementById('vmTitle').value,
+        };
+        try {
+            const resp = await fetch('/api/jobs', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ type: 'video_merge', params })
+            });
+            const data = await resp.json();
+            if (data.ok) {
+                showToast('Merge started');
+                setTimeout(() => window.location.href = '/jobs', 1000);
+            } else {
+                showToast(data.error || 'Failed', 'error');
+            }
+        } catch(e) {
+            showToast('Request failed', 'error');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+</script>
+{% endblock %}

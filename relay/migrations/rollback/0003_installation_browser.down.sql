@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS installations_version_last_seen_idx;
+DROP INDEX IF EXISTS installations_last_seen_install_id_idx;

@@ -1,0 +1,96 @@
+diff --git a/chrome/browser/vast/BUILD.gn b/chrome/browser/vast/BUILD.gn
+index 4c11ed3f9b12d0ed097ba5124147c2d654cc9f23..9f7173d549bbd2d19b6db4bf29e26fc9945899ec 100644
+--- a/chrome/browser/vast/BUILD.gn
++++ b/chrome/browser/vast/BUILD.gn
+@@ -35,3 +35,14 @@ test("vast_data_unittests") {
+     "//testing/gtest",
+   ]
+ }
++
++executable("vast_backup_audit") {
++  testonly = true
++
++  sources = [ "vast_backup_audit_main.cc" ]
++
++  deps = [
++    ":vast_data",
++    "//base",
++  ]
++}
+diff --git a/chrome/browser/vast/vast_backup_audit_main.cc b/chrome/browser/vast/vast_backup_audit_main.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..edd3e481d7a7cd21bf6f53a5c5079629a5391a72
+--- /dev/null
++++ b/chrome/browser/vast/vast_backup_audit_main.cc
+@@ -0,0 +1,71 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include <iostream>
++#include <string>
++
++#include "base/command_line.h"
++#include "base/files/file_path.h"
++#include "base/files/file_util.h"
++#include "base/json/json_writer.h"
++#include "base/strings/string_number_conversions.h"
++#include "base/values.h"
++#include "chrome/browser/vast/vast_backup_extractor.h"
++
++namespace {
++
++constexpr char kBackupSwitch[] = "backup";
++constexpr char kExtractionParentSwitch[] = "extraction-parent";
++
++void PrintResult(const vast::VastBackupExtractionResult& extraction,
++                 bool temporary_data_cleaned) {
++  base::DictValue result;
++  result.Set("schemaVersion", 1);
++  result.Set("success", extraction.success && temporary_data_cleaned);
++  result.Set("verifiedFiles", static_cast<int>(extraction.verified_files));
++  result.Set("extractedProductFiles",
++             static_cast<int>(extraction.extracted_product_files));
++  result.Set("verifiedBytes", base::NumberToString(extraction.verified_bytes));
++  result.Set("passwordVaultPresent", extraction.password_vault_present);
++  result.Set("temporaryDataCleaned", temporary_data_cleaned);
++  if (!extraction.error.empty()) {
++    result.Set("error", extraction.error);
++  }
++  std::string serialized;
++  if (base::JSONWriter::Write(result, &serialized)) {
++    std::cout << serialized << std::endl;
++  }
++}
++
++}  // namespace
++
++int main(int argc, const char* argv[]) {
++  base::CommandLine::Init(argc, argv);
++  const base::CommandLine* command_line =
++      base::CommandLine::ForCurrentProcess();
++  const base::FilePath archive =
++      command_line->GetSwitchValuePath(kBackupSwitch);
++  base::FilePath extraction_parent =
++      command_line->GetSwitchValuePath(kExtractionParentSwitch);
++  if (extraction_parent.empty() && !base::GetTempDir(&extraction_parent)) {
++    vast::VastBackupExtractionResult extraction;
++    extraction.error = "The temporary directory is unavailable.";
++    PrintResult(extraction, true);
++    return 1;
++  }
++  if (archive.empty()) {
++    vast::VastBackupExtractionResult extraction;
++    extraction.error = "Pass --backup=<absolute .vastbackup path>.";
++    PrintResult(extraction, true);
++    return 1;
++  }
++
++  vast::VastBackupExtractionResult extraction =
++      vast::ExtractVastBackupProductData(archive, extraction_parent);
++  const bool temporary_data_cleaned =
++      extraction.work_root.empty() ||
++      base::DeletePathRecursively(extraction.work_root);
++  PrintResult(extraction, temporary_data_cleaned);
++  return extraction.success && temporary_data_cleaned ? 0 : 1;
++}

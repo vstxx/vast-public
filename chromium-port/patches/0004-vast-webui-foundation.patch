@@ -1,0 +1,617 @@
+diff --git a/chrome/browser/resources/BUILD.gn b/chrome/browser/resources/BUILD.gn
+index 66dcefc52441197089ad4189199e15a4585af627..be09dd105e331a7bf4fbcb6b4f0eaa885dc24c22 100644
+--- a/chrome/browser/resources/BUILD.gn
++++ b/chrome/browser/resources/BUILD.gn
+@@ -336,6 +336,7 @@ group("dev_ui_resources") {
+     "privacy_sandbox/internals:resources",
+     "subresource_filter:resources",
+     "usb_internals:resources",
++    "vast:resources",
+     "//components/actor/core/internals/resources",
+     "//components/commerce/core/internals/resources",
+     "//components/data_sharing/data_sharing_internals/resources",
+@@ -418,6 +419,7 @@ repack("dev_ui_paks") {
+     "$root_gen_dir/chrome/privacy_sandbox_internals_resources.pak",
+     "$root_gen_dir/chrome/subresource_filter_internals_resources.pak",
+     "$root_gen_dir/chrome/usb_internals_resources.pak",
++    "$root_gen_dir/chrome/vast_resources.pak",
+     "$root_gen_dir/components/actor_internals_resources.pak",
+     "$root_gen_dir/components/commerce_internals_resources.pak",
+     "$root_gen_dir/components/data_sharing_internals_resources.pak",
+diff --git a/chrome/browser/resources/vast/BUILD.gn b/chrome/browser/resources/vast/BUILD.gn
+new file mode 100644
+index 0000000000000000000000000000000000000000..b277f7ff00b460f39257e64c0bb70b78fd730f4f
+--- /dev/null
++++ b/chrome/browser/resources/vast/BUILD.gn
+@@ -0,0 +1,19 @@
++# Copyright 2026 The Vast Authors
++# Use of this source code is governed by a BSD-style license that can be
++# found in the LICENSE file.
++
++import("//ui/webui/resources/tools/build_webui.gni")
++
++build_webui("build") {
++  grd_prefix = "vast"
++
++  static_files = [
++    "app.css",
++    "index.html",
++    "vast-logo.png",
++  ]
++
++  ts_files = [ "app.ts" ]
++
++  ts_deps = [ "//ui/webui/resources/js:build_ts" ]
++}
+diff --git a/chrome/browser/resources/vast/app.css b/chrome/browser/resources/vast/app.css
+new file mode 100644
+index 0000000000000000000000000000000000000000..0056dd423daf138faaed191e04985578436b9104
+--- /dev/null
++++ b/chrome/browser/resources/vast/app.css
+@@ -0,0 +1,226 @@
++:root {
++  --vast-accent: #74e7ff;
++  --vast-accent-secondary: #b86cff;
++  --vast-bg: #050507;
++  --vast-text: #f3f5f8;
++  --vast-muted: #9aa0ad;
++  --vast-border: rgba(255, 255, 255, 0.1);
++  color-scheme: dark;
++  font-family: Inter, ui-sans-serif, system-ui, -apple-system,
++    BlinkMacSystemFont, 'Segoe UI', sans-serif;
++}
++
++* {
++  box-sizing: border-box;
++}
++
++html,
++body {
++  min-height: 100%;
++}
++
++body {
++  margin: 0;
++  color: var(--vast-text);
++  background:
++    radial-gradient(circle at 16% 0%, rgba(116, 231, 255, 0.11),
++      transparent 34rem),
++    radial-gradient(circle at 88% 18%, rgba(184, 108, 255, 0.12),
++      transparent 32rem),
++    linear-gradient(150deg, #050507 0%, #090b11 55%, #050507 100%);
++}
++
++.shell {
++  width: min(1180px, calc(100% - 56px));
++  margin: 0 auto;
++  padding: 24px 0 32px;
++}
++
++.topbar,
++.brand,
++.actions,
++footer,
++.status-line {
++  display: flex;
++  align-items: center;
++}
++
++.topbar {
++  justify-content: space-between;
++}
++
++.brand {
++  gap: 12px;
++  font-size: 18px;
++  font-weight: 760;
++  letter-spacing: -0.02em;
++}
++
++.brand-mark {
++  width: 30px;
++  height: 30px;
++  object-fit: contain;
++}
++
++.phase {
++  padding: 8px 12px;
++  border: 1px solid var(--vast-border);
++  border-radius: 999px;
++  color: var(--vast-muted);
++  background: rgba(255, 255, 255, 0.035);
++  font-size: 12px;
++}
++
++.hero {
++  max-width: 900px;
++  padding: 112px 0 72px;
++}
++
++.eyebrow {
++  color: var(--vast-accent);
++  font-size: 12px;
++  font-weight: 760;
++  letter-spacing: 0.18em;
++}
++
++h1 {
++  margin: 14px 0 24px;
++  font-size: clamp(48px, 7.4vw, 92px);
++  line-height: 0.96;
++  letter-spacing: -0.065em;
++}
++
++h1 span {
++  color: #8d939f;
++}
++
++.intro {
++  max-width: 740px;
++  color: #b3b8c2;
++  font-size: 18px;
++  line-height: 1.65;
++}
++
++.actions {
++  gap: 12px;
++  margin-top: 32px;
++}
++
++.actions a {
++  padding: 12px 17px;
++  border-radius: 13px;
++  color: var(--vast-text);
++  font-weight: 700;
++  text-decoration: none;
++}
++
++.primary {
++  border: 1px solid rgba(116, 231, 255, 0.35);
++  background: linear-gradient(120deg, rgba(116, 231, 255, 0.23),
++    rgba(184, 108, 255, 0.26));
++}
++
++.secondary {
++  border: 1px solid var(--vast-border);
++  background: rgba(255, 255, 255, 0.045);
++}
++
++.actions a:focus-visible {
++  outline: 2px solid var(--vast-accent);
++  outline-offset: 3px;
++}
++
++.status-grid {
++  display: grid;
++  grid-template-columns: repeat(3, 1fr);
++  gap: 14px;
++}
++
++.status-card {
++  min-height: 228px;
++  padding: 22px;
++  border: 1px solid var(--vast-border);
++  border-radius: 24px;
++  background: linear-gradient(145deg, rgba(255, 255, 255, 0.065),
++    rgba(255, 255, 255, 0.025));
++  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.24);
++}
++
++.status-line {
++  gap: 9px;
++  margin-bottom: 48px;
++  color: var(--vast-muted);
++  font-size: 12px;
++  font-weight: 700;
++  letter-spacing: 0.08em;
++  text-transform: uppercase;
++}
++
++.status-dot {
++  width: 8px;
++  height: 8px;
++  border-radius: 50%;
++}
++
++.status-dot.ready {
++  background: #6df0b3;
++  box-shadow: 0 0 18px rgba(109, 240, 179, 0.55);
++}
++
++.status-dot.active {
++  background: var(--vast-accent-secondary);
++  box-shadow: 0 0 18px rgba(184, 108, 255, 0.65);
++}
++
++.status-card strong {
++  display: block;
++  margin-bottom: 12px;
++  font-size: 20px;
++  letter-spacing: -0.025em;
++}
++
++.status-card p {
++  margin: 0;
++  color: var(--vast-muted);
++  line-height: 1.55;
++}
++
++footer {
++  gap: 10px;
++  padding-top: 28px;
++  color: #777d88;
++  font-size: 12px;
++}
++
++.divider {
++  width: 3px;
++  height: 3px;
++  border-radius: 50%;
++  background: #4c515b;
++}
++
++@media (max-width: 820px) {
++  .shell {
++    width: min(100% - 32px, 680px);
++  }
++
++  .hero {
++    padding-top: 80px;
++  }
++
++  .status-grid {
++    grid-template-columns: 1fr;
++  }
++
++  .status-card {
++    min-height: 190px;
++  }
++
++  .status-line {
++    margin-bottom: 34px;
++  }
++
++  footer {
++    flex-wrap: wrap;
++  }
++}
+diff --git a/chrome/browser/resources/vast/app.ts b/chrome/browser/resources/vast/app.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..784292d498a1bffe847bb3a9dffdd21abc6dc11d
+--- /dev/null
++++ b/chrome/browser/resources/vast/app.ts
+@@ -0,0 +1,28 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++import {loadTimeData} from '//resources/js/load_time_data.js';
++
++function setText(id: string, value: string) {
++  const element = document.querySelector<HTMLElement>(`#${id}`);
++  if (!element) {
++    throw new Error(`Missing Vast WebUI element: ${id}`);
++  }
++  element.textContent = value;
++}
++
++setText('runtime-architecture', loadTimeData.getString('runtimeArchitecture'));
++setText(
++    'product-version',
++    `${loadTimeData.getString('productName')} ${loadTimeData.getString('productVersion')}`);
++setText(
++    'chromium-version',
++    `Chromium ${loadTimeData.getString('chromiumVersion')}`);
++setText(
++    'runtime-proof',
++    loadTimeData.getBoolean('electronRuntimeAbsent') ?
++        'Electron runtime absent' :
++        'Runtime audit required');
++
++document.documentElement.dataset['vastReady'] = 'true';
+diff --git a/chrome/browser/resources/vast/index.html b/chrome/browser/resources/vast/index.html
+new file mode 100644
+index 0000000000000000000000000000000000000000..565870ce7deb80f7807c129f7f4405c0b105a57b
+--- /dev/null
++++ b/chrome/browser/resources/vast/index.html
+@@ -0,0 +1,59 @@
++<!doctype html>
++<html lang="en" dir="ltr">
++<head>
++  <meta charset="utf-8">
++  <meta name="color-scheme" content="dark">
++  <meta name="viewport" content="width=device-width, initial-scale=1">
++  <title>Vast</title>
++  <link rel="stylesheet" href="app.css">
++</head>
++<body>
++  <main class="shell">
++    <header class="topbar">
++      <div class="brand">
++        <img src="vast-logo.png" alt="" class="brand-mark">
++        <span>Vast</span>
++      </div>
++      <span class="phase">2.0 native preview</span>
++    </header>
++
++    <section class="hero">
++      <p class="eyebrow">CHROMIUM PORT</p>
++      <h1>A real browser core.<br><span>The Vast layer is next.</span></h1>
++      <p class="intro">This page is bundled into Chromium and served by a profile-scoped native WebUI controller. There is no Electron, Node.js renderer, embedded browser, or localhost UI server in this runtime.</p>
++      <nav class="actions" aria-label="Native browser destinations">
++        <a class="primary" href="chrome://version/">Runtime details</a>
++        <a class="secondary" href="chrome://settings/">Chromium settings</a>
++      </nav>
++    </section>
++
++    <section class="status-grid" aria-label="Migration status">
++      <article class="status-card" data-testid="runtime-card">
++        <div class="status-line"><span class="status-dot ready"></span><span>Native runtime</span></div>
++        <strong id="runtime-architecture"></strong>
++        <p>Normal tabs, sandbox, site isolation, cookies, service workers, downloads, popups, permissions, and DevTools.</p>
++      </article>
++      <article class="status-card">
++        <div class="status-line"><span class="status-dot ready"></span><span>Website authentication</span></div>
++        <strong>Top-level Google sign-in</strong>
++        <p>Website sessions run in ordinary Chromium tabs. Chrome Sync and private Google browser APIs remain out of scope.</p>
++      </article>
++      <article class="status-card">
++        <div class="status-line"><span class="status-dot active"></span><span>Vast product layer</span></div>
++        <strong>UI and services in migration</strong>
++        <p>Workspaces, settings, notes, backups, and the vault will move behind typed, profile-scoped native adapters.</p>
++      </article>
++    </section>
++
++    <footer>
++      <span id="product-version"></span>
++      <span class="divider"></span>
++      <span id="chromium-version"></span>
++      <span class="divider"></span>
++      <span id="runtime-proof"></span>
++    </footer>
++  </main>
++  <script type="module" src="strings.m.js"></script>
++  <script type="module" src="app.js"></script>
++</body>
++</html>
+diff --git a/chrome/browser/resources/vast/vast-logo.png b/chrome/browser/resources/vast/vast-logo.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..43301bfb8f05c8df95ac0900d131fdbcf1c2ec62
+GIT binary patch
+literal 2758
+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
+C{$wWr
+
+literal 0
+HcmV?d00001
+
+diff --git a/chrome/browser/ui/webui/BUILD.gn b/chrome/browser/ui/webui/BUILD.gn
+index 70818ce2da0e8e5fc9e79ac54fb2f1a37fdcd28b..e808d2d042b866c316ab1b02316674398cdd460f 100644
+--- a/chrome/browser/ui/webui/BUILD.gn
++++ b/chrome/browser/ui/webui/BUILD.gn
+@@ -92,6 +92,7 @@ source_set("configs") {
+     "//chrome/browser/ui/webui/sync_internals",
+     "//chrome/browser/ui/webui/translate_internals",
+     "//chrome/browser/ui/webui/usb_internals",
++    "//chrome/browser/ui/webui/vast",
+     "//chrome/browser/ui/webui/version",
+     "//components/compose:buildflags",
+     "//components/lens:buildflags",
+diff --git a/chrome/browser/ui/webui/chrome_web_ui_configs.cc b/chrome/browser/ui/webui/chrome_web_ui_configs.cc
+index bced2aebb34959189b91da490d27d1b5a9b19e3c..921898b661019b17e63557ba5b628fd4f991bd25 100644
+--- a/chrome/browser/ui/webui/chrome_web_ui_configs.cc
++++ b/chrome/browser/ui/webui/chrome_web_ui_configs.cc
+@@ -57,6 +57,7 @@
+ #include "chrome/browser/ui/webui/sync_internals/sync_internals_ui.h"
+ #include "chrome/browser/ui/webui/translate_internals/translate_internals_ui.h"
+ #include "chrome/browser/ui/webui/usb_internals/usb_internals_ui.h"
++#include "chrome/browser/ui/webui/vast/vast_ui.h"
+ #include "chrome/browser/ui/webui/version/version_ui.h"
+ #include "components/enterprise/buildflags/buildflags.h"
+ #include "components/safe_browsing/buildflags.h"
+@@ -306,6 +307,7 @@ void RegisterChromeWebUIConfigs() {
+   map.AddWebUIConfig(std::make_unique<TranslateInternalsUIConfig>());
+   map.AddWebUIConfig(std::make_unique<UsbInternalsUIConfig>());
+   map.AddWebUIConfig(std::make_unique<user_actions_ui::UserActionsUIConfig>());
++  map.AddWebUIConfig(std::make_unique<vast::VastUIConfig>());
+   map.AddWebUIConfig(std::make_unique<VersionUIConfig>());
+   map.AddWebUIConfig(std::make_unique<WebRtcLogsUIConfig>());
+   map.AddWebUIConfig(
+diff --git a/chrome/browser/ui/webui/vast/BUILD.gn b/chrome/browser/ui/webui/vast/BUILD.gn
+new file mode 100644
+index 0000000000000000000000000000000000000000..f5c853dbe3ac1fb48243e7d29b6c7443da959204
+--- /dev/null
++++ b/chrome/browser/ui/webui/vast/BUILD.gn
+@@ -0,0 +1,21 @@
++# Copyright 2026 The Vast Authors
++# Use of this source code is governed by a BSD-style license that can be
++# found in the LICENSE file.
++
++source_set("vast") {
++  sources = [
++    "vast_ui.cc",
++    "vast_ui.h",
++  ]
++
++  public_deps = [ "//content/public/browser" ]
++
++  deps = [
++    "//chrome/browser/profiles:profile",
++    "//chrome/browser/resources/vast:resources",
++    "//chrome/common:constants",
++    "//components/version_info",
++    "//content/public/common",
++    "//ui/webui",
++  ]
++}
+diff --git a/chrome/browser/ui/webui/vast/vast_ui.cc b/chrome/browser/ui/webui/vast/vast_ui.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..1f4d7b0cf95f2e66b915507e65b2b41664a29460
+--- /dev/null
++++ b/chrome/browser/ui/webui/vast/vast_ui.cc
+@@ -0,0 +1,31 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/ui/webui/vast/vast_ui.h"
++
++#include "chrome/browser/profiles/profile.h"
++#include "chrome/grit/vast_resources.h"
++#include "chrome/grit/vast_resources_map.h"
++#include "components/version_info/version_info.h"
++#include "content/public/browser/web_ui.h"
++#include "content/public/browser/web_ui_data_source.h"
++#include "ui/webui/webui_util.h"
++
++namespace vast {
++
++VastUI::VastUI(content::WebUI* web_ui) : content::WebUIController(web_ui) {
++  Profile* profile = Profile::FromWebUI(web_ui);
++  content::WebUIDataSource* source = content::WebUIDataSource::CreateAndAdd(
++      profile, chrome::kChromeUIVastHost);
++  source->AddString("productName", "Vast");
++  source->AddString("productVersion", "2.0.0-dev");
++  source->AddString("chromiumVersion", version_info::GetVersionNumber());
++  source->AddString("runtimeArchitecture", "Upstream Chromium //chrome");
++  source->AddBoolean("electronRuntimeAbsent", true);
++  webui::SetupWebUIDataSource(source, kVastResources, IDR_VAST_INDEX_HTML);
++}
++
++VastUI::~VastUI() = default;
++
++}  // namespace vast
+diff --git a/chrome/browser/ui/webui/vast/vast_ui.h b/chrome/browser/ui/webui/vast/vast_ui.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..44f56f1adbc5ccd7564c154acfb856fd92b6dfd6
+--- /dev/null
++++ b/chrome/browser/ui/webui/vast/vast_ui.h
+@@ -0,0 +1,36 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_UI_WEBUI_VAST_VAST_UI_H_
++#define CHROME_BROWSER_UI_WEBUI_VAST_VAST_UI_H_
++
++#include "chrome/common/webui_url_constants.h"
++#include "content/public/browser/web_ui_controller.h"
++#include "content/public/browser/webui_config.h"
++#include "content/public/common/url_constants.h"
++
++namespace vast {
++
++class VastUI;
++
++class VastUIConfig : public content::DefaultWebUIConfig<VastUI> {
++ public:
++  VastUIConfig()
++      : DefaultWebUIConfig(content::kChromeUIScheme,
++                           chrome::kChromeUIVastHost) {}
++};
++
++// Profile-scoped controller for chrome://vast.
++class VastUI : public content::WebUIController {
++ public:
++  explicit VastUI(content::WebUI* web_ui);
++  ~VastUI() override;
++
++  VastUI(const VastUI&) = delete;
++  VastUI& operator=(const VastUI&) = delete;
++};
++
++}  // namespace vast
++
++#endif  // CHROME_BROWSER_UI_WEBUI_VAST_VAST_UI_H_
+diff --git a/chrome/common/webui_url_constants.cc b/chrome/common/webui_url_constants.cc
+index 307b2de1bdb817ec339834c5a6f5c4d42df5f8f5..126b14e9c867eff98a5bf505c1c6755aa6d634bb 100644
+--- a/chrome/common/webui_url_constants.cc
++++ b/chrome/common/webui_url_constants.cc
+@@ -194,6 +194,7 @@ base::span<const base::cstring_view> ChromeURLHosts() {
+ #endif
+       kChromeUIUsbInternalsHost,
+       kChromeUIUserActionsHost,
++      kChromeUIVastHost,
+       kChromeUIVersionHost,
+ #if !BUILDFLAG(IS_ANDROID)
+       kChromeUIWebAppInternalsHost,
+diff --git a/chrome/common/webui_url_constants.h b/chrome/common/webui_url_constants.h
+index 8288814da7d14fbe6cae7f6a518053fb824a9a00..fc094de9fffc5784126df85de3a6d1e8235e977e 100644
+--- a/chrome/common/webui_url_constants.h
++++ b/chrome/common/webui_url_constants.h
+@@ -362,6 +362,8 @@ inline constexpr char kChromeUIUserEducationInternalsHost[] =
+     "user-education-internals";
+ inline constexpr char kChromeUIUserEducationInternalsURL[] =
+     "chrome://user-education-internals";
++inline constexpr char kChromeUIVastHost[] = "vast";
++inline constexpr char kChromeUIVastURL[] = "chrome://vast/";
+ inline constexpr char kChromeUIVersionHost[] = "version";
+ inline constexpr char kChromeUIVersionURL[] = "chrome://version/";
+ inline constexpr char16_t kChromeUIVersionURL16[] = u"chrome://version/";
+diff --git a/tools/gritsettings/resource_ids.spec b/tools/gritsettings/resource_ids.spec
+index 9d8b4ade5aff13eb00892614ad7b309805f00ec2..66ae969ce519e85bb513dd1a9b26bcf946e93766 100644
+--- a/tools/gritsettings/resource_ids.spec
++++ b/tools/gritsettings/resource_ids.spec
+@@ -844,6 +844,10 @@
+     "META": {"sizes": {"includes": [20]}},
+     "includes": [5090],
+   },
++  "<(SHARED_INTERMEDIATE_DIR)/chrome/browser/resources/vast/resources.grd": {
++    "META": {"sizes": {"includes": [20]}},
++    "includes": [5095],
++  },
+   "<(SHARED_INTERMEDIATE_DIR)/chrome/browser/resources/web_app_internals/resources.grd": {
+     "META": {"sizes": {"includes": [10]}},
+     "includes": [5100],

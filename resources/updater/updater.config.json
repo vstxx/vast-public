@@ -1,0 +1,78 @@
+﻿{
+    "productName":  "Vast",
+    "targetVersion":  "0.1.5",
+    "payloadPath":  "..\\Vast-0.1.5\\win-unpacked",
+    "processNames":  [
+                         "Vast"
+                     ],
+    "installPaths":  [
+                         "%LOCALAPPDATA%\\Programs\\Vast",
+                         "%LOCALAPPDATA%\\Programs\\Vast Browser",
+                         "%LOCALAPPDATA%\\Programs\\vast-browser",
+                         "%ProgramFiles%\\Vast",
+                         "%ProgramFiles%\\Vast Browser",
+                         "%ProgramFiles(x86)%\\Vast",
+                         "%ProgramFiles(x86)%\\Vast Browser"
+                     ],
+    "userDataPaths":  [
+                          "%APPDATA%\\Vast",
+                          "%APPDATA%\\vast-browser",
+                          "%LOCALAPPDATA%\\Vast",
+                          "%LOCALAPPDATA%\\vast-browser"
+                      ],
+    "criticalUserDataItems":  [
+                                  "vast-data.json",
+                                  "password-vault.json",
+                                  "integrations.json",
+                                  "vast-network-devices.json",
+                                  "Local State",
+                                  "Preferences",
+                                  "Network",
+                                  "Cookies",
+                                  "Cookies-journal",
+                                  "Partitions",
+                                  "IndexedDB",
+                                  "Local Storage",
+                                  "Session Storage",
+                                  "Service Worker",
+                                  "WebStorage",
+                                  "SharedStorage",
+                                  "Shared Dictionary",
+                                  "DIPS",
+                                  "Trust Tokens",
+                                  "QuotaManager",
+                                  "File System",
+                                  "databases",
+                                  "Platform Notifications",
+                                  "profiles",
+                                  "Profiles",
+                                  "settings",
+                                  "settings.json",
+                                  "bookmarks",
+                                  "Bookmarks",
+                                  "sessions",
+                                  "Sessions",
+                                  "notes",
+                                  "Notes",
+                                  "passwords",
+                                  "Passwords",
+                                  "Local Vault",
+                                  "vault",
+                                  "Vault",
+                                  "workspaces",
+                                  "Workspaces",
+                                  "workspace",
+                                  "Workspace",
+                                  "avidae"
+                              ],
+    "optionalUserDataItems":  [
+                                  "Cache",
+                                  "cache",
+                                  "Code Cache",
+                                  "GPUCache",
+                                  "Service Worker"
+                              ],
+    "removeRuntimePaths":  [
+
+                           ]
+}

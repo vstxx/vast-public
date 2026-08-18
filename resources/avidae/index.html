@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video &amp; Audio</title>
+    <meta http-equiv="refresh" content="1; url=http://localhost:5000/">
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #0f1117;
+            --panel: #171a23;
+            --text: #e4e6f0;
+            --muted: #9ca3af;
+            --accent: #4f8cff;
+            --border: #2a2f3d;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            background: var(--bg);
+            color: var(--text);
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        main {
+            width: min(92vw, 520px);
+            padding: 28px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel);
+        }
+
+        h1 {
+            margin: 0 0 12px;
+            font-size: 28px;
+            line-height: 1.2;
+        }
+
+        p {
+            margin: 0 0 16px;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        code {
+            color: var(--text);
+            background: #0b0d12;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 2px 6px;
+        }
+
+        a {
+            display: inline-flex;
+            align-items: center;
+            min-height: 40px;
+            padding: 0 14px;
+            border-radius: 6px;
+            background: var(--accent);
+            color: white;
+            font-weight: 700;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>Otwieram Video &amp; Audio</h1>
+        <p>Przekierowuj&#281; do backendu Flask pod adresem <code>http://localhost:5000/</code>.</p>
+        <p>Je&#347;li aplikacja si&#281; nie otworzy, uruchom najpierw <code>python app.py</code> w folderze projektu.</p>
+        <a href="http://localhost:5000/">Otw&oacute;rz aplikacj&#281;</a>
+    </main>
+    <script>
+        window.location.replace("http://localhost:5000/");
+    </script>
+</body>
+</html>

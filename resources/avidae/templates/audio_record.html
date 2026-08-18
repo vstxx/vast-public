@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}Video &amp; Audio — Audio Record{% endblock %}
+{% block page_title %}Audio Record{% endblock %}
+
+{% block content %}
+<div class="page-centered">
+    <div class="card form-card">
+        <div class="card-header">
+            <h2><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#mic"></use></svg> Audio Record</h2>
+            <p class="text-muted">Record audio from your microphone</p>
+        </div>
+        <div class="card-body">
+            <form id="arForm" onsubmit="submitRecord(event)">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="arDuration">Duration (seconds)</label>
+                        <input type="number" id="arDuration" name="duration" value="60" min="1" max="7200">
+                    </div>
+                    <div class="form-group">
+                        <label for="arFormat">Output Format</label>
+                        <select id="arFormat" name="format">
+                            <option value="mp3" selected>MP3</option>
+                            <option value="wav">WAV</option>
+                            <option value="ogg">OGG</option>
+                            <option value="flac">FLAC</option>
+                            <option value="aac">AAC</option>
+                            <option value="m4a">M4A</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="arSampleRate">Sample Rate</label>
+                        <select id="arSampleRate" name="sample_rate">
+                            <option value="22050">22050 Hz</option>
+                            <option value="44100" selected>44100 Hz</option>
+                            <option value="48000">48000 Hz</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="arChannels">Channels</label>
+                        <select id="arChannels" name="channels">
+                            <option value="1">Mono</option>
+                            <option value="2" selected>Stereo</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="arDevice">Audio Device <span class="text-muted">(leave empty for default)</span></label>
+                    <div class="input-with-btn">
+                        <input type="text" id="arDevice" name="device" placeholder="Auto-detect microphone">
+                        <button type="button" class="btn btn-ghost" onclick="detectDevices()">Detect</button>
+                    </div>
+                    <div id="arDeviceList" style="display:none;margin-top:6px;">
+                        <select id="arDevicePicker" onchange="pickDevice()">
+                            <option value="">— Available devices —</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="arTitle">Title</label>
+                    <input type="text" id="arTitle" name="title" placeholder="Audio recording">
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary btn-lg" id="recordBtn">
+                        <span class="btn-icon-inline"><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#mic"></use></svg></span> Start Recording
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function detectDevices() {
+        try {
+            const resp = await fetch('/api/audio-devices');
+            const data = await resp.json();
+            if (data.ok && data.devices.length > 0) {
+                const picker = document.getElementById('arDevicePicker');
+                picker.innerHTML = '<option value="">— Available devices —</option>';
+                data.devices.forEach(d => {
+                    const opt = document.createElement('option');
+                    opt.value = d;
+                    opt.textContent = d;
+                    picker.appendChild(opt);
+                });
+                document.getElementById('arDeviceList').style.display = '';
+                showToast(`Found ${data.devices.length} device(s)`);
+            } else {
+                showToast('No audio devices found', 'error');
+            }
+        } catch(e) {
+            showToast('Device detection failed', 'error');
+        }
+    }
+
+    function pickDevice() {
+        const val = document.getElementById('arDevicePicker').value;
+        if (val) document.getElementById('arDevice').value = val;
+    }
+
+    async function submitRecord(e) {
+        e.preventDefault();
+        const btn = document.getElementById('recordBtn');
+        btn.disabled = true;
+        const params = {
+            duration: parseInt(document.getElementById('arDuration').value) || 60,
+            format: document.getElementById('arFormat').value,
+            sample_rate: document.getElementById('arSampleRate').value,
+            channels: document.getElementById('arChannels').value,
+            device: document.getElementById('arDevice').value || undefined,
+            title: document.getElementById('arTitle').value,
+        };
+        try {
+            const resp = await fetch('/api/jobs', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ type: 'audio_record', params })
+            });
+            const data = await resp.json();
+            if (data.ok) {
+                showToast('Recording started');
+                setTimeout(() => window.location.href = '/jobs', 1000);
+            } else {
+                showToast(data.error || 'Failed', 'error');
+            }
+        } catch(e) {
+            showToast('Request failed', 'error');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+{% block title %}Video &amp; Audio — Jobs{% endblock %}
+{% block page_title %}Jobs{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2>All Jobs</h2>
+        <div class="header-actions">
+            <select id="statusFilter" onchange="loadJobs()" class="input-sm">
+                <option value="">All Statuses</option>
+                <option value="queued">Queued</option>
+                <option value="analyzing">Analyzing</option>
+                <option value="recording">Recording</option>
+                <option value="post-processing">Post-Processing</option>
+                <option value="completed">Completed</option>
+                <option value="failed">Failed</option>
+                <option value="cancelled">Cancelled</option>
+            </select>
+            <button class="btn btn-sm" onclick="loadJobs()"><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#refresh"></use></svg> Refresh</button>
+            <!-- Batch & Export -->
+            <div class="btn-group">
+                <button class="btn btn-sm btn-ghost" onclick="batchCancel()" title="Cancel selected"><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#ban"></use></svg> Batch Cancel</button>
+                <button class="btn btn-sm btn-ghost" onclick="batchDelete()" title="Delete selected"><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#trash"></use></svg> Batch Delete</button>
+                <button class="btn btn-sm btn-ghost" onclick="batchRetry()" title="Retry selected"><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#refresh"></use></svg> Batch Retry</button>
+            </div>
+            <div class="btn-group">
+                <a class="btn btn-sm btn-ghost" href="/api/export/json" download><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#file-down"></use></svg> JSON</a>
+                <a class="btn btn-sm btn-ghost" href="/api/export/csv" download><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#file-down"></use></svg> CSV</a>
+            </div>
+        </div>
+    </div>
+    <div class="card-body">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th><input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)"></th>
+                    <th>ID</th>
+                    <th>Title</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Progress</th>
+                    <th>Priority</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="jobsBody">
+                <tr><td colspan="9" class="text-muted">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Job Detail Panel -->
+<div class="card mt-4" id="jobDetailCard" style="display:none;">
+    <div class="card-header">
+        <h2>Job Details</h2>
+        <button class="btn-icon" onclick="document.getElementById('jobDetailCard').style.display='none'" aria-label="Close details"><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#x"></use></svg></button>
+    </div>
+    <div class="card-body" id="jobDetailBody"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        loadJobs();
+        setInterval(loadJobs, 5000);
+    });
+
+    // SocketIO live updates
+    if (window._socket) {
+        window._socket.on('job_update', () => loadJobs());
+    }
+
+    async function loadJobs() {
+        const filter = document.getElementById('statusFilter').value;
+        let url = '/api/jobs?limit=50';
+        if (filter) url += '&status=' + filter;
+        try {
+            const resp = await fetch(url);
+            const data = await resp.json();
+            renderJobsTable(data.jobs);
+            updateActiveJobCount(data.jobs);
+        } catch(e) {}
+    }
+
+    function renderJobsTable(jobs) {
+        const tbody = document.getElementById('jobsBody');
+        if (!jobs.length) {
+            tbody.innerHTML = '<tr><td colspan="9" class="text-muted">No jobs found</td></tr>';
+            document.getElementById('selectAll').checked = false;
+            return;
+        }
+        // Preserve checked state across re-renders
+        const prevChecked = new Set(getSelectedIds());
+        const selectAll = document.getElementById('selectAll');
+
+        tbody.innerHTML = jobs.map(j => `
+            <tr class="job-row" onclick="showJobDetail('${j.id}')">
+                <td onclick="event.stopPropagation()"><input type="checkbox" class="job-check" value="${j.id}"${prevChecked.has(j.id) ? ' checked' : ''}></td>
+                <td><code>${j.id}</code></td>
+                <td class="job-title">${escHtml(j.title || '—')}</td>
+                <td><span class="badge badge-type">${j.type}</span></td>
+                <td>${statusBadge(j.status)}</td>
+                <td>${progressBar(j.progress)}</td>
+                <td>${j.priority > 0 ? `<span class="badge badge-priority">${j.priority == 2 ? 'Urgent' : 'High'}</span>` : '—'}</td>
+                <td class="text-muted">${timeAgo(j.created_at)}</td>
+                <td class="action-cell" onclick="event.stopPropagation()">
+                    <button class="btn-icon" onclick="showLogs('${j.id}')" title="Logs">${uiIcon('clipboard')}</button>
+                    ${j.status === 'completed' && j.output_file ? `<button class="btn-icon" onclick="previewVideo('${j.id}')" title="Preview">${uiIcon('play')}</button>` : ''}
+                    ${j.status === 'completed' && j.output_file ? `<a class="btn-icon" href="/api/jobs/${j.id}/download/${j.output_file}" title="Download">${uiIcon('download')}</a>` : ''}
+                    ${['failed','cancelled'].includes(j.status) ? `<button class="btn-icon" onclick="retryJob('${j.id}')" title="Retry">${uiIcon('refresh')}</button>` : ''}
+                    ${['queued','analyzing','recording','post-processing'].includes(j.status) ? `<button class="btn-icon" onclick="cancelJob('${j.id}')" title="Cancel">${uiIcon('ban')}</button>` : ''}
+                    ${['completed','failed','cancelled'].includes(j.status) ? `<button class="btn-icon" onclick="deleteJob('${j.id}')" title="Delete">${uiIcon('trash')}</button>` : ''}
+                </td>
+            </tr>
+        `).join('');
+
+        // Sync "select all" checkbox state
+        const allChecks = document.querySelectorAll('.job-check');
+        const allChecked = allChecks.length > 0 && [...allChecks].every(cb => cb.checked);
+        selectAll.checked = allChecked;
+    }
+
+    function toggleSelectAll(el) {
+        document.querySelectorAll('.job-check').forEach(cb => cb.checked = el.checked);
+    }
+
+    function getSelectedIds() {
+        return [...document.querySelectorAll('.job-check:checked')].map(cb => cb.value);
+    }
+
+    async function batchCancel() {
+        const ids = getSelectedIds();
+        if (!ids.length) return showToast('Select jobs first', 'error');
+        await fetch('/api/batch/cancel', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({job_ids: ids}) });
+        showToast(`Cancelled ${ids.length} jobs`);
+        loadJobs();
+    }
+
+    async function batchDelete() {
+        const ids = getSelectedIds();
+        if (!ids.length) return showToast('Select jobs first', 'error');
+        if (!confirm(`Delete ${ids.length} jobs?`)) return;
+        await fetch('/api/batch/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({job_ids: ids}) });
+        showToast(`Deleted ${ids.length} jobs`);
+        loadJobs();
+    }
+
+    async function batchRetry() {
+        const ids = getSelectedIds();
+        if (!ids.length) return showToast('Select jobs first', 'error');
+        await fetch('/api/batch/retry', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({job_ids: ids}) });
+        showToast(`Retrying ${ids.length} jobs`);
+        loadJobs();
+    }
+
+    async function retryJob(jobId) {
+        try {
+            const resp = await fetch(`/api/jobs/${jobId}/retry`, { method: 'POST' });
+            const data = await resp.json();
+            if (data.ok) {
+                showToast('Retry started: ' + data.job_id);
+                loadJobs();
+            } else {
+                showToast(data.error, 'error');
+            }
+        } catch(e) { showToast('Retry failed', 'error'); }
+    }
+
+    function previewVideo(jobId) {
+        const modal = document.getElementById('videoModal');
+        const player = document.getElementById('videoPlayer');
+        player.src = `/api/jobs/${jobId}/stream`;
+        modal.classList.add('active');
+    }
+
+    async function showJobDetail(jobId) {
+        const card = document.getElementById('jobDetailCard');
+        const body = document.getElementById('jobDetailBody');
+        card.style.display = 'block';
+        body.innerHTML = '<span class="spinner"></span> Loading...';
+        try {
+            const resp = await fetch(`/api/jobs/${jobId}`);
+            const j = await resp.json();
+            const previewImg = j.thumbnail ? `<img src="/api/jobs/${j.id}/preview" class="thumb-preview" alt="Thumbnail">` : '';
+            body.innerHTML = `
+                <div class="detail-grid">
+                    <div><strong>ID:</strong> <code>${j.id}</code></div>
+                    <div><strong>Type:</strong> ${j.type}</div>
+                    <div><strong>Status:</strong> ${statusBadge(j.status)}</div>
+                    <div><strong>Progress:</strong> ${j.progress}%</div>
+                    <div><strong>Priority:</strong> ${j.priority || 0}</div>
+                    <div><strong>URL:</strong> ${j.url ? `<a href="${escHtml(j.url)}" target="_blank">${escHtml(j.url)}</a>` : '—'}</div>
+                    <div><strong>Created:</strong> ${j.created_at || '—'}</div>
+                    <div><strong>Completed:</strong> ${j.completed_at || '—'}</div>
+                    ${j.scheduled_at ? `<div><strong>Scheduled:</strong> ${j.scheduled_at}</div>` : ''}
+                    ${j.error ? `<div class="full-width"><strong>Error:</strong> <span class="text-error">${escHtml(j.error)}</span></div>` : ''}
+                    ${j.output_file ? `<div><strong>Output:</strong> <a href="/api/jobs/${j.id}/download/${j.output_file}">${escHtml(j.output_file)}</a></div>` : ''}
+                    ${previewImg ? `<div class="full-width">${previewImg}</div>` : ''}
+                </div>
+                <div class="mt-2">
+                    <button class="btn btn-sm" onclick="showLogs('${j.id}')">Logs</button>
+                    ${j.output_file ? `<button class="btn btn-sm" onclick="previewVideo('${j.id}')">${uiIcon('play')} Preview</button>` : ''}
+                    ${['failed','cancelled'].includes(j.status) ? `<button class="btn btn-sm" onclick="retryJob('${j.id}')">${uiIcon('refresh')} Retry</button>` : ''}
+                </div>
+            `;
+        } catch(e) {
+            body.innerHTML = '<span class="text-error">Failed to load</span>';
+        }
+    }
+</script>
+{% endblock %}

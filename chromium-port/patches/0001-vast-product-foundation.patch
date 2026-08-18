@@ -1,0 +1,202 @@
+diff --git a/build/BUILD.gn b/build/BUILD.gn
+--- a/build/BUILD.gn
++++ b/build/BUILD.gn
+@@ -33,6 +33,8 @@ buildflag_header("branding_buildflags") {
+     ]
+   }
+ 
++  flags += [ "VAST_BRANDING=$is_vast_branded" ]
++
+   if (is_chrome_for_testing) {
+     assert(!is_chrome_branded,
+            "`is_chrome_for_testing` is incompatible with `is_chrome_branded`")
+diff --git a/build/config/chrome_build.gni b/build/config/chrome_build.gni
+--- a/build/config/chrome_build.gni
++++ b/build/config/chrome_build.gni
+@@ -10,6 +10,10 @@ declare_args() {
+   # resources).
+   is_chrome_branded = false
+ 
++  # Build the open-source Chromium browser with Vast product identity. This
++  # never enables Google Chrome branding or Google-internal sources.
++  is_vast_branded = false
++
+   # Whether to enable Google internal-only sources.
+   enable_src_internal =
+       (build_with_chromium && checkout_src_internal) ||
+@@ -72,6 +76,10 @@ assert(!is_chrome_for_testing || !is_chrome_branded,
+ assert(is_chrome_for_testing || !is_chrome_for_testing_branded,
+        "`is_chrome_for_testing_branded` requires `is_chrome_for_testing`")
+ 
++assert(!is_vast_branded || (!is_chrome_branded && !is_chrome_for_testing),
++       "`is_vast_branded` requires open Chromium branding and is " +
++           "incompatible with Chrome for Testing")
++
+ declare_args() {
+   # Refers to the subdirectory for branding in various places including
+   # chrome/app/theme.
+@@ -99,7 +107,11 @@ declare_args() {
+ 
+ declare_args() {
+   # The path to the BRANDING file in chrome/app/theme.
+-  branding_file_path = "//chrome/app/theme/$branding_path_component/BRANDING"
++  if (is_vast_branded) {
++    branding_file_path = "//chrome/app/theme/vast/BRANDING"
++  } else {
++    branding_file_path = "//chrome/app/theme/$branding_path_component/BRANDING"
++  }
+ }
+ 
+ # Whether to enable built-in branding assets (logos & marketing snippets) for
+diff --git a/chrome/app/theme/vast/BRANDING b/chrome/app/theme/vast/BRANDING
+new file mode 100644
+--- /dev/null
++++ b/chrome/app/theme/vast/BRANDING
+@@ -0,0 +1,10 @@
++COMPANY_FULLNAME=Vast
++COMPANY_SHORTNAME=Vast
++PRODUCT_FULLNAME=Vast
++PRODUCT_SHORTNAME=Vast
++PRODUCT_INSTALLER_FULLNAME=Vast Installer
++PRODUCT_INSTALLER_SHORTNAME=Vast Installer
++COPYRIGHT=Copyright @LASTCHANGE_YEAR@ Vast contributors. Chromium is copyright The Chromium Authors.
++MAC_BUNDLE_ID=app.vast.browser
++MAC_CREATOR_CODE=Vast
++MAC_TEAM_ID=
+diff --git a/chrome/app/chrome_exe.rc b/chrome/app/chrome_exe.rc
+--- a/chrome/app/chrome_exe.rc
++++ b/chrome/app/chrome_exe.rc
+@@ -23,7 +23,9 @@ LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+ #pragma code_page(1252)
+ #endif //_WIN32
+ 
+-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
++#if BUILDFLAG(VAST_BRANDING)
++IDENTITY LIMITEDACCESSFEATURE {L"vast_app_vast_browser"}
++#elif BUILDFLAG(GOOGLE_CHROME_BRANDING)
+ IDENTITY LIMITEDACCESSFEATURE {L"google-chrome_0qgpfzgh1edfy"}
+ #elif BUILDFLAG(GOOGLE_CHROME_FOR_TESTING_BRANDING)
+ IDENTITY LIMITEDACCESSFEATURE {L"google-chrome_0qgpfzgh1edfy"}
+diff --git a/chrome/install_static/BUILD.gn b/chrome/install_static/BUILD.gn
+--- a/chrome/install_static/BUILD.gn
++++ b/chrome/install_static/BUILD.gn
+@@ -44,7 +44,9 @@ if (is_win) {
+       "user_data_dir.h",
+     ]
+ 
+-    if (is_chrome_branded) {
++    if (is_vast_branded) {
++      sources += [ "vast_install_modes.h" ]
++    } else if (is_chrome_branded) {
+       sources += [ "google_chrome_install_modes.h" ]
+     } else if (is_chrome_for_testing_branded) {
+       sources += [ "google_chrome_for_testing_install_modes.h" ]
+diff --git a/chrome/install_static/install_modes.h b/chrome/install_static/install_modes.h
+--- a/chrome/install_static/install_modes.h
++++ b/chrome/install_static/install_modes.h
+@@ -37,6 +37,8 @@
+ // - NUM_INSTALL_MODES: the total number of modes (i.e., the number of items in
+ //   kInstallModes.
+-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
++#if BUILDFLAG(VAST_BRANDING)
++#include "chrome/install_static/vast_install_modes.h"
++#elif BUILDFLAG(GOOGLE_CHROME_BRANDING)
+ #include "chrome/install_static/google_chrome_install_modes.h"
+ #elif BUILDFLAG(GOOGLE_CHROME_FOR_TESTING_BRANDING)
+ #include "chrome/install_static/google_chrome_for_testing_install_modes.h"
+diff --git a/chrome/install_static/vast_install_modes.h b/chrome/install_static/vast_install_modes.h
+new file mode 100644
+--- /dev/null
++++ b/chrome/install_static/vast_install_modes.h
+@@ -0,0 +1,91 @@
++// Copyright 2026 Vast contributors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++// Vast-specific Windows product identity for an open-source Chromium build.
++
++#ifndef CHROME_INSTALL_STATIC_VAST_INSTALL_MODES_H_
++#define CHROME_INSTALL_STATIC_VAST_INSTALL_MODES_H_
++
++#include <array>
++
++#include "chrome/app/chrome_dll_resource.h"
++#include "chrome/common/chrome_icon_resources_win.h"
++#include "chrome/install_static/install_constants.h"
++
++namespace install_static {
++
++inline constexpr wchar_t kCompanyPathName[] = L"";
++inline constexpr wchar_t kProductPathName[] = L"Vast";
++
++// Keep the open Chromium protocol identity. Vast does not claim Google Chrome
++// credentials or private Google API access.
++inline constexpr char kSafeBrowsingName[] = "chromium";
++
++enum InstallConstantIndex {
++  VAST_INDEX,
++  NUM_INSTALL_MODES,
++};
++
++inline constexpr auto kInstallModes = std::to_array<InstallConstants>({
++    {
++        .size = sizeof(InstallConstants),
++        .index = VAST_INDEX,
++        .install_switch = "",
++        .install_suffix = L"",
++        .logo_suffix = L"",
++        .app_guid = L"",  // Vast does not integrate with Google Update.
++        .base_app_name = L"Vast",
++        .base_app_id = L"app.vast.browser",
++        .browser_prog_id_prefix = L"VastHTM",
++        .browser_prog_id_description = L"Vast HTML Document",
++        .direct_launch_url_scheme = "vast",
++        .pdf_prog_id_prefix = L"VastPDF",
++        .pdf_prog_id_description = L"Vast PDF Document",
++        .active_setup_guid = L"{8F1896A7-6082-4AFF-9CA1-9CD6DB8D4305}",
++        .toast_activator_clsid = {0x10179218,
++                                  0x4323,
++                                  0x4611,
++                                  {0x9D, 0x33, 0x21, 0x57, 0xEA, 0xC7, 0xA8,
++                                   0x57}},
++        .elevator_clsid = {0x297254D6,
++                           0x6166,
++                           0x453D,
++                           {0x9C, 0x8B, 0x30, 0x98, 0xEE, 0x5E, 0xBA, 0x75}},
++        // These are interface/type-library IDs defined by upstream IDL, not
++        // product class IDs. They intentionally remain ABI-compatible.
++        .elevator_iid = {0xbb19a0e5,
++                         0xc6,
++                         0x4966,
++                         {0x94, 0xb2, 0x5a, 0xfe, 0xc6, 0xfe, 0xd9, 0x3a}},
++        .tracing_service_clsid = {0xBB482E99,
++                                  0xB064,
++                                  0x4042,
++                                  {0xAC, 0x0C, 0x55, 0x25, 0xCC, 0xE4, 0xBA,
++                                   0xF5}},
++        .tracing_service_iid = {0xa3fd580a,
++                                0xffd4,
++                                0x4075,
++                                {0x91, 0x74, 0x75, 0xd0, 0xb1, 0x99, 0xd3,
++                                 0xcb}},
++        .default_channel_name = L"",
++        .channel_strategy = ChannelStrategy::UNSUPPORTED,
++        .supports_system_level = true,
++        .supports_set_as_default_browser = true,
++        // Vast assets are introduced separately. The foundation build uses
++        // the open Chromium resource indices and never Google Chrome assets.
++        .app_icon_resource_index = icon_resources::kApplicationIndex,
++        .app_icon_resource_id = IDR_MAINFRAME,
++        .html_doc_icon_resource_index = icon_resources::kHtmlDocIndex,
++        .pdf_doc_icon_resource_index = icon_resources::kPDFDocIndex,
++        // Vast-owned AppContainer SID namespace. Chromium appends the sandbox
++        // role RID to this prefix; it must remain stable across Vast updates.
++        .sandbox_sid_prefix =
++            L"S-1-15-2-1127763384-4260535648-3963402756-2560900623-"
++            L"2335563860-1726732036-",
++    },
++});
++
++}  // namespace install_static
++
++#endif  // CHROME_INSTALL_STATIC_VAST_INSTALL_MODES_H_

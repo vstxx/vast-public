@@ -1,0 +1,411 @@
+diff --git a/chrome/browser/resources/vast/app.ts b/chrome/browser/resources/vast/app.ts
+index b92320ef053c5a4a1e43796b8bc1ec497a3cfc97..2e6180a03b73fe5295e4a980996a68e37a468ae2 100644
+--- a/chrome/browser/resources/vast/app.ts
++++ b/chrome/browser/resources/vast/app.ts
+@@ -17,7 +17,10 @@ async function initialize() {
+   PageHandlerFactory.getRemote().createPageHandler(
+       handler.$.bindNewPipeAndPassReceiver());
+ 
+-  const {info} = await handler.getRuntimeInfo();
++  const [{info}, {preview}] = await Promise.all([
++    handler.getRuntimeInfo(),
++    handler.getMigrationPreview(),
++  ]);
+   setText('runtime-architecture', info.architecture);
+   setText('product-version', `${info.productName} ${info.productVersion}`);
+   setText('chromium-version', `Chromium ${info.chromiumVersion}`);
+@@ -27,6 +30,27 @@ async function initialize() {
+           'Electron runtime absent' :
+           'Runtime audit required');
+ 
++  if (preview.available && preview.compatible) {
++    setText(
++        'migration-summary',
++        `Schema ${preview.schemaVersion} fixture ready`);
++    setText(
++        'migration-details',
++        `${preview.workspaces} workspace(s), ${preview.tabs} tab(s), ` +
++            `${preview.bookmarks} bookmark(s), ${preview.notes} note(s), and ` +
++            `${preview.history} history item(s). ` +
++            (preview.passwordVaultPresent ?
++                 'Password vault detected but excluded from preview.' :
++                 'No password vault detected.'));
++    document.documentElement.dataset['migrationPreview'] = 'compatible';
++  } else if (preview.available) {
++    setText('migration-summary', 'Fixture requires attention');
++    setText('migration-details', preview.error);
++    document.documentElement.dataset['migrationPreview'] = 'invalid';
++  } else {
++    document.documentElement.dataset['migrationPreview'] = 'not-requested';
++  }
++
+   document.documentElement.dataset['vastReady'] = 'true';
+ }
+ 
+diff --git a/chrome/browser/resources/vast/index.html b/chrome/browser/resources/vast/index.html
+index 565870ce7deb80f7807c129f7f4405c0b105a57b..c6b2b0d340704b404c6e576086672589f9ef7e97 100644
+--- a/chrome/browser/resources/vast/index.html
++++ b/chrome/browser/resources/vast/index.html
+@@ -38,10 +38,10 @@
+         <strong>Top-level Google sign-in</strong>
+         <p>Website sessions run in ordinary Chromium tabs. Chrome Sync and private Google browser APIs remain out of scope.</p>
+       </article>
+-      <article class="status-card">
+-        <div class="status-line"><span class="status-dot active"></span><span>Vast product layer</span></div>
+-        <strong>UI and services in migration</strong>
+-        <p>Workspaces, settings, notes, backups, and the vault will move behind typed, profile-scoped native adapters.</p>
++      <article class="status-card" data-testid="migration-card">
++        <div class="status-line"><span class="status-dot active"></span><span>Data compatibility</span></div>
++        <strong id="migration-summary">Read-only preview ready</strong>
++        <p id="migration-details">A copied schema fixture can be inspected without returning record contents, paths, credentials, or cookies.</p>
+       </article>
+     </section>
+ 
+diff --git a/chrome/browser/ui/webui/vast/BUILD.gn b/chrome/browser/ui/webui/vast/BUILD.gn
+index b34ff07e68edda661719949b3913ce836d3763c6..5c858169fcdde64977a1e8dcb360949e8a42c421 100644
+--- a/chrome/browser/ui/webui/vast/BUILD.gn
++++ b/chrome/browser/ui/webui/vast/BUILD.gn
+@@ -19,6 +19,7 @@ source_set("vast") {
+   deps = [
+     "//chrome/browser/profiles:profile",
+     "//chrome/browser/resources/vast:resources",
++    "//chrome/browser/vast:vast_data",
+     "//chrome/common:constants",
+     "//components/version_info",
+     "//content/public/common",
+diff --git a/chrome/browser/ui/webui/vast/vast.mojom b/chrome/browser/ui/webui/vast/vast.mojom
+index d0da394e859dfd24021e0c365b1db058d5f6d0d4..a89a011b265faa7aa516bf8cca9518f58dfc30bf 100644
+--- a/chrome/browser/ui/webui/vast/vast.mojom
++++ b/chrome/browser/ui/webui/vast/vast.mojom
+@@ -13,9 +13,24 @@ struct RuntimeInfo {
+   bool electron_runtime_absent;
+ };
+ 
++// Non-sensitive counts from a copied legacy Vast data fixture.
++struct MigrationPreview {
++  bool available;
++  bool compatible;
++  int32 schema_version;
++  uint32 workspaces;
++  uint32 tabs;
++  uint32 bookmarks;
++  uint32 notes;
++  uint32 history;
++  bool password_vault_present;
++  string error;
++};
++
+ // Renderer-to-browser operations for chrome://vast.
+ interface PageHandler {
+   GetRuntimeInfo() => (RuntimeInfo info);
++  GetMigrationPreview() => (MigrationPreview preview);
+ };
+ 
+ // Creates the page-scoped native handler.
+diff --git a/chrome/browser/ui/webui/vast/vast_ui.cc b/chrome/browser/ui/webui/vast/vast_ui.cc
+index fdce2a6293307bcfdf28910bb7e522afa077977a..88feada25d71b10eb77433d3731ac8c10d1bfa6d 100644
+--- a/chrome/browser/ui/webui/vast/vast_ui.cc
++++ b/chrome/browser/ui/webui/vast/vast_ui.cc
+@@ -6,7 +6,11 @@
+ 
+ #include <utility>
+ 
++#include "base/command_line.h"
++#include "base/functional/bind.h"
++#include "base/task/thread_pool.h"
+ #include "chrome/browser/profiles/profile.h"
++#include "chrome/browser/vast/vast_data_migration_preview.h"
+ #include "chrome/grit/vast_resources.h"
+ #include "chrome/grit/vast_resources_map.h"
+ #include "components/version_info/version_info.h"
+@@ -15,6 +19,27 @@
+ #include "ui/webui/webui_util.h"
+ 
+ namespace vast {
++namespace {
++
++constexpr char kMigrationFixtureSwitch[] = "vast-migration-fixture";
++
++mojom::MigrationPreviewPtr ToMojomMigrationPreview(
++    const VastDataMigrationPreview& source) {
++  auto preview = mojom::MigrationPreview::New();
++  preview->available = source.available;
++  preview->compatible = source.compatible;
++  preview->schema_version = source.schema_version;
++  preview->workspaces = source.workspaces;
++  preview->tabs = source.tabs;
++  preview->bookmarks = source.bookmarks;
++  preview->notes = source.notes;
++  preview->history = source.history;
++  preview->password_vault_present = source.password_vault_present;
++  preview->error = source.error;
++  return preview;
++}
++
++}  // namespace
+ 
+ VastUI::VastUI(content::WebUI* web_ui) : ui::MojoWebUIController(web_ui) {
+   Profile* profile = Profile::FromWebUI(web_ui);
+@@ -47,6 +72,27 @@ void VastUI::GetRuntimeInfo(GetRuntimeInfoCallback callback) {
+   std::move(callback).Run(std::move(info));
+ }
+ 
++void VastUI::GetMigrationPreview(GetMigrationPreviewCallback callback) {
++  const base::FilePath fixture_root =
++      base::CommandLine::ForCurrentProcess()->GetSwitchValuePath(
++          kMigrationFixtureSwitch);
++  if (fixture_root.empty()) {
++    std::move(callback).Run(
++        ToMojomMigrationPreview(VastDataMigrationPreview()));
++    return;
++  }
++
++  base::ThreadPool::PostTaskAndReplyWithResult(
++      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
++      base::BindOnce(&ReadVastDataMigrationPreview, fixture_root),
++      base::BindOnce(
++          [](GetMigrationPreviewCallback callback,
++             VastDataMigrationPreview preview) {
++            std::move(callback).Run(ToMojomMigrationPreview(preview));
++          },
++          std::move(callback)));
++}
++
+ WEB_UI_CONTROLLER_TYPE_IMPL(VastUI)
+ 
+ }  // namespace vast
+diff --git a/chrome/browser/ui/webui/vast/vast_ui.h b/chrome/browser/ui/webui/vast/vast_ui.h
+index 7b1f51e917e3a7af1a57bc0cd97f0d22648df269..c4d097e081f271ba57aa4991aa04cd66f36d5693 100644
+--- a/chrome/browser/ui/webui/vast/vast_ui.h
++++ b/chrome/browser/ui/webui/vast/vast_ui.h
+@@ -44,6 +44,7 @@ class VastUI : public ui::MojoWebUIController,
+ 
+   // mojom::PageHandler:
+   void GetRuntimeInfo(GetRuntimeInfoCallback callback) override;
++  void GetMigrationPreview(GetMigrationPreviewCallback callback) override;
+ 
+   mojo::Receiver<mojom::PageHandlerFactory> factory_receiver_{this};
+   mojo::Receiver<mojom::PageHandler> page_handler_receiver_{this};
+diff --git a/chrome/browser/vast/BUILD.gn b/chrome/browser/vast/BUILD.gn
+new file mode 100644
+index 0000000000000000000000000000000000000000..dfa42369e766a9909a3fe1c0cc0ebf69d6401996
+--- /dev/null
++++ b/chrome/browser/vast/BUILD.gn
+@@ -0,0 +1,12 @@
++# Copyright 2026 The Vast Authors
++# Use of this source code is governed by a BSD-style license that can be
++# found in the LICENSE file.
++
++source_set("vast_data") {
++  sources = [
++    "vast_data_migration_preview.cc",
++    "vast_data_migration_preview.h",
++  ]
++
++  public_deps = [ "//base" ]
++}
+diff --git a/chrome/browser/vast/vast_data_migration_preview.cc b/chrome/browser/vast/vast_data_migration_preview.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..10b66e40b32767ffa080e6ef065629ee81098de6
+--- /dev/null
++++ b/chrome/browser/vast/vast_data_migration_preview.cc
+@@ -0,0 +1,156 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/vast/vast_data_migration_preview.h"
++
++#include <cstddef>
++#include <optional>
++#include <string_view>
++
++#include "base/files/file_util.h"
++#include "base/json/json_reader.h"
++#include "base/values.h"
++
++namespace vast {
++namespace {
++
++constexpr size_t kMaxStorageBytes = 8 * 1024 * 1024;
++bool ReadCollectionCount(const base::DictValue& root,
++                         std::string_view key,
++                         size_t normalized_limit,
++                         bool required,
++                         uint32_t* count,
++                         std::string* error) {
++  const base::ListValue* list = root.FindList(key);
++  if (!list) {
++    if (!required && !root.Find(key)) {
++      *count = 0;
++      return true;
++    }
++    *error = "Vast data has a missing or invalid collection.";
++    return false;
++  }
++  if (list->size() > normalized_limit * 2) {
++    *error = "Vast data collection exceeds its safe preview limit.";
++    return false;
++  }
++  *count = static_cast<uint32_t>(list->size());
++  return true;
++}
++
++}  // namespace
++
++VastDataMigrationPreview ReadVastDataMigrationPreview(
++    const base::FilePath& data_root) {
++  VastDataMigrationPreview preview;
++  const base::FilePath data_path =
++      data_root.Append(FILE_PATH_LITERAL("vast-data.json"));
++  if (!base::PathExists(data_path)) {
++    preview.error = "Copied Vast data does not contain vast-data.json.";
++    return preview;
++  }
++
++  preview.available = true;
++  preview.password_vault_present = base::PathExists(
++      data_root.Append(FILE_PATH_LITERAL("password-vault.json")));
++
++  const std::optional<int64_t> file_size = base::GetFileSize(data_path);
++  if (!file_size || *file_size < 0 ||
++      *file_size > static_cast<int64_t>(kMaxStorageBytes)) {
++    preview.error = "Vast data file is unavailable or larger than 8 MiB.";
++    return preview;
++  }
++
++  std::string contents;
++  if (!base::ReadFileToStringWithMaxSize(data_path, &contents,
++                                         kMaxStorageBytes)) {
++    preview.error = "Vast data file could not be read safely.";
++    return preview;
++  }
++
++  std::optional<base::DictValue> root =
++      base::JSONReader::ReadDict(contents, base::JSON_PARSE_RFC, 100);
++  if (!root) {
++    preview.error = "Vast data file is not valid JSON.";
++    return preview;
++  }
++
++  const std::optional<int> schema_version = root->FindInt("schemaVersion");
++  if (!schema_version) {
++    preview.error = "Vast data schema version is missing.";
++    return preview;
++  }
++  preview.schema_version = *schema_version;
++  if (*schema_version < 1 || *schema_version > 5) {
++    preview.error = "Vast data schema version is not supported.";
++    return preview;
++  }
++
++  const std::string* active_workspace_id =
++      root->FindString("activeWorkspaceId");
++  if (!active_workspace_id || active_workspace_id->empty() ||
++      active_workspace_id->size() > 256) {
++    preview.error = "Vast data active workspace is invalid.";
++    return preview;
++  }
++
++  uint32_t ignored_count = 0;
++  if (!ReadCollectionCount(*root, "workspaces", 100, true, &preview.workspaces,
++                           &preview.error) ||
++      !ReadCollectionCount(*root, "tabGroups", 300, true, &ignored_count,
++                           &preview.error) ||
++      !ReadCollectionCount(*root, "tabs", 1200, true, &preview.tabs,
++                           &preview.error) ||
++      !ReadCollectionCount(*root, "recentlyClosedTabs", 80, false,
++                           &ignored_count, &preview.error) ||
++      !ReadCollectionCount(*root, "bookmarks", 5000, true, &preview.bookmarks,
++                           &preview.error) ||
++      !ReadCollectionCount(*root, "bookmarkFolders", 1000, true, &ignored_count,
++                           &preview.error) ||
++      !ReadCollectionCount(*root, "history", 1200, true, &preview.history,
++                           &preview.error) ||
++      !ReadCollectionCount(*root, "downloads", 250, true, &ignored_count,
++                           &preview.error) ||
++      !ReadCollectionCount(*root, "notes", 1000, true, &preview.notes,
++                           &preview.error) ||
++      !ReadCollectionCount(*root, "readingList", 1200, true, &ignored_count,
++                           &preview.error) ||
++      !ReadCollectionCount(*root, "quickLinks", 24, true, &ignored_count,
++                           &preview.error) ||
++      !ReadCollectionCount(*root, "siteMemory", 300, false, &ignored_count,
++                           &preview.error) ||
++      !ReadCollectionCount(*root, "todos", 300, false, &ignored_count,
++                           &preview.error) ||
++      !ReadCollectionCount(*root, "macros", 200, false, &ignored_count,
++                           &preview.error) ||
++      !ReadCollectionCount(*root, "macroLogs", 250, false, &ignored_count,
++                           &preview.error) ||
++      !ReadCollectionCount(*root, "sessionSnapshots", 100, false,
++                           &ignored_count, &preview.error) ||
++      !ReadCollectionCount(*root, "recentCommandIds", 32, false, &ignored_count,
++                           &preview.error)) {
++    return preview;
++  }
++
++  const base::DictValue* settings = root->FindDict("settings");
++  if (!settings) {
++    preview.error = "Vast data settings are missing or invalid.";
++    return preview;
++  }
++  constexpr std::string_view kSettingsSections[] = {
++      "appearance", "privacy", "advanced",     "security",
++      "network",    "reader",  "siteOverrides"};
++  for (std::string_view section : kSettingsSections) {
++    const base::Value* value = settings->Find(section);
++    if (value && !value->is_dict()) {
++      preview.error = "Vast data settings contain an invalid section.";
++      return preview;
++    }
++  }
++
++  preview.compatible = true;
++  return preview;
++}
++
++}  // namespace vast
+diff --git a/chrome/browser/vast/vast_data_migration_preview.h b/chrome/browser/vast/vast_data_migration_preview.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..18ab3394d07b21d4b6ab98a0585d119f09e0d245
+--- /dev/null
++++ b/chrome/browser/vast/vast_data_migration_preview.h
+@@ -0,0 +1,37 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_VAST_VAST_DATA_MIGRATION_PREVIEW_H_
++#define CHROME_BROWSER_VAST_VAST_DATA_MIGRATION_PREVIEW_H_
++
++#include <cstdint>
++#include <string>
++
++#include "base/files/file_path.h"
++
++namespace vast {
++
++// Aggregated, non-sensitive facts from a legacy Vast data root. This preview
++// never returns record contents, URLs, credentials, cookies, or file paths.
++struct VastDataMigrationPreview {
++  bool available = false;
++  bool compatible = false;
++  int32_t schema_version = -1;
++  uint32_t workspaces = 0;
++  uint32_t tabs = 0;
++  uint32_t bookmarks = 0;
++  uint32_t notes = 0;
++  uint32_t history = 0;
++  bool password_vault_present = false;
++  std::string error;
++};
++
++// Reads only vast-data.json metadata and checks for the presence of the vault.
++// The source directory is never modified.
++VastDataMigrationPreview ReadVastDataMigrationPreview(
++    const base::FilePath& data_root);
++
++}  // namespace vast
++
++#endif  // CHROME_BROWSER_VAST_VAST_DATA_MIGRATION_PREVIEW_H_

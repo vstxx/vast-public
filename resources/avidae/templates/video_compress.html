@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block title %}Video &amp; Audio — Video Compress{% endblock %}
+{% block page_title %}Video Compress{% endblock %}
+
+{% block content %}
+<div class="page-centered">
+    <div class="card form-card">
+        <div class="card-header">
+            <h2><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#compress"></use></svg> Video Compress</h2>
+            <p class="text-muted">Reduce video file size with quality control</p>
+        </div>
+        <div class="card-body">
+            <form id="compressForm" onsubmit="submitCompress(event)">
+                <div class="form-group">
+                    <label>Upload File</label>
+                    <div class="dropzone" id="vcDropzone"
+                         ondragover="event.preventDefault(); this.classList.add('dragover')"
+                         ondragleave="this.classList.remove('dragover')"
+                         ondrop="handleDrop(event, 'vc')">
+                        <input type="file" id="vcFileInput" accept="video/*" style="display:none" onchange="handleFileSelect(this, 'vc')">
+                        <div class="dropzone-content" onclick="document.getElementById('vcFileInput').click()">
+                            <span>Drop video here or click to upload</span>
+                            <span class="dropzone-hint" id="vcFileName">Max 2 GB</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="vcInput">Or enter file path</label>
+                    <input type="text" id="vcInput" name="input_file" placeholder="C:\path\to\video.mp4">
+                </div>
+
+                <div class="form-group">
+                    <label>Or select from completed jobs:</label>
+                    <select id="vcJobPicker" onchange="fillInput()">
+                        <option value="">— Select a job output —</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Compression Mode</label>
+                    <div class="form-row">
+                        <label class="radio-label">
+                            <input type="radio" name="mode" value="crf" checked onchange="toggleMode()">
+                            <span>CRF (Quality-based)</span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="mode" value="bitrate" onchange="toggleMode()">
+                            <span>Target Bitrate</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div id="crfGroup">
+                    <div class="form-group">
+                        <label for="vcCrf">CRF Value <span class="text-muted">(0=lossless, 23=default, 51=worst)</span></label>
+                        <div class="range-row">
+                            <input type="range" id="vcCrf" name="crf" min="0" max="51" value="28" oninput="document.getElementById('crfVal').textContent=this.value">
+                            <span id="crfVal" class="range-val">28</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="bitrateGroup" style="display:none">
+                    <div class="form-group">
+                        <label for="vcBitrate">Video Bitrate</label>
+                        <select id="vcBitrate" name="bitrate">
+                            <option value="500k">500 kbps</option>
+                            <option value="1M">1 Mbps</option>
+                            <option value="2M" selected>2 Mbps</option>
+                            <option value="3M">3 Mbps</option>
+                            <option value="5M">5 Mbps</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="vcPreset">Preset <span class="text-muted">(slower = better compression)</span></label>
+                        <select id="vcPreset" name="preset">
+                            <option value="ultrafast">Ultrafast</option>
+                            <option value="fast">Fast</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="slow">Slow</option>
+                            <option value="veryslow">Very Slow</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="vcRes">Resolution</label>
+                        <select id="vcRes" name="resolution">
+                            <option value="">Original</option>
+                            <option value="1920x1080">1080p</option>
+                            <option value="1280x720">720p</option>
+                            <option value="854x480">480p</option>
+                            <option value="640x360">360p</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="vcAudioBr">Audio Bitrate</label>
+                        <select id="vcAudioBr" name="audio_bitrate">
+                            <option value="64k">64 kbps</option>
+                            <option value="96k">96 kbps</option>
+                            <option value="128k" selected>128 kbps</option>
+                            <option value="192k">192 kbps</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="vcTitle">Title</label>
+                        <input type="text" id="vcTitle" name="title" placeholder="Compression job">
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary btn-lg" id="compressBtn">
+                        <span class="btn-icon-inline"><svg class="ui-icon" aria-hidden="true"><use href="/static/ui-icons.svg#compress"></use></svg></span> Start Compression
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', loadCompletedJobs);
+
+    function toggleMode() {
+        const mode = document.querySelector('input[name="mode"]:checked').value;
+        document.getElementById('crfGroup').style.display = mode === 'crf' ? '' : 'none';
+        document.getElementById('bitrateGroup').style.display = mode === 'bitrate' ? '' : 'none';
+    }
+
+    async function loadCompletedJobs() {
+        try {
+            const resp = await fetch('/api/jobs?limit=50');
+            const data = await resp.json();
+            const picker = document.getElementById('vcJobPicker');
+            data.jobs.filter(j => j.status === 'completed' && j.output_file).forEach(j => {
+                const opt = document.createElement('option');
+                opt.value = j.folder + '/output/' + j.output_file;
+                opt.textContent = `${j.title || j.id} (${j.output_file})`;
+                picker.appendChild(opt);
+            });
+        } catch(e) {}
+    }
+
+    function fillInput() {
+        const val = document.getElementById('vcJobPicker').value;
+        if (val) document.getElementById('vcInput').value = val;
+    }
+
+    function handleDrop(e, prefix) {
+        e.preventDefault();
+        e.currentTarget.classList.remove('dragover');
+        const file = e.dataTransfer.files[0];
+        if (file) uploadFile(file, prefix);
+    }
+
+    function handleFileSelect(input, prefix) {
+        const file = input.files[0];
+        if (file) uploadFile(file, prefix);
+    }
+
+    async function uploadFile(file, prefix) {
+        const hint = document.getElementById(prefix + 'FileName');
+        hint.textContent = `Uploading ${file.name}...`;
+        const fd = new FormData();
+        fd.append('file', file);
+        try {
+            const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+            const data = await resp.json();
+            if (data.ok) {
+                document.getElementById(prefix + 'Input').value = data.path;
+                hint.textContent = `Uploaded: ${data.filename}`;
+                showToast('File uploaded');
+            } else {
+                hint.textContent = `Error: ${data.error}`;
+                showToast(data.error, 'error');
+            }
+        } catch(e) {
+            hint.textContent = 'Upload failed';
+            showToast('Upload failed', 'error');
+        }
+    }
+
+    async function submitCompress(e) {
+        e.preventDefault();
+        const input = document.getElementById('vcInput').value;
+        if (!input) { showToast('Select or upload a file first', 'error'); return; }
+
+        const btn = document.getElementById('compressBtn');
+        btn.disabled = true;
+        const mode = document.querySelector('input[name="mode"]:checked').value;
+        const params = {
+            input_file: input,
+            preset: document.getElementById('vcPreset').value,
+            resolution: document.getElementById('vcRes').value || undefined,
+            audio_bitrate: document.getElementById('vcAudioBr').value,
+            title: document.getElementById('vcTitle').value,
+        };
+        if (mode === 'crf') {
+            params.crf = document.getElementById('vcCrf').value;
+        } else {
+            params.bitrate = document.getElementById('vcBitrate').value;
+        }
+        try {
+            const resp = await fetch('/api/jobs', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ type: 'video_compress', params })
+            });
+            const data = await resp.json();
+            if (data.ok) {
+                showToast('Compression started');
+                setTimeout(() => window.location.href = '/jobs', 1000);
+            } else {
+                showToast(data.error || 'Failed', 'error');
+            }
+        } catch(e) {
+            showToast('Request failed', 'error');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+</script>
+{% endblock %}

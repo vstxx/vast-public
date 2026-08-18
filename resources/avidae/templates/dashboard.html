@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}Video &amp; Audio — Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="dashboard-grid">
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="stat-value" id="statTotal">0</div>
+            <div class="stat-label">Total Jobs</div>
+        </div>
+        <div class="stat-card stat-recording">
+            <div class="stat-value" id="statActive">0</div>
+            <div class="stat-label">Active</div>
+        </div>
+        <div class="stat-card stat-completed">
+            <div class="stat-value" id="statCompleted">0</div>
+            <div class="stat-label">Completed</div>
+        </div>
+        <div class="stat-card stat-failed">
+            <div class="stat-value" id="statFailed">0</div>
+            <div class="stat-label">Failed</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="statDisk">—</div>
+            <div class="stat-label">Disk Used</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h2>Quick Actions</h2></div>
+        <div class="card-body quick-actions">
+            <a href="/record" class="action-btn action-record">
+                <span class="action-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg></span><span>New Recording</span>
+            </a>
+            <a href="/download" class="action-btn action-download">
+                <span class="action-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span><span>Download Video</span>
+            </a>
+            <a href="/convert" class="action-btn action-convert">
+                <span class="action-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></span><span>Convert File</span>
+            </a>
+            <a href="/extract-audio" class="action-btn action-extract">
+                <span class="action-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span><span>Extract Audio</span>
+            </a>
+            <a href="/audio-convert" class="action-btn action-audio">
+                <span class="action-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M8 7v10"/><path d="M4 10v4"/><path d="M16 7v10"/><path d="M20 10v4"/></svg></span><span>Audio Convert</span>
+            </a>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2>Recent Jobs</h2>
+            <a href="/jobs" class="btn btn-sm">View All</a>
+        </div>
+        <div class="card-body">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Job</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>Progress</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="recentJobsBody">
+                    <tr><td class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</td><td class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td class="skeleton">&nbsp;&nbsp;&nbsp;</td><td class="skeleton">&nbsp;&nbsp;</td></tr>
+                    <tr><td class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</td><td class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td class="skeleton">&nbsp;&nbsp;&nbsp;</td><td class="skeleton">&nbsp;&nbsp;</td></tr>
+                    <tr><td class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</td><td class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td class="skeleton">&nbsp;&nbsp;&nbsp;</td><td class="skeleton">&nbsp;&nbsp;</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        loadDashboard();
+        setInterval(loadDashboard, 5000);
+    });
+
+    if (window._socket) {
+        window._socket.on('job_update', () => loadDashboard());
+    }
+
+    async function loadDashboard() {
+        try {
+            const [jobsResp, statsResp] = await Promise.all([
+                fetch('/api/jobs?limit=10'),
+                fetch('/api/stats')
+            ]);
+            const jobsData = await jobsResp.json();
+            const statsData = await statsResp.json();
+
+            animateCounter('statTotal', statsData.total_jobs);
+            animateCounter('statActive', statsData.active);
+            animateCounter('statCompleted', statsData.completed);
+            animateCounter('statFailed', statsData.failed);
+            document.getElementById('statDisk').textContent = statsData.disk_usage;
+
+            renderRecentJobs(jobsData.jobs);
+            updateActiveJobCount(jobsData.jobs);
+        } catch(e) {}
+    }
+
+    function animateCounter(id, target) {
+        const el = document.getElementById(id);
+        const current = parseInt(el.textContent) || 0;
+        if (current === target) return;
+        const duration = 500;
+        const start = performance.now();
+        const step = (now) => {
+            const t = Math.min((now - start) / duration, 1);
+            const ease = 1 - Math.pow(1 - t, 3);
+            el.textContent = Math.round(current + (target - current) * ease);
+            if (t < 1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+    }
+
+    function renderRecentJobs(jobs) {
+        const tbody = document.getElementById('recentJobsBody');
+        if (!jobs.length) {
+            tbody.innerHTML = `<tr><td colspan="6">
+                <div class="empty-state">
+                    <div class="empty-state-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+                        </svg>
+                    </div>
+                    <h3>No jobs yet</h3>
+                    <p>Start a recording, download, or conversion to see your jobs here.</p>
+                </div>
+            </td></tr>`;
+            return;
+        }
+        tbody.innerHTML = jobs.slice(0, 8).map(j => `
+            <tr>
+                <td class="job-title" title="${escHtml(j.id)}">${escHtml(j.title || j.id)}</td>
+                <td><span class="badge badge-type">${j.type}</span></td>
+                <td>${statusBadge(j.status)}</td>
+                <td>${progressBar(j.progress)}</td>
+                <td class="text-muted">${timeAgo(j.created_at)}</td>
+                <td class="action-cell">
+                    <button class="btn-icon" onclick="showLogs('${j.id}')" title="Logs">${uiIcon('clipboard')}</button>
+                    ${j.status === 'completed' && j.output_file ? `<a class="btn-icon" href="/api/jobs/${j.id}/download/${j.output_file}" title="Download">${uiIcon('download')}</a>` : ''}
+                    ${['queued','analyzing','recording'].includes(j.status) ? `<button class="btn-icon" onclick="cancelJob('${j.id}')" title="Cancel">${uiIcon('ban')}</button>` : ''}
+                    ${['failed','cancelled'].includes(j.status) ? `<button class="btn-icon" onclick="retryJobDash('${j.id}')" title="Retry">${uiIcon('refresh')}</button>` : ''}
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    async function retryJobDash(jobId) {
+        try {
+            const resp = await fetch(`/api/jobs/${jobId}/retry`, { method: 'POST' });
+            const data = await resp.json();
+            if (data.ok) showToast('Retry started');
+            else showToast(data.error, 'error');
+            loadDashboard();
+        } catch(e) { showToast('Retry failed', 'error'); }
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,452 @@
+diff --git a/chrome/browser/vast/BUILD.gn b/chrome/browser/vast/BUILD.gn
+index 9f7173d549bbd2d19b6db4bf29e26fc9945899ec..0f916f28774f7d28c32f4fa6ed9305b53cd8fa04 100644
+--- a/chrome/browser/vast/BUILD.gn
++++ b/chrome/browser/vast/BUILD.gn
+@@ -12,6 +12,8 @@ source_set("vast_data") {
+     "vast_data_migration_preview.h",
+     "vast_data_migration_transaction.cc",
+     "vast_data_migration_transaction.h",
++    "vast_data_projection.cc",
++    "vast_data_projection.h",
+   ]
+ 
+   public_deps = [
+@@ -27,6 +29,7 @@ test("vast_data_unittests") {
+     "vast_backup_extractor_unittest.cc",
+     "vast_data_migration_preview_unittest.cc",
+     "vast_data_migration_transaction_unittest.cc",
++    "vast_data_projection_unittest.cc",
+   ]
+ 
+   deps = [
+diff --git a/chrome/browser/vast/vast_data_projection.cc b/chrome/browser/vast/vast_data_projection.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..cb547b2165c42f21455e6abde3c54f085c700e2f
+--- /dev/null
++++ b/chrome/browser/vast/vast_data_projection.cc
+@@ -0,0 +1,162 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/vast/vast_data_projection.h"
++
++#include <algorithm>
++#include <array>
++#include <cstddef>
++#include <optional>
++#include <set>
++#include <string_view>
++#include <utility>
++
++#include "base/files/file_util.h"
++#include "base/json/json_reader.h"
++#include "base/strings/string_util.h"
++#include "base/values.h"
++#include "chrome/browser/vast/vast_data_migration_preview.h"
++
++namespace vast {
++namespace {
++
++constexpr size_t kMaxStorageBytes = 8 * 1024 * 1024;
++
++bool IsBoundedString(const std::string* value,
++                     size_t max_length,
++                     bool allow_empty) {
++  return value && value->size() <= max_length &&
++         (allow_empty ||
++          !base::TrimWhitespaceASCII(*value, base::TRIM_ALL).empty());
++}
++
++template <size_t Size>
++std::string EnumOrDefault(const base::DictValue& settings,
++                          std::string_view key,
++                          const std::array<std::string_view, Size>& allowed,
++                          std::string_view fallback) {
++  const std::string* value = settings.FindString(key);
++  if (value && std::ranges::find(allowed, *value) != allowed.end()) {
++    return *value;
++  }
++  return std::string(fallback);
++}
++
++bool BoolOrDefault(const base::DictValue& settings,
++                   std::string_view key,
++                   bool fallback) {
++  return settings.FindBool(key).value_or(fallback);
++}
++
++}  // namespace
++
++VastDataProjection ReadVastDataProjection(const base::FilePath& data_root) {
++  VastDataProjection projection;
++  const VastDataMigrationPreview preview =
++      ReadVastDataMigrationPreview(data_root);
++  if (!preview.compatible) {
++    projection.error = preview.error;
++    return projection;
++  }
++
++  const base::FilePath data_path =
++      data_root.Append(FILE_PATH_LITERAL("vast-data.json"));
++  std::string contents;
++  if (!base::ReadFileToStringWithMaxSize(data_path, &contents,
++                                         kMaxStorageBytes)) {
++    projection.error = "Vast data could not be read for projection.";
++    return projection;
++  }
++  std::optional<base::DictValue> root =
++      base::JSONReader::ReadDict(contents, base::JSON_PARSE_RFC, 100);
++  if (!root) {
++    projection.error = "Vast data changed before projection completed.";
++    return projection;
++  }
++  const std::optional<int> schema_version = root->FindInt("schemaVersion");
++  const std::string* active_workspace_id =
++      root->FindString("activeWorkspaceId");
++  const base::ListValue* workspaces = root->FindList("workspaces");
++  const base::DictValue* settings = root->FindDict("settings");
++  if (!schema_version || *schema_version != preview.schema_version ||
++      !IsBoundedString(active_workspace_id, 256, false) || !workspaces ||
++      !settings) {
++    projection.error = "Vast data projection envelope is invalid.";
++    return projection;
++  }
++  projection.schema_version = *schema_version;
++
++  std::set<std::string> workspace_ids;
++  bool active_workspace_found = false;
++  for (const base::Value& value : *workspaces) {
++    const base::DictValue* workspace = value.GetIfDict();
++    if (!workspace) {
++      projection.error = "Vast workspace projection contains a non-object.";
++      return projection;
++    }
++    const std::string* id = workspace->FindString("id");
++    const std::string* name = workspace->FindString("name");
++    const std::string* icon = workspace->FindString("icon");
++    const std::string* color = workspace->FindString("color");
++    const std::optional<int> order = workspace->FindInt("order");
++    if (!IsBoundedString(id, 256, false) ||
++        !IsBoundedString(name, 512, false) ||
++        !IsBoundedString(icon, 128, true) ||
++        !IsBoundedString(color, 128, true) || !order || *order < -10000 ||
++        *order > 10000 || !workspace_ids.insert(*id).second) {
++      projection.error = "Vast workspace projection contains invalid data.";
++      return projection;
++    }
++    const std::optional<bool> is_private = workspace->FindBool("isPrivate");
++    if (workspace->Find("isPrivate") && !is_private) {
++      projection.error = "Vast workspace privacy flag is invalid.";
++      return projection;
++    }
++
++    VastWorkspaceProjection projected;
++    projected.id = *id;
++    projected.name = *name;
++    projected.icon = *icon;
++    projected.color = *color;
++    projected.order = *order;
++    projected.is_private = is_private.value_or(false);
++    projected.active = *id == *active_workspace_id;
++    active_workspace_found = active_workspace_found || projected.active;
++    projection.workspaces.push_back(std::move(projected));
++  }
++  if (!active_workspace_found) {
++    projection.error = "Vast active workspace is absent from the projection.";
++    projection.workspaces.clear();
++    return projection;
++  }
++
++  constexpr std::array<std::string_view, 4> kThemes = {"dark", "dim", "light",
++                                                       "system"};
++  constexpr std::array<std::string_view, 2> kSidebarDensities = {"comfortable",
++                                                                 "compact"};
++  constexpr std::array<std::string_view, 2> kLayoutModes = {"vertical",
++                                                            "horizontal"};
++  constexpr std::array<std::string_view, 2> kTabLayouts = {"vertical",
++                                                           "compact"};
++  projection.settings.theme =
++      EnumOrDefault(*settings, "theme", kThemes, "dark");
++  projection.settings.sidebar_density = EnumOrDefault(
++      *settings, "sidebarDensity", kSidebarDensities, "comfortable");
++  projection.settings.layout_mode =
++      EnumOrDefault(*settings, "layoutMode", kLayoutModes, "horizontal");
++  projection.settings.tab_layout =
++      EnumOrDefault(*settings, "tabLayout", kTabLayouts, "vertical");
++  const std::string* accent_color = settings->FindString("accentColor");
++  if (IsBoundedString(accent_color, 128, false)) {
++    projection.settings.accent_color = *accent_color;
++  }
++  projection.settings.bookmarks_bar_visible =
++      BoolOrDefault(*settings, "bookmarksBarVisible", true);
++  projection.settings.restore_previous_session =
++      BoolOrDefault(*settings, "restorePreviousSession", true);
++  projection.compatible = true;
++  return projection;
++}
++
++}  // namespace vast
+diff --git a/chrome/browser/vast/vast_data_projection.h b/chrome/browser/vast/vast_data_projection.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..cd9dd53d2a7af3d618354338ff7862dfcfd1eca3
+--- /dev/null
++++ b/chrome/browser/vast/vast_data_projection.h
+@@ -0,0 +1,50 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_VAST_VAST_DATA_PROJECTION_H_
++#define CHROME_BROWSER_VAST_VAST_DATA_PROJECTION_H_
++
++#include <cstdint>
++#include <string>
++#include <vector>
++
++#include "base/files/file_path.h"
++
++namespace vast {
++
++struct VastWorkspaceProjection {
++  std::string id;
++  std::string name;
++  std::string icon;
++  std::string color;
++  int32_t order = 0;
++  bool is_private = false;
++  bool active = false;
++};
++
++struct VastSettingsProjection {
++  std::string theme = "dark";
++  std::string accent_color = "#d1a3ff";
++  std::string sidebar_density = "comfortable";
++  std::string layout_mode = "horizontal";
++  std::string tab_layout = "vertical";
++  bool bookmarks_bar_visible = true;
++  bool restore_previous_session = true;
++};
++
++// First read-only typed projection of legacy product state. It deliberately
++// excludes tab URLs, history, notes, secrets, and browser-profile state.
++struct VastDataProjection {
++  bool compatible = false;
++  int32_t schema_version = -1;
++  std::vector<VastWorkspaceProjection> workspaces;
++  VastSettingsProjection settings;
++  std::string error;
++};
++
++VastDataProjection ReadVastDataProjection(const base::FilePath& data_root);
++
++}  // namespace vast
++
++#endif  // CHROME_BROWSER_VAST_VAST_DATA_PROJECTION_H_
+diff --git a/chrome/browser/vast/vast_data_projection_unittest.cc b/chrome/browser/vast/vast_data_projection_unittest.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..a8748e12e25894e99f6101a017867cf9860764cf
+--- /dev/null
++++ b/chrome/browser/vast/vast_data_projection_unittest.cc
+@@ -0,0 +1,201 @@
++// Copyright 2026 The Vast Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/vast/vast_data_projection.h"
++
++#include <string_view>
++
++#include "base/files/file_util.h"
++#include "base/files/scoped_temp_dir.h"
++#include "testing/gtest/include/gtest/gtest.h"
++
++namespace vast {
++namespace {
++
++constexpr char kValidVastData[] = R"({
++  "schemaVersion": 5,
++  "activeWorkspaceId": "workspace-two",
++  "workspaces": [
++    {
++      "id": "workspace-one",
++      "name": "Work",
++      "icon": "briefcase",
++      "color": "#112233",
++      "order": 0,
++      "isPrivate": false
++    },
++    {
++      "id": "workspace-two",
++      "name": "Private",
++      "icon": "shield",
++      "color": "#abcdef",
++      "order": 1,
++      "isPrivate": true
++    }
++  ],
++  "tabGroups": [],
++  "tabs": [],
++  "bookmarks": [],
++  "bookmarkFolders": [],
++  "history": [],
++  "downloads": [],
++  "notes": [],
++  "readingList": [],
++  "quickLinks": [],
++  "settings": {
++    "theme": "light",
++    "accentColor": "#123456",
++    "sidebarDensity": "compact",
++    "layoutMode": "horizontal",
++    "tabLayout": "compact",
++    "bookmarksBarVisible": false,
++    "restorePreviousSession": false
++  }
++})";
++
++constexpr char kDuplicateWorkspaceData[] = R"({
++  "schemaVersion": 5,
++  "activeWorkspaceId": "duplicate",
++  "workspaces": [
++    {"id":"duplicate","name":"One","icon":"","color":"","order":0},
++    {"id":"duplicate","name":"Two","icon":"","color":"","order":1}
++  ],
++  "tabGroups": [],
++  "tabs": [],
++  "bookmarks": [],
++  "bookmarkFolders": [],
++  "history": [],
++  "downloads": [],
++  "notes": [],
++  "readingList": [],
++  "quickLinks": [],
++  "settings": {}
++})";
++
++constexpr char kMissingActiveWorkspaceData[] = R"({
++  "schemaVersion": 5,
++  "activeWorkspaceId": "missing",
++  "workspaces": [
++    {"id":"present","name":"Present","icon":"","color":"","order":0}
++  ],
++  "tabGroups": [],
++  "tabs": [],
++  "bookmarks": [],
++  "bookmarkFolders": [],
++  "history": [],
++  "downloads": [],
++  "notes": [],
++  "readingList": [],
++  "quickLinks": [],
++  "settings": {}
++})";
++
++constexpr char kUnsupportedSettingsData[] = R"({
++  "schemaVersion": 5,
++  "activeWorkspaceId": "workspace",
++  "workspaces": [
++    {"id":"workspace","name":"Workspace","icon":"","color":"","order":0}
++  ],
++  "tabGroups": [],
++  "tabs": [],
++  "bookmarks": [],
++  "bookmarkFolders": [],
++  "history": [],
++  "downloads": [],
++  "notes": [],
++  "readingList": [],
++  "quickLinks": [],
++  "settings": {
++    "theme": "future-theme",
++    "accentColor": "",
++    "sidebarDensity": "dense",
++    "layoutMode": "floating",
++    "tabLayout": "grid",
++    "bookmarksBarVisible": "not-a-boolean",
++    "restorePreviousSession": null
++  }
++})";
++
++class VastDataProjectionTest : public testing::Test {
++ protected:
++  void SetUp() override { ASSERT_TRUE(temp_dir_.CreateUniqueTempDir()); }
++
++  void WriteData(std::string_view contents) {
++    ASSERT_TRUE(base::WriteFile(
++        temp_dir_.GetPath().Append(FILE_PATH_LITERAL("vast-data.json")),
++        contents));
++  }
++
++  base::ScopedTempDir temp_dir_;
++};
++
++TEST_F(VastDataProjectionTest, ProjectsWorkspacesAndSafeSettings) {
++  WriteData(kValidVastData);
++
++  const VastDataProjection projection =
++      ReadVastDataProjection(temp_dir_.GetPath());
++
++  ASSERT_TRUE(projection.compatible) << projection.error;
++  EXPECT_EQ(projection.schema_version, 5);
++  ASSERT_EQ(projection.workspaces.size(), 2u);
++  EXPECT_EQ(projection.workspaces[0].id, "workspace-one");
++  EXPECT_EQ(projection.workspaces[0].name, "Work");
++  EXPECT_EQ(projection.workspaces[0].icon, "briefcase");
++  EXPECT_EQ(projection.workspaces[0].color, "#112233");
++  EXPECT_EQ(projection.workspaces[0].order, 0);
++  EXPECT_FALSE(projection.workspaces[0].is_private);
++  EXPECT_FALSE(projection.workspaces[0].active);
++  EXPECT_EQ(projection.workspaces[1].id, "workspace-two");
++  EXPECT_TRUE(projection.workspaces[1].is_private);
++  EXPECT_TRUE(projection.workspaces[1].active);
++  EXPECT_EQ(projection.settings.theme, "light");
++  EXPECT_EQ(projection.settings.accent_color, "#123456");
++  EXPECT_EQ(projection.settings.sidebar_density, "compact");
++  EXPECT_EQ(projection.settings.layout_mode, "horizontal");
++  EXPECT_EQ(projection.settings.tab_layout, "compact");
++  EXPECT_FALSE(projection.settings.bookmarks_bar_visible);
++  EXPECT_FALSE(projection.settings.restore_previous_session);
++}
++
++TEST_F(VastDataProjectionTest, RejectsDuplicateWorkspaceIds) {
++  WriteData(kDuplicateWorkspaceData);
++
++  const VastDataProjection projection =
++      ReadVastDataProjection(temp_dir_.GetPath());
++
++  EXPECT_FALSE(projection.compatible);
++  EXPECT_EQ(projection.error,
++            "Vast workspace projection contains invalid data.");
++}
++
++TEST_F(VastDataProjectionTest, RejectsMissingActiveWorkspace) {
++  WriteData(kMissingActiveWorkspaceData);
++
++  const VastDataProjection projection =
++      ReadVastDataProjection(temp_dir_.GetPath());
++
++  EXPECT_FALSE(projection.compatible);
++  EXPECT_TRUE(projection.workspaces.empty());
++  EXPECT_EQ(projection.error,
++            "Vast active workspace is absent from the projection.");
++}
++
++TEST_F(VastDataProjectionTest, FallsBackForUnsupportedSettings) {
++  WriteData(kUnsupportedSettingsData);
++
++  const VastDataProjection projection =
++      ReadVastDataProjection(temp_dir_.GetPath());
++
++  ASSERT_TRUE(projection.compatible) << projection.error;
++  EXPECT_EQ(projection.settings.theme, "dark");
++  EXPECT_EQ(projection.settings.accent_color, "#d1a3ff");
++  EXPECT_EQ(projection.settings.sidebar_density, "comfortable");
++  EXPECT_EQ(projection.settings.layout_mode, "horizontal");
++  EXPECT_EQ(projection.settings.tab_layout, "vertical");
++  EXPECT_TRUE(projection.settings.bookmarks_bar_visible);
++  EXPECT_TRUE(projection.settings.restore_previous_session);
++}
++
++}  // namespace
++}  // namespace vast

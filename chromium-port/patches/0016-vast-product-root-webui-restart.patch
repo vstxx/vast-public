@@ -1,0 +1,385 @@
+diff --git a/chrome/browser/resources/vast/app.ts b/chrome/browser/resources/vast/app.ts
+index e91341b1745f8127d11a3a33774c7e67b0e6aa7d..d1332f1983e8bc9b8272d6698b0fb933d89a8a3d 100644
+--- a/chrome/browser/resources/vast/app.ts
++++ b/chrome/browser/resources/vast/app.ts
+@@ -25,14 +25,36 @@ function setMigrationResult(state: string, message: string) {
+   setText('migration-result', message);
+ }
+ 
++function showProductDataStatus(
++    selected: boolean, compatible: boolean, schemaVersion: number,
++    workspaces: number, theme: string, error: string) {
++  const element = getElement<HTMLParagraphElement>('product-data-status');
++  if (!selected) {
++    document.documentElement.dataset['productData'] = 'not-selected';
++    element.hidden = true;
++    return;
++  }
++  element.hidden = false;
++  if (!compatible) {
++    document.documentElement.dataset['productData'] = 'invalid';
++    element.textContent = error || 'Selected Vast 2 product data is invalid.';
++    return;
++  }
++  document.documentElement.dataset['productData'] = 'recovered';
++  element.textContent =
++      `Vast 2 data recovered: schema ${schemaVersion}, ${workspaces} ` +
++      `workspace(s), ${theme} theme.`;
++}
++
+ async function initialize() {
+   const handler = new PageHandlerRemote();
+   PageHandlerFactory.getRemote().createPageHandler(
+       handler.$.bindNewPipeAndPassReceiver());
+ 
+-  const [{info}, {preview}] = await Promise.all([
++  const [{info}, {preview}, {status: productData}] = await Promise.all([
+     handler.getRuntimeInfo(),
+     handler.getMigrationPreview(),
++    handler.getProductDataStatus(),
+   ]);
+   setText('runtime-architecture', info.architecture);
+   setText('product-version', `${info.productName} ${info.productVersion}`);
+@@ -41,6 +63,10 @@ async function initialize() {
+       'runtime-proof',
+       info.electronRuntimeAbsent ? 'Electron runtime absent' :
+                                    'Runtime audit required');
++  showProductDataStatus(
++      productData.selected, productData.compatible, productData.schemaVersion,
++      productData.workspaces.length, productData.settings.theme,
++      productData.error);
+ 
+   if (preview.available && preview.compatible) {
+     setText(
+@@ -71,7 +97,15 @@ async function initialize() {
+       const rollbackButton =
+           getElement<HTMLButtonElement>('migration-rollback');
+       controls.hidden = false;
+-      document.documentElement.dataset['migrationTransaction'] = 'ready';
++      document.documentElement.dataset['migrationTransaction'] =
++          productData.compatible ? 'recovered' : 'ready';
++
++      if (productData.compatible) {
++        runButton.hidden = true;
++        getElement<HTMLLabelElement>('migration-confirmation').hidden = true;
++        rollbackConfirmation.hidden = false;
++        rollbackButton.hidden = false;
++      }
+ 
+       confirmation.addEventListener('change', () => {
+         runButton.disabled = !confirmation.checked;
+@@ -102,6 +136,10 @@ async function initialize() {
+               'committed',
+               `${result.files} product-data file(s) committed. ` +
+                   'The Electron source was not modified.');
++          const {status} = await handler.getProductDataStatus();
++          showProductDataStatus(
++              status.selected, status.compatible, status.schemaVersion,
++              status.workspaces.length, status.settings.theme, status.error);
+           rollbackConfirmation.hidden = false;
+           rollbackButton.hidden = false;
+         } catch (error) {
+diff --git a/chrome/browser/resources/vast/index.html b/chrome/browser/resources/vast/index.html
+index 50d388089f926a35f6dc287a1c66ddd9d0be5f54..28ba96236d5184c402e16db8afd2280fcef83d5b 100644
+--- a/chrome/browser/resources/vast/index.html
++++ b/chrome/browser/resources/vast/index.html
+@@ -42,6 +42,7 @@
+         <div class="status-line"><span class="status-dot active"></span><span>Data compatibility</span></div>
+         <strong id="migration-summary">Read-only preview ready</strong>
+         <p id="migration-details">A copied schema fixture can be inspected without returning record contents, paths, credentials, or cookies.</p>
++        <p id="product-data-status" class="migration-result" hidden></p>
+         <div id="migration-controls" class="migration-controls" hidden>
+           <label id="migration-confirmation" class="confirmation">
+             <input id="migration-confirm" type="checkbox">
+diff --git a/chrome/browser/ui/webui/vast/vast.mojom b/chrome/browser/ui/webui/vast/vast.mojom
+index a9c551d24eb33a0281325fc32c7989d4d8a10720..000b35083c4d54ee34a2c287b925b4fda41b7c35 100644
+--- a/chrome/browser/ui/webui/vast/vast.mojom
++++ b/chrome/browser/ui/webui/vast/vast.mojom
+@@ -43,10 +43,44 @@ struct MigrationTransactionResult {
+   string error;
+ };
+ 
++// Safe, typed subset of one migrated workspace. No tabs or URLs are present.
++struct WorkspaceProjection {
++  string id;
++  string name;
++  string icon;
++  string color;
++  int32 order;
++  bool is_private;
++  bool active;
++};
++
++// Allowlisted appearance and layout preferences only.
++struct SettingsProjection {
++  string theme;
++  string accent_color;
++  string sidebar_density;
++  string layout_mode;
++  string tab_layout;
++  bool bookmarks_bar_visible;
++  bool restore_previous_session;
++};
++
++// Restart-safe selected-root state. Filesystem paths, journal contents,
++// checksums, tabs, URLs, history, notes, and secrets remain native-only.
++struct ProductDataStatus {
++  bool selected;
++  bool compatible;
++  int32 schema_version;
++  array<WorkspaceProjection> workspaces;
++  SettingsProjection settings;
++  string error;
++};
++
+ // Renderer-to-browser operations for chrome://vast.
+ interface PageHandler {
+   GetRuntimeInfo() => (RuntimeInfo info);
+   GetMigrationPreview() => (MigrationPreview preview);
++  GetProductDataStatus() => (ProductDataStatus status);
+   RunMigrationFixtureTransaction(bool confirmed) =>
+       (MigrationTransactionResult result);
+   RollbackMigrationFixtureTransaction(bool confirmed) =>
+diff --git a/chrome/browser/ui/webui/vast/vast_ui.cc b/chrome/browser/ui/webui/vast/vast_ui.cc
+index eea887c42b9242ba336f2c74439804dca995ee61..b1924de13eab7026983af4eaf636fb3d938d1c19 100644
+--- a/chrome/browser/ui/webui/vast/vast_ui.cc
++++ b/chrome/browser/ui/webui/vast/vast_ui.cc
+@@ -13,6 +13,7 @@
+ #include "chrome/browser/profiles/profile.h"
+ #include "chrome/browser/vast/vast_backup_extractor.h"
+ #include "chrome/browser/vast/vast_data_migration_preview.h"
++#include "chrome/browser/vast/vast_product_data_root.h"
+ #include "chrome/grit/vast_resources.h"
+ #include "chrome/grit/vast_resources_map.h"
+ #include "components/version_info/version_info.h"
+@@ -136,7 +137,41 @@ mojom::MigrationTransactionResultPtr MigrationTransactionError(
+   return ToMojomMigrationTransactionResult(transaction, attempted);
+ }
+ 
+-VastDataMigrationTransaction RunMigrationFixtureTransactionOnWorker() {
++mojom::ProductDataStatusPtr ToMojomProductDataStatus(
++    const VastProductDataRootStatus& source) {
++  auto status = mojom::ProductDataStatus::New();
++  status->selected = source.selected;
++  status->compatible = source.compatible;
++  status->schema_version = source.schema_version;
++  for (const VastWorkspaceProjection& source_workspace :
++       source.projection.workspaces) {
++    auto workspace = mojom::WorkspaceProjection::New();
++    workspace->id = source_workspace.id;
++    workspace->name = source_workspace.name;
++    workspace->icon = source_workspace.icon;
++    workspace->color = source_workspace.color;
++    workspace->order = source_workspace.order;
++    workspace->is_private = source_workspace.is_private;
++    workspace->active = source_workspace.active;
++    status->workspaces.push_back(std::move(workspace));
++  }
++  status->settings = mojom::SettingsProjection::New();
++  status->settings->theme = source.projection.settings.theme;
++  status->settings->accent_color = source.projection.settings.accent_color;
++  status->settings->sidebar_density =
++      source.projection.settings.sidebar_density;
++  status->settings->layout_mode = source.projection.settings.layout_mode;
++  status->settings->tab_layout = source.projection.settings.tab_layout;
++  status->settings->bookmarks_bar_visible =
++      source.projection.settings.bookmarks_bar_visible;
++  status->settings->restore_previous_session =
++      source.projection.settings.restore_previous_session;
++  status->error = source.error;
++  return status;
++}
++
++VastDataMigrationTransaction RunMigrationFixtureTransactionOnWorker(
++    base::FilePath profile_path) {
+   const base::CommandLine* command_line =
+       base::CommandLine::ForCurrentProcess();
+   const base::FilePath fixture_root =
+@@ -169,18 +204,56 @@ VastDataMigrationTransaction RunMigrationFixtureTransactionOnWorker() {
+   if (transaction.state == VastDataMigrationState::kPrepared) {
+     CommitVastDataMigration(&transaction);
+   }
++  if (transaction.state == VastDataMigrationState::kCommitted) {
++    std::string activation_error;
++    if (!ActivateVastProductDataRoot(profile_path, transaction,
++                                     &activation_error)) {
++      const bool rolled_back = RollbackVastDataMigration(&transaction);
++      transaction.error =
++          "Product-root activation failed: " + activation_error +
++          (rolled_back ? " Committed data was moved into rollback holding."
++                       : " Automatic rollback also failed.");
++    }
++  }
+   return transaction;
+ }
+ 
+ VastDataMigrationTransaction RollbackMigrationFixtureTransactionOnWorker(
+-    VastDataMigrationTransaction transaction) {
+-  RollbackVastDataMigration(&transaction);
+-  return transaction;
++    base::FilePath profile_path,
++    std::optional<VastDataMigrationTransaction> transaction) {
++  if (!transaction) {
++    VastProductDataRootStatus recovered =
++        RecoverVastProductDataRoot(profile_path);
++    if (!recovered.selected || !recovered.compatible) {
++      VastDataMigrationTransaction failed;
++      failed.error =
++          recovered.error.empty()
++              ? "There is no selected Vast product root to roll back."
++              : recovered.error;
++      return failed;
++    }
++    transaction = std::move(recovered.transaction);
++  }
++  const base::FilePath data_root = transaction->destination_root;
++  const base::FilePath journal_path = transaction->journal_path;
++  if (!RollbackVastDataMigration(&*transaction)) {
++    return std::move(*transaction);
++  }
++  std::string deactivation_error;
++  if (!DeactivateVastProductDataRoot(profile_path, data_root, journal_path,
++                                     &deactivation_error)) {
++    transaction->error =
++        "Data was rolled back, but profile selection cleanup failed: " +
++        deactivation_error;
++  }
++  return std::move(*transaction);
+ }
+ 
+ }  // namespace
+ 
+-VastUI::VastUI(content::WebUI* web_ui) : ui::MojoWebUIController(web_ui) {
++VastUI::VastUI(content::WebUI* web_ui)
++    : ui::MojoWebUIController(web_ui),
++      profile_path_(Profile::FromWebUI(web_ui)->GetPath()) {
+   Profile* profile = Profile::FromWebUI(web_ui);
+   content::WebUIDataSource* source = content::WebUIDataSource::CreateAndAdd(
+       profile, chrome::kChromeUIVastHost);
+@@ -253,6 +326,18 @@ void VastUI::GetMigrationPreview(GetMigrationPreviewCallback callback) {
+           std::move(callback)));
+ }
+ 
++void VastUI::GetProductDataStatus(GetProductDataStatusCallback callback) {
++  base::ThreadPool::PostTaskAndReplyWithResult(
++      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
++      base::BindOnce(&RecoverVastProductDataRoot, profile_path_),
++      base::BindOnce(
++          [](GetProductDataStatusCallback callback,
++             VastProductDataRootStatus status) {
++            std::move(callback).Run(ToMojomProductDataStatus(status));
++          },
++          std::move(callback)));
++}
++
+ void VastUI::RunMigrationFixtureTransaction(
+     bool confirmed,
+     RunMigrationFixtureTransactionCallback callback) {
+@@ -280,7 +365,7 @@ void VastUI::RunMigrationFixtureTransaction(
+   migration_task_in_progress_ = true;
+   base::ThreadPool::PostTaskAndReplyWithResult(
+       FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+-      base::BindOnce(&RunMigrationFixtureTransactionOnWorker),
++      base::BindOnce(&RunMigrationFixtureTransactionOnWorker, profile_path_),
+       base::BindOnce(&VastUI::OnMigrationFixtureTransactionComplete,
+                      weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+ }
+@@ -298,22 +383,22 @@ void VastUI::RollbackMigrationFixtureTransaction(
+         "A migration task is already running.", false));
+     return;
+   }
+-  if (!migration_transaction_ ||
+-      (migration_transaction_->state != VastDataMigrationState::kPrepared &&
+-       migration_transaction_->state != VastDataMigrationState::kCommitted)) {
++  if (!IsMigrationFixtureCommitEnabled()) {
+     std::move(callback).Run(MigrationTransactionError(
+-        "There is no prepared or committed fixture migration to roll back.",
+-        false));
++        "Development fixture migration is disabled.", false));
+     return;
+   }
+ 
+   migration_task_in_progress_ = true;
+-  VastDataMigrationTransaction transaction = std::move(*migration_transaction_);
++  std::optional<VastDataMigrationTransaction> transaction;
++  if (migration_transaction_) {
++    transaction = std::move(*migration_transaction_);
++  }
+   migration_transaction_.reset();
+   base::ThreadPool::PostTaskAndReplyWithResult(
+       FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+       base::BindOnce(&RollbackMigrationFixtureTransactionOnWorker,
+-                     std::move(transaction)),
++                     profile_path_, std::move(transaction)),
+       base::BindOnce(&VastUI::OnMigrationFixtureRollbackComplete,
+                      weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+ }
+diff --git a/chrome/browser/ui/webui/vast/vast_ui.h b/chrome/browser/ui/webui/vast/vast_ui.h
+index a71b1bd41422e21dbc18bb19fd8b70e089e7cdad..e6688f7bd27d3325003e3615f347cd83d0043acf 100644
+--- a/chrome/browser/ui/webui/vast/vast_ui.h
++++ b/chrome/browser/ui/webui/vast/vast_ui.h
+@@ -7,6 +7,7 @@
+ 
+ #include <optional>
+ 
++#include "base/files/file_path.h"
+ #include "base/memory/weak_ptr.h"
+ #include "chrome/browser/ui/webui/vast/vast.mojom.h"
+ #include "chrome/browser/vast/vast_data_migration_transaction.h"
+@@ -49,6 +50,7 @@ class VastUI : public ui::MojoWebUIController,
+   // mojom::PageHandler:
+   void GetRuntimeInfo(GetRuntimeInfoCallback callback) override;
+   void GetMigrationPreview(GetMigrationPreviewCallback callback) override;
++  void GetProductDataStatus(GetProductDataStatusCallback callback) override;
+   void RunMigrationFixtureTransaction(
+       bool confirmed,
+       RunMigrationFixtureTransactionCallback callback) override;
+@@ -65,6 +67,7 @@ class VastUI : public ui::MojoWebUIController,
+ 
+   mojo::Receiver<mojom::PageHandlerFactory> factory_receiver_{this};
+   mojo::Receiver<mojom::PageHandler> page_handler_receiver_{this};
++  const base::FilePath profile_path_;
+   std::optional<VastDataMigrationTransaction> migration_transaction_;
+   bool migration_task_in_progress_ = false;
+   base::WeakPtrFactory<VastUI> weak_ptr_factory_{this};
+diff --git a/chrome/browser/vast/vast_product_data_root.cc b/chrome/browser/vast/vast_product_data_root.cc
+index da9a433614cf86e7fb87a2fb47fcb02def920bd5..271f973eb811edfa5142504b30eaad8235c59773 100644
+--- a/chrome/browser/vast/vast_product_data_root.cc
++++ b/chrome/browser/vast/vast_product_data_root.cc
+@@ -350,7 +350,7 @@ VastProductDataRootStatus RecoverVastProductDataRoot(
+                                    &status.transaction, &status.error)) {
+     return status;
+   }
+-  const VastDataProjection projection =
++  VastDataProjection projection =
+       ReadVastDataProjection(status.transaction.destination_root);
+   if (!projection.compatible) {
+     status.error =
+@@ -360,6 +360,7 @@ VastProductDataRootStatus RecoverVastProductDataRoot(
+   status.compatible = true;
+   status.schema_version = projection.schema_version;
+   status.data_root = status.transaction.destination_root;
++  status.projection = std::move(projection);
+   return status;
+ }
+ 
+diff --git a/chrome/browser/vast/vast_product_data_root.h b/chrome/browser/vast/vast_product_data_root.h
+index e337b39919279a9e1ca33aeda93a27f6913a9055..548fe24984987217bef042133f7f8cd852fb0f71 100644
+--- a/chrome/browser/vast/vast_product_data_root.h
++++ b/chrome/browser/vast/vast_product_data_root.h
+@@ -10,6 +10,7 @@
+ 
+ #include "base/files/file_path.h"
+ #include "chrome/browser/vast/vast_data_migration_transaction.h"
++#include "chrome/browser/vast/vast_data_projection.h"
+ 
+ namespace vast {
+ 
+@@ -21,6 +22,7 @@ struct VastProductDataRootStatus {
+   int32_t schema_version = -1;
+   base::FilePath data_root;
+   VastDataMigrationTransaction transaction;
++  VastDataProjection projection;
+   std::string error;
+ };
+ 
