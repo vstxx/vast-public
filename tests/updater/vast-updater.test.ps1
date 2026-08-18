@@ -74,6 +74,8 @@ function New-TestUserData {
   New-Item -ItemType Directory -Path (Join-Path $userData 'Sessions') -Force | Out-Null
   New-Item -ItemType Directory -Path (Join-Path $userData 'Network') -Force | Out-Null
   New-Item -ItemType Directory -Path (Join-Path $userData 'Partitions\vast-default\Network') -Force | Out-Null
+  New-Item -ItemType Directory -Path (Join-Path $userData 'Partitions\vast-default\Service Worker\Database') -Force | Out-Null
+  New-Item -ItemType Directory -Path (Join-Path $userData 'Partitions\vast-default\Service Worker\CacheStorage\volatile-cache') -Force | Out-Null
 
   Set-Content -Path (Join-Path $userData 'settings.json') -Value '{"theme":"dark"}' -Encoding UTF8
   Set-Content -Path (Join-Path $userData 'vast-data.json') -Value '{"schemaVersion":5,"bookmarks":[{"title":"Keep"}]}' -Encoding UTF8
@@ -83,6 +85,8 @@ function New-TestUserData {
   Set-Content -Path (Join-Path $userData 'Sessions\session.json') -Value '{"tabs":["https://example.test"]}' -Encoding UTF8
   Set-Content -Path (Join-Path $userData 'Network\Cookies') -Value 'default-cookie-db' -Encoding UTF8
   Set-Content -Path (Join-Path $userData 'Partitions\vast-default\Network\Cookies') -Value 'partition-cookie-db' -Encoding UTF8
+  Set-Content -Path (Join-Path $userData 'Partitions\vast-default\Service Worker\Database\service-worker-db') -Value 'preserve-service-worker-registration' -Encoding UTF8
+  Set-Content -Path (Join-Path $userData 'Partitions\vast-default\Service Worker\CacheStorage\volatile-cache\index.txt') -Value 'recoverable-cache-entry' -Encoding UTF8
 
   return $userData
 }
@@ -197,6 +201,8 @@ try {
   Assert-True (@(Get-ChildItem -Directory -Path (Join-Path $userData 'Backups')).Count -ge 1) 'critical user data backup should be created'
   Assert-Equal 'default-cookie-db' ((Get-Content -Raw -Path (Join-Path $result.BackupPath 'user-data-1\Network\Cookies')).Trim()) 'default-session cookies should be backed up'
   Assert-Equal 'partition-cookie-db' ((Get-Content -Raw -Path (Join-Path $result.BackupPath 'user-data-1\Partitions\vast-default\Network\Cookies')).Trim()) 'partition cookies should be backed up'
+  Assert-Equal 'preserve-service-worker-registration' ((Get-Content -Raw -Path (Join-Path $result.BackupPath 'user-data-1\Partitions\vast-default\Service Worker\Database\service-worker-db')).Trim()) 'service worker registration data should be backed up'
+  Assert-True (-not (Test-Path -LiteralPath (Join-Path $result.BackupPath 'user-data-1\Partitions\vast-default\Service Worker\CacheStorage'))) 'recoverable service worker cache storage should not be backed up'
   Assert-True (-not ($result.PSObject.Properties.Name -contains 'TargetEdition')) 'legacy target edition input must not affect updater results'
   Assert-True (-not ((Get-Content -Raw -Path (Join-Path $install 'version.json')) -match 'edition')) 'new installed version metadata must not generate edition'
 

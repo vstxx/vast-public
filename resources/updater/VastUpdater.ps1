@@ -67,6 +67,22 @@ $script:VastDefaultOptionalItems = @(
   'GPUCache',
   'Service Worker'
 )
+$script:VastBackupVolatileDirectoryNames = @(
+  'Cache',
+  'cache',
+  'CacheStorage',
+  'Code Cache',
+  'DawnCache',
+  'GPUCache',
+  'GrShaderCache',
+  'Media Cache',
+  'ScriptCache',
+  'ShaderCache',
+  'blob_storage',
+  'Crashpad',
+  'Logs',
+  'logs'
+)
 $script:VastRuntimeExcludeSegments = @(
   '.vast-update',
   'Backups',
@@ -913,6 +929,68 @@ function Get-VastUserDataRoots {
   return $result.ToArray()
 }
 
+function Test-VastBackupVolatileDirectory {
+  param([string] $Name)
+
+  return ($script:VastBackupVolatileDirectoryNames -contains $Name)
+}
+
+function Copy-VastBackupDirectory {
+  param(
+    [string] $Source,
+    [string] $Destination,
+    [bool] $IsRoot = $false
+  )
+
+  if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
+    if ($IsRoot) {
+      throw "Critical backup directory disappeared before it could be copied: $Source"
+    }
+    Write-VastLog "Backup directory disappeared during copy, skipping: $Source" 'WARN'
+    return
+  }
+
+  New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+  try {
+    $children = @(Get-ChildItem -LiteralPath $Source -Force -ErrorAction Stop)
+  } catch {
+    if (-not (Test-Path -LiteralPath $Source)) {
+      if ($IsRoot) {
+        throw "Critical backup directory disappeared while it was being enumerated: $Source"
+      }
+      Write-VastLog "Backup directory disappeared during enumeration, skipping: $Source" 'WARN'
+      return
+    }
+    throw
+  }
+
+  foreach ($child in $children) {
+    $target = Join-Path $Destination $child.Name
+    if ($child.PSIsContainer) {
+      if (Test-VastBackupVolatileDirectory -Name $child.Name) {
+        Write-VastLog "Skipping recoverable Chromium cache during user data backup: $($child.FullName)"
+        continue
+      }
+      if (($child.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        Write-VastLog "Skipping reparse point during user data backup: $($child.FullName)" 'WARN'
+        continue
+      }
+      Copy-VastBackupDirectory -Source $child.FullName -Destination $target
+      continue
+    }
+
+    try {
+      Copy-Item -LiteralPath $child.FullName -Destination $target -Force -ErrorAction Stop
+    } catch {
+      if (-not (Test-Path -LiteralPath $child.FullName)) {
+        Write-VastLog "Recoverable file disappeared during user data backup, skipping: $($child.FullName)" 'WARN'
+        continue
+      }
+      throw
+    }
+  }
+}
+
 function Copy-VastBackupItem {
   param(
     [string] $Source,
@@ -925,7 +1003,7 @@ function Copy-VastBackupItem {
   }
 
   if (Test-Path -LiteralPath $Source -PathType Container) {
-    Copy-Item -LiteralPath $Source -Destination $Destination -Recurse -Force -ErrorAction Stop
+    Copy-VastBackupDirectory -Source $Source -Destination $Destination -IsRoot $true
   } else {
     Copy-Item -LiteralPath $Source -Destination $Destination -Force -ErrorAction Stop
   }
