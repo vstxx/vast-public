@@ -2,6 +2,8 @@
 
 Vast is a local-first desktop browser for power users. It combines Chromium page rendering through Electron with a React application shell for workspaces, navigation, local tools, and privacy controls.
 
+[Documentation](https://docs.vastbrowser.com) · [Website](https://vastbrowser.com)
+
 Vast does not collect browsing telemetry. When Vast Relay is enabled, its bounded operational check-in contains only a random installation UUID, the running version, and a cumulative launch count. Relay derives first-seen and last-seen timestamps and exposes simple anonymous aggregate installation counts; it never receives URLs, searches, tabs, history, bookmarks, account identity, hardware fingerprints, or message-interaction events. See [the privacy model](docs/PRIVACY.md).
 
 ## Project status
