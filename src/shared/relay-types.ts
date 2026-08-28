@@ -11,6 +11,9 @@ export type RelayAssetMime = (typeof RELAY_ASSET_MIME_TYPES)[number]
 
 export type RelayEnvironment = 'staging' | 'production'
 
+export const RELAY_INSTANCE_KINDS = ['packaged', 'development', 'test', 'unknown'] as const
+export type RelayInstanceKind = (typeof RELAY_INSTANCE_KINDS)[number]
+
 export interface RelayTrustKey {
   keyId: string
   publicKeySpkiBase64: string
@@ -28,6 +31,7 @@ export interface RelayCheckinRequest {
   install_id: string
   current_version: string
   launch_count: number
+  instance_kind: RelayInstanceKind
 }
 
 export interface RelayBroadcastMedia {

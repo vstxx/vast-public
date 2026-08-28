@@ -116,7 +116,7 @@ def run_record_job(job_id, cancel_flag):
     # Re-encode if needed (CDP produces webm, convert to desired format)
     if output_format != "webm" and raw_output.endswith(".webm"):
         if getattr(config, "FFMPEG_IS_PLAYWRIGHT", False):
-            logger.warning("Full FFmpeg not found; saving WebM output instead")
+            logger.warning("Production FFmpeg not found; saving WebM output instead")
             output_format = "webm"
             final_output = os.path.join(output_dir, "recording.webm")
         else:
@@ -150,7 +150,7 @@ def run_record_job(job_id, cancel_flag):
             update_job(job_id, thumbnail="thumbnail.jpg")
             logger.info("Thumbnail generated")
     else:
-        logger.info("Skipping thumbnail: full FFmpeg not available")
+        logger.info("Skipping thumbnail: production FFmpeg not available")
 
     update_job(job_id, progress=90)
 

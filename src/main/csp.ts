@@ -14,7 +14,7 @@ export function packagedAppChromeCsp(): string {
   return [
     ...baseDirectives,
     "script-src 'self'",
-    "connect-src 'self' https:",
+    "connect-src 'self'",
     "frame-src 'self' http://127.0.0.1:*"
   ].join('; ')
 }

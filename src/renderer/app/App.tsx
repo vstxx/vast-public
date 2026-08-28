@@ -50,6 +50,7 @@ import {
 import { selectActiveTab, selectActiveWorkspace, useBrowserStore } from '../store/browser-store'
 import { persistedStateChangeToken } from '../store/persisted-change'
 import { isInactiveTabUnloadCandidate } from '../store/tab-lifecycle'
+import { ExtensionRuntimeController, useExtensionContributions } from '../extensions/extension-runtime'
 
 declare const __VAST_CAT_ADDON_AVAILABLE__: boolean
 
@@ -465,6 +466,7 @@ export function App(): JSX.Element {
   const accentColor = useBrowserStore((state) => state.settings.accentColor)
   const animations = useBrowserStore((state) => state.settings.animations)
   const appearance = useBrowserStore((state) => state.settings.appearance)
+  const extensionContributions = useExtensionContributions()
   const catAddonEnabled = useBrowserStore((state) => state.settings.catAddon.enabled)
   const experimentalFeatures = useBrowserStore((state) => state.settings.advanced.experimentalFeatures)
   const requestedSettingLayoutMode = useBrowserStore((state) => state.settings.layoutMode)
@@ -493,7 +495,11 @@ export function App(): JSX.Element {
   const showHorizontalChrome = !focusMode && !htmlFullscreenSession && layoutMode === 'horizontal'
   const showPuristChrome = !focusMode && !htmlFullscreenSession && layoutMode === 'purist'
   const activeTabIsNewTab = activeTabUrl === INTERNAL_NEW_TAB_URL
-  const visualStyle = useMemo(() => appearanceStyle({ appearance, accentColor }), [accentColor, appearance])
+  const visualStyle = useMemo(() => {
+    const tokens = extensionContributions.theme?.tokens
+    const { accentColor: extensionAccent, ...appearanceOverlay } = tokens ?? {}
+    return appearanceStyle({ appearance: { ...appearance, ...appearanceOverlay }, accentColor: extensionAccent ?? accentColor })
+  }, [accentColor, appearance, extensionContributions.theme])
   const [toasts, setToasts] = useState<Array<UiNotificationPayload & { createdAt: number }>>([])
   const [uiPromptQueue, setUiPromptQueue] = useState<UiPromptPayload[]>([])
   const toastTimersRef = useRef<Record<string, number>>({})
@@ -1779,6 +1785,7 @@ export function App(): JSX.Element {
 
   return (
     <BrowserRuntimeContext.Provider value={runtime}>
+      <ExtensionRuntimeController />
       <div
         ref={shellRef}
         className={`app-shell layout-${layoutMode} platform-${window.vast.app.platform} flex h-screen overflow-hidden bg-vast-black font-sans text-vast-bright ${htmlFullscreenSession ? 'is-html-fullscreen' : ''} ${activeTabIsNewTab ? 'is-new-tab' : ''} ${animations && !systemPrefersReducedMotion ? '' : 'no-motion'} ${constrainedGraphics ? 'low-effects' : ''} ${

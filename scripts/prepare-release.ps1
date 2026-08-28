@@ -56,6 +56,7 @@ $RuntimePayload = Join-Path $RuntimeRoot 'win-unpacked'
 $UpdaterRoot = Join-Path $ReleaseRoot 'Updater'
 $InstallerRoot = Join-Path $ReleaseRoot 'Installer'
 $DocsRoot = Join-Path $ReleaseRoot 'Docs'
+$SourceRoot = Join-Path $ReleaseRoot 'Source'
 $ChecksumsRoot = Join-Path $ReleaseRoot 'Checksums'
 $DownloadsRoot = Join-Path $ReleaseRoot 'Downloads'
 $WinUnpacked = Join-Path $ReleaseRoot 'win-unpacked'
@@ -64,6 +65,10 @@ $UpdaterConfigPath = Join-Path $UpdaterRoot $UpdaterConfigFileName
 $InstallerSetupName = "Vast-Setup-$Version.exe"
 $InstallerBlockmapName = "Vast-Setup-$Version.exe.blockmap"
 $InstallerPortableName = "Vast-$Version-Portable.exe"
+$FfmpegBuildRoot = Join-Path $RepoRoot '.vast-build\ffmpeg'
+$FfmpegSourceBundle = Join-Path $FfmpegBuildRoot 'ffmpeg-corresponding-source-win64.tar.zst'
+$FfmpegProvenance = Join-Path $FfmpegBuildRoot 'runtime\ffmpeg-build-provenance.json'
+$FfmpegCapabilities = Join-Path $FfmpegBuildRoot 'avidae-ffmpeg-capabilities.json'
 
 function Assert-File {
   param([string] $Path)
@@ -143,14 +148,30 @@ Assert-File (Join-Path $ReleaseRoot 'latest.yml')
 Assert-File (Join-Path $UpdaterRoot 'VastUpdater.ps1')
 Assert-File $UpdaterConfigPath
 Assert-File (Join-Path $UpdaterRoot "VastUpdater-$Version.exe")
+Assert-File $FfmpegSourceBundle
+Assert-File $FfmpegProvenance
+Assert-File $FfmpegCapabilities
+& node (Join-Path $RepoRoot 'scripts\check-ffmpeg-release-compliance.cjs') --root $FfmpegBuildRoot --skip-capabilities
+if ($LASTEXITCODE -ne 0) { throw 'FFmpeg release compliance gate failed before release staging.' }
 
-New-Item -ItemType Directory -Path $ReleaseRoot, $UpdaterRoot, $InstallerRoot, $DocsRoot, $ChecksumsRoot, $DownloadsRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $ReleaseRoot, $UpdaterRoot, $InstallerRoot, $DocsRoot, $SourceRoot, $ChecksumsRoot, $DownloadsRoot -Force | Out-Null
 
-foreach ($directory in @($RuntimeRoot, $InstallerRoot, $DocsRoot, $ChecksumsRoot, $DownloadsRoot)) {
+foreach ($directory in @($RuntimeRoot, $InstallerRoot, $DocsRoot, $SourceRoot, $ChecksumsRoot, $DownloadsRoot)) {
   Reset-Directory $directory
 }
 
 Get-ChildItem -LiteralPath $ReleaseRoot -Directory -Filter 'Vast-*' | Where-Object { $_.Name -ne "Vast-$Version" } | ForEach-Object {
+  $resolved = $_.FullName
+  $release = (Resolve-Path -LiteralPath $ReleaseRoot).Path
+  if (-not $resolved.StartsWith($release, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refusing to remove path outside release root: $resolved"
+  }
+  Remove-Item -LiteralPath $resolved -Recurse -Force
+}
+
+# Test packages are deliberately tagged with the smoke-* prefix. Never allow a
+# previous QA run to become part of a release scan or checksum manifest.
+Get-ChildItem -LiteralPath $ReleaseRoot -Directory -Filter 'smoke-*' | ForEach-Object {
   $resolved = $_.FullName
   $release = (Resolve-Path -LiteralPath $ReleaseRoot).Path
   if (-not $resolved.StartsWith($release, [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -497,6 +518,9 @@ foreach ($releaseDocument in @(
 }
 
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'docs\DATA_MIGRATION_AND_STORAGE.md') -Destination (Join-Path $DocsRoot 'data-migration-and-storage.md') -Force
+Copy-Item -LiteralPath $FfmpegProvenance -Destination (Join-Path $DocsRoot 'ffmpeg-build-provenance.json') -Force
+Copy-Item -LiteralPath $FfmpegCapabilities -Destination (Join-Path $DocsRoot 'avidae-ffmpeg-capabilities.json') -Force
+Copy-Item -LiteralPath $FfmpegSourceBundle -Destination (Join-Path $SourceRoot 'ffmpeg-corresponding-source-win64.tar.zst') -Force
 
 $versionJson = [pscustomobject]@{
   product = 'Vast Browser'
@@ -517,6 +541,9 @@ $versionJson = [pscustomobject]@{
     runtime = "Vast-$Version/win-unpacked"
     downloadableUpdate = "Downloads/Vast-$Version-update.zip"
     downloadManifest = 'Downloads/update-manifest.json'
+    ffmpegProvenance = 'Docs/ffmpeg-build-provenance.json'
+    ffmpegCapabilities = 'Docs/avidae-ffmpeg-capabilities.json'
+    ffmpegCorrespondingSource = 'Source/ffmpeg-corresponding-source-win64.tar.zst'
   }
   updater = [pscustomobject]@{
     entrypoint = "Updater/VastUpdater-$Version.exe"
@@ -546,6 +573,9 @@ $releaseManifest = [pscustomobject]@{
   updater = "Updater/VastUpdater-$Version.exe"
   updateBundleSha256 = $zipSha256
   updateBundleSize = $zipItem.Length
+  ffmpegProvenance = 'Docs/ffmpeg-build-provenance.json'
+  ffmpegCapabilities = 'Docs/avidae-ffmpeg-capabilities.json'
+  ffmpegCorrespondingSource = 'Source/ffmpeg-corresponding-source-win64.tar.zst'
 }
 $releaseManifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $DocsRoot 'release-manifest.json') -Encoding UTF8
 
@@ -583,6 +613,7 @@ $includeRoots = @(
   'Updater',
   'Installer',
   'Docs',
+  'Source',
   'Downloads'
 )
 foreach ($root in $includeRoots) {

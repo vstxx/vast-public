@@ -1,6 +1,4 @@
-# Cat 85 Animations exclusion record
-
-The files listed below describe the former private development asset set. None of the archive, artwork, generated images, metadata, or packaged runtime files is included in this public source repository.
+# Cat 85 Animations provenance
 
 - Original archive: `assets/cat-addon/Cat_85_Animations.zip`
 - Canonical source selected by Vast: `Cat_85_Animations/Cat_Grey_White.aseprite`
@@ -10,10 +8,10 @@ The files listed below describe the former private development asset set. None o
 
 Vast decodes the original 32 x 32 RGBA frames, validates all frame durations and tags, verifies every decoded frame pixel-for-pixel against the supplied PNG atlas, selects a curated source-frame subset, and repacks those unchanged pixels into a deterministic runtime atlas. Runtime rendering uses nearest-neighbor sampling; no frame is redrawn, recolored, smoothed, vectorized, or AI-generated.
 
-The retained tooling can regenerate this structure only after a properly licensed replacement archive is supplied. A normal public-source application build does not require Cat Addon artwork.
+Regenerate with `npm run cat-addon:assets`. A normal application build only verifies committed generated files and does not require Aseprite.
 
 ## License status
 
-The former archive contained no license document, author attribution, source URL, or redistribution grant. No license classification has been inferred. It and all derivatives were excluded from the public export. The applicable license and attribution must be recorded here and in project-wide third-party notices before any replacement artwork is added to a public source or binary distribution.
+The supplied archive contains no license document, author attribution, source URL, or redistribution grant. No license classification has been inferred. The applicable license and attribution must be recorded here and in any project-wide third-party notice before a public build containing this atlas is released. This is a release-blocking legal follow-up, not a technical build failure.
 
 The Ginger and Grey alternatives remain only inside the original development archive. Vast does not extract, generate, load, or distribute them at runtime.

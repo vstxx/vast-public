@@ -22,6 +22,9 @@ import {
   OPENING_PRESENTATION,
   OPENING_SEQUENCE
 } from '../shared/opening-sequence'
+import type { ExtensionManager } from './extensions/extension-manager'
+
+declare const __VAST_CAT_ADDON_AVAILABLE__: boolean
 
 const APP_ICON_PATH = isDev
   ? join(__dirname, process.platform === 'win32' ? '../../assets/logos/vasticon-windows.png' : '../../assets/logos/vasticon.png')
@@ -50,6 +53,7 @@ type MainWindowOptions = {
   showWhenReady?: boolean
   detachedTab?: DetachedTabPayload
   onDetachTab?: (tab: DetachedTabPayload) => void | Promise<void>
+  extensionManager?: ExtensionManager
 }
 
 export function createMainWindow(
@@ -205,16 +209,18 @@ export function createMainWindow(
 
   windowRegistry.register(mainWindow, windowKind)
   windowCloseCoordinator.install(mainWindow)
-  setupWindowSecurity(mainWindow, settingsProvider, _onDataSaved)
+  setupWindowSecurity(mainWindow, settingsProvider, _onDataSaved, options.extensionManager)
   setupDownloadsWithSettings(mainWindow, settingsProvider)
   mainWindow.webContents.on('did-finish-load', () => windowRegistry.markRendererReady(mainWindow))
   const publishWindowState = (): void => {
     if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return
-    mainWindow.webContents.send('vast:cat-addon:window-state-changed', {
-      visible: mainWindow.isVisible(),
-      minimized: mainWindow.isMinimized(),
-      fullscreen: mainWindow.isFullScreen()
-    })
+    if (__VAST_CAT_ADDON_AVAILABLE__) {
+      mainWindow.webContents.send('vast:cat-addon:window-state-changed', {
+        visible: mainWindow.isVisible(),
+        minimized: mainWindow.isMinimized(),
+        fullscreen: mainWindow.isFullScreen()
+      })
+    }
     mainWindow.webContents.send('vast:window:state-changed', {
       maximized: mainWindow.isMaximized(),
       fullscreen: mainWindow.isFullScreen()

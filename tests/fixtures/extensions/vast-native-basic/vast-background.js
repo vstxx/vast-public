@@ -1,0 +1,7 @@
+await vast.storage.local.set({ started: true })
+await vast.theme.apply({ accentColor: '#8b5cf6', secondaryAccentColor: '#d946ef', cornerRadius: 18 })
+await vast.toolbar.create({ id: 'hello', title: 'Hello from extension', icon: 'assets/icon.svg' })
+await vast.sidebar.create({ id: 'example-panel', title: 'Native example', icon: 'assets/icon.svg', page: 'sidebar.html' })
+await vast.commands.register({ id: 'hello-command', title: 'Extension hello', shortcut: 'Ctrl+Shift+H' })
+await vast.contextMenus.create({ id: 'hello-menu', title: 'Send page to Native Basic' })
+vast.toolbar.onClicked.addListener(async () => { await vast.notifications.create({ title: 'Vast Native Basic', message: 'Toolbar action received.' }) })

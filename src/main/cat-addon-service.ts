@@ -22,7 +22,7 @@ export class LazyCatAddonService implements CatAddonService {
   private manager: CatAddonManager | undefined
   private managerPromise: Promise<CatAddonManager> | undefined
 
-  constructor(options: CatAddonManagerOptions, loadManagerModule: ManagerLoader = () => import('./cat-addon')) {
+  constructor(options: CatAddonManagerOptions, loadManagerModule: ManagerLoader) {
     this.options = options
     this.loadManagerModule = loadManagerModule
   }

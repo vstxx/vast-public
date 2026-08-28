@@ -1,4 +1,6 @@
 import type { RelayActionResult, RelayClientSnapshot } from './relay-types'
+import type { VastExtensionKind, VastNativeRuntimeState, VastNativePermission, VastPermissionMetadata, VastExtensionContributionSnapshot, VastUiBrokerRequest, VastUiBrokerResponse } from './extension-native-api'
+import type { ExtensionInstallSource, ExtensionPackagePreview, ExtensionTrustLevel, ExtensionUpdateState, VastHubCatalogResult, VastHubExtensionDetails } from './extension-marketplace'
 
 export type ID = string
 
@@ -398,9 +400,6 @@ export interface BrowserSettings {
     advancedDiagnostics: boolean
     spoofing: boolean
   }
-  siteOverrides: {
-    disabled: Record<string, boolean>
-  }
   keyboardShortcuts: Record<string, string>
 }
 
@@ -422,6 +421,99 @@ export interface UiNotificationPayload {
   detail?: string
   durationMs?: number
   actions?: Array<{ label: string; action: () => void }>
+}
+
+export type ExtensionCompatibility = 'compatible' | 'partial' | 'unsupported'
+export type ExtensionRuntimeState = 'loaded' | 'disabled' | 'error'
+export type { VastExtensionKind, VastNativeRuntimeState, VastNativePermission, VastPermissionMetadata, VastExtensionContributionSnapshot, VastUiBrokerRequest, VastUiBrokerResponse } from './extension-native-api'
+
+export interface VastExtensionInfo {
+  id: string
+  name: string
+  version: string
+  description?: string
+  path: string
+  enabled: boolean
+  source: ExtensionInstallSource
+  trust: ExtensionTrustLevel
+  publisherId?: string
+  publisherName?: string
+  category?: string
+  firstParty: boolean
+  removable: boolean
+  update: {
+    state: ExtensionUpdateState
+    availableVersion?: string
+    previousVersion?: string
+    lastCheckedAt?: number
+    error?: string
+  }
+  runtime: 'chrome' | 'vast' | 'hybrid'
+  kind: VastExtensionKind
+  manifestVersion: 2 | 3
+  compatibility: ExtensionCompatibility
+  compatibilitySummary: string
+  compatibilityWarnings: string[]
+  permissions: string[]
+  hostPermissions: string[]
+  runtimeState: ExtensionRuntimeState
+  loadedSessionCount: number
+  eligibleSessionCount: number
+  chrome: { state: ExtensionRuntimeState; loadedSessionCount: number; eligibleSessionCount: number; error?: string }
+  native: {
+    state: VastNativeRuntimeState
+    apiVersion?: number
+    requestedPermissions: VastNativePermission[]
+    grantedPermissions: VastNativePermission[]
+    permissionDetails: VastPermissionMetadata[]
+    error?: string
+  }
+  ui: {
+    popup: boolean
+    options: boolean
+  }
+  error?: string
+  iconDataUrl?: string
+  installedAt: number
+  updatedAt: number
+}
+
+export interface VastExtensionListResult {
+  ok: boolean
+  extensions?: VastExtensionInfo[]
+  privateWorkspacesDisabled?: true
+  error?: string
+}
+
+export interface VastExtensionMutationResult {
+  ok: boolean
+  extension?: VastExtensionInfo
+  removedId?: string
+  canceled?: boolean
+  error?: string
+}
+
+export interface VastExtensionPrepareResult {
+  ok: boolean
+  preview?: ExtensionPackagePreview
+  canceled?: boolean
+  error?: string
+}
+
+export type VastExtensionSurfaceKind = 'popup' | 'options'
+
+export interface VastExtensionSurface {
+  src: string
+  partition: string
+  kind: VastExtensionSurfaceKind
+  runtime: 'chrome' | 'native'
+}
+
+export interface VastExtensionSurfaceResult {
+  ok: boolean
+  surface?: VastExtensionSurface
+  unavailable?: true
+  error?: string
 }
 
 export interface UiPromptAction {
@@ -900,6 +992,33 @@ export interface VastApi {
     info: () => Promise<DataPathInfo>
     openDataFolder: () => Promise<{ ok: boolean; error?: string }>
     changeDataDirectory: () => Promise<MigrationReport>
+  }
+  extensions: {
+    list: () => Promise<VastExtensionListResult>
+    loadUnpacked: () => Promise<VastExtensionMutationResult>
+    installPackage: () => Promise<VastExtensionPrepareResult>
+    prepareHubInstall: (id: string) => Promise<VastExtensionPrepareResult>
+    confirmInstall: (token: string) => Promise<VastExtensionMutationResult>
+    cancelInstall: (token: string) => Promise<{ ok: boolean; error?: string }>
+    catalog: (input: { query?: string; category?: string; page?: number; sort?: 'popular' | 'updated' }) => Promise<{ ok: boolean; catalog?: VastHubCatalogResult; error?: string }>
+    catalogDetails: (id: string) => Promise<{ ok: boolean; extension?: VastHubExtensionDetails; error?: string }>
+    checkForUpdates: (id?: string) => Promise<{ ok: boolean; extensions?: VastExtensionInfo[]; error?: string }>
+    approveUpdate: (id: string) => Promise<VastExtensionMutationResult>
+    enable: (id: string) => Promise<VastExtensionMutationResult>
+    disable: (id: string) => Promise<VastExtensionMutationResult>
+    reload: (id: string) => Promise<VastExtensionMutationResult>
+    remove: (id: string) => Promise<VastExtensionMutationResult>
+    approvePermissions: (id: string, permissions: VastNativePermission[]) => Promise<VastExtensionMutationResult>
+    setPermission: (id: string, permission: VastNativePermission, granted: boolean) => Promise<VastExtensionMutationResult>
+    contributions: () => Promise<{ ok: boolean; contributions?: VastExtensionContributionSnapshot; error?: string }>
+    prepareSurface: (id: string, kind: VastExtensionSurfaceKind, partition: string) => Promise<VastExtensionSurfaceResult>
+    prepareSidebar: (key: string) => Promise<{ ok: boolean; surface?: { src: string; partition: string }; error?: string }>
+    dispatchContribution: (key: string, context?: Record<string, unknown>) => Promise<{ ok: boolean; error?: string }>
+    respondToUiRequest: (response: VastUiBrokerResponse) => Promise<{ ok: boolean; error?: string }>
+    reportTabEvent: (name: 'tabs.onActivated' | 'tabs.onCreated' | 'tabs.onUpdated' | 'tabs.onRemoved', payload: unknown) => Promise<{ ok: boolean; error?: string }>
+    onContributionsChanged: (callback: (snapshot: VastExtensionContributionSnapshot) => void) => () => void
+    onUiRequest: (callback: (request: VastUiBrokerRequest) => void) => () => void
+    onChanged: (callback: () => void) => () => void
   }
   privacy: {
     clearSiteData: (origin?: string, webContentsId?: number) => Promise<{ ok: boolean; error?: string }>

@@ -38,11 +38,6 @@ secrets/
 *.p7c
 *.b64.txt
 /release.zip*
-assets/cat-addon/*.zip
-assets/cat-addon/generated/
-assets/cat-addon/package/
-resources/cat-addon/*.zip
-resources/cat-addon/*.sha256
 tools/VastUpdaterBootstrapper/*Generated.cs
 chromium-port/.reports/
 chromium-port/.artifacts/

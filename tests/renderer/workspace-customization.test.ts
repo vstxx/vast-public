@@ -22,7 +22,7 @@ test('each workspace exposes its own icon and color editor', () => {
 test('opening identity is logo-first without the redundant workspace label', () => {
   assert.match(newTabSource, /data-testid="new-tab-identity"/)
   assert.doesNotMatch(newTabSource, /\{workspace\?\.name \?\? 'Vast'\} workspace/)
-  assert.match(newTabSource, /h-24[^"]*sm:h-28/)
+  assert.match(newTabSource, /h-28[^"]*sm:h-32/)
 })
 
 test('address-bar controls use a dedicated symmetric sizing hook', () => {

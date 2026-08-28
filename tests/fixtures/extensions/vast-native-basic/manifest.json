@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Vast Native Basic",
+  "version": "1.0.0",
+  "description": "Deterministic Vast Native API v1 fixture.",
+  "icons": { "128": "assets/icon.svg" },
+  "vast": {
+    "api_version": 1,
+    "background": "vast-background.js",
+    "permissions": ["vast.storage", "vast.theme", "vast.toolbar", "vast.sidebar", "vast.commands", "vast.contextMenus", "vast.notifications"]
+  }
+}

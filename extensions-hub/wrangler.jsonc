@@ -1,0 +1,67 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "vast-extensions-hub",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [{ "pattern": "extensions.vastbrowser.com", "custom_domain": true }],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "vast-extensions-hub",
+      "database_id": "dc35981e-2b78-4884-bf70-2620f4472251",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [{ "binding": "PACKAGES", "bucket_name": "vast-extensions-packages" }],
+  "images": { "binding": "IMAGES" },
+  "assets": {
+    "directory": "public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/", "/explore*", "/extension/*", "/dashboard*", "/review*", "/report*", "/legal/*", "/auth/*", "/v1/*", "/packages/*", "/media/*"]
+  },
+  "vars": {
+    "ENVIRONMENT": "production",
+    "HUB_ORIGIN": "https://extensions.vastbrowser.com",
+    "GITHUB_REDIRECT_URI": "https://extensions.vastbrowser.com/auth/github/callback",
+    "SIGNING_KEY_ID": "vast-hub-2026-01",
+    "HUB_LEGAL_OPERATOR_NAME": "Jan Nowacki",
+    "HUB_LEGAL_CONTACT_URL": "https://vastbrowser.com/legal"
+  },
+  "triggers": { "crons": ["17 3 * * *"] },
+  "observability": {
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.05 }
+  },
+  "env": {
+    "staging": {
+      "name": "vast-extensions-hub-staging",
+      "routes": [{ "pattern": "extensions-staging.vastbrowser.com", "custom_domain": true }],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "vast-extensions-hub-staging",
+          "database_id": "23f8714d-7c27-4756-b3b7-9f884cd76b4d",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "r2_buckets": [{ "binding": "PACKAGES", "bucket_name": "vast-extensions-packages-staging" }],
+      "images": { "binding": "IMAGES" },
+      "assets": {
+        "directory": "public",
+        "binding": "ASSETS",
+        "run_worker_first": ["/", "/explore*", "/extension/*", "/dashboard*", "/review*", "/report*", "/legal/*", "/auth/*", "/v1/*", "/packages/*", "/media/*"]
+      },
+      "triggers": { "crons": [] },
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "HUB_ORIGIN": "https://extensions-staging.vastbrowser.com",
+        "GITHUB_REDIRECT_URI": "https://extensions-staging.vastbrowser.com/auth/github/callback",
+        "SIGNING_KEY_ID": "vast-hub-staging-2026-01",
+        "HUB_LEGAL_OPERATOR_NAME": "Jan Nowacki",
+        "HUB_LEGAL_CONTACT_URL": "https://vastbrowser.com/legal"
+      }
+    }
+  }
+}

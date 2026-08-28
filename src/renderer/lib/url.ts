@@ -3,6 +3,7 @@ import {
   INTERNAL_AVIDAE_URL,
   INTERNAL_AUTOMATION_URL,
   INTERNAL_DIAGNOSTICS_URL,
+  INTERNAL_EXTENSIONS_URL,
   INTERNAL_NEW_TAB_URL,
   INTERNAL_NOTES_URL,
   INTERNAL_NETWORK_URL,
@@ -26,7 +27,8 @@ const INTERNAL_URLS = new Set([
   INTERNAL_PDF_VIEWER_URL,
   INTERNAL_SITE_DATA_URL,
   INTERNAL_DIAGNOSTICS_URL,
-  INTERNAL_SESSION_TIMELINE_URL
+  INTERNAL_SESSION_TIMELINE_URL,
+  INTERNAL_EXTENSIONS_URL
 ])
 
 function internalUrlBase(url: string): string {
@@ -142,6 +144,7 @@ export function resolveAddressInput(input: string, searchEngineId: string): stri
   if (lower === INTERNAL_SITE_DATA_URL || lower === 'site data' || lower === 'sitedata') return INTERNAL_SITE_DATA_URL
   if (lower === INTERNAL_DIAGNOSTICS_URL || lower === 'diagnostics' || lower === 'debug') return INTERNAL_DIAGNOSTICS_URL
   if (lower === INTERNAL_SESSION_TIMELINE_URL || lower === 'session timeline' || lower === 'timeline' || lower === 'sessions') return INTERNAL_SESSION_TIMELINE_URL
+  if (lower === INTERNAL_EXTENSIONS_URL || lower === 'extensions' || lower === 'extension manager') return INTERNAL_EXTENSIONS_URL
 
   const shortcutMatch = trimmed.match(/^([a-z]{1,3})\s+(.+)$/i)
   if (shortcutMatch) {
@@ -178,6 +181,7 @@ export function displayUrl(url: string): string {
   if (matchesInternalUrl(url, INTERNAL_SITE_DATA_URL)) return 'Site Data'
   if (matchesInternalUrl(url, INTERNAL_DIAGNOSTICS_URL)) return 'Diagnostics'
   if (matchesInternalUrl(url, INTERNAL_SESSION_TIMELINE_URL)) return 'Session Timeline'
+  if (matchesInternalUrl(url, INTERNAL_EXTENSIONS_URL)) return 'Extensions'
   try {
     const parsed = new URL(url)
     return `${parsed.hostname}${parsed.pathname === '/' ? '' : parsed.pathname}`
@@ -230,6 +234,7 @@ export function titleFromUrl(url: string): string {
   if (matchesInternalUrl(url, INTERNAL_SITE_DATA_URL)) return 'Diagnostics'
   if (matchesInternalUrl(url, INTERNAL_DIAGNOSTICS_URL)) return 'Diagnostics'
   if (matchesInternalUrl(url, INTERNAL_SESSION_TIMELINE_URL)) return 'Session Timeline'
+  if (matchesInternalUrl(url, INTERNAL_EXTENSIONS_URL)) return 'Extensions'
   const host = hostnameFor(url)
   return host || url
 }

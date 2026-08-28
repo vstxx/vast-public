@@ -1,4 +1,5 @@
 import ipaddress
+import http.client
 import socket
 import ssl
 import urllib.parse
@@ -47,14 +48,66 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+def _connect_approved(addresses, port, timeout, source_address=None):
+    last_error = None
+    for address in sorted(addresses):
+        try:
+            return socket.create_connection((address, port), timeout, source_address)
+        except OSError as exc:
+            last_error = exc
+    if last_error:
+        raise last_error
+    raise ValueError("URL host did not resolve")
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, host, approved_addresses, **kwargs):
+        super().__init__(host, **kwargs)
+        self._approved_addresses = approved_addresses
+
+    def connect(self):
+        original = self._create_connection
+        self._create_connection = lambda _address, timeout=None, source_address=None, **_kwargs: _connect_approved(
+            self._approved_addresses, self.port, timeout, source_address
+        )
+        try:
+            super().connect()
+        finally:
+            self._create_connection = original
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, host, approved_addresses, **kwargs):
+        super().__init__(host, **kwargs)
+        self._approved_addresses = approved_addresses
+
+    def connect(self):
+        original = self._create_connection
+        self._create_connection = lambda _address, timeout=None, source_address=None, **_kwargs: _connect_approved(
+            self._approved_addresses, self.port, timeout, source_address
+        )
+        try:
+            super().connect()
+        finally:
+            self._create_connection = original
+
+
+class _SafeHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        _parsed, addresses = resolve_public_url(req.full_url)
+        return self.do_open(lambda host, **kwargs: _PinnedHTTPConnection(host, addresses, **kwargs), req)
+
+
+class _SafeHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        _parsed, addresses = resolve_public_url(req.full_url)
+        return self.do_open(lambda host, **kwargs: _PinnedHTTPSConnection(host, addresses, **kwargs), req)
+
+
 def safe_urlopen(request_or_url, timeout=30, context=None):
     raw_url = request_or_url.full_url if isinstance(request_or_url, urllib.request.Request) else str(request_or_url)
     resolve_public_url(raw_url)
-    handlers = [_SafeRedirectHandler()]
-    if context is not None:
-        handlers.append(urllib.request.HTTPSHandler(context=context))
-    else:
-        handlers.append(urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+    handlers = [_SafeRedirectHandler(), _SafeHTTPHandler(), _SafeHTTPSHandler(context=context or ssl.create_default_context())]
     opener = urllib.request.build_opener(*handlers)
     response = opener.open(request_or_url, timeout=timeout)
     resolve_public_url(response.geturl())

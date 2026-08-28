@@ -1,0 +1,7 @@
+{
+  "manifest_version": 3,
+  "name": "Vast Hybrid Basic",
+  "version": "1.0.0",
+  "content_scripts": [{ "matches": ["https://example.com/*"], "js": ["content.js"] }],
+  "vast": { "api_version": 1, "background": "vast-background.js", "permissions": ["vast.storage"] }
+}

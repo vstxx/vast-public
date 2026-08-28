@@ -19,7 +19,8 @@ test('sidebar keeps one visibility toggle by the address bar and exposes pin mod
   assert.match(sidePanelSource, /aria-pressed=\{pinned\}/)
   assert.match(sidePanelSource, /mode: pinned \? 'docked' : 'overlay'/)
   assert.match(sidePanelSource, /className="side-panel-pin-button"/)
-  assert.match(stylesSource, /\.app-shell \.side-panel-pin-button[\s\S]*box-shadow:\s*none !important;/)
+  assert.match(stylesSource, /\.app-shell \.side-panel-pin-button\s*{[^}]*width:\s*2rem;[^}]*height:\s*2rem;[^}]*box-shadow:\s*none !important;/s)
+  assert.match(sidePanelSource, /truncate text-left text-xl font-semibold/)
 })
 
 test('unpinned sidebar is docked while pinned sidebar stays above the page without a scrim', () => {

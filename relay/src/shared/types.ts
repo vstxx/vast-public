@@ -3,12 +3,15 @@ import type { ASSET_MIME_TYPES, BROADCAST_TYPES, RELEASE_SEVERITIES } from './co
 export type BroadcastType = (typeof BROADCAST_TYPES)[number]
 export type ReleaseSeverity = (typeof RELEASE_SEVERITIES)[number]
 export type AssetMime = (typeof ASSET_MIME_TYPES)[number]
+export const INSTANCE_KINDS = ['packaged', 'development', 'test', 'unknown'] as const
+export type InstanceKind = (typeof INSTANCE_KINDS)[number]
 
 export interface CheckinRequest {
   protocol: 1
   install_id: string
   current_version: string
   launch_count: number
+  instance_kind: InstanceKind
 }
 
 export interface SignedEnvelope<T> {

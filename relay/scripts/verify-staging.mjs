@@ -155,12 +155,20 @@ function verifyEnvelope(envelope) {
 }
 
 const productionBefore = productionCount()
-await waitForAdminDeployment()
 const installId = randomUUID()
+let assetId = ''
+let disabledId = ''
+let enabledId = ''
+let disabledRevision = ''
+let enabledRevision = ''
+let verificationError
+
+try {
+await waitForAdminDeployment()
 const firstResponse = await fetch(`${publicUrl}/v1/checkin`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ protocol: 1, install_id: installId, current_version: '0.1.4', launch_count: 1 })
+  body: JSON.stringify({ protocol: 1, install_id: installId, current_version: '0.1.4', launch_count: 1, instance_kind: 'test' })
 })
 if (!firstResponse.ok) throw new Error(`First staging check-in failed with HTTP ${firstResponse.status}.`)
 const first = await firstResponse.json()
@@ -169,13 +177,13 @@ await new Promise((resolve) => setTimeout(resolve, 50))
 const repeatResponse = await fetch(`${publicUrl}/v1/checkin`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ protocol: 1, install_id: installId, current_version: '0.1.4', launch_count: 2 })
+  body: JSON.stringify({ protocol: 1, install_id: installId, current_version: '0.1.4', launch_count: 2, instance_kind: 'test' })
 })
 if (!repeatResponse.ok) throw new Error(`Repeat staging check-in failed with HTTP ${repeatResponse.status}.`)
 
-const installation = stagingQuery(`SELECT install_id, first_seen, last_seen, launch_count FROM installations WHERE install_id = '${installId}'`)
+const installation = stagingQuery(`SELECT install_id, first_seen, last_seen, launch_count, instance_kind FROM installations WHERE install_id = '${installId}'`)
 const row = installation?.[0]?.results?.[0]
-if (!row || row.install_id !== installId || row.first_seen >= row.last_seen || row.launch_count !== 2) {
+if (!row || row.install_id !== installId || row.first_seen >= row.last_seen || row.launch_count !== 2 || row.instance_kind !== 'test') {
   throw new Error('Staging D1 did not preserve the expected installation record.')
 }
 
@@ -185,11 +193,12 @@ const asset = await admin('/v1/admin/assets', {
   headers: { 'Content-Type': 'image/png', 'Content-Length': String(png.length) },
   body: png
 })
-const assetId = asset.id
+assetId = String(asset.id || '')
+if (!assetId) throw new Error('Staging asset upload did not return an ID.')
 
 const now = Date.now()
-const disabledId = randomUUID()
-await admin('/v1/admin/broadcasts', {
+disabledId = randomUUID()
+const disabled = await admin('/v1/admin/broadcasts', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
@@ -208,8 +217,10 @@ await admin('/v1/admin/broadcasts', {
     enabled: false
   })
 })
+disabledRevision = String(disabled.revision || '')
+if (!disabledRevision) throw new Error('Disabled staging broadcast did not return a revision.')
 
-const enabledId = randomUUID()
+enabledId = randomUUID()
 const enabled = await admin('/v1/admin/broadcasts', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -229,12 +240,14 @@ const enabled = await admin('/v1/admin/broadcasts', {
     enabled: true
   })
 })
+enabledRevision = String(enabled.revision || '')
+if (!enabledRevision) throw new Error('Enabled staging broadcast did not return a revision.')
 if (!verifyEnvelope(enabled)) throw new Error('Admin-created staging broadcast signature did not verify.')
 
 const deliveredResponse = await fetch(`${publicUrl}/v1/checkin`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ protocol: 1, install_id: installId, current_version: '0.1.4', launch_count: 3 })
+  body: JSON.stringify({ protocol: 1, install_id: installId, current_version: '0.1.4', launch_count: 3, instance_kind: 'test' })
 })
 const delivered = await deliveredResponse.json()
 const message = delivered.messages.find((candidate) => candidate.payload?.id === enabledId)
@@ -245,18 +258,30 @@ const fetchedAsset = await fetch(`${publicUrl}/v1/assets/${assetId}`)
 if (!fetchedAsset.ok || fetchedAsset.headers.get('content-type') !== 'image/png') throw new Error('Controlled staging asset retrieval failed.')
 const fetchedDigest = Buffer.from(await crypto.subtle.digest('SHA-256', await fetchedAsset.arrayBuffer())).toString('hex')
 if (fetchedDigest !== asset.sha256) throw new Error('Controlled staging asset digest did not match signed metadata.')
+} catch (error) {
+  verificationError = error
+}
 
-await admin(`/v1/admin/broadcasts/${encodeURIComponent(enabledId)}`, {
-  method: 'DELETE', headers: { 'If-Match': `"${enabled.revision}"` }
+const cleanupErrors = []
+async function cleanup(label, operation) {
+  try { await operation() } catch (error) { cleanupErrors.push(new Error(`${label}: ${error instanceof Error ? error.message : String(error)}`)) }
+}
+if (enabledId && enabledRevision) await cleanup('enabled broadcast cleanup failed', () => admin(`/v1/admin/broadcasts/${encodeURIComponent(enabledId)}`, {
+  method: 'DELETE', headers: { 'If-Match': `"${enabledRevision}"` }
+}))
+if (disabledId && disabledRevision) await cleanup('disabled broadcast cleanup failed', () => admin(`/v1/admin/broadcasts/${encodeURIComponent(disabledId)}`, {
+  method: 'DELETE', headers: { 'If-Match': `"${disabledRevision}"` }
+}))
+if (assetId) await cleanup('asset cleanup failed', () => admin(`/v1/admin/assets/${encodeURIComponent(assetId)}`, { method: 'DELETE' }))
+await cleanup('test installation cleanup failed', () => {
+  stagingQuery(`DELETE FROM installations WHERE install_id = '${installId}' AND instance_kind = 'test'`)
+  const remaining = stagingQuery(`SELECT COUNT(*) count FROM installations WHERE install_id = '${installId}' AND instance_kind = 'test'`)
+  if (remaining?.[0]?.results?.[0]?.count !== 0) throw new Error('the explicitly tagged test installation remains in staging')
 })
-await admin(`/v1/admin/broadcasts/${encodeURIComponent(disabledId)}`, {
-  method: 'DELETE', headers: { 'If-Match': '"1"' }
-})
-await admin(`/v1/admin/assets/${encodeURIComponent(assetId)}`, { method: 'DELETE' })
-stagingQuery(`DELETE FROM installations WHERE install_id = '${installId}'`)
 
 const productionAfter = productionCount()
-if (productionBefore !== productionAfter) throw new Error('Production installation count changed during staging verification.')
+if (productionBefore !== productionAfter) cleanupErrors.push(new Error('Production installation count changed during staging verification.'))
+if (verificationError || cleanupErrors.length > 0) throw new AggregateError([...(verificationError ? [verificationError] : []), ...cleanupErrors], 'Relay staging verification or fixture cleanup failed.')
 
 const verificationPath = join(relayRoot, 'keys', 'staging-verification.json')
 mkdirSync(dirname(verificationPath), { recursive: true })

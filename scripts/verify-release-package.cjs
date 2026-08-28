@@ -1,7 +1,8 @@
 const { createHash } = require('node:crypto')
 const { spawnSync } = require('node:child_process')
-const { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, statSync } = require('node:fs')
+const { closeSync, existsSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync } = require('node:fs')
 const { join, relative } = require('node:path')
+const { tmpdir } = require('node:os')
 
 const root = join(__dirname, '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
@@ -21,6 +22,9 @@ const requiredFiles = [
   'Checksums/checksums.json',
   'Docs/release-manifest.json',
   'Docs/data-migration-and-storage.md',
+  'Docs/ffmpeg-build-provenance.json',
+  'Docs/avidae-ffmpeg-capabilities.json',
+  'Source/ffmpeg-corresponding-source-win64.tar.zst',
   'README.md',
   'version.json'
 ]
@@ -29,6 +33,45 @@ const failures = []
 
 function fail(message) {
   failures.push(message)
+}
+
+function inspectUpdateArchive() {
+  const archivePath = join(releaseRoot, 'Downloads', `Vast-${version}-update.zip`)
+  const result = spawnSync('powershell.exe', [
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', join(root, 'scripts', 'verify-update-archive.ps1'),
+    '-ArchivePath', archivePath, '-Version', version
+  ], {
+    cwd: root,
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 120_000
+  })
+  if (result.error || result.status !== 0) {
+    fail(`update ZIP structural verification failed: ${result.error?.message || String(result.stderr || result.stdout || '').trim()}`)
+    return undefined
+  }
+  try {
+    const report = JSON.parse(String(result.stdout || '').trim())
+    if (report.ok !== true || !Number.isSafeInteger(report.fileCount) || report.fileCount < 1) throw new Error('invalid archive report')
+    return report
+  } catch (error) {
+    fail(`could not parse update ZIP structural verification: ${error instanceof Error ? error.message : String(error)}`)
+    return undefined
+  }
+}
+
+function inspectFfmpegCompliance(runtimePath) {
+  const result = spawnSync(process.execPath, [
+    join(root, 'scripts', 'check-ffmpeg-release-compliance.cjs'),
+    '--root', join(root, '.vast-build', 'ffmpeg'),
+    '--runtime', runtimePath,
+    '--source-bundle', join(releaseRoot, 'Source', 'ffmpeg-corresponding-source-win64.tar.zst')
+  ], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 10 * 60_000, maxBuffer: 32 * 1024 * 1024 })
+  if (result.error || result.status !== 0) {
+    fail(`packaged FFmpeg compliance verification failed: ${result.error?.message || String(result.stderr || result.stdout || '').trim()}`)
+    return { verified: false }
+  }
+  return { verified: true }
 }
 
 function inspectElectronFuses(relativePath) {
@@ -161,6 +204,12 @@ function assertReleaseBuildMetadata() {
     if (metadata.obfuscationEnabled !== true) fail('packaged release metadata obfuscationEnabled must be true')
     if (metadata.releaseRepo !== 'vstxx/vast-public') fail('packaged release metadata releaseRepo must be vstxx/vast-public')
     if (metadata.releaseChannel === 'beta' && metadata.catAddonIncluded !== false) fail('packaged beta metadata must exclude Cat Addon')
+    if (metadata.releaseChannel === 'beta') {
+      if (metadata.relay?.enabled !== true) fail('packaged beta metadata must enable Relay')
+      if (metadata.relay?.environment !== 'staging') fail('packaged beta metadata Relay environment must be staging')
+      if (metadata.relay?.endpoint !== 'https://relay-staging.vastbrowser.com') fail('packaged beta metadata Relay endpoint must be staging')
+      if (metadata.relay?.keyId !== 'relay-staging-2026-01') fail('packaged beta metadata must pin the staging Relay key')
+    }
     if (!/^[a-f0-9]{40}$/.test(expectedSourceCommit)) fail('public distribution verification requires VAST_RELEASE_COMMIT')
     if (metadata.sourceCommit !== expectedSourceCommit) fail('packaged release metadata sourceCommit does not match VAST_RELEASE_COMMIT')
     const expectedSignaturePolicy = publicUnsignedBeta ? 'unsigned-public-beta' : 'authenticode-signed'
@@ -178,7 +227,9 @@ function assertReleaseBuildMetadata() {
     signaturePolicy: metadata.signaturePolicy,
     noticesEnabled: metadata.noticesEnabled === true,
     noticesFeedOrigin: metadata.noticesFeedOrigin,
-    noticesKeyId: metadata.noticesKeyId
+    noticesKeyId: metadata.noticesKeyId,
+    catAddonIncluded: metadata.catAddonIncluded === true,
+    relay: metadata.relay
   }
 }
 
@@ -275,6 +326,7 @@ function inspectAuthenticode(relativePath) {
 }
 
 for (const relativePath of requiredFiles) assertFile(relativePath)
+const updateArchive = inspectUpdateArchive()
 assertWindowsExe(`Installer/Vast-Setup-${version}.exe`)
 assertWindowsExe(`Installer/Vast-${version}-Portable.exe`)
 assertWindowsExe(`Updater/VastUpdater-${version}.exe`)
@@ -288,9 +340,114 @@ const authenticode = {
   runtime: inspectAuthenticode(`Vast-${version}/win-unpacked/Vast.exe`)
 }
 
+const forbiddenBundledExtensionAsset = /(?:^|\/)(?:cat-addon|first-party-extensions\/idu-plus)(?:[-.\/]|$)|Cat_85|IDU-Plus-by-Vast|IDU-Plus-screenshot|idu-plus-logo|Otfits Grotesk|Audex-Regular|Aligra\.woff2|\.vext$/i
+const forbiddenBundledExtensionSource = /cat-addon|Cat Addon|Cat_85|IDU-Plus-by-Vast|IDU-Plus-screenshot|idu-plus-logo|first-party-extensions[\\/]idu-plus/i
+const forbiddenBundledExtensionBinaryMarkers = [
+  'Cat_85',
+  'IDU-Plus-by-Vast',
+  'IDU-Plus-screenshot',
+  'idu-plus-logo',
+  'Otfits Grotesk',
+  'Audex-Regular',
+  'Aligra.woff2'
+]
+
+function inspectAsarForExcludedExtensions(appAsarPath, label) {
+  const asar = require('@electron/asar')
+  for (const entry of asar.listPackage(appAsarPath)) {
+    const portablePath = String(entry).replace(/\\/g, '/')
+    if (forbiddenBundledExtensionAsset.test(portablePath)) fail(`${label} contains forbidden bundled extension asset: ${portablePath}`)
+    if (/\.(?:c?js|mjs|html?|json|ya?ml)$/i.test(portablePath)) {
+      const source = asar.extractFile(appAsarPath, String(entry).replace(/^\\/, '')).toString('utf8')
+      if (forbiddenBundledExtensionSource.test(source)) fail(`${label} contains excluded extension runtime code in ${portablePath}`)
+    }
+  }
+}
+
+function inspectArtifactBytesForExcludedExtensions(artifact, label) {
+  const fd = openSync(artifact, 'r')
+  const chunk = Buffer.allocUnsafe(1024 * 1024)
+  let carry = Buffer.alloc(0)
+  let position = 0
+  try {
+    while (true) {
+      const bytesRead = readSync(fd, chunk, 0, chunk.length, position)
+      if (bytesRead === 0) break
+      position += bytesRead
+      const data = Buffer.concat([carry, chunk.subarray(0, bytesRead)])
+      const latin1 = data.toString('latin1').toLowerCase()
+      for (const marker of forbiddenBundledExtensionBinaryMarkers) {
+        if (latin1.includes(marker.toLowerCase()) || data.includes(Buffer.from(marker, 'utf16le'))) {
+          fail(`${label} contains forbidden bundled extension marker: ${marker}`)
+        }
+      }
+      carry = data.subarray(Math.max(0, data.length - 256))
+    }
+  } finally {
+    closeSync(fd)
+  }
+}
+
+function inspectReleaseArtifactForExcludedExtensions(relativePath, { extractionRequired = true } = {}) {
+  const artifact = join(releaseRoot, relativePath)
+  if (!existsSync(artifact)) return
+  inspectArtifactBytesForExcludedExtensions(artifact, relativePath)
+  const extractionRoot = mkdtempSync(join(tmpdir(), 'vast-release-exclusion-audit-'))
+  try {
+    const sevenZip = require('7zip-bin').path7za
+    const extraction = spawnSync(sevenZip, ['x', '-y', `-o${extractionRoot}`, artifact], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 10 * 60_000 })
+    if (extraction.error || extraction.status !== 0) {
+      if (extractionRequired) {
+        fail(`could not inspect ${relativePath} for excluded extension assets: ${extraction.error?.message || String(extraction.stderr || extraction.stdout).trim()}`)
+      }
+      return
+    }
+    for (const nestedArchive of listFiles(extractionRoot).filter((path) => /(?:app-\d+\.7z|\.zip)$/i.test(path))) {
+      const nestedRoot = `${nestedArchive}.expanded`
+      const nested = spawnSync(sevenZip, ['x', '-y', `-o${nestedRoot}`, nestedArchive], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 10 * 60_000 })
+      if (nested.error || nested.status !== 0) fail(`could not inspect nested archive in ${relativePath}: ${nested.error?.message || String(nested.stderr || nested.stdout).trim()}`)
+    }
+    for (const fullPath of listFiles(extractionRoot)) {
+      const portablePath = relative(extractionRoot, fullPath).replace(/\\/g, '/')
+      if (forbiddenBundledExtensionAsset.test(portablePath)) fail(`${relativePath} contains forbidden bundled extension asset: ${portablePath}`)
+      if (portablePath.endsWith('/resources/app.asar')) inspectAsarForExcludedExtensions(fullPath, relativePath)
+      if (/\.(?:json|ya?ml)$/i.test(portablePath) && statSync(fullPath).size <= 4 * 1024 * 1024) {
+        const text = readFileSync(fullPath, 'utf8')
+        if (/first-party-extensions[\\/]idu-plus|IDU-Plus-by-Vast|Cat_85|cat-addon/i.test(text)) fail(`${relativePath} contains excluded extension metadata in ${portablePath}`)
+      }
+    }
+  } finally {
+    rmSync(extractionRoot, { recursive: true, force: true })
+  }
+}
+
 const packagedResourcesRoot = join(releaseRoot, `Vast-${version}`, 'win-unpacked', 'resources')
-if (publicDistributionFromEnv && process.env.VAST_RELEASE_CHANNEL === 'beta' && existsSync(join(packagedResourcesRoot, 'cat-addon'))) {
-  fail('public beta package contains Cat Addon resources')
+const ffmpegCompliance = inspectFfmpegCompliance(join(packagedResourcesRoot, 'avidae-runtime'))
+const appUpdateConfigPath = join(packagedResourcesRoot, 'app-update.yml')
+if (!existsSync(appUpdateConfigPath)) fail('packaged runtime is missing resources/app-update.yml required by electron-updater')
+if (existsSync(appUpdateConfigPath)) {
+  const appUpdateConfig = readFileSync(appUpdateConfigPath, 'utf8')
+  if (!appUpdateConfig.includes('provider: github') || !appUpdateConfig.includes('owner: vstxx') || !appUpdateConfig.includes('repo: vast-public')) {
+    fail('packaged resources/app-update.yml does not target the approved public update repository')
+  }
+}
+const excludedBundledExtensionsRequired = publicDistributionFromEnv || packagedBuildMetadata?.catAddonIncluded === false
+if (excludedBundledExtensionsRequired && existsSync(join(packagedResourcesRoot, 'cat-addon'))) {
+  fail('distribution package contains Cat Addon resources while the capability is disabled')
+}
+if (excludedBundledExtensionsRequired) {
+  for (const fullPath of listFiles(join(releaseRoot, `Vast-${version}`))) {
+    const portablePath = relative(releaseRoot, fullPath).replace(/\\/g, '/')
+    if (forbiddenBundledExtensionAsset.test(portablePath)) fail(`distribution contains forbidden bundled extension asset: ${portablePath}`)
+  }
+  const appAsarPath = join(packagedResourcesRoot, 'app.asar')
+  if (existsSync(appAsarPath)) {
+    try { inspectAsarForExcludedExtensions(appAsarPath, 'public app.asar') } catch (error) { fail(`could not audit app.asar for Cat Addon and IDU+: ${error instanceof Error ? error.message : String(error)}`) }
+  }
+  for (const artifact of [`Installer/Vast-Setup-${version}.exe`, `Installer/Vast-${version}-Portable.exe`, `Downloads/Vast-${version}-update.zip`]) {
+    inspectReleaseArtifactForExcludedExtensions(artifact)
+  }
+  inspectReleaseArtifactForExcludedExtensions(`Updater/VastUpdater-${version}.exe`, { extractionRequired: false })
 }
 if (publicDistributionFromEnv && existsSync(join(releaseRoot, 'INTERNAL-UNSIGNED.md'))) {
   fail('public distribution contains the internal unsigned marker')
@@ -405,6 +562,8 @@ const report = {
   packagedBuildMetadata,
   obfuscation,
   electronFuses,
+  ffmpegCompliance,
+  updateArchive,
   authenticode,
   failures
 }

@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 1,
+  "ffmpegVersion": "9.0.1",
+  "ffmpegCommit": "bf1b838f2ab88b4f8fd83443325c782ea0e0f7fa",
+  "licenseMode": "gpl-3.0-or-later",
+  "buildTarget": "win64-ucrt",
+  "sourceDateEpoch": 1786492800,
+  "configuration": [
+    "--prefix={BUILD_ROOT}/prefix",
+    "--arch=x86_64",
+    "--target-os=mingw32",
+    "--enable-gpl",
+    "--enable-version3",
+    "--enable-static",
+    "--disable-shared",
+    "--disable-autodetect",
+    "--disable-debug",
+    "--disable-doc",
+    "--disable-ffplay",
+    "--enable-ffmpeg",
+    "--enable-ffprobe",
+    "--enable-schannel",
+    "--enable-libx264",
+    "--enable-libvpx",
+    "--enable-libopus",
+    "--enable-libvorbis",
+    "--enable-libmp3lame",
+    "--pkg-config-flags=--static"
+  ],
+  "buildToolchain": {
+    "environment": "MSYS2 UCRT64",
+    "installerVersion": "2026-06-11",
+    "installerUrl": "https://github.com/msys2/msys2-installer/releases/download/2026-06-11/msys2-base-x86_64-20260611.sfx.exe",
+    "installerSha256": "c105946e64e08f099ac0e4647461ce762b95333ad211777666476a9a41451d65",
+    "gcc": "16.2.0",
+    "binutils": "2.47",
+    "make": "4.4.1",
+    "nasm": "2.16.03",
+    "pkgconf": "3.0.5",
+    "correspondingSources": [
+      {
+        "component": "GCC and GCC runtime libraries",
+        "baseUrl": "https://repo.msys2.org/mingw/sources/",
+        "archive": "mingw-w64-gcc-16.2.0-3.src.tar.zst",
+        "sha256": "eb3479a8b0b23810fbbbc25ef76879e867e88d09960a40145d73f5505fda4da0",
+        "signature": "mingw-w64-gcc-16.2.0-3.src.tar.zst.sig",
+        "signatureSha256": "23eadeef893cb04d6c3408ca91e6b1c983a88e86c83329f9588c892f989c1ce2"
+      },
+      {
+        "component": "MinGW-w64 CRT",
+        "baseUrl": "https://repo.msys2.org/mingw/sources/",
+        "archive": "mingw-w64-crt-14.0.0.r302.gd7f3c5201-1.src.tar.zst",
+        "sha256": "acd30b60f92df870d649c79eafab65fd70c5501c88d1cf760dc57c64270946b4",
+        "signature": "mingw-w64-crt-14.0.0.r302.gd7f3c5201-1.src.tar.zst.sig",
+        "signatureSha256": "991becbeeccf80760e52011965651696a4f5bda4b522e541002283149095da60"
+      },
+      {
+        "component": "MinGW-w64 winpthreads",
+        "baseUrl": "https://repo.msys2.org/mingw/sources/",
+        "archive": "mingw-w64-winpthreads-14.0.0.r302.gd7f3c5201-1.src.tar.zst",
+        "sha256": "f3375ec5a49a45502840dd50ebf8f2c5a86efdd649acebb920134b9b02e3af9d",
+        "signature": "mingw-w64-winpthreads-14.0.0.r302.gd7f3c5201-1.src.tar.zst.sig",
+        "signatureSha256": "6c51ba8dadc992b16a44e7d2bda4ed36f0c2261b405f2c7953ef800650254864"
+      }
+    ],
+    "packages": [
+      { "baseUrl": "https://repo.msys2.org/msys/x86_64/", "archive": "diffutils-3.12-1-x86_64.pkg.tar.zst", "sha256": "7902c8ce3d4dd69a0f5e98dc9d5c83c17b23314ba486169db57ef6e2835ce3b6" },
+      { "baseUrl": "https://repo.msys2.org/msys/x86_64/", "archive": "make-4.4.1-3-x86_64.pkg.tar.zst", "sha256": "af0bdba17f06fe037f0194069adaa31a8fe45f1a11381501896aea1fae37bd5d" },
+      { "baseUrl": "https://repo.msys2.org/msys/x86_64/", "archive": "nasm-2.16.03-1-x86_64.pkg.tar.zst", "sha256": "e5f54d79b94c0290579c20d092603dc97289887ba1c281ac0af88626bfbf1cab" },
+      { "baseUrl": "https://repo.msys2.org/msys/x86_64/", "archive": "pkgconf-3.0.5-1-x86_64.pkg.tar.zst", "sha256": "40dfc37c4fed31b7bf2fe55f11299884e3120025d27f61255ad1a1c8b890aece" },
+      { "baseUrl": "https://repo.msys2.org/mingw/ucrt64/", "archive": "mingw-w64-ucrt-x86_64-binutils-2.47-3-any.pkg.tar.zst", "sha256": "ba98af202fe71e0884bb51daf78ce10bd8a51c69528c700dcf5855e6ece06dd3" },
+      { "baseUrl": "https://repo.msys2.org/mingw/ucrt64/", "archive": "mingw-w64-ucrt-x86_64-gettext-runtime-1.0-1-any.pkg.tar.zst", "sha256": "ba693dda4ac375af76ce481ff3a6e7481286546cc7dc6d56c7021dae34084157" },
+      { "baseUrl": "https://repo.msys2.org/mingw/ucrt64/", "archive": "mingw-w64-ucrt-x86_64-gcc-libs-16.2.0-3-any.pkg.tar.zst", "sha256": "5763fabf86fa13a4449ee765006d3446384ed66af7bf827459710eb777e0b11c" },
+      { "baseUrl": "https://repo.msys2.org/mingw/ucrt64/", "archive": "mingw-w64-ucrt-x86_64-libwinpthread-14.0.0.r302.gd7f3c5201-1-any.pkg.tar.zst", "sha256": "585a24715e00130e4973a6f4806a0c728443ff035f7c78b0683974474424b30f" },
+      { "baseUrl": "https://repo.msys2.org/mingw/ucrt64/", "archive": "mingw-w64-ucrt-x86_64-tzdata-2026c-1-any.pkg.tar.zst", "sha256": "b6af6fd6acb676b9bb0761b75b1d8330b89abd4c8d467fda35cee8925b170db9" },
+      { "baseUrl": "https://repo.msys2.org/mingw/ucrt64/", "archive": "mingw-w64-ucrt-x86_64-libiconv-1.19-1-any.pkg.tar.zst", "sha256": "9a500f38c2b91808741c62fae746b3e9110b33a1ecf5c30fa0c66dbedddf7e16" },
+      { "baseUrl": "https://repo.msys2.org/mingw/ucrt64/", "archive": "mingw-w64-ucrt-x86_64-zlib-1.3.2-2-any.pkg.tar.zst", "sha256": "841401182976d2f9e17e5c0ebaac51f2a8014140ea53d67625e91c8fb3c85ea0" },
+      { "baseUrl": "https://repo.msys2.org/mingw/ucrt64/", "archive": "mingw-w64-ucrt-x86_64-zstd-1.5.7-2-any.pkg.tar.zst", "sha256": "dbdb8427280046a2b41697780aa4c52983b708082b0da4755951dc3bea96ca89" },
+      { "baseUrl": "https://repo.msys2.org/mingw/ucrt64/", "archive": "mingw-w64-ucrt-x86_64-crt-14.0.0.r302.gd7f3c5201-1-any.pkg.tar.zst", "sha256": "04ace41d87f21e48f395029b0fad3c8abd57f88fcc41009dc3f83a5be3dc6b13" },
+      { "baseUrl": "https://repo.msys2.org/mingw/ucrt64/", "archive": "mingw-w64-ucrt-x86_64-headers-14.0.0.r302.gd7f3c5201-1-any.pkg.tar.zst", "sha256": "9ab48d7877bf1e3040b2b3cdd933b0c3a0eff92f48cfebd1add2c2fb04629935" },
+      { "baseUrl": "https://repo.msys2.org/mingw/ucrt64/", "archive": "mingw-w64-ucrt-x86_64-isl-0.28-1-any.pkg.tar.zst", "sha256": "8594e01a253d5a72646c586cf5a1626c1b1c2be7c30060fe67abd9bebe3fe223" },
+      { "baseUrl": "https://repo.msys2.org/mingw/ucrt64/", "archive": "mingw-w64-ucrt-x86_64-gmp-6.3.0-2-any.pkg.tar.zst", "sha256": "e82a75968a556484a50084578238a84eb60fb93e34986fd6695c537975bd39ea" },
+      { "baseUrl": "https://repo.msys2.org/mingw/ucrt64/", "archive": "mingw-w64-ucrt-x86_64-mpfr-4.2.2-3-any.pkg.tar.zst", "sha256": "6b70a275d2ec75c70aa50a236c218e6b7ee9a5ab4c6d52cb0b580267b7d200fe" },
+      { "baseUrl": "https://repo.msys2.org/mingw/ucrt64/", "archive": "mingw-w64-ucrt-x86_64-mpc-1.4.1-1-any.pkg.tar.zst", "sha256": "f06556e811c711ce91609484e31d358e4f495811ba29813bf2284a3b236d82ce" },
+      { "baseUrl": "https://repo.msys2.org/mingw/ucrt64/", "archive": "mingw-w64-ucrt-x86_64-windows-default-manifest-20260815-1-any.pkg.tar.zst", "sha256": "b39039f754a600cc0dec49df7d675a59a3cb2b63691d91b4ae60735ee7075eca" },
+      { "baseUrl": "https://repo.msys2.org/mingw/ucrt64/", "archive": "mingw-w64-ucrt-x86_64-winpthreads-14.0.0.r302.gd7f3c5201-1-any.pkg.tar.zst", "sha256": "c64f7e3e2370cffe40c34c485dcd8cc1834fbf471511b0d0b771962548e9e540" },
+      { "baseUrl": "https://repo.msys2.org/mingw/ucrt64/", "archive": "mingw-w64-ucrt-x86_64-gcc-16.2.0-3-any.pkg.tar.zst", "sha256": "1cd86e5817f6e0d7310d7cb2bb91f4a55e1256cb4ce580a0c5f2a74e013d144d" }
+    ]
+  },
+  "sources": [
+    {
+      "id": "ffmpeg",
+      "version": "9.0.1",
+      "commit": "bf1b838f2ab88b4f8fd83443325c782ea0e0f7fa",
+      "url": "https://ffmpeg.org/releases/ffmpeg-9.0.1.tar.xz",
+      "archive": "ffmpeg-9.0.1.tar.xz",
+      "sha256": "cf38e0e28c7e5605942c4a77755349b0145804a397af37eb1fb4c77cb237f635",
+      "license": "GPL-3.0-or-later when built with --enable-gpl and --enable-version3"
+    },
+    {
+      "id": "x264",
+      "sourceType": "git",
+      "version": "0.165.x",
+      "commit": "b35605ace3ddf7c1a5d67a2eb553f034aef41d55",
+      "tree": "0700538866963f968154ea768289bf100350e84e",
+      "url": "https://code.videolan.org/videolan/x264.git",
+      "archive": "x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar",
+      "sha256": "38d34b2799fa1cdba95cd79e212449dabde3631a5207b1402a1099d2c511164c",
+      "license": "GPL-2.0-or-later"
+    },
+    {
+      "id": "libvpx",
+      "version": "1.15.2",
+      "commit": "16fc99a350efdcf12e795e89cf237118c424e3af",
+      "url": "https://github.com/webmproject/libvpx/archive/refs/tags/v1.15.2.tar.gz",
+      "archive": "libvpx-1.15.2.tar.gz",
+      "sha256": "26fcd3db88045dee380e581862a6ef106f49b74b6396ee95c2993a260b4636aa",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "id": "opus",
+      "version": "1.5.2",
+      "commit": "5ec2f3c915d0529b94a3a302969c673531654824",
+      "url": "https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz",
+      "archive": "opus-1.5.2.tar.gz",
+      "sha256": "65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "id": "libogg",
+      "version": "1.3.6",
+      "commit": "db03f952b25717fd5c4938817c9290837a4ae1b2",
+      "url": "https://downloads.xiph.org/releases/ogg/libogg-1.3.6.tar.xz",
+      "archive": "libogg-1.3.6.tar.xz",
+      "sha256": "5c8253428e181840cd20d41f3ca16557a9cc04bad4a3d04cce84808677fa1061",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "id": "libvorbis",
+      "version": "1.3.7",
+      "commit": "0c55fa38933fd4bdb7db7c298b27e7bf2f2c5e98",
+      "url": "https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.xz",
+      "archive": "libvorbis-1.3.7.tar.xz",
+      "sha256": "b33cc4934322bcbf6efcbacf49e3ca01aadbea4114ec9589d1b1e9d20f72954b",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "id": "lame",
+      "version": "3.100",
+      "url": "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz",
+      "archive": "lame-3.100.tar.gz",
+      "sha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e",
+      "license": "LGPL-2.0-or-later"
+    }
+  ]
+}

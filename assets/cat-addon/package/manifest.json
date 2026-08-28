@@ -1,0 +1,28 @@
+{
+  "id": "com.vast.cat-addon",
+  "name": "Cat Addon",
+  "version": "2.0.0",
+  "api_version": 2,
+  "minimum_vast_version": "0.1.4",
+  "canonical_character": "Cat_Grey_White",
+  "license_status": "unverified-release-blocker",
+  "animations": {
+    "path": "animations/animations.json",
+    "size": 65251,
+    "sha256": "ce434e88d4714e6a3d982ef896a0b50c48f8746400a7c21d2b09ede6c4c8ca3b"
+  },
+  "assets": [
+    {
+      "path": "assets/cat_grey_white.png",
+      "role": "runtime-atlas",
+      "mime_type": "image/png",
+      "width": 512,
+      "height": 608,
+      "frame_width": 32,
+      "frame_height": 32,
+      "frames": 294,
+      "size": 26528,
+      "sha256": "f0336e2b9cd188344957461fa949cbeb1238b66b7498230d02e495b4fb3336f7"
+    }
+  ]
+}

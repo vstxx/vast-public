@@ -21,7 +21,8 @@ function checkinRequest(installId: string, launchCount: number, version = '0.1.4
     protocol: 1,
     install_id: installId,
     current_version: version,
-    launch_count: launchCount
+    launch_count: launchCount,
+    instance_kind: 'test'
   })
 }
 
@@ -57,7 +58,7 @@ describe('installation check-ins', () => {
     const second = await handleCheckin(checkinRequest(id, 4, '0.1.5'), publicBindings(), secondNow)
     expect(second.status).toBe(200)
     const row = await publicBindings().DB.prepare(`
-      SELECT install_id, current_version, first_seen, last_seen, launch_count
+      SELECT install_id, current_version, first_seen, last_seen, launch_count, instance_kind
       FROM installations WHERE install_id = ?
     `).bind(id).first<{
       install_id: string
@@ -65,13 +66,15 @@ describe('installation check-ins', () => {
       first_seen: number
       last_seen: number
       launch_count: number
+      instance_kind: string
     }>()
     expect(row).toEqual({
       install_id: id,
       current_version: '0.1.5',
       first_seen: firstNow,
       last_seen: secondNow,
-      launch_count: 12
+      launch_count: 12,
+      instance_kind: 'test'
     })
   })
 

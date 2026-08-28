@@ -54,11 +54,13 @@ test('diagnostics and build metadata contain no product tier or entitlement fiel
 
 test('single-product package scripts have no free or pro distribution branch', () => {
   const packageJson = JSON.parse(read('package.json'))
+  const buildApp = read('scripts/build-app.cjs')
   assert.equal(packageJson.scripts['build:free'], undefined)
   assert.equal(packageJson.scripts['dist:free'], undefined)
   assert.equal(packageJson.scripts['dist:free-upgrader'], undefined)
-  assert.match(packageJson.scripts.build, /electron-vite build/)
-  assert.match(packageJson.scripts.build, /write-release-build-metadata\.cjs/)
+  assert.match(packageJson.scripts.build, /build-app\.cjs/)
+  assert.match(buildApp, /electron-vite.*build/s)
+  assert.match(buildApp, /write-release-build-metadata\.cjs/)
   assert.match(packageJson.scripts.dist, /electron-builder/)
   assert.match(packageJson.scripts['dist:upgrader'], /build-release\.cjs/)
 })

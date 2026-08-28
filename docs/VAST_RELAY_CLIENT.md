@@ -12,8 +12,9 @@ The only request body is:
 {
   "protocol": 1,
   "install_id": "random UUIDv4",
-  "current_version": "0.1.5",
-  "launch_count": 1
+  "current_version": "0.2.5",
+  "launch_count": 1,
+  "instance_kind": "packaged"
 }
 ```
 

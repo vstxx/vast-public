@@ -27,6 +27,9 @@ export interface SettingsSearchResult extends SettingsSearchEntry {
   matchedAlias?: string
 }
 
+declare const __VAST_CAT_ADDON_AVAILABLE__: boolean
+const CAT_ADDON_AVAILABLE = typeof __VAST_CAT_ADDON_AVAILABLE__ !== 'undefined' && __VAST_CAT_ADDON_AVAILABLE__
+
 const groups: Record<SettingsSearchSectionId, readonly SearchDefinition[]> = {
   Appearance: [
     ['Appearance', 'display look visuals wyglad wygląd interfejs'],
@@ -57,7 +60,7 @@ const groups: Record<SettingsSearchSectionId, readonly SearchDefinition[]> = {
     ['Opening sound', 'startup audio launch sound dzwiek startowy'],
     ['Bookmarks bar', 'favorites bar pasek zakladek ulubione'],
     ['Show bookmarks bar only on New Tab', 'new tab favorites only zakladki tylko nowa karta'],
-    ['Cat Addon', 'cat pet kot dodatek'],
+    ...(CAT_ADDON_AVAILABLE ? [['Cat Addon', 'cat pet kot dodatek'] as const] : []),
     ['Visual style', 'window effects appearance style styl wizualny']
   ],
   Advanced: [

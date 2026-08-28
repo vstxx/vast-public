@@ -1,5 +1,5 @@
 import { VAST_DEFAULT_WEBVIEW_PARTITION } from './oauth.ts'
-import type { Workspace, WorkspaceIdentitySettings } from './types'
+import type { Workspace, WorkspaceIdentitySettings } from './types.ts'
 
 export const DEFAULT_WORKSPACE_IDENTITY: WorkspaceIdentitySettings = {
   sessionMode: 'isolated',

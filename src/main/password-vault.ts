@@ -13,7 +13,7 @@ import type {
 } from '../shared/types'
 import type { PasswordLoginCandidate } from '../shared/password-capture-policy'
 import { automaticPasswordCaptureOrigin, classifyPasswordCapture, normalizedCredentialUsername, sanitizePasswordLoginCandidate } from '../shared/password-capture-policy'
-import { parsePasswordImportCsv } from '../shared/password-csv'
+import { parsePasswordImportCsv, passwordCsvCell } from '../shared/password-csv'
 import { autofillRequestMatchesWebContents } from './autofill-binding'
 import { dataFilePath } from './data-path'
 import { requestRendererPrompt, showRendererNotification } from './ui-bridge'
@@ -708,11 +708,6 @@ export async function promptToSaveCapturedLogin(
   }
 }
 
-function csvCell(value: string | number | undefined): string {
-  const text = String(value ?? '')
-  return `"${text.replace(/"/g, '""')}"`
-}
-
 export async function importPasswordsCsv(mainWindow: BrowserWindow): Promise<{ imported: number; skipped: number }> {
   ensureEncryptionAvailable()
   let filePath = !app.isPackaged ? process.env.VAST_TEST_PASSWORD_IMPORT_CSV : undefined
@@ -781,11 +776,11 @@ export async function exportPasswordsCsv(mainWindow: BrowserWindow): Promise<{ p
   for (const record of vault.records) {
     lines.push(
       [
-        csvCell(record.title),
-        csvCell(record.origin),
-        csvCell(decryptUsername(record)),
-        csvCell(decryptPassword(record)),
-        csvCell(decryptNotes(record))
+        passwordCsvCell(record.title),
+        passwordCsvCell(record.origin),
+        passwordCsvCell(decryptUsername(record)),
+        passwordCsvCell(decryptPassword(record)),
+        passwordCsvCell(decryptNotes(record))
       ].join(',')
     )
   }

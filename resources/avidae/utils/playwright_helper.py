@@ -5,16 +5,36 @@ import config
 from security import is_public_url, resolve_public_url
 
 
-def _find_chrome_for_testing():
-    """Locate Chrome for Testing binary installed by Playwright."""
-    local_app = os.path.join(os.path.expanduser("~"), "AppData", "Local", "ms-playwright")
-    if os.path.isdir(local_app):
-        for d in sorted(os.listdir(local_app), reverse=True):
-            if d.startswith("chromium-"):
-                exe = os.path.join(local_app, d, "chrome-win64", "chrome.exe")
-                if os.path.isfile(exe):
-                    return exe
-    return None
+def _is_inside(root, target):
+    try:
+        return os.path.commonpath([os.path.realpath(root), os.path.realpath(target)]) == os.path.realpath(root)
+    except (OSError, ValueError):
+        return False
+
+
+def resolve_bundled_chromium(playwright=None):
+    """Resolve the one full Chromium binary permitted for this runtime."""
+    configured = os.environ.get("VAST_AVIDAE_CHROMIUM_PATH", "").strip()
+    browsers_root = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "").strip()
+    bundled = os.environ.get("VAST_AVIDAE_BUNDLED_RUNTIME") == "1"
+
+    if configured:
+        candidate = os.path.realpath(configured)
+        if not os.path.isabs(configured) or not os.path.isfile(candidate):
+            raise RuntimeError("Verified bundled Chromium is missing")
+        if bundled and (not browsers_root or not _is_inside(browsers_root, candidate)):
+            raise RuntimeError("Verified bundled Chromium is outside the Playwright runtime")
+        return candidate
+
+    if bundled:
+        raise RuntimeError("Packaged Video & Audio requires an explicitly verified Chromium executable")
+
+    if playwright is not None:
+        candidate = os.path.realpath(playwright.chromium.executable_path)
+        if os.path.isfile(candidate):
+            return candidate
+
+    raise RuntimeError("Full Playwright Chromium is not installed for development")
 
 
 async def create_browser_context(playwright, resolution="1920x1080", headless=None,
@@ -23,22 +43,21 @@ async def create_browser_context(playwright, resolution="1920x1080", headless=No
         headless = config.HEADLESS
     w, h = resolution.split("x")
 
-    launch_kwargs = dict(
-        headless=headless,
-        args=[
-            "--headless=new",
+    browser_path = resolve_bundled_chromium(playwright)
+    launch_args = [
             "--disable-blink-features=AutomationControlled",
             "--no-sandbox",
             "--disable-dev-shm-usage",
             "--autoplay-policy=no-user-gesture-required",
             f"--window-size={w},{h}",
         ]
+    if headless:
+        launch_args.insert(0, "--headless=new")
+    launch_kwargs = dict(
+        headless=False,
+        executable_path=browser_path,
+        args=launch_args,
     )
-    # Prefer Chrome for Testing (new headless mode) over the headless shell
-    # to avoid Cloudflare and similar bot-detection challenges.
-    chrome_path = _find_chrome_for_testing()
-    if chrome_path:
-        launch_kwargs["executable_path"] = chrome_path
 
     browser = await playwright.chromium.launch(**launch_kwargs)
 

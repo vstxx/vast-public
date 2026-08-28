@@ -53,6 +53,11 @@ The installation registry contains only:
 - `current_version`: actual running Vast version;
 - `first_seen` and `last_seen`: server timestamps;
 - `launch_count`: local cumulative application-launch count.
+- `instance_kind`: `packaged`, `development`, `test`, or `unknown` for an older client.
+
+Test cleanup must always target `WHERE instance_kind = 'test'` and must be
+preceded by a remote D1 export. Never truncate `installations` and never infer a
+test instance from its age, launch count, UUID, or version.
 
 It does not contain IP, location, hardware/device identifiers, MAC address,
 hostname, username, account identity, email, browsing history, URLs, searches,

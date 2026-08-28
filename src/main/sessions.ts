@@ -116,6 +116,7 @@ const directAuthOpeners = new Set<number>()
 let securitySettings: (() => BrowserSettings) | undefined
 let securityDataSaved: ((data: PersistedData) => void) | undefined
 let sessionSecurityListenersRegistered = false
+let sessionConfigurationListenerRegistered = false
 let cleanDefaultUserAgent = ''
 let nativeDefaultUserAgent = ''
 let constructingAuthWindowContext: OAuthPopupWindowContext | undefined
@@ -735,10 +736,15 @@ function configureSecurityHeaders(targetSession: Session): void {
 
   targetSession.webRequest.onHeadersReceived((details, callback) => {
     const responseHeaders = details.responseHeaders ?? {}
-    const isInternalResponse =
-      details.url.startsWith('file:') ||
-      details.url.startsWith('http://localhost:') ||
-      details.url.startsWith('http://127.0.0.1:')
+    // App chrome headers must never be injected into a website merely because
+    // it is hosted on loopback. Vast supports local web apps and control panels;
+    // their CSP belongs to the site. Trust only the exact packaged renderer file
+    // or the configured Vite renderer origin in development.
+    const isInternalResponse = isTrustedRendererUrl(details.url, {
+      isPackaged: app.isPackaged,
+      rendererUrl: process.env.ELECTRON_RENDERER_URL,
+      packagedRendererPath: join(__dirname, '../renderer/index.html')
+    })
 
     const settings = currentSecuritySettings()
     const authWindow = typeof details.webContentsId === 'number' && authCompatibilityWebContents.has(details.webContentsId)
@@ -1182,26 +1188,39 @@ function installWindowOpenRouting(contents: Electron.WebContents): void {
 export function setupWindowSecurity(
   mainWindow: BrowserWindow,
   getSettings: () => BrowserSettings,
-  onDataSaved?: (data: PersistedData) => void
+  onDataSaved?: (data: PersistedData) => void,
+  extensionManager?: Pick<import('./extensions/extension-manager').ExtensionManager, 'ensureForPartition' | 'authorizeSurfaceAttachment' | 'bindPreparedSurface' | 'isAllowedSurfaceNavigation'>
 ): void {
   securitySettings = getSettings
   securityDataSaved = onDataSaved
-  for (const targetSession of persistentBrowserSessions()) {
-    configurePermissionsForSession(targetSession)
-    configureDisplayMediaForSession(targetSession)
-    configureSecurityHeaders(targetSession)
-  }
+  prepareBrowserSessionSecurity(getSettings)
+  const pendingExtensionSurfaces: Array<{ partition: string; token: string }> = []
 
   mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
     const src = typeof params.src === 'string' ? params.src : ''
-    if (src && !isSafeWebUrl(src)) {
+    const partition = typeof params.partition === 'string' ? params.partition : ''
+    const extensionSurfaceCandidate = src.startsWith('vast-extension://') || src.startsWith('chrome-extension://')
+    const extensionSurface = extensionSurfaceCandidate && partition ? extensionManager?.authorizeSurfaceAttachment(src, partition) : undefined
+    if (src && !isSafeWebUrl(src) && !extensionSurface) {
       event.preventDefault()
       return
     }
 
+    if (partition && extensionManager && !extensionSurface) {
+      void extensionManager.ensureForPartition(partition).catch((error) => {
+        console.warn(`[extensions] Could not prepare a workspace session: ${error instanceof Error ? error.message : String(error)}`)
+      })
+    }
+
     // Replace any renderer-supplied preload with Vast's narrowly scoped,
     // event-only autofill bridge. It exposes no Node or main-renderer API.
-    webPreferences.preload = join(__dirname, '../preload/guest-autofill.js')
+    if (extensionSurface) {
+      if (extensionSurface.preload) webPreferences.preload = extensionSurface.preload
+      else delete webPreferences.preload
+      webPreferences.additionalArguments = [`--vast-extension-surface-token=${extensionSurface.token}`]
+      pendingExtensionSurfaces.push({ partition, token: extensionSurface.token })
+    }
+    else webPreferences.preload = join(__dirname, '../preload/guest-autofill.js')
     webPreferences.nodeIntegration = false
     webPreferences.contextIsolation = true
     webPreferences.sandbox = true
@@ -1210,6 +1229,12 @@ export function setupWindowSecurity(
     webPreferences.transparent = false
   })
   mainWindow.webContents.on('did-attach-webview', (_event, guestContents) => {
+    const preferences = (guestContents as Electron.WebContents & { getLastWebPreferences(): Electron.WebPreferences }).getLastWebPreferences()
+    const tokenArgument = preferences.additionalArguments?.find((value: string) => value.startsWith('--vast-extension-surface-token='))
+    const pendingIndex = pendingExtensionSurfaces.findIndex((pending) => guestContents.session === session.fromPartition(pending.partition))
+    const queuedToken = pendingIndex >= 0 ? pendingExtensionSurfaces.splice(pendingIndex, 1)[0]?.token : undefined
+    const token = tokenArgument?.slice('--vast-extension-surface-token='.length) ?? queuedToken
+    if (token && extensionManager?.bindPreparedSurface(guestContents, token)) return
     installWindowOpenRouting(guestContents)
   })
 
@@ -1298,6 +1323,7 @@ export function setupWindowSecurity(
     installWindowOpenRouting(contents)
 
     const guardWebNavigation = (event: Electron.Event, url: string): void => {
+      if (extensionManager?.isAllowedSurfaceNavigation(contents, url)) return
       const isWebviewGuest = !!(contents as Electron.WebContents & { hostWebContents?: unknown }).hostWebContents
       if (trustedInternalNavigationWebContents.has(contents.id)) {
         const protocol = protocolOf(url)
@@ -1387,6 +1413,17 @@ export function setupWindowSecurity(
     contents.on('will-redirect', guardWebNavigation)
   })
 
+}
+
+export function prepareBrowserSessionSecurity(getSettings: () => BrowserSettings): void {
+  securitySettings = getSettings
+  for (const targetSession of persistentBrowserSessions()) {
+    configurePermissionsForSession(targetSession)
+    configureDisplayMediaForSession(targetSession)
+    configureSecurityHeaders(targetSession)
+  }
+  if (sessionConfigurationListenerRegistered) return
+  sessionConfigurationListenerRegistered = true
   app.on('session-created', (targetSession) => {
     configurePermissionsForSession(targetSession)
     configureDisplayMediaForSession(targetSession)

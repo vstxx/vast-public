@@ -13,6 +13,13 @@ test('address draft survives blur and Escape explicitly restores the current URL
   assert.match(addressBarSource, /setValue\(activeTab \? addressValueForTab\(activeTab\.url\) : ''\)/)
 })
 
+test('address submissions keep the literal draft unless a suggestion was explicitly chosen', () => {
+  assert.match(addressBarSource, /useState\(-1\)/)
+  assert.match(addressBarSource, /selectedSuggestion >= 0 \? suggestions\[selectedSuggestion\] : undefined/)
+  assert.match(addressBarSource, /runtime\.navigateActive\(suggestion\?\.url \?\? value\)/)
+  assert.doesNotMatch(addressBarSource, /onMouseEnter=\{\(\) => setSelectedSuggestion/)
+})
+
 test('full notes page owns a height-constrained vertical scroll container', () => {
   assert.match(notesSource, /data-testid="notes-page"/)
   assert.match(notesSource, /h-full min-h-0 overflow-y-auto overflow-x-hidden/)

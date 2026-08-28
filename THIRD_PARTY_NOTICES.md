@@ -13,6 +13,7 @@ The locked npm dependency tree contains permissive licenses including MIT, ISC, 
 | `pdfjs-dist` | Apache-2.0 | Retain its license and applicable notices. |
 | React / React DOM / Zustand / Electron Toolkit / electron-updater | MIT | Retain copyright and license notices. |
 | Lucide React / semver | ISC | Retain copyright and license notices. |
+| `fflate` | MIT | Retain its copyright and MIT license notice; used for bounded ZIP deflate/inflate after Vast's own strict ZIP validation. |
 
 The authoritative versions are pinned in `package-lock.json`. `node_modules` is not committed.
 
@@ -31,16 +32,16 @@ Public Windows packages can bundle a generated Python/Playwright/media runtime. 
 | yt-dlp | Unlicense | Preserve the supplied license file. |
 | bidict | MPL-2.0 | Preserve its file-level MPL notice and make modified MPL-covered files available when required. It does not relicense unrelated Vast source. |
 | PyInstaller | GPL-2.0-or-later with the PyInstaller bootloader exception | Used as build tooling. The exception permits generated executables to use the application's license, subject to licenses of bundled dependencies. |
-| Gyan FFmpeg full build (`ffmpeg.exe`, `ffprobe.exe`) | GPLv3 | These are separate executables. Distributions must include the GPL text, build/configuration information, and the complete corresponding source set for the exact binary build—including covered linked components/build scripts as applicable—using a GPL-compliant delivery method. |
+| Vast self-built FFmpeg 9.0.1 (`ffmpeg.exe`, `ffprobe.exe`) with x264, libvpx, Opus, libogg, libvorbis and LAME | GPLv3 overall; component and compiler-runtime licenses are inventoried with the runtime | These are separate executables. Public distributions include license texts and publish the hash-bound complete corresponding-source archive, including signed sources/package recipes for linked compiler runtime code, beside the binary assets. |
 
-FFmpeg's GPL terms apply to the Gyan FFmpeg executables; they do not change the license of Vast-owned source merely because Vast launches those executables as separate processes. This distinction does not remove FFmpeg redistribution obligations.
+FFmpeg's GPL terms apply to the self-built FFmpeg executables; they do not change the license of Vast-owned source merely because Vast launches those executables as separate processes. This distinction does not remove FFmpeg redistribution obligations. Exact build and source provenance is in `third_party/ffmpeg/ffmpeg-build.lock.json` and the release's `ffmpeg-build-provenance.json`.
 
 ## Chromium-port overlay
 
 `chromium-port/` contains Vast-authored patches and tooling for an experimental open Chromium build. Applying those patches creates a combined Chromium source/build tree governed by Chromium's BSD-style license and the many third-party licenses recorded by Chromium, in addition to the MIT terms for Vast-owned additions. A staged Chromium package must include `LICENSE.chromium.txt` and Chromium's generated credits.
 
-## Cat Addon artwork excluded from this export
+## Cat Addon asset blocker
 
-The original Cat Addon artwork had no recorded author, source URL, license, or redistribution grant. It and all derived atlases/packages are intentionally absent from this public repository. The surrounding Vast-owned implementation and asset-building tools remain available for review. Do not add the former artwork back unless VastProductions obtains and records a compatible grant; use a properly licensed replacement instead.
+`assets/cat-addon/Cat_85_Animations.zip` and derived Cat Addon pixel assets currently have no recorded author, source URL, license, or redistribution grant. The repository must not be made public, and those assets must not be distributed, until VastProductions obtains and records a compatible grant or replaces/removes them with assets whose provenance permits publication. The root MIT License does not cover or cure this missing grant.
 
 See [docs/OPEN_SOURCE_LICENSE_AUDIT.md](docs/OPEN_SOURCE_LICENSE_AUDIT.md) for the decision record and current blockers.

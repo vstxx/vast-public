@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "version": "0.2.5",
+  "sourceCommit": "d5964bb7f171f3c4f7aa038059e46e8e3482c9a0",
+  "exportedAt": "2026-08-28T14:16:28.947Z",
+  "exclusions": [
+    "/^\\.github\\/workflows\\/hub-staging-edge\\.yml$/",
+    "/^artifacts\\//",
+    "/^resources\\/first-party-extensions\\/idu-plus\\//",
+    "/^docs\\/GIT_HISTORY_PRIVACY_REWRITE\\.md$/",
+    "/^relay\\/keys\\/staging-verification\\.json$/"
+  ]
+}

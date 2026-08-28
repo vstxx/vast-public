@@ -6,7 +6,7 @@ on:
       expected_version:
         description: Exact package version to publish as an unsigned prerelease
         required: true
-        default: 0.1.5
+        default: 0.2.5
         type: string
       risk_ack:
         description: Type I_ACCEPT_UNSIGNED_PUBLIC_BETA_RISK
@@ -23,7 +23,7 @@ concurrency:
 jobs:
   build-verify-publish:
     runs-on: windows-latest
-    timeout-minutes: 120
+    timeout-minutes: 240
     environment: public-release
     env:
       VAST_RELEASE_CHANNEL: beta
@@ -31,18 +31,16 @@ jobs:
       VAST_PUBLIC_UNSIGNED_BETA: '1'
       VAST_UNSIGNED_BETA_ACK: ${{ inputs.risk_ack }}
       VAST_RELEASE_REPO: vstxx/vast-public
-      VAST_PREVIOUS_VERSION: 0.1.4
+      VAST_PREVIOUS_VERSION: 0.1.5
       VAST_UPDATE_ENABLED: '1'
       VAST_OBFUSCATE: '1'
+      VAST_RELAY_ENABLED: '1'
       VAST_RELAY_PRODUCTION_ENABLED: '0'
+      VAST_CAT_ADDON_ENABLED: '0'
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       GH_TOKEN: ${{ secrets.VAST_RELEASE_TOKEN }}
 
     steps:
-      - name: GPL corresponding-source publication gate
-        shell: pwsh
-        run: |
-          throw 'Binary publication is disabled until the workflow uploads and verifies the complete corresponding source set for the exact bundled Gyan FFmpeg build. See docs/OPEN_SOURCE_LICENSE_AUDIT.md.'
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -78,15 +76,9 @@ jobs:
           npm ci
           npm ci --prefix relay
           python -m pip install -r resources/avidae/requirements.txt -r resources/avidae/requirements-build.txt
-      - name: Install pinned FFmpeg distribution
+      - name: Build and verify pinned Vast FFmpeg with corresponding source
         shell: pwsh
-        run: |
-          winget install --id Gyan.FFmpeg --exact --version 9.0 --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
-          $ffmpeg = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Filter ffmpeg.exe -Recurse -File | Where-Object FullName -Match 'ffmpeg-9\.0-full_build\bin\ffmpeg\.exe$' | Select-Object -First 1
-          $ffprobe = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Filter ffprobe.exe -Recurse -File | Where-Object FullName -Match 'ffmpeg-9\.0-full_build\bin\ffprobe\.exe$' | Select-Object -First 1
-          if (-not $ffmpeg -or -not $ffprobe) { throw 'Pinned FFmpeg 9.0 binaries were not found.' }
-          "VAST_AVIDAE_FFMPEG=$($ffmpeg.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "VAST_AVIDAE_FFPROBE=$($ffprobe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        run: npm run ffmpeg:build
 
       - name: Full quality and dependency gate
         run: |
@@ -94,15 +86,30 @@ jobs:
           npm run lint
           npm run check --prefix relay
           npm test
+          npm run hub:typecheck
+          npm run hub:test
+          npm run hub:build
+          npm run test:extensions:e2e
+          npm run test:extensions:native-e2e
           npm run updater:stage
           npm run test:updater
           npm run release:audit
+          npm run release:check
+          npm run test:fuses:integration
+          npm run test:electron-version
+          npm run test:app
       - name: Prepare self-contained Video & Audio runtime
         run: npm run avidae:runtime:prepare
       - name: Build explicitly unsigned public beta
         run: npm run dist:upgrader
       - name: Verify provenance, hashes, fuses, resources, and intentional NotSigned status
         run: node scripts/verify-release-package.cjs
+      - name: Verify real public 0.1.5 to local 0.2.5 upgrade
+        shell: pwsh
+        run: |
+          $env:VAST_CURRENT_RELEASE_ROOT = (Resolve-Path release).Path
+          $env:VAST_RELEASE_VERSION = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          npm run test:upgrade:0.1.5
 
       - name: Create draft prerelease and upload immutable assets
         shell: pwsh
@@ -132,6 +139,9 @@ jobs:
             'release/Checksums/SHA256SUMS.txt',
             'release/Checksums/SHA512SUMS.txt',
             'release/Docs/release-manifest.json',
+            'release/Docs/ffmpeg-build-provenance.json',
+            'release/Docs/avidae-ffmpeg-capabilities.json',
+            'release/Source/ffmpeg-corresponding-source-win64.tar.zst',
             'release/version.json',
             'release/PUBLIC-UNSIGNED-BETA.md'
           )
@@ -157,5 +167,8 @@ jobs:
             release/version.json
             release/Checksums/
             release/Docs/release-manifest.json
+            release/Docs/ffmpeg-build-provenance.json
+            release/Docs/avidae-ffmpeg-capabilities.json
+            release/Source/ffmpeg-corresponding-source-win64.tar.zst
             out/release-build-metadata.json
           if-no-files-found: warn

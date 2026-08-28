@@ -9,6 +9,7 @@ const embeddedBuildEnv = {
   VAST_OBFUSCATE: process.env.VAST_OBFUSCATE,
   VAST_PRIVATE_BUILD: process.env.VAST_PRIVATE_BUILD,
   VAST_RELEASE_REPO: process.env.VAST_RELEASE_REPO,
+  VAST_CAT_ADDON_ENABLED: process.env.VAST_CAT_ADDON_ENABLED,
   VAST_PERFORMANCE_GPU: process.env.VAST_PERFORMANCE_GPU,
   VAST_SAFE_GPU: process.env.VAST_SAFE_GPU
 }
@@ -22,7 +23,17 @@ const embeddedNoticesTrust = {
 
 const includeInternalTestHarness = process.env.VAST_INCLUDE_INTERNAL_TEST_HARNESS === '1'
 const embeddedRelayConfig = relayBuildConfigFromEnv(process.env)
-const catAddonAvailable = process.env.VAST_RELEASE_CHANNEL !== 'beta'
+function envFlag(name: string, fallback: boolean): boolean {
+  const value = String(process.env[name] ?? '').trim().toLowerCase()
+  if (!value) return fallback
+  if (['1', 'true', 'yes', 'on'].includes(value)) return true
+  if (['0', 'false', 'no', 'off'].includes(value)) return false
+  return fallback
+}
+
+const releaseChannel = String(process.env.VAST_RELEASE_CHANNEL ?? 'dev').trim().toLowerCase()
+const publicDistribution = ['beta', 'stable'].includes(releaseChannel) && !envFlag('VAST_PRIVATE_BUILD', true)
+const catAddonAvailable = envFlag('VAST_CAT_ADDON_ENABLED', !publicDistribution)
 const sharedBuildDefines = {
   __VAST_CAT_ADDON_AVAILABLE__: JSON.stringify(catAddonAvailable)
 }
@@ -55,7 +66,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/preload/index.ts'),
-          'guest-autofill': resolve(__dirname, 'src/preload/guest-autofill.ts')
+          'guest-autofill': resolve(__dirname, 'src/preload/guest-autofill.ts'),
+          'extension-host': resolve(__dirname, 'src/preload/extension-host.ts')
         }
       }
     }

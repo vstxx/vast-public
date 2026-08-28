@@ -38,6 +38,12 @@ test('external app links require a one-time renderer notification approval', () 
   assert.match(appSource, /durationMs: 0/)
 })
 
+test('application CSP is never injected into ordinary loopback websites', () => {
+  assert.match(sessionsSource, /const isInternalResponse = isTrustedRendererUrl\(details\.url,/)
+  assert.doesNotMatch(sessionsSource, /details\.url\.startsWith\('http:\/\/localhost:'\)/)
+  assert.doesNotMatch(sessionsSource, /details\.url\.startsWith\('http:\/\/127\.0\.0\.1:'\)/)
+})
+
 test('camera, microphone, screen share, media playback and call pages protect tabs from every unload path', () => {
   assert.match(sessionsSource, /protectGuestMediaCapture\(webContents\)/)
   assert.match(sessionsSource, /protectGuestMediaCapture\(requestingContents\)/)

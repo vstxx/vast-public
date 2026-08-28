@@ -5,6 +5,11 @@ Author / publisher: **VastProductions**
 > Ten dokument opisuje zalecany proces podpisany. Wyjątkowa publiczna unsigned
 > beta jest osobnym, jawnie słabszym trybem i nigdy nie może być użyta dla stable.
 
+> Publiczne `0.1.5` z 2026-08-18 było wydaniem **unsigned**, nie poprzednią
+> podpisaną betą. Przygotowanie kandydata `0.2.5` jest opisane w
+> `docs/RELEASE_0.2.5_READINESS.md` i pozostaje zablokowane; przykłady poniżej
+> pokazują wyłącznie przyszłą sekwencję podpisanych wydań.
+
 Ten proces obowiązuje identycznie dla publicznej bety i stable. Publiczna beta
 nie jest buildem developerskim: musi przejść pełny audit, podpis Authenticode,
 RFC 3161 timestamp, test upgrade oraz ponowną weryfikację plików pobranych z
@@ -19,7 +24,7 @@ produkcyjnego repozytorium wydań.
 - Windows SDK z `signtool.exe`;
 - publicznie zaufany certyfikat Authenticode, którego Subject zawiera
   `VastProductions`;
-- FFmpeg 9.0 full build (`winget install --id Gyan.FFmpeg --exact --version 9.0`);
+- the pinned Vast FFmpeg 9.0.1 build with verified corresponding source (`npm run ffmpeg:build`);
 - uprawnienie do `vstxx/vast-public`.
 
 Prywatnego klucza, hasła PFX ani tokenu GitHub nigdy nie zapisuj w Git. Nazwy
@@ -41,11 +46,11 @@ pakietu i manifestów jako `sourceCommit`.
 
 Do weryfikacji rzeczywistego upgrade path używaj kolejno np.:
 
-1. `0.1.5-beta.1` — pierwszy podpisany publiczny kandydat;
-2. `0.1.5-beta.2` — kolejny podpisany kandydat, aktualizowany z beta.1;
-3. `0.1.5` — final, aktualizowany z ostatniej podpisanej bety.
+1. `0.2.6-beta.1` — pierwszy podpisany publiczny kandydat;
+2. `0.2.6-beta.2` — kolejny podpisany kandydat, aktualizowany z beta.1;
+3. `0.2.6` — final, aktualizowany z ostatniej podpisanej bety.
 
-Updater obsługuje pełną kolejność SemVer: `beta.1 < beta.2 < 0.1.5`. Nie testuj
+Updater obsługuje pełną kolejność SemVer: `beta.1 < beta.2 < 0.2.6`. Nie testuj
 publicznego upgrade na artefaktach unsigned ani na samych atrapach plików.
 
 Jeżeli repo `vstxx/vast-public` nie zawiera jeszcze żadnego opublikowanego Release, uruchom
@@ -65,7 +70,7 @@ Skopiuj `.env.release.example` do ignorowanego `.env.release.local` i ustaw:
 VAST_RELEASE_CHANNEL=beta
 VAST_PRIVATE_BUILD=0
 VAST_RELEASE_REPO=vstxx/vast-public
-VAST_PREVIOUS_VERSION=0.1.5-beta.1
+VAST_PREVIOUS_VERSION=0.2.6-beta.1
 VAST_UPDATE_ENABLED=1
 VAST_OBFUSCATE=1
 VAST_EXPECTED_SIGNER_SUBJECT=VastProductions
@@ -105,8 +110,8 @@ metadata/UI/IPC oznaczają go jako niedostępny.
 Sprawdź ręcznie podpisy bez ujawniania klucza:
 
 ```powershell
-Get-AuthenticodeSignature release\Installer\Vast-Setup-0.1.5.exe | Format-List Status,SignerCertificate,TimeStamperCertificate
-Get-AuthenticodeSignature release\Updater\VastUpdater-0.1.5.exe | Format-List Status,SignerCertificate,TimeStamperCertificate
+Get-AuthenticodeSignature release\Installer\Vast-Setup-0.2.6.exe | Format-List Status,SignerCertificate,TimeStamperCertificate
+Get-AuthenticodeSignature release\Updater\VastUpdater-0.2.6.exe | Format-List Status,SignerCertificate,TimeStamperCertificate
 ```
 
 Status musi być `Valid`, signer musi odpowiadać `VastProductions`, a
@@ -117,9 +122,9 @@ Status musi być `Valid`, signer musi odpowiadać `VastProductions`, a
 Po opublikowaniu poprzedniej podpisanej bety ustaw:
 
 ```powershell
-$env:VAST_PREVIOUS_VERSION='0.1.5-beta.1'
-$env:VAST_RELEASE_VERSION='0.1.5-beta.2'
-$env:VAST_PREVIOUS_RELEASE_BASE_URL='https://github.com/vstxx/vast-public/releases/download/v0.1.5-beta.1'
+$env:VAST_PREVIOUS_VERSION='0.2.6-beta.1'
+$env:VAST_RELEASE_VERSION='0.2.6-beta.2'
+$env:VAST_PREVIOUS_RELEASE_BASE_URL='https://github.com/vstxx/vast-public/releases/download/v0.2.6-beta.1'
 $env:VAST_CURRENT_RELEASE_ROOT=(Resolve-Path release).Path
 $env:VAST_EXPECTED_SIGNER_SUBJECT='VastProductions'
 npm run test:upgrade:public
@@ -148,8 +153,8 @@ poprzednią wersję, produkcyjny URL poprzednich assetów i pozostaw
 Po ręcznym uploadzie odpowiednikiem ostatniego kroku jest:
 
 ```powershell
-$env:VAST_RELEASE_VERSION='0.1.5'
-$env:VAST_PRODUCTION_RELEASE_BASE_URL='https://github.com/vstxx/vast-public/releases/download/v0.1.5'
+$env:VAST_RELEASE_VERSION='0.2.6'
+$env:VAST_PRODUCTION_RELEASE_BASE_URL='https://github.com/vstxx/vast-public/releases/download/v0.2.6'
 $env:VAST_EXPECTED_SIGNER_SUBJECT='VastProductions'
 npm run release:verify:published
 ```

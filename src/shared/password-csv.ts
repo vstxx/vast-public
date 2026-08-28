@@ -5,6 +5,12 @@ export interface ParsedPasswordCsv {
   skipped: number
 }
 
+export function passwordCsvCell(value: string | number | undefined): string {
+  const text = String(value ?? '')
+  const spreadsheetSafe = /^[=+\-@]/.test(text) ? `'${text}` : text
+  return `"${spreadsheetSafe.replace(/"/g, '""')}"`
+}
+
 function parseCsv(rawInput: string): string[][] {
   const raw = rawInput.charCodeAt(0) === 0xfeff ? rawInput.slice(1) : rawInput
   const rows: string[][] = []

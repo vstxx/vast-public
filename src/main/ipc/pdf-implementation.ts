@@ -133,8 +133,7 @@ export async function printPage(target: Electron.WebContents, parentWindow: Brow
   try {
     const pdfBuffer = await target.printToPDF({
       printBackground: true,
-      preferCSSPageSize: true,
-      margins: { marginType: 'default' }
+      preferCSSPageSize: true
     })
     await openPdfPrintPreview(pdfBuffer, sanitizePdfFilename(target.getTitle() || 'page.pdf'), parentWindow)
   } catch (previewError) {

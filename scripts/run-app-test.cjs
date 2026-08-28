@@ -19,5 +19,13 @@ if (!npmCli) throw new Error('npm_execpath is required to run the app test build
 run(process.execPath, [npmCli, 'run', 'build'], {
   ...process.env,
   VAST_RELAY_ENABLED: '0',
+  VAST_RELAY_PRODUCTION_ENABLED: '0',
+  VAST_INCLUDE_INTERNAL_TEST_HARNESS: '1',
+  VAST_RELAY_TEST_OFFLINE: '1',
 })
-run(process.execPath, ['scripts/smoke-e2e.cjs', ...process.argv.slice(2)], process.env)
+run(process.execPath, ['scripts/smoke-e2e.cjs', ...process.argv.slice(2)], {
+  ...process.env,
+  VAST_RELAY_ENABLED: '0',
+  VAST_RELAY_PRODUCTION_ENABLED: '0',
+  VAST_RELAY_TEST_OFFLINE: '1',
+})

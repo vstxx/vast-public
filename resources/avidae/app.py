@@ -9,17 +9,35 @@ import subprocess
 import sys
 import threading
 import hmac
+import asyncio
+import tempfile
 from datetime import datetime, timezone
 from urllib.parse import urlparse
+
+
+def _configure_stdio_encoding():
+    """Keep packaged Windows logs from crashing on non-ASCII text or paths."""
+    for stream in (sys.stdout, sys.stderr):
+        if stream is None or not hasattr(stream, "reconfigure"):
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+        except (AttributeError, OSError):
+            pass
+
+
+_configure_stdio_encoding()
 
 
 def _runtime_self_test():
     """Fail closed when a packaged media runtime is incomplete."""
     import importlib.metadata
+    from yt_dlp import YoutubeDL
 
     ffmpeg = os.environ.get("FFMPEG_PATH", "")
     ffprobe = os.environ.get("FFPROBE_PATH", "")
     browsers = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
+    chromium = os.environ.get("VAST_AVIDAE_CHROMIUM_PATH", "")
     for label, executable in (("ffmpeg", ffmpeg), ("ffprobe", ffprobe)):
         if not executable or not os.path.isfile(executable):
             raise RuntimeError(f"Bundled {label} is missing")
@@ -30,17 +48,63 @@ def _runtime_self_test():
             raise RuntimeError(f"Bundled {label} failed its version check")
     if not browsers or not os.path.isdir(browsers):
         raise RuntimeError("Bundled Playwright browser directory is missing")
-    chromium = []
-    for root, _dirs, files in os.walk(browsers):
-        if "chrome.exe" in files:
-            chromium.append(os.path.join(root, "chrome.exe"))
-    if not chromium:
-        raise RuntimeError("Bundled Playwright Chromium is missing")
+    if not chromium or not os.path.isfile(chromium):
+        raise RuntimeError("Verified bundled Playwright Chromium is missing")
+    if os.path.commonpath([os.path.realpath(browsers), os.path.realpath(chromium)]) != os.path.realpath(browsers):
+        raise RuntimeError("Verified bundled Chromium is outside the browser runtime")
+    if any(name.startswith("chromium_headless_shell-") for name in os.listdir(browsers)):
+        raise RuntimeError("Redundant Playwright headless shell is present")
+
+    with YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
+        extractor_names = ("Youtube", "Generic", "Vimeo", "TikTok")
+        loaded_extractors = {
+            name: type(ydl.get_info_extractor(name)).__name__ for name in extractor_names
+        }
+    if any(not class_name.endswith("IE") for class_name in loaded_extractors.values()):
+        raise RuntimeError("Bundled yt-dlp extractor discovery self-test failed")
+
+    async def verify_browser():
+        from playwright.async_api import async_playwright
+        from utils.playwright_helper import create_browser_context, close_context_and_browser
+
+        with tempfile.TemporaryDirectory(prefix="vast-avidae-self-test-") as directory:
+            async with async_playwright() as playwright:
+                browser, context = await create_browser_context(
+                    playwright,
+                    "640x360",
+                    headless=True,
+                    record_video_dir=directory,
+                )
+                try:
+                    page = await context.new_page()
+                    await page.goto("data:text/html,<title>vast-playwright-ok</title><h1>Vast</h1>")
+                    if await page.title() != "vast-playwright-ok":
+                        raise RuntimeError("Bundled Chromium navigation self-test failed")
+                    screenshot = os.path.join(directory, "runtime.png")
+                    await page.screenshot(path=screenshot)
+                    if not os.path.isfile(screenshot) or os.path.getsize(screenshot) < 100:
+                        raise RuntimeError("Bundled Chromium screenshot self-test failed")
+                finally:
+                    await close_context_and_browser(context, browser)
+            videos = [
+                os.path.join(directory, name)
+                for name in os.listdir(directory)
+                if name.lower().endswith(".webm")
+            ]
+            if not videos or not any(os.path.getsize(video) > 100 for video in videos):
+                raise RuntimeError("Bundled Chromium video recording self-test failed")
+
+    asyncio.run(verify_browser())
     print(json.dumps({
         "ok": True,
         "python": sys.version.split()[0],
         "playwright": importlib.metadata.version("playwright"),
-        "chromium": os.path.basename(os.path.dirname(chromium[0])),
+        "chromium": os.path.basename(os.path.dirname(chromium)),
+        "headless": "new",
+        "navigation": True,
+        "screenshot": True,
+        "videoRecording": True,
+        "ytDlpExtractors": loaded_extractors,
     }))
 
 
@@ -157,6 +221,12 @@ def _bounded_job_ids(data):
     if not isinstance(raw_ids, list):
         return []
     return [str(job_id) for job_id in raw_ids[:500] if str(job_id).strip()]
+
+
+def _spreadsheet_safe(value):
+    if isinstance(value, str) and value.startswith(("=", "+", "-", "@")):
+        return "'" + value
+    return value
 
 
 def _job_title(job):
@@ -636,7 +706,7 @@ def api_export_csv():
     writer = csv.DictWriter(si, fieldnames=fields, extrasaction="ignore")
     writer.writeheader()
     for j in jobs:
-        writer.writerow(j)
+        writer.writerow({key: _spreadsheet_safe(value) for key, value in j.items()})
 
     return Response(
         si.getvalue(),
@@ -683,7 +753,7 @@ if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 5000))
     host = os.environ.get("AVIDAE_HOST", "127.0.0.1" if os.environ.get("AVIDAE_EMBEDDED") else "0.0.0.0")
-    print("\n  ▶ Video & Audio — Local Media Tools")
-    print(f"  → http://localhost:{port}")
-    print(f"  → Data: {config.DATA_DIR}\n")
+    print("\n  Video & Audio - Local Media Tools")
+    print(f"  URL: http://localhost:{port}")
+    print(f"  Data: {config.DATA_DIR}\n")
     socketio.run(app, host=host, port=port, debug=config.DEBUG, allow_unsafe_werkzeug=True)

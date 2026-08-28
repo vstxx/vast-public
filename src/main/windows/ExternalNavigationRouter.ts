@@ -1,6 +1,7 @@
 import type { BrowserWindow } from 'electron/main'
 import type { BrowserTabOpenRequest } from '../../shared/types'
 import type { WindowRegistry } from './WindowRegistry'
+import { parseExtensionInstallDeepLink } from '../../shared/extension-marketplace.ts'
 
 const MAX_EXTERNAL_URL_LENGTH = 128 * 1024
 const MAX_QUEUED_URLS = 100
@@ -37,6 +38,8 @@ export function externalNavigationTarget(input: string): string | undefined {
   try {
     const parsed = new URL(candidate)
     if (parsed.protocol !== 'vast:' || parsed.username || parsed.password) return undefined
+    const extensionInstallId = parseExtensionInstallDeepLink(candidate)
+    if (extensionInstallId) return `vast://extensions?install=${encodeURIComponent(extensionInstallId)}`
     const command = parsed.hostname.toLowerCase()
     if (command === 'newtab' && !parsed.search && !parsed.hash && (parsed.pathname === '' || parsed.pathname === '/')) {
       return SAFE_EXTERNAL_NEW_TAB_URL

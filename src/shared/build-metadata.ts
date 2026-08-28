@@ -39,9 +39,11 @@ export function buildMetadataFromEnv(env: Record<string, string | undefined>): V
     updateEnabled: envFlag(env, 'VAST_UPDATE_ENABLED', false),
     obfuscate: envFlag(env, 'VAST_OBFUSCATE', false),
     privateBuild: envFlag(env, 'VAST_PRIVATE_BUILD', true),
-    // Cat Addon remains in source and development builds, but is deliberately
-    // absent from every beta package until it is promoted independently.
-    catAddonAvailable: channel !== 'beta',
+    catAddonAvailable: envFlag(
+      env,
+      'VAST_CAT_ADDON_ENABLED',
+      !((channel === 'beta' || channel === 'stable') && !envFlag(env, 'VAST_PRIVATE_BUILD', true))
+    ),
     releaseRepo: stringValue(env, 'VAST_RELEASE_REPO') || 'vstxx/vast-public',
     performanceGpu: envFlag(env, 'VAST_PERFORMANCE_GPU', false),
     safeGpu: envFlag(env, 'VAST_SAFE_GPU', false)
@@ -76,7 +78,7 @@ export function publicReleaseMetadataFailures(metadata: VastBuildMetadata): stri
   if (!metadata.updateEnabled) missing.push('VAST_UPDATE_ENABLED=1')
   if (!metadata.obfuscate) missing.push('VAST_OBFUSCATE=1')
   if (metadata.releaseRepo !== 'vstxx/vast-public') missing.push('release repository must be vstxx/vast-public')
-  if (metadata.channel === 'beta' && metadata.catAddonAvailable) missing.push('Cat Addon must be excluded from beta')
+  if (metadata.catAddonAvailable) missing.push('VAST_CAT_ADDON_ENABLED=0')
 
   return missing
 }

@@ -10,7 +10,7 @@ Use this checklist before publishing a Vast build.
 - `npm audit` reports zero known dependency vulnerabilities.
 - `npm run test:fuses:integration` flips and verifies the profile on a disposable copy of the pinned Electron binary.
 - `npm run release:check` passes for the selected signed release or explicitly acknowledged public unsigned beta environment.
-- `npm run release:windows:0.1.5` is used for the public Windows release package.
+- `npm run release:windows` is used for the public Windows release package.
 - `node scripts/verify-release-package.cjs` passes after packaging.
 - `npm run test:updater` verifies default-session and partition cookie data are migrated and backed up.
 - Windows executable signing is enabled in `package.json`.
@@ -32,9 +32,9 @@ Use this checklist before publishing a Vast build.
 - `vast:browser:download-url` accepts only HTTP(S) URLs.
 - PDF loading enforces the 100 MB byte limit and validates `%PDF`.
 - `release/` is regenerated with the matching version script.
-- `release/Installer/Vast-Setup-0.1.5.exe` exists.
-- `release/Updater/VastUpdater-0.1.5.exe` exists.
-- `release/Downloads/update-manifest.json` and `release/Downloads/Vast-0.1.5-update.zip` exist.
+- `release/Installer/Vast-Setup-0.2.5.exe` exists.
+- `release/Updater/VastUpdater-0.2.5.exe` exists.
+- `release/Downloads/update-manifest.json` and `release/Downloads/Vast-0.2.5-update.zip` exist.
 - Checksums are generated for distributed binaries and update packages.
 - Public unsigned beta checksums include `PUBLIC-UNSIGNED-BETA.md`, and production downloads match the locally verified bytes.
 - `out/obfuscation-report.json` is present and records protected main/password-manager bundles.

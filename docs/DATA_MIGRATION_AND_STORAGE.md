@@ -1,6 +1,6 @@
 # Vast Data Migration And Storage
 
-This note documents the current 0.1.5 storage model, export/import behavior, and custom data directory support.
+This note documents the current 0.2.5 storage model, export/import behavior, and custom data directory support.
 
 ## Authoritative Data Root
 
@@ -82,8 +82,8 @@ Website session continuity is handled explicitly:
 - Website sessions/cookies: Chromium profile state is included where present, but website login sessions are not guaranteed to transfer across computers or OS accounts.
 - `integrations.json`: can contain local provider credentials. If present, keep backups private.
 
-## Known 0.1.5 Limits
+## Known 0.2.5 Limits
 
 - Import currently uses the safe "import into a new data directory and restart" path. In-place replacement and merge modes are not exposed yet.
-- A first-launch data directory wizard is not implemented in 0.1.5; users can choose the app install path in the installer and choose/migrate the data path in Settings.
+- A first-launch data directory wizard is not implemented in 0.2.5; users can choose the app install path in the installer and choose/migrate the data path in Settings.
 - Password and website session portability depends on OS/browser encryption behavior and should not be presented as guaranteed.

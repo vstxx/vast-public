@@ -24,6 +24,7 @@ const configuredReleaseRepo = `${pkg.build?.publish?.owner ?? ''}/${pkg.build?.p
 const releaseRepo = process.env.VAST_RELEASE_REPO || configuredReleaseRepo
 const sourceCommit = String(process.env.VAST_RELEASE_COMMIT ?? '').trim().toLowerCase()
 const previousVersion = String(process.env.VAST_PREVIOUS_VERSION ?? '').trim()
+const catAddonEnabled = flag('VAST_CAT_ADDON_ENABLED', !publicDistribution)
 const failures = []
 const warnings = []
 let notices = { enabled: false, feedOrigin: '', keyId: '' }
@@ -75,6 +76,11 @@ if (publicDistribution) {
   requireConfig(/^[a-f0-9]{40}$/.test(sourceCommit), `public ${channel} build requires VAST_RELEASE_COMMIT to be a full source commit SHA`)
   requireConfig(Boolean(semver.valid(previousVersion)), `public ${channel} build requires a valid VAST_PREVIOUS_VERSION`)
   requireConfig(Boolean(semver.valid(pkg.version)), 'package version must be valid SemVer')
+  requireConfig(!catAddonEnabled, `public ${channel} build requires VAST_CAT_ADDON_ENABLED=0`)
+  if (channel === 'beta') {
+    requireConfig(flag('VAST_RELAY_ENABLED', false), 'public beta requires VAST_RELAY_ENABLED=1')
+    requireConfig(!flag('VAST_RELAY_PRODUCTION_ENABLED', false), 'public beta requires VAST_RELAY_PRODUCTION_ENABLED=0')
+  }
   if (semver.valid(previousVersion) && semver.valid(pkg.version)) {
     requireConfig(semver.lt(previousVersion, pkg.version), 'VAST_PREVIOUS_VERSION must be lower than package version')
   }

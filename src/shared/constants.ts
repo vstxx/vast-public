@@ -11,6 +11,7 @@ export const INTERNAL_SITE_DATA_URL = 'vast://site-data'
 export const INTERNAL_DIAGNOSTICS_URL = 'vast://diagnostics'
 export const INTERNAL_NETWORK_URL = 'vast://network'
 export const INTERNAL_SESSION_TIMELINE_URL = 'vast://session-timeline'
+export const INTERNAL_EXTENSIONS_URL = 'vast://extensions'
 export const STORAGE_SCHEMA_VERSION = 8
 
 export const SEARCH_ENGINES: SearchEngine[] = [
@@ -233,7 +234,6 @@ export const DEFAULT_SETTINGS: BrowserSettings = {
     advancedDiagnostics: false,
     spoofing: false
   },
-  siteOverrides: { disabled: {} },
   keyboardShortcuts: DEFAULT_SHORTCUTS
 }
 

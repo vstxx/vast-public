@@ -3,6 +3,7 @@ import type {
   RelayBuildConfig,
   RelayCheckinRequest,
   RelayClientSnapshot,
+  RelayInstanceKind,
   RelayPresentation,
   RelayReleasePayload
 } from '../../shared/relay-types.ts'
@@ -49,6 +50,7 @@ export interface VastRelayServiceOptions {
   stateStore: RelayStateStore
   fetcher: RelayFetch
   currentVersion: () => string
+  instanceKind: RelayInstanceKind
   emitSnapshot: (snapshot: RelayClientSnapshot) => void
   openExternal: (url: string) => Promise<void>
   applyTrustedUpdate: () => Promise<boolean>
@@ -238,7 +240,8 @@ export class VastRelayService {
       protocol: 1,
       install_id: localState.installId,
       current_version: currentVersion,
-      launch_count: localState.launchCount
+      launch_count: localState.launchCount,
+      instance_kind: this.options.instanceKind
     }
     const controller = new AbortController()
     this.requestController = controller

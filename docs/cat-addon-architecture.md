@@ -1,14 +1,14 @@
 # Cat Addon architecture
 
-## Historical art and provenance
+## Canonical art and provenance
 
-The implementation was developed for a `Cat_Grey_White` character from `assets/cat-addon/Cat_85_Animations.zip`. That archive and every derived image/package are intentionally absent from the public source export because no redistribution permission was recorded. The descriptions below document the retained implementation and pipeline; they do not indicate that the artwork is available or licensed.
+The only runtime character is `Cat_Grey_White` from `assets/cat-addon/Cat_85_Animations.zip`. `Cat_Grey_White.aseprite` is the source of truth; the supplied `Cat_Grey_White.png` is used as an independent pixel-for-pixel export check. Ginger and plain Grey remain inside the development ZIP only and are never extracted, generated, loaded, or shipped in the Cat Addon runtime bundle.
 
-The former archive contained no license, author, source URL, or redistribution grant. The provenance record at `third_party/cat_85_animations/README.vast.md` records the exclusion. Technical validation succeeding would not grant permission to distribute the art.
+The archive contains no license, author, source URL, or redistribution grant. The provenance record at `third_party/cat_85_animations/README.vast.md` deliberately marks this as an unverified, release-blocking legal follow-up. Technical validation succeeding does not grant permission to distribute the art.
 
 ## Deterministic asset pipeline
 
-With a properly licensed replacement archive in the documented format, run `npm run cat-addon:assets` to regenerate assets or `npm run cat-addon:check` to verify outputs without rewriting them. These commands intentionally fail in a clean public checkout until such an archive is supplied. The Python builder uses a minimal, bounded Aseprite parser; Aseprite itself is not required.
+Run `npm run cat-addon:assets` to regenerate assets or `npm run cat-addon:check` to verify committed outputs without rewriting them. The Python builder uses a minimal, bounded Aseprite parser; Aseprite itself is not required.
 
 The builder:
 
@@ -21,7 +21,7 @@ The builder:
 7. generates a 94-tag development atlas/metadata set and a curated contact sheet; and
 8. writes deterministic PNG/JSON outputs atomically.
 
-When generated from licensed artwork, the production archive contains only:
+The production archive contains only:
 
 - `manifest.json`;
 - `animations/animations.json`;

@@ -44,7 +44,6 @@ import { windowRegistry } from './windows/WindowRegistry'
 import { windowCloseCoordinator } from './windows/WindowCloseCoordinator'
 import { recentDiagnosticsEvents } from './diagnostics-events'
 import { resolveExternalProtocolOpen } from './external-protocol'
-import type { CatAddonService } from './cat-addon-service'
 import {
   assertIpcFeatureAllowed,
   assertSensitiveIpcRegistrationComplete,
@@ -59,12 +58,14 @@ import {
 } from './password-vault-session'
 import { registerAvidaeIpc } from './ipc/avidae'
 import { registerDownloadsIpc } from './ipc/downloads'
+import { registerExtensionsIpc } from './ipc/extensions'
 import { registerNetworkIpc } from './ipc/network'
 import { registerNoticesIpc } from './ipc/notices'
 import { registerPasswordIpc } from './ipc/passwords'
 import { registerPdfIpc } from './ipc/pdf'
 import { registerPrivacyIpc } from './ipc/privacy'
 import { fail, ok } from './ipc/registration'
+import type { ExtensionManager } from './extensions/extension-manager'
 
 function isTrustedRendererUrl(rawUrl: string): boolean {
   return rendererUrlIsTrusted(rawUrl, {
@@ -138,16 +139,24 @@ function detachedTabPayload(input: unknown): DetachedTabPayload {
 export interface IpcServices {
   onDataSaved?: (data: PersistedData) => void
   onDetachTab?: (tab: DetachedTabPayload) => void | Promise<void>
-  catAddonService?: CatAddonService
+  featureRegistrars?: IpcFeatureRegistrar[]
   relayService?: VastRelayService
+  extensionManager?: ExtensionManager
 }
+
+export type TrustedIpcHandlerRegistrar = <TArgs extends unknown[]>(
+  channel: string,
+  listener: (event: IpcMainInvokeEvent, ...args: TArgs) => unknown
+) => void
+
+export type IpcFeatureRegistrar = (handle: TrustedIpcHandlerRegistrar) => void
 
 let ipcRegistered = false
 
 export function setupIpc(services: IpcServices = {}): void {
   if (ipcRegistered) throw new Error('Vast IPC handlers must be registered exactly once.')
   ipcRegistered = true
-  const { onDataSaved, onDetachTab, catAddonService, relayService } = services
+  const { onDataSaved, onDetachTab, featureRegistrars = [], relayService, extensionManager } = services
   ipcMain.on('vast:privacy:document-script', (event, requestedUrl: unknown) => {
     const host = event.sender.hostWebContents
     const trustedHost = host && windowRegistry.vastWindowForWebContents(host)
@@ -193,39 +202,7 @@ export function setupIpc(services: IpcServices = {}): void {
   }
 
   handle('vast:storage:load', async () => loadData())
-
-  handle('vast:cat-addon:status', async () => {
-    if (!catAddonService) throw new Error('Cat Addon service is unavailable.')
-    return catAddonService.getState()
-  })
-
-  handle('vast:cat-addon:runtime', async () => {
-    if (!catAddonService) throw new Error('Cat Addon service is unavailable.')
-    return catAddonService.runtime()
-  })
-
-  handle('vast:cat-addon:window-state', async (event) => {
-    const window = senderWindowFor(event)
-    return { visible: window.isVisible(), minimized: window.isMinimized(), fullscreen: window.isFullScreen() }
-  })
-
-  handle('vast:cat-addon:enable', async (event) => {
-    if (!catAddonService) throw new Error('Cat Addon service is unavailable.')
-    const state = await catAddonService.enable()
-    showRendererNotification(senderWindowFor(event), state.enabled
-      ? { tone: 'success', title: 'Cat Addon enabled', message: 'A hand-animated pixel cat now lives in Vast.' }
-      : { tone: 'error', title: 'Cat Addon could not be enabled', message: state.error ?? 'The bundled addon failed validation.' })
-    return state
-  })
-
-  handle('vast:cat-addon:disable', async (event) => {
-    if (!catAddonService) throw new Error('Cat Addon service is unavailable.')
-    const state = await catAddonService.disable()
-    showRendererNotification(senderWindowFor(event), state.error
-      ? { tone: 'warning', title: 'Cat Addon disabled', message: state.error }
-      : { tone: 'info', title: 'Cat Addon disabled', message: 'Cat animations and extracted assets were removed.' })
-    return state
-  })
+  for (const registerFeature of featureRegistrars) registerFeature(handle)
 
   handle('vast:storage:save', async (_event, data: PersistedData) => persistRendererData(data))
 
@@ -330,6 +307,7 @@ export function setupIpc(services: IpcServices = {}): void {
 
   registerAvidaeIpc(handle)
   registerDownloadsIpc(handle)
+  if (extensionManager) registerExtensionsIpc(handle, senderWindowFor, extensionManager)
   registerNetworkIpc(handle, senderWindowFor)
   registerNoticesIpc(handle)
   handle('vast:relay:state', (event) => {

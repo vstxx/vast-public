@@ -1,6 +1,7 @@
 const { mkdirSync, readFileSync, writeFileSync } = require('node:fs')
 const { dirname, join } = require('node:path')
 const { readNoticesReleaseConfig } = require('./notices-release-config.cjs')
+const { catAddonEnabled } = require('./build-capabilities.cjs')
 
 const root = join(__dirname, '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
@@ -22,6 +23,15 @@ const releaseRepo = String(process.env.VAST_RELEASE_REPO ?? 'vstxx/vast-public')
 const sourceCommit = String(process.env.VAST_RELEASE_COMMIT ?? '').trim().toLowerCase()
 const publicDistribution = (releaseChannel === 'beta' || releaseChannel === 'stable') && !privateBuild
 const publicUnsignedBeta = publicDistribution && releaseChannel === 'beta' && flag('VAST_PUBLIC_UNSIGNED_BETA', false)
+const relayEnvironment = releaseChannel === 'stable' ? 'production' : 'staging'
+const relayEnabled = relayEnvironment === 'production'
+  ? flag('VAST_RELAY_PRODUCTION_ENABLED', false)
+  : flag('VAST_RELAY_ENABLED', true)
+const relayEndpoint = relayEnvironment === 'production'
+  ? 'https://relay.vastbrowser.com'
+  : 'https://relay-staging.vastbrowser.com'
+const relayKeyId = relayEnvironment === 'production' ? 'relay-2026-01' : 'relay-staging-2026-01'
+const catAddonIncluded = catAddonEnabled(process.env)
 const signaturePolicy = publicUnsignedBeta ? 'unsigned-public-beta' : (publicDistribution ? 'authenticode-signed' : 'internal-unsigned')
 const failures = []
 let notices = { enabled: false, feedOrigin: '', keyId: '' }
@@ -48,6 +58,14 @@ if (publicDistribution) {
       'public unsigned beta metadata requires the explicit risk acknowledgement'
     )
   }
+  requireConfig(!catAddonIncluded, `public ${releaseChannel} metadata requires VAST_CAT_ADDON_ENABLED=0`)
+  if (releaseChannel === 'beta') {
+    requireConfig(relayEnabled, 'public beta metadata requires VAST_RELAY_ENABLED=1')
+    requireConfig(relayEnvironment === 'staging', 'public beta Relay environment must be staging')
+    requireConfig(relayEndpoint === 'https://relay-staging.vastbrowser.com', 'public beta Relay endpoint must be staging')
+    requireConfig(relayKeyId === 'relay-staging-2026-01', 'public beta Relay trust key must be the staging key')
+    requireConfig(!flag('VAST_RELAY_PRODUCTION_ENABLED', false), 'public beta metadata requires VAST_RELAY_PRODUCTION_ENABLED=0')
+  }
 }
 
 if (failures.length > 0) {
@@ -60,7 +78,13 @@ const metadata = {
   version: pkg.version,
   releaseChannel,
   privateBuild,
-  catAddonIncluded: releaseChannel !== 'beta',
+  catAddonIncluded,
+  relay: {
+    enabled: relayEnabled,
+    environment: relayEnvironment,
+    endpoint: relayEndpoint,
+    keyId: relayKeyId
+  },
   updateEnabled,
   obfuscationEnabled,
   releaseRepo,
@@ -89,7 +113,8 @@ console.log(
       signaturePolicy,
       noticesEnabled: notices.enabled,
       noticesFeedOrigin: notices.feedOrigin,
-      noticesKeyId: notices.keyId
+      noticesKeyId: notices.keyId,
+      relay: metadata.relay
     },
     null,
     2

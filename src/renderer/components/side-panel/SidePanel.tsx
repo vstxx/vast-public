@@ -15,6 +15,7 @@ import {
   Pin,
   PinOff,
   Plus,
+  Puzzle,
   RotateCcw,
   Search,
   ShieldAlert,
@@ -32,6 +33,7 @@ import { useBrowserStore, selectActiveTab, selectActiveWorkspace } from '../../s
 import { Favicon } from '../ui/Favicon'
 import { IconButton } from '../ui/IconButton'
 import { VastSelect } from '../ui/VastSelect'
+import { useExtensionContributions } from '../../extensions/extension-runtime'
 
 const views: Array<{ id: SidePanelView; title: string; icon: typeof NotebookPen }> = [
   { id: 'notes', title: 'Notes', icon: NotebookPen },
@@ -82,6 +84,11 @@ function clampPanelPosition(
 export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element | null {
   const open = useBrowserStore((state) => state.sidePanelOpen)
   const activeView = useBrowserStore((state) => state.activeSidePanel)
+  const activeWorkspace = useBrowserStore(selectActiveWorkspace)
+  const extensionContributions = useExtensionContributions()
+  const extensionPanels = activeWorkspace?.isPrivate || activeWorkspace?.identity?.sessionMode === 'ephemeral' ? [] : extensionContributions.sidebar
+  const [activeExtensionKey, setActiveExtensionKey] = useState<string | null>(null)
+  const [extensionSurface, setExtensionSurface] = useState<{ src: string; partition: string } | null>(null)
   const setActiveView = useBrowserStore((state) => state.setActiveSidePanel)
   const sidePanelSettings = useBrowserStore((state) => state.settings.sidePanel)
   const updateSettings = useBrowserStore((state) => state.updateSettings)
@@ -137,7 +144,21 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
 
   if (!present) return null
 
-  const activeTitle = views.find((view) => view.id === activeView)?.title ?? 'Notes'
+  const activeExtension = extensionPanels.find((panel) => panel.key === activeExtensionKey)
+  const activeTitle = activeExtension?.title ?? views.find((view) => view.id === activeView)?.title ?? 'Notes'
+
+  useEffect(() => {
+    if (activeExtensionKey && !extensionPanels.some((panel) => panel.key === activeExtensionKey)) { setActiveExtensionKey(null); setExtensionSurface(null) }
+  }, [activeExtensionKey, extensionPanels])
+
+  const openExtensionPanel = (key: string): void => {
+    setActiveExtensionKey(key)
+    setExtensionSurface(null)
+    void window.vast.extensions.prepareSidebar(key).then((result) => {
+      if (result.ok && result.surface) setExtensionSurface(result.surface)
+      else setActiveExtensionKey(null)
+    })
+  }
   const startResize = (event: ReactMouseEvent<HTMLDivElement>): void => {
     event.preventDefault()
     const startX = event.clientX
@@ -235,12 +256,12 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
           className="side-panel-pin-button"
           onClick={() => updateSettings({ sidePanel: { mode: pinned ? 'docked' : 'overlay' } })}
         >
-          {pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+          {pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
         </IconButton>
-        <div className="min-w-0 truncate text-left text-lg font-semibold text-white">{activeTitle}</div>
+        <div className="min-w-0 truncate text-left text-xl font-semibold text-white">{activeTitle}</div>
         {pinned && <GripHorizontal className="ml-auto h-4 w-4 text-white/25" aria-hidden="true" />}
       </div>
-      <div role="tablist" aria-label="Sidebar sections" className="flex gap-1 border-b border-white/[0.08] p-2">
+      <div role="tablist" aria-label="Sidebar sections" className="flex gap-1 overflow-x-auto border-b border-white/[0.08] p-2">
         {views.map((view) => {
           const Icon = view.icon
           return (
@@ -250,7 +271,7 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
               title={view.title}
               role="tab"
               aria-selected={activeView === view.id}
-              onClick={() => setActiveView(view.id)}
+              onClick={() => { setActiveExtensionKey(null); setExtensionSurface(null); setActiveView(view.id) }}
               className={`flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl px-1 transition ${
                 activeView === view.id ? 'bg-white/[0.11] text-vast-cyan' : 'text-vast-soft hover:bg-white/[0.06] hover:text-white'
               }`}
@@ -260,13 +281,21 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
             </button>
           )
         })}
+        {extensionPanels.map((panel) => (
+          <button key={panel.key} type="button" title={`${panel.title} — ${panel.extensionName}`} role="tab" aria-selected={activeExtensionKey === panel.key} onClick={() => openExtensionPanel(panel.key)} className={`flex min-h-10 min-w-10 flex-1 items-center justify-center gap-1.5 rounded-xl px-1 transition ${activeExtensionKey === panel.key ? 'bg-white/[0.11] text-vast-cyan' : 'text-vast-soft hover:bg-white/[0.06] hover:text-white'}`}>
+            <Puzzle className="h-4 w-4" />
+            {sidePanelSettings.showLabels && width >= 440 && <span className="truncate text-[11px] font-medium">{panel.title}</span>}
+          </button>
+        ))}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain p-4 pb-6">
-        {activeView === 'notes' && <NotesPanel />}
-        {activeView === 'bookmarks' && <BookmarksPanel />}
-        {activeView === 'history' && <HistoryPanel />}
-        {activeView === 'downloads' && <DownloadsPanel />}
-        {activeView === 'reading-list' && <ReadingListPanel />}
+        {activeExtensionKey ? (extensionSurface ? <webview key={`${activeExtensionKey}-${extensionSurface.src}`} src={extensionSurface.src} partition={extensionSurface.partition} className="h-full min-h-[360px] w-full rounded-xl bg-transparent" /> : <div className="grid h-full min-h-[240px] place-items-center text-sm text-vast-soft">Loading extension panel…</div>) : <>
+          {activeView === 'notes' && <NotesPanel />}
+          {activeView === 'bookmarks' && <BookmarksPanel />}
+          {activeView === 'history' && <HistoryPanel />}
+          {activeView === 'downloads' && <DownloadsPanel />}
+          {activeView === 'reading-list' && <ReadingListPanel />}
+        </>}
       </div>
     </aside>
     </div>

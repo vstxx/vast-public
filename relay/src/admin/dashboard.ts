@@ -1,4 +1,5 @@
 import { errorResponse, jsonResponse } from '../shared/http'
+import { INSTANCE_KINDS, type InstanceKind } from '../shared/types'
 import { ValidationError, validateSemVer, validateUuid } from '../shared/validation'
 
 interface AggregateRow {
@@ -25,6 +26,7 @@ interface InstallationRow {
   first_seen: number
   last_seen: number
   launch_count: number
+  instance_kind: InstanceKind
 }
 
 type InstallationActivity = 'all' | '24h' | '7d' | '30d'
@@ -89,7 +91,8 @@ function installationJson(row: InstallationRow) {
     current_version: row.current_version,
     first_seen: new Date(row.first_seen).toISOString(),
     last_seen: new Date(row.last_seen).toISOString(),
-    launch_count: row.launch_count
+    launch_count: row.launch_count,
+    instance_kind: row.instance_kind
   }
 }
 
@@ -164,7 +167,7 @@ export async function dashboardSummary(env: AdminEnv, now = Date.now()): Promise
 export async function getInstallation(env: AdminEnv, rawInstallId: string): Promise<Response> {
   const installId = validateUuid(rawInstallId)
   const row = await env.DB.prepare(`
-    SELECT install_id, current_version, first_seen, last_seen, launch_count
+    SELECT install_id, current_version, first_seen, last_seen, launch_count, instance_kind
     FROM installations WHERE install_id = ?
   `).bind(installId).first<InstallationRow>()
   if (!row) return errorResponse(404, 'installation_not_found')
@@ -173,7 +176,7 @@ export async function getInstallation(env: AdminEnv, rawInstallId: string): Prom
 
 export async function listInstallations(request: Request, env: AdminEnv, now = Date.now()): Promise<Response> {
   const url = new URL(request.url)
-  const allowedParameters = new Set(['activity', 'version', 'install_id', 'cursor', 'limit'])
+  const allowedParameters = new Set(['activity', 'version', 'kind', 'install_id', 'cursor', 'limit'])
   for (const key of url.searchParams.keys()) {
     if (!allowedParameters.has(key)) throw new ValidationError('Unexpected installation query parameter.')
     if (url.searchParams.getAll(key).length !== 1) throw new ValidationError('Installation query parameters must not repeat.')
@@ -184,6 +187,11 @@ export async function listInstallations(request: Request, env: AdminEnv, now = D
   const activity = activityValue as InstallationActivity
   const versionValue = url.searchParams.get('version')
   const version = versionValue ? validateSemVer(versionValue, 'version') : null
+  const kindValue = url.searchParams.get('kind')
+  if (kindValue !== null && !INSTANCE_KINDS.includes(kindValue as InstanceKind)) {
+    throw new ValidationError('kind is invalid.')
+  }
+  const kind = kindValue as InstanceKind | null
   const installIdValue = url.searchParams.get('install_id')
   const installId = installIdValue ? validateUuid(installIdValue) : null
   const cursorValue = url.searchParams.get('cursor')
@@ -200,6 +208,10 @@ export async function listInstallations(request: Request, env: AdminEnv, now = D
   if (version) {
     filters.push('current_version = ?')
     filterBindings.push(version)
+  }
+  if (kind) {
+    filters.push('instance_kind = ?')
+    filterBindings.push(kind)
   }
   if (installId) {
     filters.push('install_id = ?')
@@ -219,7 +231,7 @@ export async function listInstallations(request: Request, env: AdminEnv, now = D
       .bind(...filterBindings)
       .first<{ count: number }>(),
     env.DB.prepare(`
-      SELECT install_id, current_version, first_seen, last_seen, launch_count
+      SELECT install_id, current_version, first_seen, last_seen, launch_count, instance_kind
       FROM installations
       ${pageWhere}
       ORDER BY last_seen DESC, install_id ASC

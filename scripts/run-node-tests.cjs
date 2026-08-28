@@ -1,4 +1,4 @@
-const { existsSync, readdirSync, statSync } = require('node:fs')
+const { readdirSync, statSync } = require('node:fs')
 const { join } = require('node:path')
 const { spawnSync } = require('node:child_process')
 
@@ -17,21 +17,7 @@ function collect(dir) {
   return files
 }
 
-const catAssetArchive = join(root, 'assets', 'cat-addon', 'Cat_85_Animations.zip')
-const catAssetTests = new Set([
-  join(testsRoot, 'main', 'cat-addon-assets.test.ts'),
-  join(testsRoot, 'main', 'cat-addon-manager.test.ts'),
-  join(testsRoot, 'renderer', 'cat-addon-engine.test.ts'),
-])
-
-const files = collect(testsRoot).filter((file) => {
-  if (file.includes(`${join('tests', 'updater')}`)) return false
-  return existsSync(catAssetArchive) || !catAssetTests.has(file)
-})
-
-if (!existsSync(catAssetArchive)) {
-  console.log('Cat Addon artwork is not part of the public source export; skipping 3 asset-dependent tests.')
-}
+const files = collect(testsRoot).filter((file) => !file.includes(`${join('tests', 'updater')}`))
 const result = spawnSync(process.execPath, ['--test', ...files], {
   cwd: root,
   stdio: 'inherit',

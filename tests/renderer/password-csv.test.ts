@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { parsePasswordImportCsv } from '../../src/shared/password-csv.ts'
+import { parsePasswordImportCsv, passwordCsvCell } from '../../src/shared/password-csv.ts'
 
 test('password CSV import preserves notes and counts incomplete rows as skipped', () => {
   const result = parsePasswordImportCsv(
@@ -42,4 +42,12 @@ test('password CSV import rejects files without required columns', () => {
   assert.throws(() => parsePasswordImportCsv('name,url,password\nNo username,https://example.com,secret\n'), {
     message: 'CSV must include url, username, and password columns.'
   })
+})
+
+test('password CSV export neutralizes spreadsheet formulas before quoting', () => {
+  assert.equal(passwordCsvCell('=HYPERLINK("https://evil.test")'), '"\'=HYPERLINK(""https://evil.test"")"')
+  assert.equal(passwordCsvCell('+SUM(1,1)'), '"\'+SUM(1,1)"')
+  assert.equal(passwordCsvCell('-1+2'), '"\'-1+2"')
+  assert.equal(passwordCsvCell('@cmd'), '"\'@cmd"')
+  assert.equal(passwordCsvCell(' ordinary "value"'), '" ordinary ""value"""')
 })

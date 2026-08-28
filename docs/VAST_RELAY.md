@@ -74,6 +74,7 @@ The only installation columns are:
 - `first_seen` (server time)
 - `last_seen` (server time)
 - `launch_count`
+- `instance_kind` (`packaged`, `development`, `test`, or `unknown` for legacy clients)
 
 Relay does not collect or persist IP addresses, hardware/device IDs, MAC
 addresses, usernames, hostnames, accounts, email, URLs, searches, history, tabs,
@@ -128,19 +129,23 @@ Maximum body: 2 KiB. No client secret is required or accepted.
 {
   "protocol": 1,
   "install_id": "b2b65f31-4c31-4da3-9c2c-e5d28f8ca130",
-  "current_version": "0.1.5",
-  "launch_count": 152
+  "current_version": "0.2.5",
+  "launch_count": 152,
+  "instance_kind": "packaged"
 }
 ```
 
 UUIDs must use an RFC variant and version 1-8. Version strings are strict
-SemVer 2.0.0, matching Vast's current `0.1.5` format; `v` prefixes, partial
+SemVer 2.0.0, matching Vast's current `0.2.5` format; `v` prefixes, partial
 versions, whitespace, leading zeroes, and invalid prerelease identifiers fail.
-`launch_count` is an integer from 0 through 2,147,483,647.
+`launch_count` is an integer from 0 through 2,147,483,647. `instance_kind`
+classifies the runtime without exposing user or device data. Clients using the
+older schema are retained as `unknown`.
 
 On first check-in, D1 receives server-generated `first_seen` and `last_seen`.
 Later check-ins preserve `first_seen`, advance `last_seen`, update the validated
-version, and keep `launch_count` monotonic with SQLite `MAX`.
+version, keep `launch_count` monotonic with SQLite `MAX`, and update a known
+instance kind without allowing a legacy `unknown` check-in to erase it.
 
 ```json
 {

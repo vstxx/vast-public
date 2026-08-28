@@ -60,14 +60,16 @@ function quoteShellArg(value) {
 
 function buildDist() {
   run(npmCommand, ['run', 'release:check'])
+  run(npmCommand, ['run', 'ffmpeg:release:check'])
   run(npmCommand, ['run', 'avidae:runtime:check'])
   run(npmCommand, ['run', 'build:obfuscated'])
   run('node', ['scripts/write-release-build-metadata.cjs'])
   if (process.platform === 'win32') {
     // Build these in separate electron-builder processes. Running both targets in
-    // one process can make NSIS archive win-unpacked while the portable target is
-    // repackaging the same directory, leaving a partial runtime on Windows.
-    for (const windowsTarget of ['nsis', 'portable']) {
+    // one process can archive win-unpacked while another target is repackaging it.
+    // NSIS must run last: unlike portable-only packaging it stages app-update.yml,
+    // and that complete tree is the canonical full-update payload.
+    for (const windowsTarget of ['portable', 'nsis']) {
       run(npxCommand, electronBuilderArgs(windowsTarget))
     }
   } else {
@@ -89,6 +91,8 @@ function electronBuilderArgs(windowsTarget) {
   } else if (allowUnsignedPrivate) {
     env.VAST_ALLOW_UNSIGNED_PRIVATE_BUILD = '1'
     args.push('--config', 'scripts/electron-builder-private-unsigned.cjs')
+  } else {
+    args.push('--config', 'scripts/electron-builder-with-capabilities.cjs')
   }
   return args
 }
@@ -133,5 +137,6 @@ if (target === 'build') {
     '-UpdateBaseUrl',
     `https://github.com/${defaultReleaseRepo}/releases/download/v${pkg.version}/`
   ])
+  run(npmCommand, ['run', 'distribution:size-budget'])
   run('node', ['scripts/verify-release-package.cjs'])
 }

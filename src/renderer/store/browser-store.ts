@@ -31,7 +31,7 @@ import { isInactiveTabUnloadCandidate, restoredTabLifecycle } from './tab-lifecy
 import { cleanTrackingUrl } from '../../shared/url-cleaning'
 import { DEFAULT_WORKSPACE_IDENTITY } from '../../shared/workspace-identity'
 
-type SettingsPatch = Omit<Partial<BrowserSettings>, 'appearance' | 'advanced' | 'privacy' | 'spoofing' | 'security' | 'network' | 'labs' | 'newTab' | 'sidePanel' | 'commandPalette' | 'siteOverrides' | 'keyboardShortcuts' | 'catAddon'> & {
+type SettingsPatch = Omit<Partial<BrowserSettings>, 'appearance' | 'advanced' | 'privacy' | 'spoofing' | 'security' | 'network' | 'labs' | 'newTab' | 'sidePanel' | 'commandPalette' | 'keyboardShortcuts' | 'catAddon'> & {
   appearance?: Partial<BrowserSettings['appearance']>
   advanced?: Partial<BrowserSettings['advanced']>
   privacy?: Partial<BrowserSettings['privacy']>
@@ -44,7 +44,6 @@ type SettingsPatch = Omit<Partial<BrowserSettings>, 'appearance' | 'advanced' | 
   newTab?: Partial<BrowserSettings['newTab']>
   sidePanel?: Partial<BrowserSettings['sidePanel']>
   commandPalette?: Partial<BrowserSettings['commandPalette']>
-  siteOverrides?: Partial<BrowserSettings['siteOverrides']>
   keyboardShortcuts?: Partial<BrowserSettings['keyboardShortcuts']>
   catAddon?: Partial<BrowserSettings['catAddon']>
 }
@@ -1413,14 +1412,6 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
         ...state.settings.commandPalette,
         ...patch.commandPalette
       }
-      const siteOverrides = {
-        ...state.settings.siteOverrides,
-        ...patch.siteOverrides,
-        disabled: {
-          ...state.settings.siteOverrides.disabled,
-          ...patch.siteOverrides?.disabled
-        }
-      }
       const catAddon = {
         ...state.settings.catAddon,
         ...patch.catAddon
@@ -1441,7 +1432,6 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
           newTab,
           sidePanel,
           commandPalette,
-          siteOverrides,
           catAddon,
           keyboardShortcuts
         },

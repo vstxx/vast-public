@@ -1,6 +1,6 @@
 # Open-source license audit
 
-Audit date: 2026-08-18
+Audit date: 2026-08-24
 
 This is a repository engineering audit, not legal advice. It records the license evidence available in the repository, installed package metadata, and upstream project notices.
 
@@ -44,40 +44,64 @@ Direct Python dependencies are pinned in `resources/avidae/requirements.txt`; Py
 
 `scripts/copy-python-runtime-licenses.py` now inventories the installed dependency closure and copies every discovered license/notice into the generated runtime. `scripts/prepare-avidae-runtime.cjs` hashes that inventory and fails if the required FFmpeg, Playwright, Chromium, or Python notice set is absent.
 
-## FFmpeg and Gyan build
+## Vast self-built FFmpeg
 
-The release workflows install the Gyan **full** FFmpeg build and copy `ffmpeg.exe` and `ffprobe.exe` into the generated runtime as separate executables. Gyan states that all its current static build variants are GPLv3 and links each build to its corresponding FFmpeg source commit: <https://www.gyan.dev/ffmpeg/builds/>.
+Vast no longer downloads or redistributes a Gyan binary. The audited Windows
+runtime is FFmpeg **9.0.1**, built by Vast from the exact source and toolchain
+inputs in `third_party/ffmpeg/ffmpeg-build.lock.json`. Avidae directly depends
+on libx264 preset, CRF and low-latency semantics for recording, compression,
+conversion, trim and merge. Removing x264 or silently substituting a Windows
+encoder would regress that contract, so the reviewed build intentionally uses
+`--enable-gpl --enable-version3` and is distributed under GPLv3-or-later.
 
-FFmpeg's own license guidance explains that optional GPL components make the resulting FFmpeg build GPL and requires corresponding source for distributed binaries: <https://ffmpeg.org/legal.html>.
+All linked non-system codec dependencies are statically built from pinned
+sources: x264, libvpx, Opus, libogg, libvorbis and LAME. The exact official
+MSYS2 source packages and detached signatures for GCC/GCC runtime libraries,
+MinGW-w64 CRT and winpthreads are pinned and preserved as well. The release
+provenance records the exact FFmpeg commit/version mapping, source URLs and
+SHA-256 values, configuration, compiler/tool versions, PE imports, binary
+hashes, license mode, capability-report hash and source-archive hash. `ffmpeg
+-version`, `-buildconf` and `-L` output is captured rather than inferred from
+an artifact name.
 
-Launching GPLv3 FFmpeg as a separate process does not, by itself, relicense Vast-owned source. Distribution still must:
+Every build produces `ffmpeg-corresponding-source-win64.tar.zst`. It contains
+the exact FFmpeg and dependency source trees, signed compiler-runtime source
+packages with their MSYS2 package recipes, license texts, the PowerShell and
+shell build recipes, source/toolchain lock, capability and compliance tooling,
+build instructions, and sanitized configure headers/makefile. The complete
+`config.log` is deliberately excluded because FFmpeg snapshots unrelated
+environment variables there, including values that can be CI secrets.
+`scripts/check-ffmpeg-release-compliance.cjs` fails closed if provenance,
+inner or outer source hashes, GPL texts, source
+identities, configuration, source contents, system-only PE imports or executable
+capability tests do not match. The same gate runs before Avidae staging, before packaging,
+against the actual packaged runtime, and against downloaded release assets.
+Public workflows upload the source archive and provenance beside every binary
+release and include both in release checksums.
 
-1. include the complete GPLv3 text supplied by the Gyan package;
-2. retain the exact Gyan `README.txt` with build configuration and source commit;
-3. provide the complete corresponding source set for the exact distributed binaries through a GPLv3-compliant delivery method, including covered linked components and build scripts/configuration as applicable (not merely an FFmpeg repository snapshot); and
-4. keep the source available for the required period and document it next to every binary download.
-
-The runtime builder enforces items 1 and 2. **Item 3 is not yet enforced by the release workflow**, so public binary redistribution remains blocked until the complete corresponding source set is uploaded alongside each release (or another reviewed GPLv3-compliant source-delivery method is implemented) and linked from the download page.
+Launching the GPLv3 executables as separate processes does not, by itself,
+relicense Vast-owned source. The GPLv3 texts and complete corresponding source
+delivery remain mandatory and are now mechanically enforced. FFmpeg's upstream
+license guidance is available at <https://ffmpeg.org/legal.html>.
 
 ## Experimental Chromium port
 
 The repository stores a patch overlay, not a Chromium source checkout or staged Chromium binary. Vast-owned patch additions can be MIT-licensed, while an applied/staged Chromium distribution remains subject to Chromium's BSD-style license and its generated third-party credits. Existing tooling already requires `LICENSE.chromium.txt` in staged output.
 
-## Excluded Cat Addon asset provenance
+## Release-blocking asset provenance
 
-`third_party/cat_85_animations/README.vast.md` records that the former Cat Addon artwork archive contained no license document, author attribution, source URL, or redistribution grant. The archive, derived atlases, and packaged resource are therefore excluded from this public export.
+`third_party/cat_85_animations/README.vast.md` records that `assets/cat-addon/Cat_85_Animations.zip` contains no license document, author attribution, source URL, or redistribution grant. Derived atlases and `resources/cat-addon/cat_addon.zip` inherit that unresolved provenance.
 
-This is not a license choice between MIT and GPL; it is an absence of permission to redistribute a third-party asset. The root MIT License cannot cure it. Before restoring artwork, VastProductions must either:
+This is not a license choice between MIT and GPL; it is an absence of permission to redistribute a third-party asset. The root MIT License cannot cure it. Before publication, VastProductions must either:
 
 - obtain a written redistribution/modification grant compatible with public source and binary distribution, record the author/source/license, and add the required notice; or
-- use properly licensed replacement material. The surrounding feature code is preserved in this export.
+- replace/remove the asset and all derived copies with properly licensed material while preserving the surrounding feature code as appropriate.
 
 ## Result
 
 - Vast-owned source license: **PASS — MIT**
 - Node/Electron/pdf.js compatibility: **PASS**
 - Python/Playwright/PyInstaller compatibility: **PASS with notice preservation**
-- FFmpeg binary obligations: **BLOCKED until corresponding source delivery is enforced**
-- Cat Addon third-party asset: **EXCLUDED; Vast-owned implementation retained**
-- Public source publication: **PASS**
-- Public FFmpeg-containing binary publication: **BLOCKED**
+- FFmpeg binary obligations: **PASS — self-built GPLv3 runtime, complete corresponding source and hard release gates**
+- Cat Addon third-party asset: **BLOCKED pending provenance/license**
+- Overall third-party publication readiness: **PASS for the public configuration with `VAST_CAT_ADDON_ENABLED=0`; Cat Addon remains blocked if enabled**

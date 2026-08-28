@@ -3,20 +3,34 @@ name: Windows CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [master]
     tags: ['v*']
 
 permissions:
   contents: read
 
 jobs:
+  secret-scan:
+    name: Full history secret scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   validate:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 180
     env:
       VAST_RELEASE_CHANNEL: dev
       VAST_PRIVATE_BUILD: '1'
       VAST_RELAY_ENABLED: '0'
+      VAST_CAT_ADDON_ENABLED: '0'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -39,17 +53,30 @@ jobs:
           if (-not (Test-Path 'node_modules/electron/dist/electron.exe')) {
             throw 'Electron runtime installation did not produce electron.exe.'
           }
-      - run: python -m pip install -r resources/avidae/requirements.txt
+      - run: python -m pip install -r resources/avidae/requirements.txt -r resources/avidae/requirements-build.txt
+      - name: Build audited FFmpeg and complete corresponding source
+        run: npm run ffmpeg:build
+      - name: Prepare and verify self-contained Video & Audio runtime
+        run: npm run avidae:runtime:prepare
       - run: npm run lint
+      - run: python -m unittest tests/avidae/avidae_security_test.py
       - name: Validate Vast Relay Workers
         run: npm run check --prefix relay
       - run: npm test
+      - run: npm run hub:typecheck
+      - run: npm run hub:test
+      - run: npm run hub:build
+      - run: npm run test:extensions:e2e
+      - run: npm run test:extensions:native-e2e
       - run: npm run build
       - run: npm run test:app
       - run: npm run updater:stage
       - run: npm run test:updater
       - run: npm run release:audit
+      - run: npm run release:version-check
       - run: npm run release:check
+      - run: npm run test:fuses:integration
+      - run: npm run test:electron-version
       - name: Package unsigned CI application
         env:
           VAST_ALLOW_UNSIGNED_PRIVATE_BUILD: '1'
@@ -64,3 +91,5 @@ jobs:
           Start-Sleep -Seconds 10
           if ($process.HasExited) { throw "Packaged Vast exited early with code $($process.ExitCode)." }
           Stop-Process -Id $process.Id -Force
+      - name: Verify packaged application resources and fuses
+        run: npm run test:package:ci

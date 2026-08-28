@@ -1,13 +1,18 @@
 import {
   Bookmark,
+  Cookie,
   Command as CommandIcon,
   Copy,
   Database,
   FileText,
+  Fingerprint,
   Gauge,
   Globe2,
   History,
   KeyRound,
+  Link2Off,
+  LockKeyhole,
+  Moon,
   PanelRight,
   Plus,
   Printer,
@@ -27,6 +32,7 @@ import {
   INTERNAL_AUTOMATION_URL,
   INTERNAL_AVIDAE_URL,
   INTERNAL_DIAGNOSTICS_URL,
+  INTERNAL_EXTENSIONS_URL,
   INTERNAL_NEW_TAB_URL,
   INTERNAL_NOTES_URL,
   INTERNAL_NETWORK_URL,
@@ -40,6 +46,7 @@ import { formatRelativeTime } from '../../lib/format'
 import { useBrowserStore } from '../../store/browser-store'
 import { VideoAudioMark } from '../avidae/VideoAudioBrand'
 import { Favicon } from '../ui/Favicon'
+import { useExtensionContributions } from '../../extensions/extension-runtime'
 
 function fuzzyScore(haystack: string, needle: string): number {
   const source = haystack.toLowerCase()
@@ -81,9 +88,14 @@ export function CommandPalette(): JSX.Element | null {
   const createMacro = useBrowserStore((state) => state.createMacro)
   const clearHistory = useBrowserStore((state) => state.clearHistory)
   const activeWorkspaceId = useBrowserStore((state) => state.activeWorkspaceId)
+  const extensionContributions = useExtensionContributions()
   const recentCommandIds = useBrowserStore((state) => state.recentCommandIds)
   const recordCommand = useBrowserStore((state) => state.recordCommand)
   const favoriteCommandIds = useBrowserStore((state) => state.settings.commandPalette.favoriteCommandIds)
+  const appearance = useBrowserStore((state) => state.settings.appearance)
+  const privacy = useBrowserStore((state) => state.settings.privacy)
+  const security = useBrowserStore((state) => state.settings.security)
+  const spoofing = useBrowserStore((state) => state.settings.spoofing)
   const labs = useBrowserStore((state) => state.settings.labs)
   const labsEnabled = labs.enabled
   const featureContextSettings = useMemo(() => ({ labs }) as BrowserSettings, [labs])
@@ -217,6 +229,72 @@ export function CommandPalette(): JSX.Element | null {
         perform: () => setSettingsOpen(true)
       },
       {
+        id: 'toggle-ad-blocker',
+        title: `${privacy.adBlockerEnabled ? 'Disable' : 'Enable'} Ad Blocker`,
+        subtitle: privacy.adBlockerEnabled ? 'Ad and malware request blocking is on' : 'Ad and malware request blocking is off',
+        section: 'Settings',
+        keywords: ['adblock', 'ad blocker', 'ads', 'privacy', 'toggle'],
+        perform: () => updateSettings({ privacy: { adBlockerEnabled: !privacy.adBlockerEnabled } })
+      },
+      {
+        id: 'toggle-tracker-blocking',
+        title: `${privacy.blockTrackers ? 'Disable' : 'Enable'} Tracker Blocking`,
+        subtitle: privacy.blockTrackers ? 'Known tracker blocking is on' : 'Known tracker blocking is off',
+        section: 'Settings',
+        keywords: ['trackers', 'tracking', 'privacy', 'block', 'toggle'],
+        perform: () => updateSettings({ privacy: { blockTrackers: !privacy.blockTrackers } })
+      },
+      {
+        id: 'toggle-tracking-parameter-cleaning',
+        title: `${privacy.stripTrackingParameters ? 'Disable' : 'Enable'} Tracking Link Cleaning`,
+        subtitle: privacy.stripTrackingParameters ? 'Tracking parameters are removed from opened links' : 'Opened links keep tracking parameters',
+        section: 'Settings',
+        keywords: ['utm', 'tracking parameters', 'clean links', 'privacy', 'toggle'],
+        perform: () => updateSettings({ privacy: { stripTrackingParameters: !privacy.stripTrackingParameters } })
+      },
+      {
+        id: 'toggle-third-party-cookies',
+        title: `${privacy.blockThirdPartyCookies ? 'Allow' : 'Block'} Third-Party Cookies`,
+        subtitle: privacy.blockThirdPartyCookies ? 'Cross-site cookies are currently blocked' : 'Cross-site cookies are currently allowed',
+        section: 'Settings',
+        keywords: ['cookies', 'third party', 'cross site', 'privacy', 'toggle'],
+        perform: () => updateSettings({ privacy: { blockThirdPartyCookies: !privacy.blockThirdPartyCookies } })
+      },
+      {
+        id: 'toggle-fingerprinting-protection',
+        title: `Use ${privacy.fingerprintingProtection === 'maximum' ? 'Standard' : 'Maximum'} Fingerprinting Protection`,
+        subtitle: `${privacy.fingerprintingProtection[0].toUpperCase()}${privacy.fingerprintingProtection.slice(1)} local fingerprinting protection is active`,
+        section: 'Settings',
+        keywords: ['fingerprint', 'canvas', 'privacy', 'anti tracking', 'standard', 'strict', 'maximum'],
+        perform: () => updateSettings({ privacy: { fingerprintingProtection: privacy.fingerprintingProtection === 'maximum' ? 'standard' : 'maximum' } })
+      },
+      {
+        id: 'toggle-spoofing',
+        title: `${spoofing.enabled ? 'Disable' : 'Enable'} Spoofing`,
+        subtitle: spoofing.enabled ? 'Best-effort identity spoofing is on' : labs.enabled && labs.spoofing ? 'Best-effort identity spoofing is off' : 'Enables the required local Labs flag',
+        section: 'Settings',
+        keywords: ['spoofing', 'user agent', 'timezone', 'identity', 'privacy', 'toggle'],
+        perform: () => updateSettings(spoofing.enabled
+          ? { spoofing: { enabled: false } }
+          : { labs: { enabled: true, spoofing: true }, spoofing: { enabled: true } })
+      },
+      {
+        id: 'toggle-https-only',
+        title: `${security.httpsOnlyMode ? 'Disable' : 'Enable'} HTTPS-Only Mode`,
+        subtitle: security.httpsOnlyMode ? 'HTTP navigations are upgraded when possible' : 'Automatic HTTPS upgrades are off',
+        section: 'Settings',
+        keywords: ['https', 'secure', 'upgrade', 'security', 'toggle'],
+        perform: () => updateSettings({ security: { httpsOnlyMode: !security.httpsOnlyMode } })
+      },
+      {
+        id: 'toggle-force-dark-websites',
+        title: `${appearance.forceDarkModeWebsites ? 'Disable' : 'Enable'} Dark Mode on Websites`,
+        subtitle: appearance.forceDarkModeWebsites ? 'Forced dark mode is on for websites' : 'Websites keep their own color scheme',
+        section: 'Settings',
+        keywords: ['dark mode', 'websites', 'appearance', 'theme', 'toggle'],
+        perform: () => updateSettings({ appearance: { forceDarkModeWebsites: !appearance.forceDarkModeWebsites } })
+      },
+      {
         id: 'site-data',
         title: 'Open Diagnostics & Site Data',
         section: 'Settings',
@@ -240,6 +318,14 @@ export function CommandPalette(): JSX.Element | null {
         featureId: VastFeatures.SessionTimeline,
         keywords: ['timeline', 'sessions', 'snapshot', 'restore'],
         perform: () => runtime.openUrlInNewTab(INTERNAL_SESSION_TIMELINE_URL)
+      },
+      {
+        id: 'extensions',
+        title: 'Open Extensions',
+        subtitle: 'Manage Chrome-compatible website extensions',
+        section: 'Actions',
+        keywords: ['extensions', 'extension', 'addons', 'plugins', 'chrome'],
+        perform: () => runtime.openUrlInNewTab(INTERNAL_EXTENSIONS_URL)
       },
       {
         id: 'smart-unload',
@@ -438,8 +524,19 @@ export function CommandPalette(): JSX.Element | null {
       return !getFeatureState(command.featureId, { settings: featureContextSettings }).lab
     })
 
-    return [...visibleBase.map(annotateFeatureState), ...macroCommands, ...workspaceCommands, ...tabCommands, ...noteCommands, ...bookmarkCommands, ...historyCommands, ...settingsCommands]
-  }, [activeWorkspaceId, bookmarks, clearHistory, createMacro, featureContextSettings, history, labsEnabled, macros, notes, runtime, setActiveWorkspace, setSettingsOpen, setSmartUnloadOpen, tabs, workspaces])
+    const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId)
+    const extensionCommands: PaletteCommand[] = activeWorkspace?.isPrivate || activeWorkspace?.identity?.sessionMode === 'ephemeral' ? [] : extensionContributions.commands.map((command) => ({
+      id: `extension-${command.key}`,
+      title: command.title,
+      subtitle: command.extensionName,
+      section: 'Actions',
+      shortcut: command.shortcutAccepted ? command.shortcut : undefined,
+      keywords: ['extension', command.extensionName],
+      perform: async () => { await window.vast.extensions.dispatchContribution(command.key) }
+    }))
+
+    return [...visibleBase.map(annotateFeatureState), ...extensionCommands, ...macroCommands, ...workspaceCommands, ...tabCommands, ...noteCommands, ...bookmarkCommands, ...historyCommands, ...settingsCommands]
+  }, [activeWorkspaceId, appearance.forceDarkModeWebsites, bookmarks, clearHistory, createMacro, extensionContributions.commands, featureContextSettings, history, labs.enabled, labs.spoofing, labsEnabled, macros, notes, privacy.adBlockerEnabled, privacy.blockThirdPartyCookies, privacy.blockTrackers, privacy.fingerprintingProtection, privacy.stripTrackingParameters, runtime, security.httpsOnlyMode, setActiveWorkspace, setSettingsOpen, setSmartUnloadOpen, spoofing.enabled, tabs, updateSettings, workspaces])
 
   const filtered = useMemo(() => {
     const recentRank = new Map(recentCommandIds.map((id, index) => [id, recentCommandIds.length - index]))
@@ -503,8 +600,8 @@ export function CommandPalette(): JSX.Element | null {
   return (
     <div className="command-palette-shell fixed inset-0 z-50 flex items-start justify-center bg-black/[0.46] px-3 pt-[clamp(2rem,9vh,7rem)] backdrop-blur-md sm:px-5">
       <button className="absolute inset-0 cursor-default" aria-label="Close command palette" onClick={() => setOpen(false)} />
-      <div className="relative w-full max-w-3xl overflow-hidden rounded-[28px] border border-white/[0.09] bg-[#11131a]/[0.88] shadow-[0_32px_110px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.055)] ring-1 ring-white/[0.03] backdrop-blur-2xl">
-        <div className="flex items-center gap-3 border-b border-white/[0.065] px-5 py-4">
+      <div className="command-palette-panel relative w-full max-w-3xl overflow-hidden rounded-[28px] border border-white/[0.09] bg-[#11131a]/[0.88] shadow-[0_32px_110px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.055)] ring-1 ring-white/[0.03] backdrop-blur-2xl">
+        <div className="command-palette-search flex items-center gap-3 border-b border-white/[0.065] px-5 py-4">
           <div className="grid h-10 w-10 place-items-center rounded-2xl border border-white/[0.08] bg-white/[0.07] text-vast-cyan shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
             <CommandIcon className="h-5 w-5" />
           </div>
@@ -528,7 +625,8 @@ export function CommandPalette(): JSX.Element | null {
               }
             }}
             placeholder="Command, tab, bookmark, history, or search"
-            className="h-12 min-w-0 flex-1 bg-transparent text-[17px] font-medium text-white outline-none placeholder:text-vast-soft"
+            aria-label="Search commands, tabs, bookmarks, history, and the web"
+            className="command-palette-input h-12 min-w-0 flex-1 bg-transparent text-[17px] font-medium text-white outline-none placeholder:text-vast-soft"
           />
           <button
             type="button"
@@ -621,6 +719,12 @@ function CommandGlyph({
   if (command.id === 'notes-page' || command.id === 'create-note') return <FileText className={className} />
   if (command.id === 'site-data') return <Database className={className} />
   if (command.id === 'diagnostics') return <Shield className={className} />
+  if (command.id === 'toggle-ad-blocker' || command.id === 'toggle-tracker-blocking') return <Shield className={className} />
+  if (command.id === 'toggle-tracking-parameter-cleaning') return <Link2Off className={className} />
+  if (command.id === 'toggle-third-party-cookies') return <Cookie className={className} />
+  if (command.id === 'toggle-fingerprinting-protection' || command.id === 'toggle-spoofing') return <Fingerprint className={className} />
+  if (command.id === 'toggle-https-only') return <LockKeyhole className={className} />
+  if (command.id === 'toggle-force-dark-websites') return <Moon className={className} />
   if (command.id === 'session-timeline' || command.id === 'save-session-snapshot') return <History className={className} />
   if (command.id === 'smart-unload') return <Gauge className={className} />
   if (command.id === 'print-page') return <Printer className={className} />

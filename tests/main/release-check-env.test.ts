@@ -28,7 +28,7 @@ function runReleaseCheck(overrides: Record<string, string | undefined>) {
       VAST_OBFUSCATE: '1',
       VAST_RELEASE_REPO: 'vstxx/vast-public',
       VAST_RELEASE_COMMIT: sourceCommit,
-      VAST_PREVIOUS_VERSION: '0.1.4',
+      VAST_PREVIOUS_VERSION: '0.1.5',
       VAST_EXPECTED_SIGNER_SUBJECT: 'VastProductions',
       WIN_CSC_LINK: 'fake-cert',
       WIN_CSC_KEY_PASSWORD: 'fake-password',
@@ -79,6 +79,8 @@ test('explicit public unsigned beta accepts a stable-shaped version without sign
     VAST_RELEASE_CHANNEL: 'beta',
     VAST_PUBLIC_UNSIGNED_BETA: '1',
     VAST_UNSIGNED_BETA_ACK: 'I_ACCEPT_UNSIGNED_PUBLIC_BETA_RISK',
+    VAST_RELAY_ENABLED: '1',
+    VAST_RELAY_PRODUCTION_ENABLED: '0',
     VAST_EXPECTED_SIGNER_SUBJECT: undefined,
     WIN_CSC_LINK: undefined,
     WIN_CSC_KEY_PASSWORD: undefined

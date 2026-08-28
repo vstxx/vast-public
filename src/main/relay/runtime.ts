@@ -6,8 +6,14 @@ import { openExternalUrl } from '../sessions'
 import { windowRegistry } from '../windows/WindowRegistry'
 import { VastRelayService } from './service'
 import { RelayStateStore } from './storage'
+import type { RelayInstanceKind } from '../../shared/relay-types'
 
 declare const __VAST_INCLUDE_INTERNAL_TEST_HARNESS__: boolean
+
+function relayInstanceKind(): RelayInstanceKind {
+  if (process.env.VAST_TEST_USER_DATA_DIR) return 'test'
+  return app.isPackaged ? 'packaged' : 'development'
+}
 
 export function createVastRelayService(getSettings: () => BrowserSettings): VastRelayService {
   const relaySession = session.fromPartition('vast-relay', { cache: false })
@@ -20,6 +26,7 @@ export function createVastRelayService(getSettings: () => BrowserSettings): Vast
       ? async () => { throw new Error('Simulated isolated Relay outage.') }
       : (input, init) => relaySession.fetch(input instanceof URL ? input.toString() : input, init),
     currentVersion: () => app.getVersion(),
+    instanceKind: relayInstanceKind(),
     emitSnapshot: (snapshot) => {
       const target = windowRegistry.focusedVastWindow() ?? windowRegistry.vastWindows()[0]
       for (const window of windowRegistry.vastWindows()) {

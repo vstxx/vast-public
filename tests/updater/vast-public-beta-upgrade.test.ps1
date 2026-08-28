@@ -15,7 +15,20 @@ if ([string]::IsNullOrWhiteSpace($ExpectedSignerSubject)) { throw 'Expected sign
 
 function Assert-True([bool] $Condition, [string] $Message) { if (-not $Condition) { throw "Assertion failed: $Message" } }
 function Assert-Equal([object] $Expected, [object] $Actual, [string] $Message) { if ($Expected -ne $Actual) { throw "Assertion failed: $Message. Expected '$Expected', got '$Actual'." } }
-function Get-ProductionFile([string] $Url, [string] $Path) { Invoke-WebRequest -Uri $Url -OutFile $Path -MaximumRedirection 8 -TimeoutSec 600 }
+function Get-ProductionFile([string] $Url, [string] $Path) {
+  $curl = Get-Command 'curl.exe' -ErrorAction Stop
+  $download = Start-Process -FilePath $curl.Source -ArgumentList @(
+    '--fail',
+    '--location',
+    '--retry', '3',
+    '--retry-all-errors',
+    '--connect-timeout', '30',
+    '--max-time', '1200',
+    '--output', "`"$Path`"",
+    $Url
+  ) -Wait -PassThru -NoNewWindow
+  Assert-Equal 0 $download.ExitCode "download must succeed: $Url"
+}
 function Assert-Signed([string] $Path) {
   $signature = Get-AuthenticodeSignature -LiteralPath $Path
   Assert-Equal 'Valid' ([string] $signature.Status) "$Path must have a valid Authenticode signature"
@@ -23,7 +36,7 @@ function Assert-Signed([string] $Path) {
   Assert-True ([string] $signature.SignerCertificate.Subject -like "*$ExpectedSignerSubject*") "$Path must be signed by $ExpectedSignerSubject"
 }
 
-$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("vast-public-beta-upgrade-{0}" -f [Guid]::NewGuid().ToString('N'))
+$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("vpb-{0}" -f [Guid]::NewGuid().ToString('N').Substring(0, 12))
 New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
 try {
   $previousManifestPath = Join-Path $testRoot 'previous-update-manifest.json'
@@ -69,20 +82,20 @@ try {
   foreach ($entry in $sentinels.GetEnumerator()) { $before[$entry.Key] = (Get-FileHash -LiteralPath (Join-Path $userData $entry.Key) -Algorithm SHA256).Hash }
 
   $downloadDir = Join-Path $testRoot 'current-download'
-  $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-  $startInfo.FileName = $currentUpdater
-  $startInfo.UseShellExecute = $false
-  $startInfo.CreateNoWindow = $true
-  foreach ($argument in @(
-    '--manifest-url', $currentManifestLocation,
-    '--install-path', $installPath,
-    '--user-data-root', $userData,
-    '--download-dir', $downloadDir,
+  $bootstrapLog = Join-Path $testRoot 'bootstrapper.log'
+  $updaterArguments = @(
+    '--manifest-url', "`"$currentManifestLocation`"",
+    '--install-path', "`"$installPath`"",
+    '--user-data-root', "`"$userData`"",
+    '--download-dir', "`"$downloadDir`"",
+    '--bootstrap-log-path', "`"$bootstrapLog`"",
     '--non-interactive'
-  )) { $startInfo.ArgumentList.Add([string] $argument) }
-  $process = [System.Diagnostics.Process]::Start($startInfo)
-  $process.WaitForExit()
-  Assert-Equal 0 $process.ExitCode 'signed public updater must complete successfully'
+  )
+  $process = Start-Process -FilePath $currentUpdater -ArgumentList $updaterArguments -Wait -PassThru -WindowStyle Hidden
+  if ($process.ExitCode -ne 0) {
+    $diagnostic = if (Test-Path -LiteralPath $bootstrapLog -PathType Leaf) { (Get-Content -Raw -LiteralPath $bootstrapLog).Trim() } else { 'bootstrapper log was not created' }
+    throw "Assertion failed: signed public updater must complete successfully. Exit code $($process.ExitCode).`n$diagnostic"
+  }
   Assert-Signed (Join-Path $installPath 'Vast.exe')
   $installedVersion = (Get-Content -Raw -LiteralPath (Join-Path $installPath 'version.json') | ConvertFrom-Json).version
   Assert-Equal $CurrentVersion $installedVersion 'runtime must advance to the next signed beta/release'

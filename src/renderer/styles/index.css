@@ -435,6 +435,10 @@ button:disabled {
   -webkit-backdrop-filter: none !important;
 }
 
+.new-tab-flat-search .new-tab-search-input:focus {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
 .vast-opening-backdrop {
   position: absolute;
   inset: 0;
@@ -748,9 +752,23 @@ button:disabled {
   border-radius: 0.75rem;
 }
 
-.app-shell .side-panel-pin-button,
-.app-shell .side-panel-pin-button:hover {
+.app-shell .side-panel-pin-button {
+  width: 2rem;
+  height: 2rem;
+  border-color: transparent !important;
+  border-radius: 0.625rem;
+  background: transparent !important;
   box-shadow: none !important;
+}
+
+.app-shell .side-panel-pin-button:hover {
+  border-color: transparent !important;
+  background: rgba(255, 255, 255, 0.065) !important;
+  box-shadow: none !important;
+}
+
+.app-shell .side-panel-pin-button[aria-pressed='true'] {
+  color: var(--vast-accent);
 }
 
 .app-main-surface {
@@ -899,6 +917,21 @@ button:disabled {
   backdrop-filter: blur(var(--vast-effective-blur)) saturate(var(--vast-saturation)) !important;
 }
 
+.command-palette-search {
+  transition: border-color var(--vast-motion-snap), background-color var(--vast-motion-snap);
+}
+
+.command-palette-search:focus-within {
+  border-bottom-color: color-mix(in srgb, var(--vast-accent) 24%, var(--vast-border));
+  background-color: color-mix(in srgb, var(--vast-surface) 32%, transparent);
+}
+
+.command-palette-input:focus,
+.command-palette-input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 .browser-stage-shell,
 .browser-stage {
   contain: layout paint style;
@@ -1029,6 +1062,66 @@ button:disabled {
   contain: layout paint style;
 }
 
+.extensions-toolbar-menu {
+  background: color-mix(in srgb, var(--vast-bg) 96%, #11121a) !important;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.34);
+}
+
+.extensions-toolbar-menu button {
+  -webkit-app-region: no-drag;
+}
+
+.extensions-toolbar-row + .extensions-toolbar-row {
+  margin-top: 0.125rem;
+}
+
+.extensions-toolbar-actions {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+}
+
+.extension-toolbar-surface {
+  border: 0;
+  color-scheme: dark;
+}
+
+.extensions-toolbar-primary-action,
+.extensions-toolbar-secondary-action {
+  display: flex;
+  min-height: 2.5rem;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 26%, transparent);
+  font-size: 0.75rem;
+  font-weight: 650;
+  transition: border-color var(--vast-motion-snap), background var(--vast-motion-snap), color var(--vast-motion-snap);
+}
+
+.extensions-toolbar-primary-action {
+  border-color: color-mix(in srgb, var(--vast-accent) 26%, transparent);
+  background: color-mix(in srgb, var(--vast-accent) 9%, var(--vast-surface));
+  color: color-mix(in srgb, var(--vast-accent) 68%, white);
+}
+
+.extensions-toolbar-primary-action:hover {
+  border-color: color-mix(in srgb, var(--vast-accent) 38%, transparent);
+  background: color-mix(in srgb, var(--vast-accent) 13%, var(--vast-surface));
+  color: white;
+}
+
+.extensions-toolbar-secondary-action {
+  background: rgba(255, 255, 255, 0.025);
+  color: rgba(255, 255, 255, 0.68);
+}
+
+.extensions-toolbar-secondary-action:hover {
+  border-color: color-mix(in srgb, var(--vast-border) 40%, transparent);
+  background: rgba(255, 255, 255, 0.055);
+  color: white;
+}
+
 .smart-unload-panel {
   --smart-unload-panel-bg: #050507;
   --smart-unload-surface: #0c0d12;
@@ -1114,17 +1207,14 @@ button:disabled {
 }
 
 .settings-nav-item:hover {
-  background: color-mix(in srgb, var(--vast-surface-strong) 58%, transparent) !important;
+  background: rgba(255, 255, 255, 0.07) !important;
   color: var(--vast-text);
 }
 
 .settings-nav-item.is-active {
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--vast-accent) 6%, transparent), color-mix(in srgb, var(--vast-surface-strong) 58%, transparent)) !important;
+  background: rgba(255, 255, 255, 0.09) !important;
   color: var(--vast-text);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 12px 28px color-mix(in srgb, var(--vast-accent) 2%, transparent);
+  box-shadow: none !important;
 }
 
 .horizontal-chrome [class*='bg-[#090a0d]'],
@@ -1382,6 +1472,235 @@ button:disabled {
     inset 0 0 0 1px rgba(255, 255, 255, 0.012),
     0 16px 42px rgba(0, 0, 0, 0.2);
   backdrop-filter: blur(calc(var(--vast-effective-blur) * 0.45)) saturate(1.02);
+}
+
+.app-shell .extensions-page-surface .vast-glass-panel {
+  border-color: color-mix(in srgb, var(--vast-border) 24%, transparent);
+  background: color-mix(in srgb, var(--vast-surface-elevated) 94%, var(--vast-bg));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.012);
+  backdrop-filter: none;
+  transform: none;
+}
+
+.app-shell .extensions-page-surface .vault-action-button:hover,
+.app-shell .extensions-page-surface .vault-danger-button:hover {
+  transform: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.018);
+}
+
+.extensions-tablist {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem;
+  width: fit-content;
+  padding: 0.25rem;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 24%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--vast-surface) 72%, transparent);
+}
+
+.extensions-tab {
+  min-width: 6.75rem;
+  height: 2.375rem;
+  padding: 0 1.125rem;
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  color: var(--vast-muted);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  transition: border-color var(--vast-motion-snap), background var(--vast-motion-snap), color var(--vast-motion-snap);
+}
+
+.extensions-tab:hover {
+  color: var(--vast-text);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.extensions-tab.is-active {
+  border-color: color-mix(in srgb, var(--vast-border) 34%, transparent);
+  background: color-mix(in srgb, var(--vast-surface-strong) 82%, transparent);
+  color: var(--vast-text);
+}
+
+.extensions-subpanel {
+  border: 1px solid color-mix(in srgb, var(--vast-border) 20%, transparent);
+  background: color-mix(in srgb, var(--vast-surface) 64%, transparent);
+}
+
+.extensions-search-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 1.5rem;
+}
+
+.extensions-search-field {
+  display: flex;
+  min-width: 0;
+  height: 2.75rem;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0 1rem;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 26%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--vast-surface) 66%, transparent);
+  transition: border-color var(--vast-motion-snap), background var(--vast-motion-snap), box-shadow var(--vast-motion-snap);
+}
+
+.extensions-search-field:hover {
+  border-color: color-mix(in srgb, var(--vast-border) 38%, transparent);
+}
+
+.extensions-search-field:focus-within {
+  border-color: color-mix(in srgb, var(--vast-accent) 34%, transparent);
+  background: color-mix(in srgb, var(--vast-surface-strong) 74%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vast-accent) 8%, transparent);
+}
+
+.extensions-search-field input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.extensions-search-button {
+  width: 7.25rem;
+  height: 2.75rem;
+  align-self: stretch;
+  justify-content: center;
+  border-radius: 1rem;
+}
+
+.extensions-filter-chip {
+  min-height: 2rem;
+  padding: 0 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 22%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vast-surface) 58%, transparent);
+  color: var(--vast-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  transition: border-color var(--vast-motion-snap), background var(--vast-motion-snap), color var(--vast-motion-snap);
+}
+
+.extensions-filter-chip:hover {
+  border-color: color-mix(in srgb, var(--vast-border) 38%, transparent);
+  background: color-mix(in srgb, var(--vast-surface-strong) 68%, transparent);
+  color: var(--vast-text);
+}
+
+.extensions-filter-chip.is-active {
+  border-color: color-mix(in srgb, var(--vast-accent) 28%, transparent);
+  background: color-mix(in srgb, var(--vast-accent) 9%, var(--vast-surface));
+  color: color-mix(in srgb, var(--vast-accent) 72%, white);
+}
+
+.extensions-flat-card {
+  transition: border-color var(--vast-motion-snap), background var(--vast-motion-snap);
+}
+
+.extensions-flat-card:hover {
+  border-color: color-mix(in srgb, var(--vast-border) 30%, transparent) !important;
+  background: color-mix(in srgb, var(--vast-surface-elevated) 97%, white 3%) !important;
+}
+
+.extensions-enabled-control {
+  display: inline-flex;
+  height: 2.5rem;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0 0.5rem 0 0.875rem;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 24%, transparent);
+  border-radius: 0.875rem;
+  background: color-mix(in srgb, var(--vast-surface) 64%, transparent);
+  color: var(--vast-text);
+  font-size: 0.8125rem;
+  font-weight: 650;
+}
+
+.extensions-enabled-switch {
+  position: relative;
+  width: 2.625rem;
+  height: 1.5rem;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 32%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vast-surface-strong) 72%, transparent);
+  transition: border-color var(--vast-motion-snap), background var(--vast-motion-snap);
+}
+
+.extensions-enabled-switch > span {
+  position: absolute;
+  top: 0.1875rem;
+  left: 0.1875rem;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vast-muted) 80%, white);
+  transition: transform var(--vast-motion-snap), background var(--vast-motion-snap);
+}
+
+.extensions-enabled-switch.is-active {
+  border-color: color-mix(in srgb, var(--vast-accent) 36%, transparent);
+  background: color-mix(in srgb, var(--vast-accent) 18%, var(--vast-surface));
+}
+
+.extensions-enabled-switch.is-active > span {
+  transform: translateX(1.125rem);
+  background: color-mix(in srgb, var(--vast-accent) 72%, white);
+}
+
+.extensions-enabled-switch:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.extensions-developer-footer {
+  display: flex;
+  min-height: 3.5rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.75rem 1rem 0.25rem;
+  border-top: 1px solid color-mix(in srgb, var(--vast-border) 18%, transparent);
+  color: var(--vast-muted);
+  font-size: 0.75rem;
+}
+
+.extensions-developer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: color-mix(in srgb, var(--vast-accent) 70%, white);
+  font-weight: 650;
+  transition: color var(--vast-motion-snap);
+}
+
+.extensions-developer-link:hover {
+  color: color-mix(in srgb, var(--vast-accent) 48%, white);
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
+}
+
+@media (max-width: 639px) {
+  .extensions-search-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .extensions-search-button {
+    width: 100%;
+  }
+
+  .extensions-tablist {
+    width: 100%;
+  }
+
+  .extensions-developer-footer {
+    flex-wrap: wrap;
+    text-align: center;
+  }
 }
 
 .settings-search-panel {
@@ -2262,14 +2581,17 @@ button:disabled {
   --vast-border-soft-mix: 22%;
   --vast-address-border-mix: 20%;
   --vast-focus-border-mix: 18%;
-  --vast-shadow-alpha: 0.28;
-  --vast-address-shadow-alpha: 0.22;
-  --vast-focus-shadow-alpha: 0.24;
-  --vast-gradient-mix: 5%;
-  --vast-gradient-soft-mix: 3%;
-  --vast-gradient-strong-mix: 10%;
-  --vast-glow-mix: 7%;
-  --vast-glow-soft-mix: 3%;
+  --vast-shadow-sm: 0 2px 7px rgba(0, 0, 0, 0.12);
+  --vast-shadow-md: 0 6px 18px rgba(0, 0, 0, 0.15);
+  --vast-shadow-lg: 0 12px 34px rgba(0, 0, 0, 0.2);
+  --vast-shadow-alpha: 0.12;
+  --vast-address-shadow-alpha: 0.09;
+  --vast-focus-shadow-alpha: 0.1;
+  --vast-gradient-mix: 2%;
+  --vast-gradient-soft-mix: 1%;
+  --vast-gradient-strong-mix: 4%;
+  --vast-glow-mix: 3%;
+  --vast-glow-soft-mix: 1%;
   background: #151515 !important;
   color: var(--vast-text) !important;
 }
@@ -2320,9 +2642,7 @@ button:disabled {
 }
 
 .dim-theme .vast-logo-image {
-  filter:
-    drop-shadow(0 0 10px rgba(255, 255, 255, 0.04))
-    drop-shadow(0 16px 32px rgba(0, 0, 0, 0.22));
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.12));
 }
 
 .light-theme .vast-glass-panel {
@@ -2336,14 +2656,10 @@ button:disabled {
 
 .dim-theme .vast-glass-panel {
   border-color: rgba(255, 255, 255, 0.1);
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.012) 54%, rgba(255, 255, 255, 0.03)),
-    #242424;
+  background: #242424;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.038),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
-    0 22px 58px rgba(0, 0, 0, 0.28),
-    0 0 0 1px rgba(255, 255, 255, 0.018);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.012),
+    0 4px 14px rgba(0, 0, 0, 0.12);
 }
 
 .light-theme .vast-top-address {
@@ -2359,9 +2675,8 @@ button:disabled {
   border-color: rgba(255, 255, 255, 0.09);
   background: #232323;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.048),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
-    0 14px 36px rgba(0, 0, 0, 0.22);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.012),
+    0 3px 10px rgba(0, 0, 0, 0.1);
 }
 
 .light-theme .vast-top-address:focus-within {
@@ -2376,10 +2691,8 @@ button:disabled {
 .dim-theme .vast-top-address:focus-within {
   border-color: color-mix(in srgb, var(--vast-accent) 30%, rgba(255, 255, 255, 0.14));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.052),
-    0 0 0 1px color-mix(in srgb, var(--vast-accent) 14%, transparent),
-    0 16px 44px rgba(0, 0, 0, 0.24),
-    0 0 24px color-mix(in srgb, var(--vast-accent) 5%, transparent);
+    inset 0 0 0 1px color-mix(in srgb, var(--vast-accent) 12%, transparent),
+    0 4px 14px rgba(0, 0, 0, 0.12);
 }
 
 .light-theme .settings-modal-shell {
@@ -2432,10 +2745,15 @@ button:disabled {
 
 .dim-theme .settings-modal-shell {
   border-color: rgba(255, 255, 255, 0.13) !important;
-  background: linear-gradient(145deg, rgba(39, 39, 39, 0.98), rgba(24, 24, 24, 0.97)) !important;
+  background: rgba(31, 31, 31, 0.98) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 28px 86px rgba(0, 0, 0, 0.34) !important;
+    inset 0 0 0 1px rgba(255, 255, 255, 0.014),
+    0 10px 30px rgba(0, 0, 0, 0.2) !important;
+}
+
+.dim-theme .command-palette-panel {
+  background: rgba(31, 31, 31, 0.98) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18) !important;
 }
 
 .light-theme [class*='bg-black\/'] {
@@ -2483,7 +2801,7 @@ button:disabled {
 }
 
 .dim-theme .side-panel {
-  background: linear-gradient(180deg, rgba(30, 30, 30, 0.98), rgba(22, 22, 22, 0.96)) !important;
+  background: #1d1d1d !important;
   border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
@@ -2509,7 +2827,7 @@ button:disabled {
 }
 
 .dim-theme .app-main-surface {
-  background: linear-gradient(180deg, #2a2a2a 0%, #1d1d1d 100%) !important;
+  background: #1d1d1d !important;
 }
 
 .app-shell.is-new-tab .app-main-surface {

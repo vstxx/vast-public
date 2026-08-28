@@ -229,7 +229,7 @@ textarea:focus-visible { outline: none; box-shadow: var(--vast-focus); }
 
 .instances-toolbar {
   display: grid;
-  grid-template-columns: minmax(16rem, 1.3fr) minmax(10rem, 0.7fr) minmax(10rem, 0.7fr) auto auto;
+  grid-template-columns: minmax(16rem, 1.3fr) repeat(3, minmax(9rem, 0.7fr)) auto auto;
   gap: 0.55rem;
   align-items: center;
   border: 1px solid var(--vast-border);
@@ -253,10 +253,14 @@ textarea:focus-visible { outline: none; box-shadow: var(--vast-focus); }
 .instances-table tbody tr:last-child td { border-bottom: 0; }
 .instances-table th:last-child,
 .instances-table td:last-child { text-align: right; }
-.instances-table td:nth-child(5) { color: var(--vast-text); text-align: right; }
+.instances-table td:nth-child(6) { color: var(--vast-text); text-align: right; }
 .instance-id { min-height: 0; border: 0; padding: 0; background: transparent; color: var(--vast-text); cursor: pointer; font-size: 0.7rem; }
 .instance-id:hover { color: var(--vast-accent); }
 .badge--version { color: #d3d7ff; border-color: rgba(156, 154, 255, 0.28); background: rgba(156, 154, 255, 0.065); text-transform: none; letter-spacing: 0.02em; }
+.badge--packaged { border-color: color-mix(in srgb, var(--vast-success) 36%, transparent); color: var(--vast-success); }
+.badge--development { border-color: color-mix(in srgb, var(--vast-info) 34%, transparent); color: var(--vast-info); }
+.badge--test { border-color: color-mix(in srgb, var(--vast-warning) 40%, transparent); color: var(--vast-warning); }
+.badge--unknown { color: var(--vast-tertiary); }
 .instances-pager { min-height: 3rem; display: flex; justify-content: flex-end; align-items: center; gap: 0.7rem; margin-top: 0.8rem; }
 .instances-pager .mono { min-width: 4.5rem; color: var(--vast-tertiary); text-align: center; font-size: 0.68rem; }
 
@@ -427,10 +431,10 @@ input[type='checkbox'].input { width: 1.15rem; min-height: 1.15rem; accent-color
   .content { min-height: calc(100vh - 7.4rem); padding-top: 2.4rem; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-split { grid-template-columns: 1fr; }
-  .instances-toolbar { grid-template-columns: minmax(15rem, 1fr) repeat(2, minmax(9rem, 0.6fr)); }
+  .instances-toolbar { grid-template-columns: minmax(15rem, 1fr) repeat(3, minmax(8rem, 0.6fr)); }
   .instances-toolbar .button { grid-row: 2; }
-  .instances-toolbar .button--primary { grid-column: 2; }
-  .instances-toolbar .button:not(.button--primary) { grid-column: 3; }
+  .instances-toolbar .button--primary { grid-column: 3; }
+  .instances-toolbar .button:not(.button--primary) { grid-column: 4; }
   .broadcast-toolbar { grid-template-columns: 1fr auto; }
   .broadcast-toolbar__filters { grid-column: 1 / -1; grid-row: 2; grid-template-columns: minmax(0, 1fr) 9rem; }
   .editor__layout { grid-template-columns: 1fr; }

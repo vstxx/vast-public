@@ -1,12 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import interRegularFontUrl from '../../../../assets/fonts/InterDisplay-Regular.woff2?url'
-import interSemiBoldFontUrl from '../../../../assets/fonts/InterDisplay-SemiBold.woff2?url'
 import { buildCosmeticAdBlockScript } from '../../../shared/adblock'
 import { getFeatureState, VastFeatures } from '../../../shared/feature-gates'
 import { mouseNavigationActionForButton, shouldTriggerMouseNavigation } from '../../../shared/mouse-navigation'
 import type { ID, Tab, WorkspaceIdentitySettings } from '../../../shared/types'
 import { buildSpoofingInjectionScript } from '../../../shared/spoofing'
-import { buildSiteOverrideScript, isSiteOverrideDisabled, siteOverrideForUrl } from '../../../shared/site-overrides'
 import { GuestNavigationUrlQueue, shouldAcceptWebviewNavigationEvent, webviewNavigationUrl } from '../../../shared/webview-navigation'
 import { shouldBypassVastInterference } from '../../../shared/auth-compatibility-policy'
 import { automaticPasswordCaptureOrigin } from '../../../shared/password-capture-policy'
@@ -16,6 +13,7 @@ import { resolveWorkspaceIdentity } from '../../../shared/workspace-identity'
 import { useBrowserStore, type ContextMenuItem } from '../../store/browser-store'
 import { createPdfViewerUrl, displayUrl, isInternalUrl, isSafeLoadUrl, looksLikePdfUrl, webOriginFor } from '../../lib/url'
 import { useBrowserRuntime } from '../../app/browser-runtime'
+import { getExtensionContributions } from '../../extensions/extension-runtime'
 
 interface WebviewSurfaceProps {
   tab: Tab
@@ -34,49 +32,6 @@ type MediaAwareWebviewTag = Electron.WebviewTag & {
   isCurrentlyAudible?: () => boolean
 }
 
-
-let siteOverrideFontCssPromise: Promise<string> | undefined
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer)
-  let binary = ''
-  const chunkSize = 0x8000
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
-  }
-  return btoa(binary)
-}
-
-async function fontUrlToDataUrl(url: string): Promise<string> {
-  const absoluteUrl = new URL(url, window.location.href).href
-  const response = await fetch(absoluteUrl)
-  if (!response.ok) throw new Error(`Could not load site override font: ${response.status}`)
-  return `data:font/woff2;base64,${arrayBufferToBase64(await response.arrayBuffer())}`
-}
-
-function siteOverrideFontCss(): Promise<string> {
-  siteOverrideFontCssPromise ??= Promise.all([
-    fontUrlToDataUrl(interRegularFontUrl),
-    fontUrlToDataUrl(interSemiBoldFontUrl)
-  ]).then(([regular, semiBold]) => `
-@font-face {
-  font-family: "Inter";
-  src: url("${regular}") format("woff2");
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Inter";
-  src: url("${semiBold}") format("woff2");
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-}
-`.trim())
-  return siteOverrideFontCssPromise
-}
 
 function contextSeparator(id: string): ContextMenuItem {
   return { id, label: '', separator: true }
@@ -162,7 +117,6 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
   const lastMouseNavigationRef = useRef({ action: '', at: 0 })
   const updateTab = useBrowserStore((state) => state.updateTab)
   const privacySettings = useBrowserStore((state) => state.settings.privacy)
-  const siteOverrides = useBrowserStore((state) => state.settings.siteOverrides)
   const spoofingSettings = useBrowserStore((state) => state.settings.spoofing)
   const spoofingAvailable = useBrowserStore((state) =>
     getFeatureState(VastFeatures.Spoofing, { settings: state.settings }).available
@@ -245,27 +199,6 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
       })
     }
 
-    const applySiteOverride = (): void => {
-      const currentUrl = webview.getURL() || latestTabRef.current.url
-      const currentSettings = useBrowserStore.getState().settings
-      if (shouldBypassVastInterference({ url: currentUrl }) || siteInterventionsAreDisabled(currentSettings.privacy.siteInterventionsDisabled, currentUrl)) return
-      const override = siteOverrideForUrl(currentUrl)
-      if (!override) return
-      const run = (fontCss = ''): void => {
-        if (!(webview as HTMLElement).isConnected) return
-        const latestSettings = useBrowserStore.getState().settings
-        const enabled = !isSiteOverrideDisabled(latestSettings.siteOverrides, override.id)
-        const script = enabled ? buildSiteOverrideScript(override, enabled, fontCss) : buildSiteOverrideScript(override, enabled)
-        void webview.executeJavaScript(script, false).catch(() => undefined)
-      }
-      const enabled = !isSiteOverrideDisabled(useBrowserStore.getState().settings.siteOverrides, override.id)
-      if (!enabled) {
-        run()
-        return
-      }
-      void siteOverrideFontCss().then((fontCss) => run(fontCss)).catch(() => run())
-    }
-
     const sendToGuest = (channel: string, payload: unknown): boolean => {
       if (!domReadyRef.current || !(webview as HTMLElement).isConnected) return false
       try {
@@ -316,7 +249,6 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
             false
           )
           .catch(() => undefined)
-        applySiteOverride()
       }
       const latestTab = latestTabRef.current
       const audioWebview = webview as Electron.WebviewTag & { setAudioMuted?: (muted: boolean) => void }
@@ -872,6 +804,22 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
         }
       })
 
+      if (!isPrivate) {
+        const extensionItems = getExtensionContributions().contextMenus
+        if (extensionItems.length > 0) pushContextSeparator(items, 'extension-actions-separator')
+        for (const item of extensionItems) pushContextItem(items, {
+          id: `extension-${item.key}`,
+          label: item.title,
+          detail: item.extensionName,
+          action: async () => { await window.vast.extensions.dispatchContribution(item.key, {
+            tabId: latestTab.id,
+            pageUrl: /^https?:\/\//i.test(latestTab.url) ? latestTab.url : undefined,
+            linkUrl: linkUrl && /^https?:\/\//i.test(linkUrl) ? linkUrl.slice(0, 4_096) : undefined,
+            selectionText: selectionText?.slice(0, 2_048)
+          }) }
+        })
+      }
+
       while (items[items.length - 1]?.separator) items.pop()
 
       openContextMenu({
@@ -951,28 +899,6 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
       setMediaActive(tab.id, false)
     }
   }, [addHistoryEntry, addNote, createTab, isPrivate, onFocused, openContextMenu, register, runtime, setFindOpen, setFindResult, setMediaActive, tab.groupId, tab.id, tab.workspaceId, updateTab, upsertSiteMemory])
-
-  useEffect(() => {
-    const webview = ref.current
-    if (!webview || !domReadyRef.current) return
-    const currentUrl = webview.getURL() || tab.url
-    if (shouldBypassVastInterference({ url: currentUrl }) || siteInterventionsAreDisabled(privacySettings.siteInterventionsDisabled, currentUrl)) return
-    const override = siteOverrideForUrl(currentUrl)
-    if (!override) return
-    const run = (fontCss = ''): void => {
-      if (!(webview as HTMLElement).isConnected) return
-      const latestSettings = useBrowserStore.getState().settings
-      const enabled = !isSiteOverrideDisabled(latestSettings.siteOverrides, override.id)
-      const script = enabled ? buildSiteOverrideScript(override, enabled, fontCss) : buildSiteOverrideScript(override, enabled)
-      void webview.executeJavaScript(script, false).catch(() => undefined)
-    }
-    const enabled = !isSiteOverrideDisabled(siteOverrides, override.id)
-    if (!enabled) {
-      run()
-      return
-    }
-    void siteOverrideFontCss().then((fontCss) => run(fontCss)).catch(() => run())
-  }, [privacySettings.siteInterventionsDisabled, siteOverrides, tab.url])
 
   useEffect(() => {
     const webview = ref.current

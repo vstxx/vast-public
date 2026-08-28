@@ -2,8 +2,6 @@
 
 Vast is a local-first desktop browser for power users. It combines Chromium page rendering through Electron with a React application shell for workspaces, navigation, local tools, and privacy controls.
 
-[Documentation](https://docs.vastbrowser.com) · [Website](https://vastbrowser.com)
-
 Vast does not collect browsing telemetry. When Vast Relay is enabled, its bounded operational check-in contains only a random installation UUID, the running version, and a cumulative launch count. Relay derives first-seen and last-seen timestamps and exposes simple anonymous aggregate installation counts; it never receives URLs, searches, tabs, history, bookmarks, account identity, hardware fingerprints, or message-interaction events. See [the privacy model](docs/PRIVACY.md).
 
 ## Project status
@@ -90,7 +88,7 @@ src/
   shared/      types, constants, policy, and trust metadata
 resources/
   avidae/      Video & Audio service source
-  cat-addon/   Cat Addon public-source placeholder (artwork excluded)
+  cat-addon/   packaged Cat Addon resource
 relay/         Cloudflare Workers, migrations, control panel, and tests
 scripts/       build, audit, release, updater, and test tooling
 tests/         unit, contract, Electron, Relay, and updater coverage
@@ -107,4 +105,4 @@ Practical contribution instructions are in [CONTRIBUTING.md](CONTRIBUTING.md). S
 
 Vast-owned source code is licensed under the [MIT License](LICENSE). Third-party components and assets retain their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [the license audit](docs/OPEN_SOURCE_LICENSE_AUDIT.md).
 
-This repository is the clean public-source export of Vast. The Cat Addon implementation remains available for review, while the unlicensed third-party artwork and its derived packages are intentionally excluded. See [PUBLIC_SOURCE_EXPORT.md](PUBLIC_SOURCE_EXPORT.md), [open-source readiness](docs/OPEN_SOURCE_READINESS.md), and the [license audit](docs/OPEN_SOURCE_LICENSE_AUDIT.md) before redistributing a binary build.
+The current repository still has a documented third-party asset provenance blocker. Check [open-source readiness](docs/OPEN_SOURCE_READINESS.md) before making a repository public or redistributing a build.

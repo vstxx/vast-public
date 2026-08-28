@@ -31,12 +31,12 @@ function ClockWidget({ compact = false }: { compact?: boolean }): JSX.Element {
 
 function VastLogo(): JSX.Element {
   return (
-    <div className="vast-logo-lockup relative mb-2 grid h-24 w-full place-items-center sm:h-28">
+    <div className="vast-logo-lockup relative mb-2 grid h-28 w-full place-items-center sm:h-32">
       <div className="vast-logo-aura" />
       <img
         src={vastLogo}
         alt="Vast"
-        className="vast-logo-image absolute h-32 w-auto max-w-none select-none object-contain sm:h-36"
+        className="vast-logo-image absolute h-36 w-auto max-w-none select-none object-contain sm:h-40"
         draggable={false}
       />
     </div>
@@ -541,7 +541,7 @@ function SearchForm({
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         placeholder="Search or enter address"
-        className="no-drag h-14 w-full rounded-[28px] border border-white/10 bg-white/[0.06] pl-12 pr-5 text-base font-medium text-white outline-none shadow-[0_16px_50px_rgba(0,0,0,0.22),0_0_0_1px_rgba(255,255,255,0.03)] backdrop-blur-xl transition duration-150 placeholder:text-vast-soft focus:border-vast-cyan/50 focus:bg-white/[0.085]"
+        className="new-tab-search-input no-drag h-14 w-full rounded-[28px] border border-white/10 bg-white/[0.06] pl-12 pr-5 text-base font-medium text-white outline-none shadow-[0_16px_50px_rgba(0,0,0,0.22),0_0_0_1px_rgba(255,255,255,0.03)] backdrop-blur-xl transition duration-150 placeholder:text-vast-soft focus:bg-white/[0.075]"
       />
     </form>
   )

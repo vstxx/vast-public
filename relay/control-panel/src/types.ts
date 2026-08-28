@@ -1,6 +1,7 @@
 export type BroadcastType = 'welcome' | 'seasonal' | 'announcement' | 'security' | 'update_notice'
 export type ReleaseSeverity = 'optional' | 'recommended' | 'important' | 'critical'
 export type BroadcastState = 'draft' | 'scheduled' | 'active' | 'expired' | 'disabled'
+export type InstanceKind = 'packaged' | 'development' | 'test' | 'unknown'
 
 export interface SessionInfo {
   actor: string
@@ -33,6 +34,7 @@ export interface Installation {
   first_seen: string
   last_seen: string
   launch_count: number
+  instance_kind: InstanceKind
 }
 
 export interface InstallationListResponse {

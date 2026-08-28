@@ -11,6 +11,7 @@ import type { AvidaeStatus } from '../shared/types'
 import { vastDataPath } from './data-path'
 import { clearAvidaeAuthorization, setAvidaeAuthorization } from './avidae-auth'
 import { verifyBundledAvidaeRuntime } from './avidae-runtime'
+import { redactAvidaeLogLine } from './avidae-log'
 
 interface PythonCandidate {
   command: string
@@ -49,7 +50,7 @@ function paths(): Pick<AvidaeStatus, 'sourcePath' | 'dataPath'> {
 }
 
 function appendLog(line: string): void {
-  const normalized = (authToken ? line.split(authToken).join('[redacted]') : line).replace(/Bearer\s+[A-Za-z0-9._~-]+/gi, 'Bearer [redacted]').replace(/\r/g, '').trim()
+  const normalized = redactAvidaeLogLine(line, authToken).replace(/\r/g, '').trim()
   if (!normalized) return
   for (const item of normalized.split('\n')) {
     const trimmed = item.trim()
@@ -91,7 +92,9 @@ async function pythonCandidates(): Promise<PythonCandidate[]> {
       runtimeEnvironment: {
         FFMPEG_PATH: runtime.ffmpeg,
         FFPROBE_PATH: runtime.ffprobe,
-        PLAYWRIGHT_BROWSERS_PATH: runtime.playwrightBrowsersPath
+        PLAYWRIGHT_BROWSERS_PATH: runtime.playwrightBrowsersPath,
+        VAST_AVIDAE_CHROMIUM_PATH: runtime.chromiumExecutable,
+        VAST_AVIDAE_BUNDLED_RUNTIME: '1'
       }
     }]
   }
@@ -270,6 +273,12 @@ export function getAvidaeStatus(): AvidaeStatus {
 export async function startAvidae(): Promise<AvidaeStatus> {
   if (state === 'running' && child && url) return status()
   if (startPromise) return startPromise
+
+  if (child) {
+    await stopChildProcess(child)
+    child = undefined
+    clearAvidaeAuthorization()
+  }
 
   startPromise = (async () => {
     state = 'starting'

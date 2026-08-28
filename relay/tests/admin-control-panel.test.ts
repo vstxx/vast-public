@@ -121,15 +121,15 @@ describe('Cloudflare Access defense in depth', () => {
 })
 
 describe('Control Panel operations', () => {
-  it('computes aggregate-only dashboard metrics without adding installation fields', async () => {
+  it('computes aggregate-only dashboard metrics without adding sensitive installation fields', async () => {
     const admin = await adminBindings()
     const now = Date.parse('2026-08-11T12:00:00.000Z')
     await admin.env.DB.batch([
-      admin.env.DB.prepare('INSERT INTO installations VALUES (?, ?, ?, ?, ?)').bind(
-        '44f669d7-f42f-4050-b97c-33f6d74372b2', '0.1.4', now - 1_000, now - 1_000, 4
+      admin.env.DB.prepare('INSERT INTO installations (install_id, current_version, first_seen, last_seen, launch_count, instance_kind) VALUES (?, ?, ?, ?, ?, ?)').bind(
+        '44f669d7-f42f-4050-b97c-33f6d74372b2', '0.1.4', now - 1_000, now - 1_000, 4, 'packaged'
       ),
-      admin.env.DB.prepare('INSERT INTO installations VALUES (?, ?, ?, ?, ?)').bind(
-        '30a49136-7144-4b65-8527-d671db03401a', '0.1.3', now - 40 * 86_400_000, now - 8 * 86_400_000, 8
+      admin.env.DB.prepare('INSERT INTO installations (install_id, current_version, first_seen, last_seen, launch_count, instance_kind) VALUES (?, ?, ?, ?, ?, ?)').bind(
+        '30a49136-7144-4b65-8527-d671db03401a', '0.1.3', now - 40 * 86_400_000, now - 8 * 86_400_000, 8, 'development'
       )
     ])
     const response = await dashboardSummary(admin.env, now)
@@ -147,14 +147,14 @@ describe('Control Panel operations', () => {
     const now = Date.parse('2026-08-11T12:00:00.000Z')
     await admin.env.DB.prepare('DELETE FROM installations').run()
     await admin.env.DB.batch([
-      admin.env.DB.prepare('INSERT INTO installations VALUES (?, ?, ?, ?, ?)').bind(
-        '11111111-1111-4111-8111-111111111111', '0.1.4', now - 3_000, now - 1_000, 3
+      admin.env.DB.prepare('INSERT INTO installations (install_id, current_version, first_seen, last_seen, launch_count, instance_kind) VALUES (?, ?, ?, ?, ?, ?)').bind(
+        '11111111-1111-4111-8111-111111111111', '0.1.4', now - 3_000, now - 1_000, 3, 'packaged'
       ),
-      admin.env.DB.prepare('INSERT INTO installations VALUES (?, ?, ?, ?, ?)').bind(
-        '22222222-2222-4222-8222-222222222222', '0.1.4', now - 9_000, now - 2_000, 2
+      admin.env.DB.prepare('INSERT INTO installations (install_id, current_version, first_seen, last_seen, launch_count, instance_kind) VALUES (?, ?, ?, ?, ?, ?)').bind(
+        '22222222-2222-4222-8222-222222222222', '0.1.4', now - 9_000, now - 2_000, 2, 'development'
       ),
-      admin.env.DB.prepare('INSERT INTO installations VALUES (?, ?, ?, ?, ?)').bind(
-        '33333333-3333-4333-8333-333333333333', '0.1.3', now - 40 * 86_400_000, now - 31 * 86_400_000, 9
+      admin.env.DB.prepare('INSERT INTO installations (install_id, current_version, first_seen, last_seen, launch_count, instance_kind) VALUES (?, ?, ?, ?, ?, ?)').bind(
+        '33333333-3333-4333-8333-333333333333', '0.1.3', now - 40 * 86_400_000, now - 31 * 86_400_000, 9, 'test'
       )
     ])
 
@@ -172,7 +172,7 @@ describe('Control Panel operations', () => {
       '22222222-2222-4222-8222-222222222222'
     ])
     expect(Object.keys(firstPage.items[0]).sort()).toEqual([
-      'current_version', 'first_seen', 'install_id', 'last_seen', 'launch_count'
+      'current_version', 'first_seen', 'install_id', 'instance_kind', 'last_seen', 'launch_count'
     ])
     expect(firstPage.next_cursor).toBeTypeOf('string')
 
@@ -187,6 +187,11 @@ describe('Control Panel operations', () => {
       'https://controlpanel.test/v1/admin/installations?activity=24h&version=0.1.4'
     ), admin.env, now)
     expect(await filtered.json()).toMatchObject({ total: 2 })
+
+    const testOnly = await listInstallations(new Request(
+      'https://controlpanel.test/v1/admin/installations?activity=all&kind=test'
+    ), admin.env, now)
+    expect(await testOnly.json()).toMatchObject({ total: 1 })
 
     await expect(listInstallations(new Request(
       'https://controlpanel.test/v1/admin/installations?unexpected=true'

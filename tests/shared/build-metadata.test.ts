@@ -34,6 +34,7 @@ test('public stable build is detected without product-tier metadata', () => {
   assert.equal(isPublicDistributionBuild(metadata), true)
   assert.equal('edition' in metadata, false)
   assert.equal('licenseMode' in metadata, false)
+  assert.equal(metadata.catAddonAvailable, false)
 })
 
 test('envFlag parses explicit false values', () => {
@@ -86,4 +87,16 @@ test('public beta uses the complete distribution gate and excludes Cat Addon', (
   assert.equal(isPublicStableBuild(metadata), false)
   assert.equal(metadata.catAddonAvailable, false)
   assert.deepEqual(publicReleaseMetadataFailures(metadata), [])
+})
+
+test('public builds fail closed when Cat Addon is explicitly re-enabled', () => {
+  const metadata = buildMetadataFromEnv({
+    VAST_RELEASE_CHANNEL: 'beta',
+    VAST_PRIVATE_BUILD: '0',
+    VAST_UPDATE_ENABLED: '1',
+    VAST_OBFUSCATE: '1',
+    VAST_RELEASE_REPO: 'vstxx/vast-public',
+    VAST_CAT_ADDON_ENABLED: '1'
+  })
+  assert.deepEqual(publicReleaseMetadataFailures(metadata), ['VAST_CAT_ADDON_ENABLED=0'])
 })

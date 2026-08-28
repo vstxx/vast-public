@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { redactAvidaeLogLine } from '../../src/main/avidae-log.ts'
 
 const mainSource = readFileSync(new URL('../../src/main/avidae.ts', import.meta.url), 'utf8')
 const authSource = readFileSync(new URL('../../src/main/avidae-auth.ts', import.meta.url), 'utf8')
@@ -24,7 +25,7 @@ test('Video & Audio receives an explicit environment allowlist and per-launch se
   assert.match(mainSource, /randomBytes\(32\)\.toString\('base64url'\)/)
   assert.match(mainSource, /AVIDAE_AUTH_TOKEN: launchToken/)
   assert.match(mainSource, /Bearer \$\{authToken\}/)
-  assert.match(mainSource, /\[redacted\]/)
+  assert.match(mainSource, /redactAvidaeLogLine\(line, authToken\)/)
   assert.match(authSource, /new URL\(rawUrl\)\.origin === authorizationOrigin/)
 })
 
@@ -47,6 +48,14 @@ test('Video & Audio process shutdown terminates descendants and uses bounded hea
   assert.match(mainSource, /'\/T', '\/F'/)
   assert.match(mainSource, /process\.kill\(-processRef\.pid, 'SIGKILL'\)/)
   assert.match(mainSource, /AbortSignal\.timeout\(1_500\)/)
+  assert.match(mainSource, /if \(child\) \{\s*await stopChildProcess\(child\)/)
+})
+
+test('Video & Audio logs redact launch tokens, bearer values, and URL credentials', () => {
+  const token = 'secret-launch-token'
+  const output = redactAvidaeLogLine(`Bearer abc.def ${token} https://example.test/?token=private&code=oauth` , token)
+  assert.doesNotMatch(output, /abc\.def|secret-launch-token|token=private|code=oauth/)
+  assert.match(output, /Bearer \[redacted\]/)
 })
 
 test('Video & Audio API validates auth, Host, Origin, bodies, paths, and public DNS on redirects', () => {
@@ -58,4 +67,6 @@ test('Video & Audio API validates auth, Host, Origin, bodies, paths, and public 
   assert.match(securitySource, /socket\.getaddrinfo/)
   assert.match(securitySource, /MAX_REDIRECTS/)
   assert.match(securitySource, /ip\.is_private/)
+  assert.match(securitySource, /_PinnedHTTPSConnection/)
+  assert.match(appSource, /_spreadsheet_safe/)
 })

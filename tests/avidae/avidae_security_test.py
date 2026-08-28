@@ -21,8 +21,8 @@ os.environ.update({
     "PORT": PORT,
 })
 
-from app import app, socketio, _approved_path  # noqa: E402
-from security import _SafeRedirectHandler, is_public_url, resolve_public_url  # noqa: E402
+from app import app, socketio, _approved_path, _spreadsheet_safe  # noqa: E402
+from security import _SafeRedirectHandler, _connect_approved, is_public_url, resolve_public_url  # noqa: E402
 
 
 class VideoAudioSecurityTests(unittest.TestCase):
@@ -45,6 +45,8 @@ class VideoAudioSecurityTests(unittest.TestCase):
         allowed.disconnect()
 
     def test_mutating_api_rejects_wrong_content_type(self):
+        unauthorized = self.client.post("/api/jobs", json={"type": "record", "params": {"url": "https://example.com"}}, headers=self.host)
+        self.assertEqual(unauthorized.status_code, 401)
         response = self.client.post("/api/jobs", data="not json", headers=self.authorized)
         self.assertEqual(response.status_code, 415)
 
@@ -72,6 +74,31 @@ class VideoAudioSecurityTests(unittest.TestCase):
             self.assertFalse(is_public_url("http://redirected.test/private"))
             with self.assertRaises(ValueError):
                 _SafeRedirectHandler().redirect_request(None, None, 302, "Found", {}, "http://redirected.test/private")
+
+    def test_all_private_ipv4_ipv6_and_metadata_ranges_are_rejected(self):
+        blocked = [
+            "127.0.0.1", "10.0.0.1", "172.16.0.1", "192.168.0.1", "169.254.169.254",
+            "0.0.0.0", "100.64.0.1", "224.0.0.1", "::1", "fc00::1", "fe80::1", "::"
+        ]
+        for address in blocked:
+            family = socket.AF_INET6 if ":" in address else socket.AF_INET
+            answer = [(family, socket.SOCK_STREAM, 6, "", (address, 80, 0, 0) if family == socket.AF_INET6 else (address, 80))]
+            with patch("socket.getaddrinfo", return_value=answer):
+                self.assertFalse(is_public_url("http://metadata.test/latest"), address)
+
+    def test_connection_uses_only_the_prevalidated_address_set(self):
+        sentinel = object()
+        with patch("socket.create_connection", return_value=sentinel) as connect:
+            result = _connect_approved({"93.184.216.34"}, 443, 5)
+        self.assertIs(result, sentinel)
+        connect.assert_called_once_with(("93.184.216.34", 443), 5, None)
+
+    def test_socket_origin_and_csv_formula_cells_are_hardened(self):
+        denied_origin = socketio.test_client(app, headers={**self.authorized, "Origin": "https://evil.test"})
+        self.assertFalse(denied_origin.is_connected())
+        for value in ("=cmd()", "+SUM(A1)", "-1+2", "@IMPORTXML(A1)"):
+            self.assertEqual(_spreadsheet_safe(value), "'" + value)
+        self.assertEqual(_spreadsheet_safe("ordinary"), "ordinary")
 
 
 if __name__ == "__main__":

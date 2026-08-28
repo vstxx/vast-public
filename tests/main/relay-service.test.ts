@@ -64,7 +64,7 @@ async function withRelayStore(run: (path: string, store: RelayStateStore) => Pro
   }
 }
 
-test('Relay starts after the usable shell, reports only four fields, and schedules six-hour checks', async () => {
+test('Relay starts after the usable shell, reports its instance kind, and schedules six-hour checks', async () => {
   await withRelayStore(async (statePath, stateStore) => {
     const scheduler = new FakeScheduler()
     let request: RequestInit | undefined
@@ -79,6 +79,7 @@ test('Relay starts after the usable shell, reports only four fields, and schedul
         return jsonResponse(emptyResponse())
       },
       currentVersion: () => '0.1.4',
+      instanceKind: 'test',
       emitSnapshot: (snapshot) => { emitted = snapshot },
       openExternal: async () => undefined,
       applyTrustedUpdate: async () => false,
@@ -96,10 +97,11 @@ test('Relay starts after the usable shell, reports only four fields, and schedul
     assert.equal(requestUrl, 'https://relay-staging.vastbrowser.com/v1/checkin')
     assert.equal(request?.method, 'POST')
     const body = JSON.parse(String(request?.body)) as Record<string, unknown>
-    assert.deepEqual(Object.keys(body).sort(), ['current_version', 'install_id', 'launch_count', 'protocol'])
+    assert.deepEqual(Object.keys(body).sort(), ['current_version', 'install_id', 'instance_kind', 'launch_count', 'protocol'])
     assert.equal(body.protocol, 1)
     assert.equal(body.current_version, '0.1.4')
     assert.equal(body.launch_count, 1)
+    assert.equal(body.instance_kind, 'test')
     assert.equal(typeof body.install_id, 'string')
     assert.equal(scheduler.nextActive()?.delayMs, 6 * 60 * 60 * 1_000)
     assert.equal(emitted?.current, null)
@@ -119,6 +121,7 @@ test('Relay-disabled stable builds maintain local launch semantics without makin
       stateStore,
       fetcher: async () => { requests += 1; return jsonResponse(emptyResponse()) },
       currentVersion: () => '0.1.4',
+      instanceKind: 'test',
       emitSnapshot: () => undefined,
       openExternal: async () => undefined,
       applyTrustedUpdate: async () => false,
@@ -154,6 +157,7 @@ test('Relay outage, HTTP 500 and 429 retry conservatively while 4xx schema failu
         stateStore,
         fetcher: scenario.response,
         currentVersion: () => '0.1.4',
+        instanceKind: 'test',
         emitSnapshot: () => undefined,
         openExternal: async () => undefined,
         applyTrustedUpdate: async () => false,
@@ -180,6 +184,7 @@ test('Relay aborts a stalled check-in without affecting the application lifecycl
         init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
       }),
       currentVersion: () => '0.1.4',
+      instanceKind: 'test',
       emitSnapshot: () => undefined,
       openExternal: async () => undefined,
       applyTrustedUpdate: async () => false,
@@ -211,6 +216,7 @@ test('Relay drops tampered messages and exposes only verified passive presentati
       stateStore,
       fetcher: async () => jsonResponse({ ...emptyResponse(), messages: responseMessages }),
       currentVersion: () => '0.1.4',
+      instanceKind: 'test',
       emitSnapshot: (snapshot) => snapshots.push(snapshot),
       openExternal: async () => undefined,
       applyTrustedUpdate: async () => false,
@@ -247,6 +253,7 @@ test('Relay actions remain narrow: messages open verified HTTPS and updates pref
       stateStore,
       fetcher: async () => jsonResponse(response),
       currentVersion: () => '0.1.4',
+      instanceKind: 'test',
       emitSnapshot: () => undefined,
       openExternal: async (url) => { opened.push(url) },
       applyTrustedUpdate: async () => updaterReady,

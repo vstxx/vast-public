@@ -107,7 +107,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function hasSettingsShape(value: unknown): boolean {
   if (!isRecord(value)) return false
-  const sections = ['appearance', 'privacy', 'advanced', 'security', 'network', 'siteOverrides']
+  const sections = ['appearance', 'privacy', 'advanced', 'security', 'network']
   return sections.every((key) => value[key] === undefined || isRecord(value[key]))
 }
 
@@ -363,7 +363,6 @@ function sanitizeBrowserSettings(value: unknown): BrowserSettings {
   const source = isRecord(value) ? value : {}
   const security = isRecord(source.security) ? source.security : {}
   next.security.sitePermissions = sanitizeSitePermissions(security.sitePermissions)
-  next.siteOverrides = sanitizeSiteOverrides(source.siteOverrides)
   next.advanced.ramLimitMb = sanitizeRamLimitMb(next.advanced.ramLimitMb)
   next.layoutMode = resolveLayoutMode(next.layoutMode, next.advanced.experimentalFeatures)
   next.sidePanel.width = Math.min(520, Math.max(304, Math.round(next.sidePanel.width)))
@@ -411,17 +410,6 @@ function sanitizeSitePermissions(value: unknown): SitePermissionOverride[] {
     })
   }
   return next
-}
-
-function sanitizeSiteOverrides(value: unknown): BrowserSettings['siteOverrides'] {
-  if (!isRecord(value) || !isRecord(value.disabled)) return { disabled: { ...DEFAULT_DATA.settings.siteOverrides.disabled } }
-  const disabled: Record<string, boolean> = {}
-  for (const [key, enabled] of Object.entries(value.disabled).slice(0, 50)) {
-    if (typeof key === 'string' && key.length > 0 && key.length <= 80 && typeof enabled === 'boolean') {
-      disabled[key] = enabled
-    }
-  }
-  return { disabled }
 }
 
 export function isPersistedData(value: unknown): value is PersistedData {

@@ -13,10 +13,10 @@ import {
   Lock,
   Minus,
   MoreHorizontal,
-  Paintbrush,
   PanelRightOpen,
   Plus,
   Printer,
+  Puzzle,
   RefreshCw,
   Search,
   Settings,
@@ -32,6 +32,7 @@ import {
   INTERNAL_AUTOMATION_URL,
   INTERNAL_AVIDAE_URL,
   INTERNAL_DIAGNOSTICS_URL,
+  INTERNAL_EXTENSIONS_URL,
   INTERNAL_NEW_TAB_URL,
   INTERNAL_NOTES_URL,
   INTERNAL_NETWORK_URL,
@@ -41,13 +42,14 @@ import {
 } from '../../../shared/constants'
 import { getFeatureState, VastFeatures, type FeatureState } from '../../../shared/feature-gates'
 import type { BrowserSettings, SiteInformation } from '../../../shared/types'
-import { isSiteOverrideDisabled, siteOverrideForUrl } from '../../../shared/site-overrides'
 import { useBrowserRuntime } from '../../app/browser-runtime'
 import { displayUrl, getEffectiveTabUrl, hostnameFor, isInternalUrl, isLikelySearch, isSecureUrl, resolveAddressInput, searchShortcutHint } from '../../lib/url'
-import { useBrowserStore, selectActiveTab } from '../../store/browser-store'
+import { useBrowserStore, selectActiveTab, selectActiveWorkspace } from '../../store/browser-store'
+import { useExtensionContributions } from '../../extensions/extension-runtime'
 import { VideoAudioMark } from '../avidae/VideoAudioBrand'
 import { Favicon } from '../ui/Favicon'
 import { IconButton } from '../ui/IconButton'
+import { ExtensionsToolbarMenu } from './ExtensionsToolbarMenu'
 import { notifyCatOmniboxBlur, notifyCatOmniboxFocus, notifyCatOmniboxInput } from '../../lib/cat-addon-events'
 
 interface AddressSuggestion {
@@ -74,6 +76,9 @@ export function AddressBar({
 }): JSX.Element {
   const runtime = useBrowserRuntime()
   const activeTab = useBrowserStore(selectActiveTab)
+  const activeWorkspace = useBrowserStore(selectActiveWorkspace)
+  const extensionContributions = useExtensionContributions()
+  const extensionToolbar = activeWorkspace?.isPrivate || activeWorkspace?.identity?.sessionMode === 'ephemeral' ? [] : extensionContributions.toolbar
   const history = useBrowserStore((state) => state.history)
   const bookmarks = useBrowserStore((state) => state.bookmarks)
   const defaultSearchEngine = useBrowserStore((state) => state.settings.defaultSearchEngine)
@@ -81,7 +86,6 @@ export function AddressBar({
   const labsEnabled = labs.enabled
   const featureContextSettings = useMemo(() => ({ labs }) as BrowserSettings, [labs])
   const privacySettings = useBrowserStore((state) => state.settings.privacy)
-  const siteOverrides = useBrowserStore((state) => state.settings.siteOverrides)
   const updateSettings = useBrowserStore((state) => state.updateSettings)
   const forgetSite = useBrowserStore((state) => state.forgetSite)
   const setActiveSidePanel = useBrowserStore((state) => state.setActiveSidePanel)
@@ -91,11 +95,12 @@ export function AddressBar({
   const setSmartUnloadOpen = useBrowserStore((state) => state.setSmartUnloadOpen)
   const [value, setValue] = useState('')
   const [focused, setFocused] = useState(false)
-  const [selectedSuggestion, setSelectedSuggestion] = useState(0)
+  const [selectedSuggestion, setSelectedSuggestion] = useState(-1)
   const [siteInfoOpen, setSiteInfoOpen] = useState(false)
   const [siteInfo, setSiteInfo] = useState<SiteInformation | null>(null)
   const [siteInfoError, setSiteInfoError] = useState<string | null>(null)
   const [overflowOpen, setOverflowOpen] = useState(false)
+  const [extensionsOpen, setExtensionsOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
@@ -176,25 +181,11 @@ export function AddressBar({
   }, [bookmarks, defaultSearchEngine, focused, history, value])
 
   useEffect(() => {
-    setSelectedSuggestion(0)
+    setSelectedSuggestion(-1)
   }, [value])
 
   const effectiveActiveUrl = activeTab ? getEffectiveTabUrl(activeTab.url) : undefined
   const activeTabUsesExternalSource = Boolean(activeTab && effectiveActiveUrl && effectiveActiveUrl !== activeTab.url)
-  const activeSiteOverride = activeTab ? siteOverrideForUrl(effectiveActiveUrl ?? activeTab.url) : undefined
-  const siteOverrideDisabled = Boolean(
-    activeSiteOverride && isSiteOverrideDisabled(siteOverrides, activeSiteOverride.id)
-  )
-  const toggleSiteOverride = (): void => {
-    if (!activeSiteOverride) return
-    updateSettings({
-      siteOverrides: {
-        disabled: {
-          [activeSiteOverride.id]: !siteOverrideDisabled
-        }
-      }
-    })
-  }
 
   const secure = activeTab ? isSecureUrl(activeTab.url) : true
   const isLoading = activeTab?.status === 'loading'
@@ -236,6 +227,11 @@ export function AddressBar({
   return (
     <div className={`address-bar-row drag relative z-30 flex shrink-0 items-center px-4 ${variant === 'purist' ? 'address-bar-purist' : ''} ${compact ? 'h-[46px] gap-2' : 'h-[68px] gap-3'}`}>
       <div className={`address-bar-controls no-drag flex items-center gap-1 ${compact ? 'is-compact' : ''}`}>
+        {extensionToolbar.slice(0, 3).map((action) => (
+          <IconButton key={action.key} tooltip={`${action.title} — ${action.extensionName}`} disabled={action.enabled === false} onClick={() => { void window.vast.extensions.dispatchContribution(action.key) }}>
+            <Puzzle className="h-4 w-4" />
+          </IconButton>
+        ))}
         <IconButton tooltip="Back" disabled={!activeTab?.canGoBack} onClick={runtime.goBack}>
           <ArrowLeft className="h-4 w-4" />
         </IconButton>
@@ -251,7 +247,7 @@ export function AddressBar({
         className="address-bar-form no-drag relative min-w-0 flex-1"
         onSubmit={(event) => {
           event.preventDefault()
-          const suggestion = suggestions[selectedSuggestion]
+          const suggestion = selectedSuggestion >= 0 ? suggestions[selectedSuggestion] : undefined
           runtime.navigateActive(suggestion?.url ?? value)
           inputRef.current?.blur()
         }}
@@ -262,7 +258,11 @@ export function AddressBar({
             type="button"
             title="Site information"
             onMouseDown={(event) => event.preventDefault()}
-            onClick={() => setSiteInfoOpen((value) => !value)}
+            onClick={() => {
+              setExtensionsOpen(false)
+              setOverflowOpen(false)
+              setSiteInfoOpen((value) => !value)
+            }}
             className="grid h-6 w-6 place-items-center rounded-lg text-vast-cyan transition hover:bg-white/10"
           >
             {secure ? (
@@ -275,6 +275,7 @@ export function AddressBar({
             ref={inputRef}
             value={value}
             onFocus={() => {
+              setSelectedSuggestion(-1)
               setFocused(true)
               onFocusChange?.(true)
               notifyCatOmniboxFocus()
@@ -294,12 +295,13 @@ export function AddressBar({
             onKeyDown={(event) => {
               if (event.key === 'ArrowDown' && suggestions.length > 0) {
                 event.preventDefault()
-                setSelectedSuggestion((index) => Math.min(index + 1, suggestions.length - 1))
+                setSelectedSuggestion((index) => index >= suggestions.length - 1 ? 0 : index + 1)
               } else if (event.key === 'ArrowUp' && suggestions.length > 0) {
                 event.preventDefault()
-                setSelectedSuggestion((index) => Math.max(index - 1, 0))
+                setSelectedSuggestion((index) => index <= 0 ? suggestions.length - 1 : index - 1)
               } else if (event.key === 'Escape') {
                 event.preventDefault()
+                setSelectedSuggestion(-1)
                 setValue(activeTab ? addressValueForTab(activeTab.url) : '')
                 inputRef.current?.blur()
               }
@@ -326,9 +328,9 @@ export function AddressBar({
                 type="button"
                 key={`${item.type}-${item.url}`}
                 onMouseDown={(event) => event.preventDefault()}
-                onMouseEnter={() => setSelectedSuggestion(index)}
                 onClick={() => {
                   runtime.navigateActive(item.url)
+                  setSelectedSuggestion(-1)
                   setFocused(false)
                 }}
                 className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left ${
@@ -420,17 +422,6 @@ export function AddressBar({
       </form>
 
       <div className={`address-bar-controls no-drag flex items-center gap-1 ${compact ? 'is-compact' : ''}`}>
-        {activeSiteOverride && (
-          <IconButton
-            tooltip={siteOverrideDisabled ? 'Enable IDU skin' : 'Disable IDU skin'}
-            active={!siteOverrideDisabled}
-            aria-pressed={!siteOverrideDisabled}
-            className={siteOverrideDisabled ? 'text-white/35' : undefined}
-            onClick={toggleSiteOverride}
-          >
-            <Paintbrush className="h-4 w-4" />
-          </IconButton>
-        )}
         {labsEnabled && activeTab?.loginFormDetected && (
           <IconButton
             tooltip={featureStates.passwordManager.available ? 'Fill login' : 'Enable Password Manager in Labs'}
@@ -442,10 +433,21 @@ export function AddressBar({
         <IconButton tooltip={isBookmarked ? 'Remove bookmark' : 'Bookmark page'} active={isBookmarked} onClick={runtime.addCurrentBookmark}>
           <Star className="h-4 w-4" fill={isBookmarked ? 'currentColor' : 'none'} />
         </IconButton>
+        <ExtensionsToolbarMenu
+          open={extensionsOpen}
+          onOpenChange={(nextOpen) => {
+            setExtensionsOpen(nextOpen)
+            if (nextOpen) {
+              setOverflowOpen(false)
+              setSiteInfoOpen(false)
+            }
+          }}
+        />
         <IconButton
           tooltip={sidePanelOpen ? 'Hide sidebar' : 'Show sidebar'}
           active={sidePanelOpen}
           onClick={() => {
+            setExtensionsOpen(false)
             if (sidePanelOpen) setSidePanelOpen(false)
             else setActiveSidePanel('notes')
           }}
@@ -453,11 +455,16 @@ export function AddressBar({
           <PanelRightOpen className={`h-4 w-4 transition-transform duration-150 ${sidePanelOpen ? 'rotate-180' : ''}`} />
         </IconButton>
         <div className="relative">
-          <IconButton tooltip="More browser tools" active={overflowOpen} onClick={() => setOverflowOpen((value) => !value)}>
+          <IconButton tooltip="More browser tools" active={overflowOpen} onClick={() => {
+            setExtensionsOpen(false)
+            setSiteInfoOpen(false)
+            setOverflowOpen((value) => !value)
+          }}>
             <MoreHorizontal className="h-4 w-4" />
           </IconButton>
           {overflowOpen && (
             <div className="browser-tools-menu absolute right-0 top-11 z-40 max-h-[72vh] w-64 overflow-y-auto rounded-2xl border border-white/10 bg-[#0c0d12]/[0.98] p-2 shadow-glass backdrop-blur-xl">
+              {extensionToolbar.slice(3).map((action) => <OverflowAction key={action.key} label={`${action.title} · ${action.extensionName}`} icon={Puzzle} disabled={action.enabled === false} onClick={() => { void window.vast.extensions.dispatchContribution(action.key) }} onClose={() => setOverflowOpen(false)} />)}
               <OverflowAction label="Incognito window" icon={EyeOff} onClick={runtime.openIncognitoWindow} onClose={() => setOverflowOpen(false)} />
               {labsEnabled && <>
                 <OverflowAction label="Video & Audio" icon={VideoAudioMark} badge={featureBadge(featureStates.avidae)} unavailable={!featureStates.avidae.available} onClick={() => runtime.openUrlInNewTab(INTERNAL_AVIDAE_URL)} onClose={() => setOverflowOpen(false)} />
@@ -479,8 +486,8 @@ export function AddressBar({
               <OverflowAction label="Smart unload" icon={Gauge} onClick={() => setSmartUnloadOpen(true)} onClose={() => setOverflowOpen(false)} />
               <OverflowAction label="Zoom out" icon={Minus} onClick={runtime.zoomOut} onClose={() => setOverflowOpen(false)} />
               <OverflowAction label="Zoom in" icon={Plus} onClick={runtime.zoomIn} onClose={() => setOverflowOpen(false)} />
-              <OverflowAction label="Reset zoom" icon={ChevronsUpDown} onClick={runtime.resetZoom} onClose={() => setOverflowOpen(false)} />
               <OverflowAction label="Save to reading list" icon={Bookmark} onClick={runtime.saveCurrentToReadingList} onClose={() => setOverflowOpen(false)} />
+              <OverflowAction label="Extensions" icon={Puzzle} onClick={() => runtime.openUrlInNewTab(INTERNAL_EXTENSIONS_URL)} onClose={() => setOverflowOpen(false)} />
               <OverflowAction label="Settings" icon={Settings} onClick={() => setSettingsOpen(true)} onClose={() => setOverflowOpen(false)} />
             </div>
           )}

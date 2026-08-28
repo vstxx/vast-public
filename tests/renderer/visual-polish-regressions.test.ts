@@ -35,6 +35,12 @@ test('omnibox keeps focus on its rounded container without an inner rectangular 
   assert.match(addressBarSource, /transition-colors duration-150/)
 })
 
+test('settings navigation and the New Tab search focus stay clean and shadow-free', () => {
+  assert.match(stylesSource, /\.settings-nav-item\.is-active\s*{[^}]*background:\s*rgba\(255, 255, 255, 0\.09\) !important;[^}]*box-shadow:\s*none !important;/s)
+  assert.doesNotMatch(settingsSource, /is-active text-white shadow-glow/)
+  assert.match(stylesSource, /\.new-tab-flat-search \.new-tab-search-input:focus\s*{[^}]*border-color:\s*rgba\(255, 255, 255, 0\.18\);/s)
+})
+
 test('Labs settings remain local and visually grouped', () => {
   const labsStart = settingsSource.indexOf('<section id="Labs"')
   const labsEnd = settingsSource.indexOf('<section id="Network"', labsStart)

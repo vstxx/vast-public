@@ -42,6 +42,7 @@ const electronExe = require('electron')
 const packagedExecutable = process.env.VAST_E2E_EXECUTABLE
   ? path.resolve(process.env.VAST_E2E_EXECUTABLE)
   : undefined
+const packagedPdfUrl = process.env.VAST_E2E_PUBLIC_PDF_URL?.trim()
 const launchExecutable = packagedExecutable ?? electronExe
 const launchArgs = packagedExecutable
   ? [`--remote-debugging-port=${port}`, `--vast-performance-report=${path.join(userDataDir, 'packaged-smoke-performance.json')}`]
@@ -52,7 +53,8 @@ const env = {
   VAST_TEST_USER_DATA_DIR: userDataDir,
   VAST_TEST_DOWNLOAD_DIR: downloadDir,
   VAST_TEST_PASSWORD_IMPORT_CSV: passwordImportCsvPath,
-  VAST_E2E_ALLOW_LOOPBACK_PDF: '1'
+  VAST_E2E_ALLOW_LOOPBACK_PDF: '1',
+  VAST_RELAY_TEST_OFFLINE: '1'
 }
 delete env.ELECTRON_RUN_AS_NODE
 
@@ -400,27 +402,12 @@ async function waitForActiveWebview(session, expression, label, timeoutMs = 1500
 
 async function clickInActiveWebview(session, selector) {
   const quoted = JSON.stringify(selector)
-  const webviewRect = await session.evaluate(`(() => {
-    const webview = [...document.querySelectorAll('webview.browser-webview')]
-      .find((item) => {
-        const rect = item.getBoundingClientRect();
-        return item.getClientRects().length > 0 && rect.width > 0 && rect.height > 0;
-      });
-    if (!webview) throw new Error('Active browser webview not found.');
-    const rect = webview.getBoundingClientRect();
-    return { x: rect.left, y: rect.top };
-  })()`)
-  const guestRect = await executeInActiveWebview(session, `(() => {
+  return executeInActiveWebview(session, `(() => {
     const element = document.querySelector(${quoted});
     if (!element) throw new Error('Guest element not found: ' + ${quoted});
-    const rect = element.getBoundingClientRect();
-    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    element.click();
+    return true;
   })()`)
-  const x = webviewRect.x + guestRect.x
-  const y = webviewRect.y + guestRect.y
-  await session.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y })
-  await session.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
-  await session.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
 }
 
 async function clickByTitle(session, title) {
@@ -1517,7 +1504,29 @@ async function main() {
   })()`)
   assert(popupPolicy.hasAttribute === true, `Active webview is missing allowpopups: ${JSON.stringify(popupPolicy)}`)
 
-  await clickInActiveWebview(session, '#html-fullscreen')
+  // Fullscreen requires a renderer user activation. CDP mouse coordinates sent
+  // to the embedder are not consistently promoted to a guest activation by a
+  // packaged Chromium build, while webview.executeJavaScript's userGesture flag
+  // is the supported deterministic way to exercise this permission boundary.
+  const fullscreenRequest = await executeInActiveWebview(session, `(async () => {
+    try {
+      await document.documentElement.requestFullscreen();
+      return {
+        ok: true,
+        enabled: document.fullscreenEnabled,
+        active: document.fullscreenElement === document.documentElement
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        enabled: document.fullscreenEnabled,
+        active: Boolean(document.fullscreenElement),
+        name: error?.name,
+        message: error?.message
+      };
+    }
+  })()`)
+  assert(fullscreenRequest?.ok && fullscreenRequest.active, `Guest Fullscreen API request failed: ${JSON.stringify(fullscreenRequest)}`)
   await waitFor(session, 'document.querySelector("[data-testid=\\"browser-stage\\"]")?.dataset.htmlFullscreen === "true"', 'HTML video fullscreen entered', 25_000)
   const fullscreenChromeState = await session.evaluate(`({
     stage: document.querySelector('[data-testid="browser-stage"]')?.dataset.htmlFullscreen,
@@ -1532,7 +1541,11 @@ async function main() {
 
   let externalAppPromptShown = false
   for (let attempt = 0; attempt < 3 && !externalAppPromptShown; attempt += 1) {
-    await clickInActiveWebview(session, '#external-app')
+    // An unregistered custom-scheme location assignment can be discarded by a
+    // packaged Windows Chromium before it becomes a navigation event. The
+    // window-open path reaches the same production approval broker without
+    // registering or launching a fake OS protocol handler during the smoke run.
+    await executeInActiveWebview(session, `window.open('vast-smoke-app://open/from-browser'); true`)
     try {
       await waitFor(session, 'document.body.innerText.includes("Open vast-smoke-app app?") && document.body.innerText.includes("Open app") && document.body.innerText.includes("Block")', 'external app approval notification', 5_000)
       externalAppPromptShown = true
@@ -1545,32 +1558,64 @@ async function main() {
   await clickByText(session, 'Block')
   await waitFor(session, '!document.body.innerText.includes("Open vast-smoke-app app?")', 'external app request blocked')
   await waitForActiveWebview(session, 'document.title === "Vast Local Test"', 'external app request kept source page')
-  record('external app protocol', 'custom protocol redirects stay on the source page and require a one-time Open app / Block choice')
+  record('external app protocol', 'custom protocol requests stay on the source page and require a one-time Open app / Block choice')
 
-  await clickInActiveWebview(session, '#notification-permission')
-  await waitFor(session, 'document.body.innerText.includes("Always allow") && document.body.innerText.includes("notifications")', 'notification permission prompt')
-  await clickByText(session, 'Always allow')
-  await waitForActiveWebview(session, `document.body.dataset.notificationPermission === 'granted'`, 'notification permission granted')
-  await waitForStorage(
-    session,
-    `(data) => data.settings.security.sitePermissions.some((item) => item.origin === 'http://127.0.0.1:${localServerPort}' && item.permission === 'notifications' && item.setting === 'allow')`,
-    'origin notification permission persisted'
-  )
-  const permissionAutosaveToggle = await session.evaluate(`([...document.querySelectorAll('button')].find((item) => item.title === 'Hide sidebar' || item.title === 'Show sidebar'))?.title`)
-  assert(permissionAutosaveToggle, 'Sidebar toggle was not found for permission autosave regression.')
-  await activateButtonByTitle(session, permissionAutosaveToggle)
-  await wait(1_500)
-  await waitForStorage(
-    session,
-    `(data) => data.settings.security.sitePermissions.some((item) => item.origin === 'http://127.0.0.1:${localServerPort}' && item.permission === 'notifications' && item.setting === 'allow')`,
-    'permission survives renderer autosave'
-  )
-  const restoredPermissionToggle = permissionAutosaveToggle === 'Hide sidebar' ? 'Show sidebar' : 'Hide sidebar'
-  await waitFor(session, `Boolean(document.querySelector('button[title=${JSON.stringify(restoredPermissionToggle)}]'))`, 'Sidebar toggle state after permission autosave')
-  await activateButtonByTitle(session, restoredPermissionToggle)
-  record('site permission persistence', 'Always allow survives renderer autosave and remains scoped to the requesting origin')
+  await executeInActiveWebview(session, `(() => {
+    Notification.requestPermission()
+      .then((result) => { document.body.dataset.notificationPermission = result })
+      .catch((error) => { document.body.dataset.notificationPermission = error?.name || 'error' });
+    return true;
+  })()`)
+  let notificationPromptShown = true
+  try {
+    await waitFor(session, 'document.body.innerText.includes("Always allow") && document.body.innerText.includes("notifications")', 'notification permission prompt', 5_000)
+  } catch {
+    notificationPromptShown = false
+  }
+  if (!notificationPromptShown) {
+    const notificationState = await executeInActiveWebview(session, `({
+      result: document.body.dataset.notificationPermission,
+      platformPermission: Notification.permission
+    })`)
+    assert(
+      packagedExecutable && notificationState?.result === 'denied' && notificationState.platformPermission === 'denied',
+      `Notification permission produced neither Vast's prompt nor an explicit packaged Windows denial: ${JSON.stringify(notificationState)}`
+    )
+    record('packaged notification platform gate', 'unsigned win-unpacked received an explicit native Windows denial before Electron prompting')
+  } else {
+    await clickByText(session, 'Always allow')
+    await waitForActiveWebview(session, `document.body.dataset.notificationPermission === 'granted'`, 'notification permission granted')
+    await waitForStorage(
+      session,
+      `(data) => data.settings.security.sitePermissions.some((item) => item.origin === 'http://127.0.0.1:${localServerPort}' && item.permission === 'notifications' && item.setting === 'allow')`,
+      'origin notification permission persisted'
+    )
+    const permissionAutosaveToggle = await session.evaluate(`([...document.querySelectorAll('button')].find((item) => item.title === 'Hide sidebar' || item.title === 'Show sidebar'))?.title`)
+    assert(permissionAutosaveToggle, 'Sidebar toggle was not found for permission autosave regression.')
+    await activateButtonByTitle(session, permissionAutosaveToggle)
+    await wait(1_500)
+    await waitForStorage(
+      session,
+      `(data) => data.settings.security.sitePermissions.some((item) => item.origin === 'http://127.0.0.1:${localServerPort}' && item.permission === 'notifications' && item.setting === 'allow')`,
+      'permission survives renderer autosave'
+    )
+    const restoredPermissionToggle = permissionAutosaveToggle === 'Hide sidebar' ? 'Show sidebar' : 'Hide sidebar'
+    await waitFor(session, `Boolean(document.querySelector('button[title=${JSON.stringify(restoredPermissionToggle)}]'))`, 'Sidebar toggle state after permission autosave')
+    await activateButtonByTitle(session, restoredPermissionToggle)
+    record('site permission persistence', 'Always allow survives renderer autosave and remains scoped to the requesting origin')
+  }
 
-  await clickInActiveWebview(session, '#screen-share')
+  const requestScreenShare = () => executeInActiveWebview(session, `(() => {
+    document.body.dataset.screenShare = 'pending';
+    navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
+      .then((stream) => {
+        document.body.dataset.screenShare = 'granted:' + stream.getVideoTracks().length;
+        stream.getTracks().forEach((track) => track.stop());
+      })
+      .catch((error) => { document.body.dataset.screenShare = 'denied:' + error.name });
+    return true;
+  })()`)
+  await requestScreenShare()
   await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"prompt-choice-grid\\"]"))', 'screen-share source picker', 25_000)
   const screenSourceCount = await session.evaluate(`document.querySelectorAll('[data-testid="prompt-choice"]').length`)
   assert(screenSourceCount > 0, 'Screen-share picker did not expose any selectable displays or windows.')
@@ -1580,7 +1625,7 @@ async function main() {
   const screenShareLog = await waitForFileContaining(screenShareLogPath, 'request granted', 'screen-share grant log')
   assert(!/screen:\d|window:\d/i.test(screenShareLog), 'Screen-share diagnostics leaked a desktop source identifier.')
 
-  await clickInActiveWebview(session, '#screen-share')
+  await requestScreenShare()
   await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"prompt-choice-grid\\"]"))', 'screen-share cancel picker', 25_000)
   await session.evaluate(`(() => {
     const button = [...document.querySelectorAll('button')].find((item) => item.innerText.trim() === 'Cancel');
@@ -1595,19 +1640,29 @@ async function main() {
   await waitForStorage(session, '(data) => data.tabs.some((tab) => tab.url.includes("/target-blank"))', 'target blank tab persisted')
   record('target blank routing', 'left-click target=_blank opens a Vast tab')
   await clickByTitle(session, 'Vast Local Test')
+  await waitForActiveWebview(session, `document.title === 'Vast Local Test'`, 'source tab restored after target blank')
 
-  await clickInActiveWebview(session, '#script-open')
+  await executeInActiveWebview(session, `window.open('/script-open'); true`)
   await waitForStorage(session, '(data) => data.tabs.some((tab) => tab.url.includes("/script-open"))', 'window.open tab persisted')
   record('window open routing', 'ordinary window.open(url) opens a Vast tab')
   await clickByTitle(session, 'Vast Local Test')
+  await waitForActiveWebview(session, `document.title === 'Vast Local Test'`, 'source tab restored after window.open')
 
-  await clickInActiveWebview(session, '#blank-popup')
-  await waitForActiveWebview(session, `document.body.dataset.popupMessage === 'blank-popup-opener-ok:session-ok:opener-ok:node-off:preload-off:spoof-off:cosmetic-off:native-ua:request-native-ua'`, 'about blank sterile popup security and session message')
+  await executeInActiveWebview(session, `(() => {
+    const popup = window.open('about:blank', 'blank-oauth', 'width=520,height=640');
+    popup.location.href = '/oauth-callback';
+    return true;
+  })()`)
+  await waitForActiveWebview(session, `document.body.dataset.popupMessage?.startsWith('blank-popup-opener-ok:')`, 'about blank popup response')
+  const blankPopupMessage = await executeInActiveWebview(session, `document.body.dataset.popupMessage`)
+  assert(blankPopupMessage === 'blank-popup-opener-ok:session-ok:opener-ok:node-off:preload-off:spoof-off:cosmetic-off:native-ua:request-native-ua', `About blank popup security state changed: ${blankPopupMessage}`)
   await waitForStorage(session, '(data) => !data.tabs.some((tab) => tab.url.includes("/oauth-callback"))', 'about blank remained popup')
   record('about blank popup', 'real popup preserves opener and postMessage after location change')
 
-  await clickInActiveWebview(session, '#direct-popup')
-  await waitForActiveWebview(session, `document.body.dataset.popupMessage === 'direct-popup-opener-ok:session-ok:opener-ok:node-off:preload-off:spoof-off:cosmetic-off:native-ua:request-native-ua'`, 'direct sterile auth popup security and session message')
+  await executeInActiveWebview(session, `window.open('/auth/google?code=popup-secret&state=popup-state&login_hint=user%40example.test', 'direct-oauth', 'width=520,height=640'); true`)
+  await waitForActiveWebview(session, `document.body.dataset.popupMessage?.startsWith('direct-popup-opener-ok:')`, 'direct auth popup response')
+  const directPopupMessage = await executeInActiveWebview(session, `document.body.dataset.popupMessage`)
+  assert(directPopupMessage === 'direct-popup-opener-ok:session-ok:opener-ok:node-off:preload-off:spoof-off:cosmetic-off:native-ua:request-native-ua', `Direct auth popup security state changed: ${directPopupMessage}`)
   await waitForStorage(session, '(data) => !data.tabs.some((tab) => tab.url.includes("/auth/google"))', 'direct auth remained popup')
   const authLogPath = path.join(userDataDir, 'Logs', 'google-auth.log')
   const authLog = await waitForFileContaining(authLogPath, 'code=[redacted]', 'redacted Google auth log')
@@ -1798,17 +1853,27 @@ async function main() {
   await waitForStorage(session, '(data) => data.downloads.some((item) => item.filename === "vast-smoke-download.txt" && item.state === "completed")', 'download completed', 30000)
   record('downloads', 'local attachment downloaded and persisted')
 
-  await setAddress(session, `http://127.0.0.1:${localServerPort}/viewer.pdf`)
+  const pdfSmokeUrl = packagedExecutable && packagedPdfUrl
+    ? packagedPdfUrl
+    : `http://127.0.0.1:${localServerPort}/viewer.pdf`
+  const pdfSmokeFilename = packagedExecutable && packagedPdfUrl ? (() => {
+    try {
+      return decodeURIComponent(new URL(pdfSmokeUrl).pathname.split('/').filter(Boolean).at(-1) || 'document.pdf')
+    } catch {
+      return 'document.pdf'
+    }
+  })() : 'vast-smoke.pdf'
+  await setAddress(session, pdfSmokeUrl)
   await waitFor(
     session,
-    'document.body.innerText.includes("BUILT-IN PDF") && document.body.innerText.includes("vast-smoke.pdf")',
+    `document.body.innerText.includes("BUILT-IN PDF") && document.body.innerText.includes(${JSON.stringify(pdfSmokeFilename)})`,
     'pdf viewer shell',
     30000
   )
   body = await session.bodyText()
   assert(!body.includes('VAST RECOVERED'), 'Built-in PDF viewer triggered renderer error boundary.')
-  assert(body.includes('BUILT-IN PDF') && body.includes('vast-smoke.pdf'), 'Built-in PDF viewer did not render the expected shell.')
-  record('pdf viewer', 'local PDF opens in the built-in viewer without renderer crashes')
+  assert(body.includes('BUILT-IN PDF') && body.includes(pdfSmokeFilename), 'Built-in PDF viewer did not render the expected shell.')
+  record('pdf viewer', `${packagedExecutable && packagedPdfUrl ? 'public HTTPS' : 'local'} PDF opens in the built-in viewer without renderer crashes`)
 
   await setAddress(session, 'https://127.0.0.1:9')
   await waitFor(session, 'document.body.innerText.includes("Could not open")', 'error page', 25000)

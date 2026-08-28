@@ -101,13 +101,17 @@ export async function handleCheckin(request: Request, env: PublicEnv, now = Date
 
   try {
     await env.DB.prepare(`
-      INSERT INTO installations (install_id, current_version, first_seen, last_seen, launch_count)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO installations (install_id, current_version, first_seen, last_seen, launch_count, instance_kind)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(install_id) DO UPDATE SET
         current_version = excluded.current_version,
         last_seen = MAX(installations.last_seen, excluded.last_seen),
-        launch_count = MAX(installations.launch_count, excluded.launch_count)
-    `).bind(input.install_id, input.current_version, now, now, input.launch_count).run()
+        launch_count = MAX(installations.launch_count, excluded.launch_count),
+        instance_kind = CASE
+          WHEN excluded.instance_kind = 'unknown' THEN installations.instance_kind
+          ELSE excluded.instance_kind
+        END
+    `).bind(input.install_id, input.current_version, now, now, input.launch_count, input.instance_kind).run()
   } catch (error) {
     logFailure('checkin_d1_upsert_failed', error)
     const headers = new Headers({ 'X-Vast-Relay-Degraded': 'database' })

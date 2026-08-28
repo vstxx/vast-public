@@ -14,6 +14,8 @@ import { WorkspaceAppearancePicker } from '../workspaces/WorkspaceAppearancePick
 import { WorkspaceIcon } from '../workspaces/WorkspaceIcon'
 import { normalizeSettingsSearchText, searchSettings, type SettingsSearchEntry, type SettingsSearchResult, type SettingsSearchSectionId } from './settings-search'
 
+declare const __VAST_CAT_ADDON_AVAILABLE__: boolean
+
 const settingsNav: ReadonlyArray<readonly [SettingsSearchSectionId, typeof Palette]> = [
   ['Appearance', Palette],
   ['Advanced', Sparkles],
@@ -252,7 +254,7 @@ export function SettingsModal(): JSX.Element | null {
   const [settingDefaultBrowser, setSettingDefaultBrowser] = useState(false)
 
   useEffect(() => {
-    if (!window.vast.app.startup.catAddonAvailable) return
+    if (!__VAST_CAT_ADDON_AVAILABLE__ || !window.vast.app.startup.catAddonAvailable) return
     let alive = true
     const apply = (state: CatAddonState): void => { if (alive) setCatAddonState(state) }
     void window.vast.catAddon.status().then(apply).catch((error) => apply({
@@ -266,6 +268,7 @@ export function SettingsModal(): JSX.Element | null {
   }, [])
 
   const toggleCatAddon = async (): Promise<void> => {
+    if (!__VAST_CAT_ADDON_AVAILABLE__) return
     if (catAddonOperationRef.current || catAddonState.phase === 'enabling' || catAddonState.phase === 'disabling') return
     catAddonOperationRef.current = true
     try {
@@ -677,7 +680,7 @@ export function SettingsModal(): JSX.Element | null {
                   scrollRef.current?.querySelector<HTMLElement>(`#${CSS.escape(label)}`)?.scrollIntoView({ block: 'start', behavior: settings.animations ? 'smooth' : 'auto' })
                 }}
                 className={`settings-nav-item flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition ${
-                  activeSection === label ? 'is-active text-white shadow-glow' : 'hover:text-white'
+                  activeSection === label ? 'is-active text-white' : 'hover:text-white'
                 }`}
               >
                 <Icon className="h-4 w-4" />
@@ -818,7 +821,7 @@ export function SettingsModal(): JSX.Element | null {
                     onChange={(event) => updateSettings({ bookmarksBarOnlyOnNewTab: event.target.checked })}
                   />
                 </label>
-                {window.vast.app.startup.catAddonAvailable && (
+                {__VAST_CAT_ADDON_AVAILABLE__ && window.vast.app.startup.catAddonAvailable && (
                   <>
                     <label className="md:col-span-2">
                       <span>Cat Addon</span>

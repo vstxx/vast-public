@@ -1,9 +1,9 @@
-import { BrowserWindow, app, nativeTheme } from 'electron/main'
+import { BrowserWindow, app, nativeTheme, protocol, session, webContents } from 'electron/main'
 import { join } from 'node:path'
 import { createMainWindow } from './window'
-import { applySpoofingToAllWebContents, checkpointBrowserSessionData, clearSiteData, setupTrackerBlocking, setupUserAgent } from './sessions'
+import { applySpoofingToAllWebContents, checkpointBrowserSessionData, clearSiteData, prepareBrowserSessionSecurity, setupTrackerBlocking, setupUserAgent } from './sessions'
 import { loadData } from './storage'
-import { DEFAULT_SETTINGS } from '../shared/constants'
+import { DEFAULT_DATA, DEFAULT_SETTINGS } from '../shared/constants'
 import { isOpeningAnimationEnabled } from '../shared/opening-startup'
 import type { BrowserSettings, DetachedTabPayload } from '../shared/types'
 import { assertPublicDistributionGuards, getBuildMetadata } from './build-info'
@@ -16,17 +16,23 @@ import { recordDiagnosticsEvent } from './diagnostics-events'
 import { flushPerformanceReport, markPerformance, registerPerformanceProbeIpc } from './performance-probe'
 import { LazyCatAddonService } from './cat-addon-service'
 import { CAT_ADDON_ARCHIVE_SHA256, CAT_ADDON_BUNDLE_VERSION } from '../shared/cat-addon-bundle'
+
+declare const __VAST_CAT_ADDON_AVAILABLE__: boolean
 import { completeLegacyDefaultSessionMigration, prepareLegacyDefaultSessionMigration, type LegacySessionMigrationPlan } from './session-continuity'
 import { isUpdateRestartInProgress } from './update-lifecycle'
 import { initializePasswordVaultSessionLifecycle, lockPasswordVaultSession } from './password-vault-session'
 import { settingsAllowedByRuntimeFeaturePolicy } from './runtime-feature-policy'
 import { createVastRelayService } from './relay/runtime'
+import type { ExtensionManager } from './extensions/extension-manager'
+import { extensionHubOrigin } from './extensions/extension-hub-config'
+import { VAST_EXTENSION_SCHEME } from './extensions/extension-resource-protocol'
 
 declare const __VAST_INCLUDE_INTERNAL_TEST_HARNESS__: boolean
 
 // Set the stable product identity before resolving userData/sessionData.
 app.setName('Vast')
 configureVastUserDataPath()
+protocol.registerSchemesAsPrivileged([{ scheme: VAST_EXTENSION_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false, allowServiceWorkers: false } }])
 markPerformance('main-module-ready')
 registerPerformanceProbeIpc()
 
@@ -72,6 +78,9 @@ if (buildMetadata.performanceGpu && !buildMetadata.safeGpu) {
 
 let currentSettings = DEFAULT_SETTINGS
 let relayService: ReturnType<typeof createVastRelayService> | undefined
+let extensionManager: ExtensionManager | undefined
+let extensionUpdateStartupTimer: NodeJS.Timeout | undefined
+let extensionUpdateInterval: NodeJS.Timeout | undefined
 const gpuCrashTimes: number[] = []
 let shutdownCleanupStarted = false
 let shutdownCleanupComplete = false
@@ -145,8 +154,10 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
   initializePasswordVaultSessionLifecycle()
 
   const [storageResult] = await Promise.allSettled([loadData()])
+  let startupData = DEFAULT_DATA
   if (storageResult.status === 'fulfilled') {
     const data = storageResult.value
+    startupData = data
     currentSettings = data.settings
     nativeTheme.themeSource = nativeThemeSource(data.settings)
     markPerformance('startup-storage-loaded')
@@ -157,6 +168,7 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
 
   setupTrackerBlocking(() => currentSettings)
   setupUserAgent(() => runtimeSettings(currentSettings))
+  prepareBrowserSessionSecurity(() => currentSettings)
   applySpoofingToAllWebContents(runtimeSettings(currentSettings))
   if (legacySessionMigration) {
     try {
@@ -165,6 +177,31 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
       console.warn('[session-continuity] Could not complete legacy browser session migration:', error)
     }
   }
+  const [{ ExtensionManager }, { matchesExtensionMatchPattern }] = await Promise.all([
+    import('./extensions/extension-manager'),
+    import('../shared/extension-match-pattern')
+  ])
+  extensionManager = new ExtensionManager({
+    userDataRoot: app.getPath('userData'),
+    hubOrigin: extensionHubOrigin(app.isPackaged),
+    sessionProvider: (partition) => session.fromPartition(partition),
+    nativeSurfacePreloadPath: join(app.getAppPath(), 'out', 'preload', 'extension-host.js'),
+    reloadMatchingTabs: (patterns) => {
+      for (const contents of webContents.getAllWebContents()) {
+        if (contents.isDestroyed() || contents.getType() !== 'webview') continue
+        const url = contents.getURL()
+        if (patterns.some((pattern) => matchesExtensionMatchPattern(url, pattern))) contents.reload()
+      }
+    },
+    onChanged: () => windowRegistry.broadcast('vast:extensions:changed'),
+    onContributionsChanged: (snapshot) => windowRegistry.broadcast('vast:extensions:contributions-changed', snapshot)
+  })
+  try {
+    await extensionManager.initialize(startupData.workspaces)
+  } catch (error) {
+    console.warn('[extensions] Could not initialize the extension registry:', error)
+  }
+
   const onDataSaved = (data: Awaited<ReturnType<typeof loadData>>): void => {
     const previousSettings = currentSettings
     currentSettings = data.settings
@@ -176,8 +213,11 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
       windowRegistry.broadcast('vast:website-dark-mode-changed', websiteDarkModeEnabled(data.settings))
     }
     if (previousSettings.theme !== data.settings.theme) syncTitleBarOverlay()
+    void extensionManager?.syncWorkspaces(data.workspaces).catch((error) => {
+      console.warn('[extensions] Could not synchronize workspace sessions:', error)
+    })
   }
-  const catAddonService = buildMetadata.catAddonAvailable ? new LazyCatAddonService({
+  const catAddonService = __VAST_CAT_ADDON_AVAILABLE__ && buildMetadata.catAddonAvailable ? new LazyCatAddonService({
     archivePath: app.isPackaged
       ? join(process.resourcesPath, 'cat-addon', 'cat_addon.zip')
       : join(app.getAppPath(), 'resources', 'cat-addon', 'cat_addon.zip'),
@@ -186,19 +226,29 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
     bundledVersion: CAT_ADDON_BUNDLE_VERSION,
     vastVersion: app.getVersion(),
     onStateChanged: (state) => windowRegistry.broadcast('vast:cat-addon:state', state)
-  }) : undefined
+  }, () => import('./cat-addon')) : undefined
   await catAddonService?.initializeIfEnabled(currentSettings.catAddon.enabled)
+  const catAddonIpcRegistrar = catAddonService
+    ? (await import('./ipc/cat-addon')).createCatAddonIpcRegistrar(catAddonService)
+    : undefined
   const openDetachedTabWindow = (detachedTab: DetachedTabPayload): void => {
     createMainWindow(onDataSaved, () => currentSettings, {
       kind: 'detached',
       detachedTab,
+      extensionManager,
       onDetachTab: openDetachedTabWindow
     })
     syncTitleBarOverlay()
   }
 
   relayService = createVastRelayService(() => currentSettings)
-  setupIpc({ onDataSaved, onDetachTab: openDetachedTabWindow, catAddonService, relayService })
+  setupIpc({
+    onDataSaved,
+    onDetachTab: openDetachedTabWindow,
+    featureRegistrars: catAddonIpcRegistrar ? [catAddonIpcRegistrar] : [],
+    relayService,
+    extensionManager
+  })
 
   const watchExternalNavigation = (window: BrowserWindow): BrowserWindow => {
     window.webContents.on('did-finish-load', () => externalNavigationRouter?.rendererReady(window))
@@ -208,6 +258,7 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
     watchExternalNavigation(
       createMainWindow(onDataSaved, () => currentSettings, {
         kind: 'normal',
+        extensionManager,
         onDetachTab: openDetachedTabWindow
       })
     )
@@ -219,6 +270,7 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
     openingPresentation: openingEnabled,
     showInitially: !openingEnabled,
     showWhenReady: openingEnabled,
+    extensionManager,
     onDetachTab: openDetachedTabWindow
   }))
   markPerformance('primary-window-created')
@@ -250,13 +302,21 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
       })
     }, 2_000)
     mainWindow.once('closed', () => clearTimeout(updaterTimer))
+    extensionUpdateStartupTimer = setTimeout(() => {
+      void extensionManager?.checkForUpdates().catch((error) => console.warn('[extensions:update] Background update check failed:', error))
+      extensionUpdateInterval = setInterval(() => {
+        void extensionManager?.checkForUpdates().catch((error) => console.warn('[extensions:update] Background update check failed:', error))
+      }, 18 * 60 * 60_000)
+      extensionUpdateInterval.unref()
+    }, 30_000)
+    extensionUpdateStartupTimer.unref()
   })
 
   nativeTheme.on('updated', syncTitleBarOverlay)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      watchExternalNavigation(createMainWindow(onDataSaved, () => currentSettings, { kind: 'normal', onDetachTab: openDetachedTabWindow }))
+      watchExternalNavigation(createMainWindow(onDataSaved, () => currentSettings, { kind: 'normal', extensionManager, onDetachTab: openDetachedTabWindow }))
     }
   })
 })
@@ -266,6 +326,8 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', (event) => {
+  if (extensionUpdateStartupTimer) clearTimeout(extensionUpdateStartupTimer)
+  if (extensionUpdateInterval) clearInterval(extensionUpdateInterval)
   relayService?.stop()
   lockPasswordVaultSession('system-lock')
   if (isUpdateRestartInProgress() || shutdownCleanupComplete) return
@@ -277,6 +339,8 @@ app.on('before-quit', (event) => {
       await import('./avidae').then(({ stopAvidae }) => stopAvidae()).catch((error) => {
         console.warn('[main] Failed to stop Video & Audio during shutdown:', error)
       })
+      await extensionManager?.shutdown()
+      await extensionManager?.flush()
       let clearCookiesOnExit = false
       try {
         clearCookiesOnExit = (await loadData()).settings.privacy.clearCookiesOnExit

@@ -348,7 +348,7 @@ class ControlPanel {
     fragment.append(this.pageHeader(
       'Minimal registry',
       'Vast instances',
-      'Every known Relay installation. Only the five documented installation fields are available here.'
+      'Every known Relay installation, classified so test profiles can be handled safely.'
     ))
 
     const controls = element('form', 'instances-toolbar')
@@ -373,10 +373,17 @@ class ControlPanel {
       version.append(option)
     }
     version.setAttribute('aria-label', 'Filter instances by Vast version')
+    const kind = select(['', 'packaged', 'development', 'test', 'unknown'] as const)
+    kind.options[0].textContent = 'All kinds'
+    kind.options[1].textContent = 'Packaged'
+    kind.options[2].textContent = 'Development'
+    kind.options[3].textContent = 'Test'
+    kind.options[4].textContent = 'Unknown / legacy'
+    kind.setAttribute('aria-label', 'Filter instances by kind')
     const apply = button('Apply filters', 'primary')
     apply.type = 'submit'
     const reset = button('Reset')
-    controls.append(exactId, activity, version, apply, reset)
+    controls.append(exactId, activity, version, kind, apply, reset)
 
     const resultHeader = element('div', 'instances-result-header')
     const resultCount = element('span', 'instances-result-count', 'Loading instances…')
@@ -405,6 +412,7 @@ class ControlPanel {
       try {
         const params = new URLSearchParams({ limit: '25', activity: activity.value })
         if (version.value) params.set('version', version.value)
+        if (kind.value) params.set('kind', kind.value)
         if (exactId.value.trim()) params.set('install_id', exactId.value.trim())
         const cursor = cursors[pageIndex]
         if (cursor) params.set('cursor', cursor)
@@ -458,7 +466,7 @@ class ControlPanel {
     const table = element('table', 'instances-table')
     const head = element('thead')
     const headRow = element('tr')
-    for (const label of ['Instance', 'Version', 'First seen', 'Last seen', 'Launches', '']) headRow.append(element('th', undefined, label))
+    for (const label of ['Instance', 'Kind', 'Version', 'First seen', 'Last seen', 'Launches', '']) headRow.append(element('th', undefined, label))
     head.append(headRow)
     const body = element('tbody')
     for (const installation of installations) {
@@ -469,6 +477,8 @@ class ControlPanel {
       idButton.title = 'Open installation details'
       idButton.addEventListener('click', () => this.openInstallationDetails(installation))
       idCell.append(idButton)
+      const kindCell = element('td')
+      kindCell.append(badge(installation.instance_kind, installation.instance_kind))
       const versionCell = element('td')
       versionCell.append(badge(installation.current_version, 'version'))
       const firstSeen = element('td')
@@ -480,7 +490,7 @@ class ControlPanel {
       const details = button('Details')
       details.addEventListener('click', () => this.openInstallationDetails(installation))
       actionCell.append(details)
-      row.append(idCell, versionCell, firstSeen, lastSeen, launches, actionCell)
+      row.append(idCell, kindCell, versionCell, firstSeen, lastSeen, launches, actionCell)
       body.append(row)
     }
     table.append(head, body)
@@ -498,11 +508,16 @@ class ControlPanel {
     close.addEventListener('click', () => dialog.close())
     header.append(heading, close)
     const status = element('div', 'instance-detail__status')
-    status.append(badge(installation.current_version, 'version'), element('span', undefined, `Last contact ${formatDate(installation.last_seen)}`))
+    status.append(
+      badge(installation.current_version, 'version'),
+      badge(installation.instance_kind, installation.instance_kind),
+      element('span', undefined, `Last contact ${formatDate(installation.last_seen)}`)
+    )
     const values = element('dl', 'instance-detail__values')
     const rows: Array<[string, string]> = [
       ['Installation ID', installation.install_id],
       ['Current version', installation.current_version],
+      ['Instance kind', installation.instance_kind],
       ['First seen', formatDate(installation.first_seen)],
       ['Last seen', formatDate(installation.last_seen)],
       ['Launch count', formatNumber(installation.launch_count)]

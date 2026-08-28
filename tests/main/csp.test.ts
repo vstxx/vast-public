@@ -15,6 +15,8 @@ test('packaged app chrome CSP is strict and keeps dangerous directives out', () 
   assert.doesNotMatch(csp, /unsafe-eval/)
   assert.doesNotMatch(csp, /script-src[^;]*\*/)
   assert.doesNotMatch(csp, /object-src[^;]*(https?:|\*)/)
+  assert.match(csp, /connect-src 'self'(?:;|$)/)
+  assert.doesNotMatch(csp, /connect-src[^;]*https:/)
 })
 
 test('dev app chrome CSP allows Vite React refresh without weakening packaged CSP', () => {

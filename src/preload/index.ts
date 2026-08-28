@@ -64,7 +64,27 @@ ipcRenderer.on('vast:browser:open-tab', (_event, request: BrowserTabOpenRequest)
   tabOpenRequests.receive(request)
 })
 
-const api: VastApi = {
+const catAddonApi = __VAST_CAT_ADDON_AVAILABLE__ ? {
+  catAddon: {
+    status: () => ipcRenderer.invoke('vast:cat-addon:status'),
+    runtime: () => ipcRenderer.invoke('vast:cat-addon:runtime'),
+    windowState: () => ipcRenderer.invoke('vast:cat-addon:window-state'),
+    enable: () => ipcRenderer.invoke('vast:cat-addon:enable'),
+    disable: () => ipcRenderer.invoke('vast:cat-addon:disable'),
+    onStateChanged: (callback: VastApi['catAddon']['onStateChanged'] extends (callback: infer T) => unknown ? T : never) => {
+      const listener = (_event: Electron.IpcRendererEvent, state: Parameters<typeof callback>[0]): void => callback(state)
+      ipcRenderer.on('vast:cat-addon:state', listener)
+      return () => ipcRenderer.removeListener('vast:cat-addon:state', listener)
+    },
+    onWindowStateChanged: (callback: VastApi['catAddon']['onWindowStateChanged'] extends (callback: infer T) => unknown ? T : never) => {
+      const listener = (_event: Electron.IpcRendererEvent, state: Parameters<typeof callback>[0]): void => callback(state)
+      ipcRenderer.on('vast:cat-addon:window-state-changed', listener)
+      return () => ipcRenderer.removeListener('vast:cat-addon:window-state-changed', listener)
+    }
+  }
+} : {}
+
+const api = {
   storage: {
     load: () => ipcRenderer.invoke('vast:storage:load') as Promise<PersistedData>,
     save: (data) => ipcRenderer.invoke('vast:storage:save', data) as Promise<{ ok: boolean; error?: string }>,
@@ -93,23 +113,46 @@ const api: VastApi = {
     openDataFolder: () => ipcRenderer.invoke('vast:data-path:open'),
     changeDataDirectory: () => ipcRenderer.invoke('vast:data-path:change')
   },
-  catAddon: {
-    status: () => ipcRenderer.invoke('vast:cat-addon:status'),
-    runtime: () => ipcRenderer.invoke('vast:cat-addon:runtime'),
-    windowState: () => ipcRenderer.invoke('vast:cat-addon:window-state'),
-    enable: () => ipcRenderer.invoke('vast:cat-addon:enable'),
-    disable: () => ipcRenderer.invoke('vast:cat-addon:disable'),
-    onStateChanged: (callback) => {
-      const listener = (_event: Electron.IpcRendererEvent, state: Parameters<typeof callback>[0]): void => callback(state)
-      ipcRenderer.on('vast:cat-addon:state', listener)
-      return () => ipcRenderer.removeListener('vast:cat-addon:state', listener)
+  extensions: {
+    list: () => ipcRenderer.invoke('vast:extensions:list'),
+    loadUnpacked: () => ipcRenderer.invoke('vast:extensions:load-unpacked'),
+    installPackage: () => ipcRenderer.invoke('vast:extensions:install-package'),
+    prepareHubInstall: (id) => ipcRenderer.invoke('vast:extensions:prepare-hub-install', id),
+    confirmInstall: (token) => ipcRenderer.invoke('vast:extensions:confirm-install', token),
+    cancelInstall: (token) => ipcRenderer.invoke('vast:extensions:cancel-install', token),
+    catalog: (input) => ipcRenderer.invoke('vast:extensions:catalog', input),
+    catalogDetails: (id) => ipcRenderer.invoke('vast:extensions:catalog-details', id),
+    checkForUpdates: (id) => ipcRenderer.invoke('vast:extensions:check-updates', id),
+    approveUpdate: (id) => ipcRenderer.invoke('vast:extensions:approve-update', id),
+    enable: (id) => ipcRenderer.invoke('vast:extensions:enable', id),
+    disable: (id) => ipcRenderer.invoke('vast:extensions:disable', id),
+    reload: (id) => ipcRenderer.invoke('vast:extensions:reload', id),
+    remove: (id) => ipcRenderer.invoke('vast:extensions:remove', id),
+    approvePermissions: (id, permissions) => ipcRenderer.invoke('vast:extensions:approve-permissions', id, permissions),
+    setPermission: (id, permission, granted) => ipcRenderer.invoke('vast:extensions:set-permission', id, permission, granted),
+    contributions: () => ipcRenderer.invoke('vast:extensions:contributions'),
+    prepareSurface: (id, kind, partition) => ipcRenderer.invoke('vast:extensions:prepare-surface', id, kind, partition),
+    prepareSidebar: (key) => ipcRenderer.invoke('vast:extensions:prepare-sidebar', key),
+    dispatchContribution: (key, context) => ipcRenderer.invoke('vast:extensions:dispatch-contribution', key, context),
+    respondToUiRequest: (response) => ipcRenderer.invoke('vast:extensions:ui-response', response),
+    reportTabEvent: (name, payload) => ipcRenderer.invoke('vast:extensions:tab-event', name, payload),
+    onChanged: (callback) => {
+      const listener = (): void => callback()
+      ipcRenderer.on('vast:extensions:changed', listener)
+      return () => ipcRenderer.removeListener('vast:extensions:changed', listener)
     },
-    onWindowStateChanged: (callback) => {
-      const listener = (_event: Electron.IpcRendererEvent, state: Parameters<typeof callback>[0]): void => callback(state)
-      ipcRenderer.on('vast:cat-addon:window-state-changed', listener)
-      return () => ipcRenderer.removeListener('vast:cat-addon:window-state-changed', listener)
+    onContributionsChanged: (callback) => {
+      const listener = (_event: Electron.IpcRendererEvent, snapshot: Parameters<typeof callback>[0]): void => callback(snapshot)
+      ipcRenderer.on('vast:extensions:contributions-changed', listener)
+      return () => ipcRenderer.removeListener('vast:extensions:contributions-changed', listener)
+    },
+    onUiRequest: (callback) => {
+      const listener = (_event: Electron.IpcRendererEvent, request: Parameters<typeof callback>[0]): void => callback(request)
+      ipcRenderer.on('vast:extensions:ui-request', listener)
+      return () => ipcRenderer.removeListener('vast:extensions:ui-request', listener)
     }
   },
+  ...catAddonApi,
   privacy: {
     clearSiteData: (origin, webContentsId) =>
       ipcRenderer.invoke('vast:privacy:clear-site-data', origin, webContentsId) as Promise<{ ok: boolean; error?: string }>,
@@ -315,6 +358,6 @@ const api: VastApi = {
     status: () => ipcRenderer.invoke('vast:updater:status'),
     install: () => ipcRenderer.invoke('vast:updater:install') as Promise<{ ok: boolean; error?: string }>
   }
-}
+} as VastApi
 
 contextBridge.exposeInMainWorld('vast', api)

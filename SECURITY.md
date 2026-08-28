@@ -66,7 +66,7 @@ Password Manager authorization lives in the main process. It begins locked on ev
 
 Electron Fuses are applied to the packaged executable in `afterPack` before signing and are read back before the hook completes. Public packages disable RunAsNode, `NODE_OPTIONS`, and Node CLI inspect arguments, and enable embedded ASAR integrity validation plus ASAR-only application loading. The profile explicitly sets every fuse supported by the pinned Electron version so an Electron upgrade cannot silently add an undecided fuse.
 
-## Dependency audit for 0.1.5
+## Dependency security gates
 
 The 0.1.5 remediation removed the three HIGH findings reported against the
 previous lockfile:
@@ -80,8 +80,8 @@ previous lockfile:
   by pinning `pdfjs-dist@6.2.108`.
 
 `npm run audit:ci` audits both the desktop and Relay lockfiles and fails CI at
-HIGH or CRITICAL severity. The audited 0.1.5 dependency trees report zero known
-npm vulnerabilities.
+HIGH or CRITICAL severity. CI also runs a pinned full-history Gitleaks scan;
+findings must be reviewed and cannot be globally suppressed.
 
 ## Vast Notices
 
@@ -136,7 +136,9 @@ Adding any future action that crosses those boundaries should be treated as a ne
 - Electron webviews are powerful. Treat webview integration changes as security-sensitive.
 - The tracker blocker is not a full content blocker.
 - Fingerprint spoofing is best-effort. User-agent/header/geolocation controls can help with consistency, but late page scripts may observe values before a webview injection runs.
-- Extension/plugin support is not enabled yet.
+- Chromium-compatible and Vast-native extension support is enabled, with package,
+  permission, signature, and renderer-boundary checks documented under
+  `docs/extensions/`.
 - `safeStorage` is the current encryption backend. Session unlock is a main-process authorization lifetime, not a cross-platform biometric or independent master-password system; stable platform re-authentication would require a separately maintained native integration.
 - Vast has no product entitlement backend or remote feature verification. Labs decisions use local settings and are rechecked in main-process IPC.
 - Public stable updater and signing secrets are expected from CI environment variables and must not be committed.

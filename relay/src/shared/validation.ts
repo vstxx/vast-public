@@ -11,9 +11,11 @@ import type {
   BroadcastInput,
   BroadcastType,
   CheckinRequest,
+  InstanceKind,
   ReleaseInput,
   ReleaseSeverity
 } from './types'
+import { INSTANCE_KINDS } from './types'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const ASSET_ID_PATTERN = /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?\.(?:png|webp|gif)$/
@@ -71,18 +73,23 @@ export function optionalSemVer(value: unknown, label: string): string | null {
 
 export function validateCheckin(value: unknown): CheckinRequest {
   const source = objectRecord(value, 'Check-in')
-  exactKeys(source, ['protocol', 'install_id', 'current_version', 'launch_count'], [], 'Check-in')
+  exactKeys(source, ['protocol', 'install_id', 'current_version', 'launch_count'], ['instance_kind'], 'Check-in')
   if (!Number.isInteger(source.protocol) || source.protocol !== PROTOCOL_VERSION) {
     throw new ValidationError('Unsupported Relay protocol.', 400)
   }
   if (!Number.isInteger(source.launch_count) || Number(source.launch_count) < 0 || Number(source.launch_count) > MAX_LAUNCH_COUNT) {
     throw new ValidationError('launch_count must be a bounded non-negative integer.')
   }
+  const instanceKind = source.instance_kind ?? 'unknown'
+  if (typeof instanceKind !== 'string' || !INSTANCE_KINDS.includes(instanceKind as InstanceKind)) {
+    throw new ValidationError('instance_kind is invalid.')
+  }
   return {
     protocol: PROTOCOL_VERSION,
     install_id: validateUuid(source.install_id),
     current_version: validateSemVer(source.current_version, 'current_version'),
-    launch_count: Number(source.launch_count)
+    launch_count: Number(source.launch_count),
+    instance_kind: instanceKind as InstanceKind
   }
 }
 

@@ -12,6 +12,7 @@ import {
   INTERNAL_AUTOMATION_URL,
   INTERNAL_AVIDAE_URL,
   INTERNAL_DIAGNOSTICS_URL,
+  INTERNAL_EXTENSIONS_URL,
   INTERNAL_NEW_TAB_URL,
   INTERNAL_NOTES_URL,
   INTERNAL_NETWORK_URL,
@@ -234,6 +235,11 @@ export const BrowserStage = forwardRef<BrowserStageHandle, BrowserStageProps>(fu
             id: 'session-timeline',
             label: 'Open Session Timeline',
             action: () => runtime.openUrlInNewTab(INTERNAL_SESSION_TIMELINE_URL)
+          },
+          {
+            id: 'extensions',
+            label: 'Open Extensions',
+            action: () => runtime.openUrlInNewTab(INTERNAL_EXTENSIONS_URL)
           },
           {
             id: 'command',

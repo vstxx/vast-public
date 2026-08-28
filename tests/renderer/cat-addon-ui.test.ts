@@ -16,7 +16,8 @@ const styleSource = source('../../src/renderer/components/cat-addon/cat-addon.cs
 const layoutSource = source('../../src/renderer/components/cat-addon/cat-layout.ts')
 const defaultsSource = source('../../src/shared/constants.ts')
 const preloadSource = source('../../src/preload/index.ts')
-const ipcSource = source('../../src/main/ipc.ts')
+const ipcSource = source('../../src/main/ipc/cat-addon.ts')
+const coreIpcSource = source('../../src/main/ipc.ts')
 const windowSource = source('../../src/main/window.ts')
 
 test('Cat Addon is disabled by default and Appearance exposes one live action', () => {
@@ -32,10 +33,12 @@ test('Cat Addon bridge exposes a validated runtime only through trusted IPC', ()
   for (const channel of ['status', 'runtime', 'window-state', 'enable', 'disable']) {
     assert.match(ipcSource, new RegExp(`handle\\('vast:cat-addon:${channel}'`))
   }
-  assert.match(ipcSource, /assertTrustedIpcSender\(event\)/)
+  assert.match(coreIpcSource, /assertTrustedIpcSender\(event\)/)
+  assert.match(coreIpcSource, /for \(const registerFeature of featureRegistrars\) registerFeature\(handle\)/)
   assert.match(preloadSource, /runtime:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('vast:cat-addon:runtime'\)/)
   assert.match(preloadSource, /removeListener\('vast:cat-addon:state'/)
   assert.match(windowSource, /vast:cat-addon:window-state-changed/)
+  assert.match(windowSource, /if \(__VAST_CAT_ADDON_AVAILABLE__\)/)
   assert.doesNotMatch(preloadSource, /catAddon[^}]*execute|catAddon[^}]*script/s)
 })
 

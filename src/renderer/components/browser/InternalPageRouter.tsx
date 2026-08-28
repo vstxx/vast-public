@@ -3,6 +3,7 @@ import {
   INTERNAL_AUTOMATION_URL,
   INTERNAL_AVIDAE_URL,
   INTERNAL_DIAGNOSTICS_URL,
+  INTERNAL_EXTENSIONS_URL,
   INTERNAL_NETWORK_URL,
   INTERNAL_NEW_TAB_URL,
   INTERNAL_NOTES_URL,
@@ -22,6 +23,7 @@ import { NewTabPage } from '../new-tab/NewTabPage'
 const AvidaePage = lazy(() => import('../avidae/AvidaePage').then((module) => ({ default: module.AvidaePage })))
 const AutomationPage = lazy(() => import('../automation/AutomationPage').then((module) => ({ default: module.AutomationPage })))
 const DiagnosticsPage = lazy(() => import('../diagnostics/DiagnosticsPage').then((module) => ({ default: module.DiagnosticsPage })))
+const ExtensionsPage = lazy(() => import('../extensions/ExtensionsPage').then((module) => ({ default: module.ExtensionsPage })))
 const NetworkPage = lazy(() => import('../network/NetworkPage').then((module) => ({ default: module.NetworkPage })))
 const NotesPage = lazy(() => import('../notes/NotesPage').then((module) => ({ default: module.NotesPage })))
 const PasswordsPage = lazy(() => import('../passwords/PasswordsPage').then((module) => ({ default: module.PasswordsPage })))
@@ -91,6 +93,11 @@ export function InternalPageRouter({ tab }: { tab: Tab }): JSX.Element {
         <SiteDataPage />
       ) : tab.url === INTERNAL_DIAGNOSTICS_URL ? (
         <DiagnosticsPage />
+      ) : matchesInternalUrl(tab.url, INTERNAL_EXTENSIONS_URL) ? (
+        <ExtensionsPage
+          requestedInstallId={new URL(tab.url).searchParams.get('install') ?? undefined}
+          requestedExtensionId={new URL(tab.url).searchParams.get('extension') ?? undefined}
+        />
       ) : tab.url === INTERNAL_SESSION_TIMELINE_URL ? (
         <SessionTimelinePage />
       ) : (

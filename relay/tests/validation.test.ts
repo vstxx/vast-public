@@ -14,12 +14,16 @@ const validCheckin = {
   protocol: 1,
   install_id: 'b2b65f31-4c31-4da3-9c2c-e5d28f8ca130',
   current_version: '0.1.4',
-  launch_count: 12
+  launch_count: 12,
+  instance_kind: 'test'
 }
 
 describe('protocol validation', () => {
   it('accepts the deliberately small exact schema', () => {
     expect(validateCheckin(validCheckin)).toEqual(validCheckin)
+    expect(validateCheckin((({ instance_kind: _kind, ...legacy }) => legacy)(validCheckin))).toMatchObject({
+      instance_kind: 'unknown'
+    })
   })
 
   it('rejects unsupported protocols, nested/unexpected data and abnormal counts', () => {
@@ -27,6 +31,7 @@ describe('protocol validation', () => {
     expect(() => validateCheckin({ ...validCheckin, extra: { prototype: true } })).toThrow(/unexpected/)
     expect(() => validateCheckin({ ...validCheckin, launch_count: -1 })).toThrow(/bounded/)
     expect(() => validateCheckin({ ...validCheckin, launch_count: 2_147_483_648 })).toThrow(/bounded/)
+    expect(() => validateCheckin({ ...validCheckin, instance_kind: 'automation-ish' })).toThrow(/instance_kind/)
   })
 
   it('validates RFC UUIDs and rejects nil, malformed and non-variant UUIDs', () => {

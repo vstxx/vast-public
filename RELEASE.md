@@ -25,6 +25,8 @@ VAST_PRIVATE_BUILD=0
 VAST_OBFUSCATE=1
 VAST_UPDATE_ENABLED=1
 VAST_RELEASE_REPO=vstxx/vast-public
+VAST_PREVIOUS_VERSION=0.1.5
+VAST_CAT_ADDON_ENABLED=0
 VAST_EXPECTED_SIGNER_SUBJECT=VastProductions
 # Add only after the Relay staging client E2E gate passes:
 VAST_RELAY_PRODUCTION_ENABLED=1
@@ -32,10 +34,30 @@ WIN_CSC_LINK=...
 WIN_CSC_KEY_PASSWORD=...
 ```
 
+The prepared `0.2.5` public beta candidate uses the exceptional unsigned-beta
+path and must additionally use this exact staging-only configuration:
+
+```dotenv
+VAST_RELEASE_CHANNEL=beta
+VAST_PRIVATE_BUILD=0
+VAST_PUBLIC_UNSIGNED_BETA=1
+VAST_UNSIGNED_BETA_ACK=I_ACCEPT_UNSIGNED_PUBLIC_BETA_RISK
+VAST_PREVIOUS_VERSION=0.1.5
+VAST_RELAY_ENABLED=1
+VAST_RELAY_PRODUCTION_ENABLED=0
+VAST_CAT_ADDON_ENABLED=0
+```
+
+This configuration does not authorize publication. Vast's pinned FFmpeg must be
+built and verified first; its provenance and complete corresponding-source
+archive are mandatory release assets. The remaining manual staging/signature
+gates are recorded in `docs/RELEASE_0.2.5_READINESS.md`.
+
 Prepare the self-contained Video & Audio runtime, then run:
 
 ```bash
 python -m pip install -r resources/avidae/requirements.txt -r resources/avidae/requirements-build.txt
+npm run ffmpeg:build
 npm run avidae:runtime:prepare
 npm run release:local
 ```
