@@ -30,6 +30,7 @@ export function assertPublicDistributionGuards(): void {
 
 export function redactedBuildDiagnostics(): {
   releaseChannel: string
+  distributionChannel: string
   releaseRepo: string
   updaterEnabled: boolean
   obfuscationEnabled: boolean
@@ -39,6 +40,7 @@ export function redactedBuildDiagnostics(): {
   const metadata = getBuildMetadata()
   return {
     releaseChannel: metadata.channel,
+    distributionChannel: metadata.distributionChannel,
     releaseRepo: metadata.releaseRepo,
     updaterEnabled: metadata.updateEnabled,
     obfuscationEnabled: metadata.obfuscate,

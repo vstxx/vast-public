@@ -44,7 +44,7 @@ function AutomationSelect<T extends string>({
   onChange: (value: T) => void
 }): JSX.Element {
   return (
-    <label className="settings-select-label grid content-start gap-2 text-sm font-semibold">
+    <div className="settings-select-label grid content-start gap-2 text-sm font-semibold">
       <span className="leading-5">{label}</span>
       <VastSelect
         value={value}
@@ -55,7 +55,7 @@ function AutomationSelect<T extends string>({
         buttonClassName="h-11"
         dataSettingsSelect={label}
       />
-    </label>
+    </div>
   )
 }
 
@@ -157,7 +157,7 @@ export function AutomationPage(): JSX.Element {
       <div className="mx-auto grid max-w-7xl gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
         <section className="vast-glass-panel rounded-[30px] p-5">
           <div className="mb-5 flex items-center justify-between gap-3">
-            <h1 className="text-3xl font-semibold">Macros</h1>
+            <h1 className="text-3xl font-semibold">Automation</h1>
             <button type="button" onClick={addMacro} className="grid h-11 w-11 place-items-center rounded-2xl bg-vast-cyan text-black" title="Create macro">
               <Plus className="h-5 w-5" />
             </button>

@@ -30,12 +30,17 @@ launch count, or other heuristic.
 ## Extensions Hub
 
 The Extensions Hub is a separate publisher and distribution service. It
-processes GitHub OAuth identity/profile data, session and CSRF records, keyed
-hashes of request IPs for rate limiting, D1/R2 listings, packages and media,
+processes GitHub OAuth identity/profile data, session and CSRF records, ephemeral
+hashed request keys in Cloudflare native rate limiting, D1/R2 listings, packages and media,
 automated and human review records, audit events, versioned Publisher Terms
 acceptances, and public abuse/IP reports. Packages and evidence may be retained
 for distribution, update continuity, security response, disputes, recovery,
 and legal compliance.
+
+Production Workers disable persistent per-invocation logs, sample sanitized
+operational/error telemetry, and enable Cloudflare query-string redaction so
+OAuth callback parameters are not retained in platform logs. Rate-limit keys
+are not stored in Hub D1.
 
 The Hub does not receive browsing history from Vast Browser. Independently
 published extensions have their own declared data practices. An extension that

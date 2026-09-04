@@ -3,8 +3,9 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { DEFAULT_SETTINGS, DEFAULT_SHORTCUTS, INTERNAL_AUTOMATION_URL, INTERNAL_DIAGNOSTICS_URL, INTERNAL_NETWORK_URL, INTERNAL_PASSWORDS_URL, INTERNAL_SESSION_TIMELINE_URL, INTERNAL_SITE_DATA_URL, SEARCH_ENGINES } from '../../../shared/constants'
 import { getFeatureState, VastFeatures, type FeatureId, type FeatureState } from '../../../shared/feature-gates'
 import { resolveLayoutMode } from '../../../shared/layout-mode'
+import type { RelayClientSnapshot } from '../../../shared/relay-types'
 import { parseShortcut } from '../../../shared/shortcuts'
-import type { AdBlockerMode, CatAddonState, DataPathInfo, DefaultBrowserStatus, FingerprintingProtectionMode, MigrationReport, PermissionSetting, PrivacyFilterStatus, SpoofingBrowserProfile, SpoofingLocationMode, WebRtcPolicy, WorkspaceProxyMode, WorkspaceSessionMode } from '../../../shared/types'
+import type { AdBlockerMode, DataPathInfo, DefaultBrowserStatus, FingerprintingProtectionMode, MigrationReport, PermissionSetting, PrivacyFilterStatus, SpoofingBrowserProfile, SpoofingLocationMode, WebRtcPolicy, WorkspaceProxyMode, WorkspaceSessionMode } from '../../../shared/types'
 import { useBrowserRuntime } from '../../app/browser-runtime'
 import { useBrowserStore, selectActiveTab, selectActiveWorkspace } from '../../store/browser-store'
 import { VastSelect, type VastSelectOption, type VastSelectSize } from '../ui/VastSelect'
@@ -13,8 +14,6 @@ import { NotificationCard } from '../ui/NotificationCard'
 import { WorkspaceAppearancePicker } from '../workspaces/WorkspaceAppearancePicker'
 import { WorkspaceIcon } from '../workspaces/WorkspaceIcon'
 import { normalizeSettingsSearchText, searchSettings, type SettingsSearchEntry, type SettingsSearchResult, type SettingsSearchSectionId } from './settings-search'
-
-declare const __VAST_CAT_ADDON_AVAILABLE__: boolean
 
 const settingsNav: ReadonlyArray<readonly [SettingsSearchSectionId, typeof Palette]> = [
   ['Appearance', Palette],
@@ -37,12 +36,6 @@ type SettingsSectionId = SettingsSearchSectionId
 
 function clampRamLimitMb(value: number): number {
   return Math.min(32_768, Math.max(1_024, Math.round(value / 256) * 256))
-}
-
-function formatRamLimit(limitMb: number): string {
-  const rounded = clampRamLimitMb(limitMb)
-  const wholeGb = rounded / 1024
-  return Number.isInteger(wholeGb) ? `${wholeGb} GB` : `${wholeGb.toFixed(1)} GB`
 }
 
 function shortcutSignature(shortcut: string): string {
@@ -116,7 +109,7 @@ function SettingsSelect<T extends string>({
   size?: VastSelectSize
 }): JSX.Element {
   return (
-    <label className="settings-select-label">
+    <div className="settings-select-label">
       <span className="settings-select-title" title={label}>{label}</span>
       <VastSelect
         value={value}
@@ -127,7 +120,7 @@ function SettingsSelect<T extends string>({
         className="settings-select-control"
         dataSettingsSelect={label}
       />
-    </label>
+    </div>
   )
 }
 
@@ -246,73 +239,23 @@ export function SettingsModal(): JSX.Element | null {
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('Appearance')
   const [workspaceAppearanceId, setWorkspaceAppearanceId] = useState<string | null>(null)
   const [settingsSearchQuery, setSettingsSearchQuery] = useState('')
-  const [catAddonState, setCatAddonState] = useState<CatAddonState>({ enabled: false, installed: false, phase: 'disabled' })
-  const catAddonOperationRef = useRef(false)
   const [shortcutDrafts, setShortcutDrafts] = useState(settings.keyboardShortcuts)
   const [defaultBrowserStatus, setDefaultBrowserStatus] = useState<DefaultBrowserStatus | null>(null)
   const [defaultBrowserMessage, setDefaultBrowserMessage] = useState('')
   const [settingDefaultBrowser, setSettingDefaultBrowser] = useState(false)
 
-  useEffect(() => {
-    if (!__VAST_CAT_ADDON_AVAILABLE__ || !window.vast.app.startup.catAddonAvailable) return
-    let alive = true
-    const apply = (state: CatAddonState): void => { if (alive) setCatAddonState(state) }
-    void window.vast.catAddon.status().then(apply).catch((error) => apply({
-      enabled: false,
-      installed: false,
-      phase: 'error',
-      error: error instanceof Error ? error.message : String(error)
-    }))
-    const unsubscribe = window.vast.catAddon.onStateChanged(apply)
-    return () => { alive = false; unsubscribe() }
-  }, [])
-
-  const toggleCatAddon = async (): Promise<void> => {
-    if (!__VAST_CAT_ADDON_AVAILABLE__) return
-    if (catAddonOperationRef.current || catAddonState.phase === 'enabling' || catAddonState.phase === 'disabling') return
-    catAddonOperationRef.current = true
-    try {
-      if (catAddonState.enabled) {
-        updateSettings({ catAddon: { enabled: false } })
-        const persisted = window.vast.storage.flush(useBrowserStore.getState().toPersistedData())
-        const disabled = window.vast.catAddon.disable()
-        const [persistResult, state] = await Promise.all([persisted, disabled])
-        setCatAddonState(persistResult.ok ? state : { ...state, error: persistResult.error ?? 'Could not persist the disabled preference.' })
-        return
-      }
-
-      const state = await window.vast.catAddon.enable()
-      setCatAddonState(state)
-      if (!state.enabled) return
-      updateSettings({ catAddon: { enabled: true } })
-      const persisted = await window.vast.storage.flush(useBrowserStore.getState().toPersistedData())
-      if (persisted.ok) return
-      updateSettings({ catAddon: { enabled: false } })
-      const rolledBack = await window.vast.catAddon.disable()
-      setCatAddonState({ ...rolledBack, phase: 'error', error: persisted.error ?? 'Could not persist the Cat Addon preference.' })
-    } catch (error) {
-      setCatAddonState({
-        enabled: false,
-        installed: false,
-        phase: 'error',
-        error: error instanceof Error ? error.message : 'Cat Addon operation failed.'
-      })
-    } finally {
-      catAddonOperationRef.current = false
-    }
-  }
   const [dataPathInfo, setDataPathInfo] = useState<DataPathInfo | null>(null)
-  const [dataActionBusy, setDataActionBusy] = useState<'export' | 'import' | 'change' | 'open' | 'backup' | null>(null)
+  const [dataActionBusy, setDataActionBusy] = useState<'export' | 'import' | 'change' | 'open' | null>(null)
   const [migrationReport, setMigrationReport] = useState<MigrationReport | null>(null)
   const [dataMessage, setDataMessage] = useState('')
   const [appVersion, setAppVersion] = useState('Loading...')
   const [filterStatus, setFilterStatus] = useState<PrivacyFilterStatus | null>(null)
   const [filterUpdateBusy, setFilterUpdateBusy] = useState(false)
+  const [relayStatusLabel, setRelayStatusLabel] = useState('status loading')
   const featureStateFor = (featureId: FeatureId): FeatureState => getFeatureState(featureId, { settings })
   const diagnosticsState = featureStateFor(VastFeatures.AdvancedDiagnostics)
   const spoofingState = featureStateFor(VastFeatures.Spoofing)
   const availableSettingsNav = useMemo(() => settingsNav.filter(([label]) => {
-    if (label === 'Labs') return settings.labs.enabled
     if (label === 'Network') return getFeatureState(VastFeatures.NetworkDevices, { settings }).available
     if (label === 'Spoofing') return getFeatureState(VastFeatures.Spoofing, { settings }).available
     if (label === 'Automation') return getFeatureState(VastFeatures.Automation, { settings }).available
@@ -335,6 +278,27 @@ export function SettingsModal(): JSX.Element | null {
     void window.vast.privacy.filterStatus().then((result) => {
       if (result.ok && result.status) setFilterStatus(result.status)
     })
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    let active = true
+    const updateRelayStatus = (state: RelayClientSnapshot): void => {
+      if (active) setRelayStatusLabel(state.enabled ? state.environment : 'disabled')
+    }
+    setRelayStatusLabel('status loading')
+    void window.vast.relay.state().then((state) => {
+      updateRelayStatus(state)
+    }).catch(() => {
+      if (active) setRelayStatusLabel('unavailable')
+    })
+    const unsubscribe = window.vast.relay.onStateChanged((state) => {
+      updateRelayStatus(state)
+    })
+    return () => {
+      active = false
+      unsubscribe()
+    }
   }, [open])
 
   useEffect(() => {
@@ -506,7 +470,7 @@ export function SettingsModal(): JSX.Element | null {
 
   const runDataAction = async (
     action: NonNullable<typeof dataActionBusy>,
-    task: () => Promise<MigrationReport | { ok: boolean; backup?: unknown; error?: string }>
+    task: () => Promise<MigrationReport | { ok: boolean; error?: string }>
   ): Promise<void> => {
     setDataActionBusy(action)
     setDataMessage('')
@@ -517,19 +481,15 @@ export function SettingsModal(): JSX.Element | null {
         setDataMessage(result.error ?? 'Data operation failed.')
         return
       }
-      if ('backup' in result) {
-        setDataMessage('Local JSON restore point created.')
-      } else {
-        const report = result as MigrationReport
-        setMigrationReport(report)
-        setDataMessage(
-          report.restartRequired
-            ? 'Vast is restarting to finish the migration.'
-            : report.path
-              ? `Saved to ${report.path}`
-              : 'Data operation completed.'
-        )
-      }
+      const report = result as MigrationReport
+      setMigrationReport(report)
+      setDataMessage(
+        report.restartRequired
+          ? 'Vast is restarting to finish the migration.'
+          : report.path
+            ? `Saved to ${report.path}`
+            : 'Data operation completed.'
+      )
       await refreshDataPathInfo()
     } catch (error) {
       setDataMessage(error instanceof Error ? error.message : 'Data operation failed.')
@@ -821,24 +781,9 @@ export function SettingsModal(): JSX.Element | null {
                     onChange={(event) => updateSettings({ bookmarksBarOnlyOnNewTab: event.target.checked })}
                   />
                 </label>
-                {__VAST_CAT_ADDON_AVAILABLE__ && window.vast.app.startup.catAddonAvailable && (
-                  <>
-                    <label className="md:col-span-2">
-                      <span>Cat Addon</span>
-                      <input
-                        type="checkbox"
-                        checked={catAddonState.enabled}
-                        disabled={catAddonState.phase === 'enabling' || catAddonState.phase === 'disabling'}
-                        aria-label={catAddonState.enabled ? 'Disable Cat Addon' : 'Enable Cat Addon'}
-                        onChange={() => { void toggleCatAddon() }}
-                      />
-                    </label>
-                    {catAddonState.error && <div className="settings-inline-error md:col-span-2">{catAddonState.error}</div>}
-                  </>
-                )}
                 <button
                   type="button"
-                  className="settings-grid-action md:col-span-2"
+                  className="settings-grid-action"
                   onClick={() =>
                     updateSettings({
                       accentColor: DEFAULT_SETTINGS.accentColor,
@@ -906,15 +851,7 @@ export function SettingsModal(): JSX.Element | null {
                   <span>Developer Mode</span>
                   <input type="checkbox" checked={settings.advanced.developerMode} onChange={(event) => updateSettings({ advanced: { developerMode: event.target.checked } })} />
                 </label>
-                <label>
-                  <span>Enable Vast Labs</span>
-                  <input type="checkbox" checked={settings.labs.enabled} onChange={(event) => updateSettings({ labs: { enabled: event.target.checked } })} />
-                </label>
               </div>
-              <p className="mt-3 rounded-2xl border border-cyan-400/15 bg-cyan-400/8 p-3 text-xs leading-5 text-vast-soft">
-                Vast treats <span className="font-medium text-white">{formatRamLimit(settings.advanced.ramLimitMb)}</span> as the memory budget for the app shell and live webviews, then automatically limits how many background tabs stay resident.
-              </p>
-              <p className="mt-3 rounded-2xl border border-vast-amber/20 bg-vast-amber/10 p-3 text-xs leading-5 text-vast-soft">Experimental features can change quickly, but Vast never exposes unsafe Electron security toggles.</p>
             </section>
 
             <section id="Labs" className="settings-section" hidden={!sectionVisible('Labs')}>
@@ -945,21 +882,18 @@ export function SettingsModal(): JSX.Element | null {
                   onChange={(passwordManager) => updateSettings({ labs: { passwordManager } })}
                 />
                 <FeatureToggleSetting
-                  label="Advanced diagnostics"
+                  label="Diagnostics"
                   checked={settings.labs.advancedDiagnostics}
                   state={featureStateFor(VastFeatures.AdvancedDiagnostics)}
                   onChange={(advancedDiagnostics) => updateSettings({ labs: { advancedDiagnostics } })}
                 />
                 <FeatureToggleSetting
-                  label="Spoofing tools"
+                  label="Spoofing"
                   checked={settings.labs.spoofing}
                   state={featureStateFor(VastFeatures.Spoofing)}
                   onChange={(spoofing) => updateSettings({ labs: { spoofing } })}
                 />
               </div>
-              <p className="mt-3 rounded-2xl border border-white/[0.08] bg-white/[0.035] p-3 text-xs leading-5 text-vast-soft">
-                Labs contains local, experimental feature flags. A feature is available only when both Vast Labs and its own flag are enabled; turning a flag off never removes local data.
-              </p>
             </section>
 
             <section id="Network" className="settings-section" hidden={!sectionVisible('Network')}>
@@ -1000,9 +934,6 @@ export function SettingsModal(): JSX.Element | null {
                 <button type="button" onClick={() => { runtime.openUrlInNewTab(INTERNAL_NETWORK_URL); setOpen(false) }} className="settings-action"><Wifi className="h-4 w-4" />Open Network Devices</button>
                 <button type="button" onClick={() => void window.vast.network.clearCache()} className="settings-action"><Eraser className="h-4 w-4" />Clear network cache</button>
               </div>
-              <p className="mt-3 rounded-2xl border border-vast-amber/20 bg-vast-amber/10 p-3 text-xs leading-5 text-vast-soft">
-                Active probing only checks private/local ranges after a user-triggered scan. Vast never scans public IPs, attempts logins, or uploads network data.
-              </p>
             </section>
 
             <section id="Developer" className="settings-section" hidden={!sectionVisible('Developer')}>
@@ -1047,6 +978,25 @@ export function SettingsModal(): JSX.Element | null {
 
             <section id="Privacy" className="settings-section" hidden={!sectionVisible('Privacy')}>
               <h2>Privacy</h2>
+              <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-white">Vast Services</div>
+                    <div className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-vast-soft">
+                      Relay {relayStatusLabel}
+                    </div>
+                  </div>
+                  <span className="rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-vast-soft">No browsing telemetry</span>
+                </div>
+                <p className="mt-3 max-w-4xl text-xs leading-5 text-vast-soft">
+                  Official public builds use production Vast Relay for signed service and update notices. A check-in sends a random installation ID, the Vast version, cumulative launch count, and instance kind; Relay derives first-seen and last-seen times. It does not receive browsing history, visited URLs, searches, tabs, bookmarks, page content, passwords, cookies, account identity, device fingerprints, session duration, or notice interaction events. Cloudflare may process request IPs ephemerally for transport security and rate limiting; Vast does not store them in the Relay database.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button type="button" className="settings-action settings-action-compact" onClick={() => { runtime.openUrlInNewTab('https://vastbrowser.com/privacy'); setOpen(false) }}><Shield className="h-4 w-4" />Privacy Notice</button>
+                  <button type="button" className="settings-action settings-action-compact" onClick={() => { runtime.openUrlInNewTab('https://vastbrowser.com/support'); setOpen(false) }}><Activity className="h-4 w-4" />Support</button>
+                  <button type="button" className="settings-action settings-action-compact" onClick={() => { runtime.openUrlInNewTab(INTERNAL_SITE_DATA_URL); setOpen(false) }}><Database className="h-4 w-4" />Review site data</button>
+                </div>
+              </div>
               <div className="settings-grid">
                 <label>
                   <span>Block common trackers</span>
@@ -1305,9 +1255,6 @@ export function SettingsModal(): JSX.Element | null {
                 <label><span>Always confirm autofill</span><input type="checkbox" checked={settings.security.alwaysConfirmAutofill} onChange={(event) => updateSettings({ security: { ...settings.security, alwaysConfirmAutofill: event.target.checked } })} /></label>
                 <button type="button" onClick={() => updateSettings({ security: { ...settings.security, httpsOnlyMode: false, confirmExternalLinks: false, warnDangerousDownloads: true, alwaysConfirmAutofill: true, sitePermissions: [] } })} className="settings-action"><Shield className="h-4 w-4" />Reset security settings</button>
               </div>
-              <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.035] p-4 text-sm leading-6 text-vast-soft">
-                Unsafe protocols stay blocked, webSecurity stays enabled, nodeIntegration stays disabled, and sandbox stays enabled. These controls never weaken Electron isolation.
-              </div>
             </section>
 
             <section id="Site Data" className="settings-section" hidden={!sectionVisible('Site Data')}>
@@ -1522,7 +1469,6 @@ export function SettingsModal(): JSX.Element | null {
                         <label><span>Proxy bypass rules</span><input placeholder="&lt;local&gt;" value={workspace.identity?.proxyBypassRules ?? '<local>'} onChange={(event) => updateWorkspaceIdentity(workspace.id, { proxyBypassRules: event.target.value.slice(0, 2_048) })} /></label>
                       </>}
                     </div>
-                    <p className="mt-2 text-[11px] leading-4 text-vast-soft">This identity has its own cookies, cache, localStorage, IndexedDB, service workers, logins and browser permissions. Temporary identities are destroyed with their session.</p>
                   </div>
                 ))}
               </div>
@@ -1666,18 +1612,6 @@ export function SettingsModal(): JSX.Element | null {
                 >
                   <FileUp className="h-4 w-4" />
                   Import Vast data
-                </button>
-                <button
-                  type="button"
-                  disabled={dataActionBusy === 'backup'}
-                  onClick={() => void runDataAction('backup', () => window.vast.storage.createBackup())}
-                  className="settings-action"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                  <span className="flex min-w-0 flex-col items-start gap-0.5">
-                    <span>Create local JSON restore point</span>
-                    <span className="text-left text-[11px] font-medium leading-4 text-vast-soft">This is not a full device migration backup.</span>
-                  </span>
                 </button>
               </div>
               {(dataMessage || migrationReport) && (

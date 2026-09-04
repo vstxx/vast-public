@@ -86,9 +86,44 @@ test('regular foreground tab links still route into Vast tabs', () => {
   )
 })
 
-test('target blank, script-opened links, ctrl-click, and middle-click route to Vast tabs', () => {
-  for (const disposition of ['new-window', 'foreground-tab', 'background-tab', 'default']) {
-    assert.equal(routeWebviewWindowOpen({ url: 'https://example.com/article', disposition }), 'vast-tab')
+test('anonymous tab-disposition opens (target=_blank, window.open, ctrl-click) route to Vast tabs', () => {
+  for (const disposition of ['foreground-tab', 'background-tab', 'default']) {
+    assert.equal(routeWebviewWindowOpen({ url: 'https://example.com/article', disposition }), 'vast-tab', disposition)
+  }
+})
+
+test('new-window dispositions keep native window semantics like Chromium (shift-click, feature-less window.open requests)', () => {
+  for (const disposition of ['new-window']) {
+    assert.equal(routeWebviewWindowOpen({ url: 'https://example.com/article', disposition }), 'popup-window', disposition)
+  }
+})
+
+test('named window.open targets stay real popups so Chromium name reuse and opener semantics survive', () => {
+  assert.equal(
+    routeWebviewWindowOpen({
+      url: 'https://example.com/dashboard',
+      disposition: 'foreground-tab',
+      frameName: 'auth-helper'
+    }),
+    'popup-window'
+  )
+  assert.equal(
+    routeWebviewWindowOpen({
+      url: 'https://sso.example.com/interaction/a8b4f93opaque',
+      disposition: 'foreground-tab',
+      frameName: 'sso'
+    }),
+    'popup-window'
+  )
+})
+
+test('self-referencing frame names do not trigger named-window popup routing', () => {
+  for (const frameName of ['', '_blank', '_self', '_parent', '_top']) {
+    assert.equal(
+      routeWebviewWindowOpen({ url: 'https://example.com/article', disposition: 'foreground-tab', frameName }),
+      'vast-tab',
+      `frameName=${JSON.stringify(frameName)}`
+    )
   }
 })
 
@@ -107,11 +142,11 @@ test('popup geometry and payment flows retain real popup semantics', () => {
   )
 })
 
-test('regular script-opened new windows become Vast tabs when ad blocking is off or soft', () => {
+test('ad-blocker mode never changes popup routing classification', () => {
   assert.equal(
     routeWebviewWindowOpen({
       url: 'https://example.com/listing',
-      disposition: 'new-window',
+      disposition: 'foreground-tab',
       adBlockerEnabled: false
     }),
     'vast-tab'
@@ -119,9 +154,18 @@ test('regular script-opened new windows become Vast tabs when ad blocking is off
   assert.equal(
     routeWebviewWindowOpen({
       url: 'https://example.com/dashboard',
-      disposition: 'new-window',
+      disposition: 'foreground-tab',
       adBlockerEnabled: true,
       adBlockerMode: 'standard'
+    }),
+    'vast-tab'
+  )
+  assert.equal(
+    routeWebviewWindowOpen({
+      url: 'https://example.com/pop',
+      disposition: 'foreground-tab',
+      adBlockerEnabled: true,
+      adBlockerMode: 'strict'
     }),
     'vast-tab'
   )
@@ -144,41 +188,23 @@ test('disabled ad blocker preserves blank popup semantics and routes safe URLs t
   assert.equal(
     routeWebviewWindowOpen({
       url: 'https://ads.example.test/popup',
-      disposition: 'new-window',
+      disposition: 'foreground-tab',
       adBlockerEnabled: false
     }),
     'vast-tab'
   )
 })
 
-test('soft ad blocker routes redirect-style safe URLs into Vast tabs', () => {
+test('known ad-network hosts still become real popups only through host classification elsewhere', () => {
+  // Routing itself is host-agnostic; strict blocking happens in the session
+  // policy before routing. A tab-disposition popads URL therefore routes as a
+  // tab here, mirroring how the pipeline composes.
   assert.equal(
     routeWebviewWindowOpen({
       url: 'https://popads.net/redirect?zoneid=123',
-      disposition: 'new-window',
-      adBlockerEnabled: true,
-      adBlockerMode: 'standard'
-    }),
-    'vast-tab'
-  )
-})
-
-test('brutal ad blocker keeps the routing boundary functional while session policy blocks known ad URLs', () => {
-  assert.equal(
-    routeWebviewWindowOpen({
-      url: 'https://example.com/pop',
-      disposition: 'new-window',
-      adBlockerEnabled: true,
-      adBlockerMode: 'strict'
-    }),
-    'vast-tab'
-  )
-  assert.equal(
-    routeWebviewWindowOpen({
-      url: 'https://example.com/article',
       disposition: 'foreground-tab',
       adBlockerEnabled: true,
-      adBlockerMode: 'strict'
+      adBlockerMode: 'standard'
     }),
     'vast-tab'
   )

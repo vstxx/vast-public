@@ -12,6 +12,7 @@ import { alertScanResult, scanDownloadedFile } from './scanner'
 import { performanceProbeEnabled, recordDownloadDurableWrite, recordDownloadProgressEvent } from './performance-probe'
 import { loadData, upsertDownload } from './storage'
 import { windowRegistry } from './windows/WindowRegistry'
+import { claimPdfDownload } from './pdf-resources'
 
 const executableExtensions = new Set([
   '.app',
@@ -182,10 +183,16 @@ function configureDownloadsForSession(
   if (configuredDownloadSessions.has(targetSession)) return
   configuredDownloadSessions.add(targetSession)
 
-  targetSession.on('will-download', (event, item) => {
+  targetSession.on('will-download', (event, item, initiatingContents) => {
+    // A top-level PDF response is claimed before the ordinary downloads
+    // pipeline. The DownloadItem is the original authenticated navigation,
+    // so there is no second request and no save dialog until the viewer asks.
+    if (claimPdfDownload(item, initiatingContents)) return
     const id = randomUUID()
     const startedAt = Date.now()
-    const mainWindow = ownerWindowForDownload(item)
+    const mainWindow = windowRegistry.vastWindowForWebContents(initiatingContents) ?? ownerWindowForDownload(item)
+    const downloadOwner = (): BrowserWindow | undefined =>
+      mainWindow && !mainWindow.isDestroyed() ? mainWindow : currentDownloadWindow()
     const persistDownload = typeof targetSession.isPersistent !== 'function' || targetSession.isPersistent()
     if (currentDownloadSettings().security.warnDangerousDownloads && downloadLooksDangerous(item) && mainWindow) {
       const allowed = confirmDangerousDownload(mainWindow, item)
@@ -202,6 +209,13 @@ function configureDownloadsForSession(
 
     activeDownloadItems.set(id, item)
 
+    const initialDownload = addProgressMetrics(normalizeDownload(item, id, 'progressing'))
+    initialDownload.startedAt = startedAt
+    const initialWindow = downloadOwner()
+    if (initialWindow) void publishDownload(initialWindow, initialDownload, false)
+    else runtimeDownloads.set(initialDownload.id, initialDownload)
+    scheduleDurableCheckpoint(initialDownload, persistDownload)
+
     item.on('updated', (_event, state) => {
       recordDownloadProgressEvent()
       const download = addProgressMetrics(normalizeDownload(
@@ -210,7 +224,7 @@ function configureDownloadsForSession(
         state === 'interrupted' ? 'interrupted' : 'progressing'
       ))
       download.startedAt = startedAt
-      const window = ownerWindowForDownload(item)
+      const window = downloadOwner()
       if (window) {
         void publishDownload(window, download, false)
       } else if (persistDownload) {
@@ -245,7 +259,7 @@ function configureDownloadsForSession(
       )
       download.startedAt = startedAt
       if (completed && download.savePath) download.scanStatus = 'scanning'
-      const window = ownerWindowForDownload(item)
+      const window = downloadOwner()
       if (window) {
         await publishDownload(window, download, !completed && persistDownload)
       } else if (persistDownload) {
@@ -279,7 +293,7 @@ function configureDownloadsForSession(
               scanCompletedAt: Date.now(),
               updatedAt: Date.now()
             }
-        const currentWindow = ownerWindowForDownload(item)
+        const currentWindow = downloadOwner()
         if (currentWindow && !currentWindow.isDestroyed()) {
           await publishDownload(currentWindow, scannedDownload, persistDownload)
           if (result) await alertScanResult(currentWindow, download.filename, result)

@@ -13,6 +13,7 @@ const sessionsSource = readFileSync(new URL('../../src/main/sessions.ts', import
 const updaterSource = readFileSync(new URL('../../src/main/updater.ts', import.meta.url), 'utf8')
 const appSource = readFileSync(new URL('../../resources/avidae/app.py', import.meta.url), 'utf8')
 const securitySource = readFileSync(new URL('../../resources/avidae/security.py', import.meta.url), 'utf8')
+const runtimeBuilderSource = readFileSync(new URL('../../scripts/prepare-avidae-runtime.cjs', import.meta.url), 'utf8')
 
 test('Video & Audio HTTP, socket, path, and SSRF security tests pass', () => {
   const result = spawnSync('python', ['tests/avidae/avidae_security_test.py'], { encoding: 'utf8' })
@@ -41,6 +42,11 @@ test('Video & Audio manager stays outside the critical startup bundle', () => {
     assert.match(avidaeIpcSource, new RegExp(`import.+avidae.+${method}`))
   }
   assert.match(sessionsSource, /from '\.\/avidae-auth'/)
+})
+
+test('Video & Audio runtime preparation preserves the tracked placeholder byte-for-byte', () => {
+  assert.match(runtimeBuilderSource, /const preservedRuntimeReadme = existsSync\(runtimeReadmePath\)/)
+  assert.match(runtimeBuilderSource, /writeFileSync\(runtimeReadmePath, preservedRuntimeReadme\)/)
 })
 
 test('Video & Audio process shutdown terminates descendants and uses bounded health checks', () => {

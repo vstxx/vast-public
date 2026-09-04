@@ -9,14 +9,16 @@ const logoRule = rendererCss.match(/\.vast-opening-logo\s*\{(?<body>[\s\S]*?)\n\
 const haloRule = rendererCss.match(/\.vast-opening-logo-halo\s*\{(?<body>[\s\S]*?)\n\s*\}/)?.groups?.body ?? ''
 const overlayRule = rendererCss.match(/\.vast-opening-overlay\s*\{(?<body>[\s\S]*?)\n\s*\}/)?.groups?.body ?? ''
 
-test('main-renderer opening logo preserves the native 4:1 logo ratio', () => {
-  assert.match(logoRule, /width:\s*min\(110vw,\s*48rem\);/)
+test('main-renderer opening logo crops transparent asset padding and centers its visible mark', () => {
+  assert.match(logoRule, /position:\s*absolute;/)
+  assert.match(logoRule, /left:\s*calc\(50%\s*-\s*2\.07%\);/)
+  assert.match(logoRule, /top:\s*calc\(50%\s*-\s*5\.4%\);/)
+  assert.match(logoRule, /width:\s*321\.3%;/)
   assert.match(logoRule, /max-width:\s*none;/)
   assert.match(logoRule, /height:\s*auto;/)
   assert.match(logoRule, /aspect-ratio:\s*4\s*\/\s*1;/)
   assert.match(logoRule, /object-fit:\s*contain;/)
-  assert.doesNotMatch(logoRule, /height:\s*7rem;/)
-  assert.doesNotMatch(logoRule, /max-width:\s*min\(78vw,\s*24rem\);/)
+  assert.match(logoRule, /transform:\s*translate\(-50%,\s*-50%\);/)
 })
 
 test('opening animation avoids large blur filters that lower launch FPS', () => {
@@ -25,6 +27,9 @@ test('opening animation avoids large blur filters that lower launch FPS', () => 
 
 test('main-renderer opening overlay paints its opaque background immediately', () => {
   assert.match(overlayRule, /linear-gradient\(180deg,\s*#030406/)
+  assert.match(overlayRule, /width:\s*100vw;/)
+  assert.match(overlayRule, /height:\s*100vh;/)
+  assert.match(overlayRule, /border-radius:\s*0;/)
   assert.doesNotMatch(overlayRule, /animation:\s*vast-opening-overlay/)
 })
 

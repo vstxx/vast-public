@@ -41,8 +41,24 @@ test('standard cosmetic ad blocker includes YouTube and common portal ad slots',
   assert.match(script, /adocean\.pl/)
 })
 
-test('strict cosmetic ad blocker includes broader sponsored and ad iframe selectors', () => {
+test('strict cosmetic ad blocker avoids global selectors that hide Gmail messages', () => {
   const script = buildCosmeticAdBlockScript(true, 'strict')
-  assert.match(script, /\[class\*=\\"sponsor\\"\]/)
-  assert.match(script, /iframe\[src\*=\\"pop\\"\]/)
+  assert.doesNotMatch(script, /(?:^|,\\n)\.ad(?:,|\{)/)
+  assert.doesNotMatch(script, /(?:^|,\\n)\.ads(?:,|\{)/)
+  assert.doesNotMatch(script, /\[class\*=\\"sponsor\\"\]/)
+  assert.doesNotMatch(script, /iframe\[src\*=\\"ad\\"\]/)
+  assert.match(script, /iframe\[src\*=\\"popads\.net\\"\]/)
+})
+
+test('strict main-frame navigation ignores generic path words used by legitimate downloads', () => {
+  assert.equal(isStrictAdNavigationUrl('https://files.example.com/download/popup/map-world.zip'), false)
+  assert.equal(isStrictAdNavigationUrl('https://example.com/interstitial/continue?next=/files/a.zip'), false)
+  assert.equal(isStrictAdNavigationUrl('https://video.example.com/vast/something/else'), false)
+  assert.equal(isStrictAdNavigationUrl('https://example.com/preroll/watch/later'), false)
+})
+
+test('strict main-frame navigation still blocks explicit ad-network markers', () => {
+  assert.equal(isStrictAdNavigationUrl('https://example.com/popunder/launch'), true)
+  assert.equal(isStrictAdNavigationUrl('https://example.com/redirect?clickid=abc123&zoneid=7'), true)
+  assert.equal(isStrictAdNavigationUrl('https://ads.example.com/anything'), true)
 })

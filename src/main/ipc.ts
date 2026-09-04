@@ -7,24 +7,30 @@ import type {
   PersistedData,
   Tab
 } from '../shared/types'
+import {
+  automaticPasswordCaptureOrigin,
+  sanitizeCredentialDocumentState,
+  sanitizeCredentialEvidenceReport,
+  sanitizeCredentialSubmissionCandidate,
+  sanitizeCredentialUsernameObservation
+} from '../shared/password-capture-policy'
 import { getDefaultBrowserStatus, openDefaultBrowserSettings } from './default-browser'
 import {
   getGoogleAuthDiagnostics,
   isSafeWebUrl,
   openExternalUrl,
   privacyDocumentScriptForWebContents,
+  spoofingDocumentConfigForWebContents,
   requestOAuthExternalFallback
 } from './sessions'
 import { updatePrivacyFilters } from './privacy-filter-lists'
 import {
   assertStorageTextSize,
-  createStorageBackup,
   getStorageRecoveryState,
   isPersistedData,
   listStorageBackups,
   loadData,
   replaceDataFromImport,
-  restoreStorageBackup,
   saveData,
   storagePath
 } from './storage'
@@ -62,6 +68,7 @@ import { registerExtensionsIpc } from './ipc/extensions'
 import { registerNetworkIpc } from './ipc/network'
 import { registerNoticesIpc } from './ipc/notices'
 import { registerPasswordIpc } from './ipc/passwords'
+import { passwordCaptureCoordinator } from './password-capture-coordinator'
 import { registerPdfIpc } from './ipc/pdf'
 import { registerPrivacyIpc } from './ipc/privacy'
 import { fail, ok } from './ipc/registration'
@@ -166,6 +173,96 @@ export function setupIpc(services: IpcServices = {}): void {
     }
     event.returnValue = privacyDocumentScriptForWebContents(event.sender, requestedUrl)
   })
+  ipcMain.on('vast:spoofing:document-config', (event, requestedUrl: unknown) => {
+    const host = event.sender.hostWebContents
+    const trustedHost = host && windowRegistry.vastWindowForWebContents(host)
+    if (!trustedHost || trustedHost.isDestroyed() || typeof requestedUrl !== 'string' || requestedUrl.length > 32_768) {
+      event.returnValue = null
+      return
+    }
+    event.returnValue = spoofingDocumentConfigForWebContents(event.sender, requestedUrl)
+  })
+  const trustedPasswordCaptureGuest = (guest: Electron.WebContents): { owner: BrowserWindow; origin: string } | undefined => {
+    const host = guest.hostWebContents
+    const owner = host && windowRegistry.vastWindowForWebContents(host)
+    if (!owner || owner.isDestroyed() || guest.isDestroyed()) return undefined
+    try {
+      if (!guest.session.isPersistent()) return undefined
+    } catch {
+      return undefined
+    }
+    const origin = automaticPasswordCaptureOrigin(guest.getURL())
+    return origin ? { owner, origin } : undefined
+  }
+
+  const captureFeatureEnabled = async (): Promise<boolean> => {
+    try {
+      const data = await loadData()
+      assertIpcFeatureAllowed('vast:passwords:capture-status', data.settings)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  ipcMain.on('vast:password-capture:attempt', (event, input: unknown) => {
+    const guest = event.sender
+    void (async () => {
+      const context = trustedPasswordCaptureGuest(guest)
+      const candidate = sanitizeCredentialSubmissionCandidate(input)
+      if (!context) throw new Error('untrusted or non-persistent guest')
+      if (context.origin !== candidate.origin) throw new Error('guest origin changed before capture')
+      if (!await captureFeatureEnabled()) throw new Error('Password Manager feature is disabled')
+      const enabled = await (await import('./password-vault')).passwordCaptureEnabledForOrigin(context.owner, guest.id, candidate.origin)
+      if (!enabled) {
+        if (!guest.isDestroyed()) guest.send('vast:password-capture-result', { attemptId: candidate.attemptId, outcome: 'suppressed' })
+        return
+      }
+      passwordCaptureCoordinator.registerAttempt(context.owner, guest, candidate)
+    })().catch((error) => {
+      console.warn('[password-capture] Rejected credential attempt:', error instanceof Error ? error.message : 'unknown error')
+      const attemptId = input && typeof input === 'object' && typeof (input as { attemptId?: unknown }).attemptId === 'string'
+        ? (input as { attemptId: string }).attemptId
+        : undefined
+      if (!guest.isDestroyed() && attemptId) guest.send('vast:password-capture-result', { attemptId, outcome: 'invalid' })
+    })
+  })
+
+  ipcMain.on('vast:password-capture:evidence', (event, input: unknown) => {
+    const context = trustedPasswordCaptureGuest(event.sender)
+    if (!context) return
+    try {
+      const report = sanitizeCredentialEvidenceReport(input)
+      if (report.origin === context.origin) passwordCaptureCoordinator.recordEvidence(event.sender, report)
+    } catch {
+      // Invalid secret-free observations are ignored at the guest boundary.
+    }
+  })
+
+  ipcMain.on('vast:password-capture:username', (event, input: unknown) => {
+    const context = trustedPasswordCaptureGuest(event.sender)
+    if (!context) return
+    void captureFeatureEnabled().then((enabled) => {
+      if (!enabled) return
+      try {
+        const observation = sanitizeCredentialUsernameObservation(input)
+        if (observation.origin === context.origin) passwordCaptureCoordinator.observeUsername(context.owner, event.sender, observation)
+      } catch {
+        // Invalid observations never enter the username-first cache.
+      }
+    })
+  })
+
+  ipcMain.on('vast:password-capture:document-state', (event, input: unknown) => {
+    const context = trustedPasswordCaptureGuest(event.sender)
+    if (!context) return
+    try {
+      const state = sanitizeCredentialDocumentState(input)
+      if (state.origin === context.origin) passwordCaptureCoordinator.recordDocumentState(event.sender, state)
+    } catch {
+      // Document state contains no secret and is safe to drop when malformed.
+    }
+  })
   const registeredChannels = new Set<string>()
   const handle = <TArgs extends unknown[]>(
     channel: string,
@@ -258,22 +355,6 @@ export function setupIpc(services: IpcServices = {}): void {
     }
   })
 
-  handle('vast:storage:list-backups', async () => {
-    try {
-      return { ok: true, backups: await listStorageBackups(), recovery: getStorageRecoveryState() }
-    } catch (error) {
-      return fail(error)
-    }
-  })
-
-  handle('vast:storage:create-backup', async () => {
-    try {
-      return { ok: true, backup: await createStorageBackup('manual') }
-    } catch (error) {
-      return fail(error)
-    }
-  })
-
   handle('vast:data-path:info', async () => getDataPathInfo())
 
   handle('vast:data-path:open', async () => {
@@ -288,18 +369,6 @@ export function setupIpc(services: IpcServices = {}): void {
   handle('vast:data-path:change', async (event) => {
     try {
       return await chooseAndMigrateDataDirectory(senderWindowFor(event))
-    } catch (error) {
-      return fail(error)
-    }
-  })
-
-  handle('vast:storage:restore-backup', async (_event, id: string) => {
-    try {
-      if (typeof id !== 'string' || !id) throw new Error('Invalid backup id.')
-      const data = await restoreStorageBackup(id)
-      onDataSaved?.(data)
-      windowRegistry.broadcast('vast:settings-saved')
-      return { ok: true, data }
     } catch (error) {
       return fail(error)
     }

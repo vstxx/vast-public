@@ -61,22 +61,12 @@ export function isKnownInternalUrl(url: string): boolean {
   return INTERNAL_URLS.has(internalUrlBase(url))
 }
 
-export function looksLikePdfUrl(url: string): boolean {
-  if (!isSafeLoadUrl(url)) return false
-  try {
-    const parsed = new URL(url)
-    const haystack = `${parsed.pathname}${parsed.search}`.toLowerCase()
-    return /\.pdf($|[?#&])/.test(haystack)
-  } catch {
-    return false
-  }
-}
-
 export function createPdfViewerUrl(
   sourceUrl: string,
   options: {
     returnTo?: string
     reloadKey?: string
+    resourceId?: string
   } = {}
 ): string {
   const viewerUrl = new URL(INTERNAL_PDF_VIEWER_URL)
@@ -87,7 +77,20 @@ export function createPdfViewerUrl(
   if (options.reloadKey) {
     viewerUrl.searchParams.set('r', options.reloadKey)
   }
+  if (options.resourceId && /^[a-f0-9-]{36}$/i.test(options.resourceId)) {
+    viewerUrl.searchParams.set('id', options.resourceId)
+  }
   return viewerUrl.toString()
+}
+
+export function getPdfViewerResourceId(url: string): string | undefined {
+  if (!isPdfViewerUrl(url)) return undefined
+  try {
+    const id = new URL(url).searchParams.get('id')?.trim()
+    return id && /^[a-f0-9-]{36}$/i.test(id) ? id : undefined
+  } catch {
+    return undefined
+  }
 }
 
 export function isPdfViewerUrl(url: string): boolean {
@@ -99,7 +102,11 @@ export function getPdfViewerSource(url: string): string | undefined {
   try {
     const parsed = new URL(url)
     const sourceUrl = parsed.searchParams.get('src')?.trim()
-    return sourceUrl && isSafeLoadUrl(sourceUrl) ? sourceUrl : undefined
+    if (!sourceUrl) return undefined
+    if (isSafeLoadUrl(sourceUrl)) return sourceUrl
+    const resourceId = parsed.searchParams.get('id')?.trim()
+    if (!resourceId || !/^[a-f0-9-]{36}$/i.test(resourceId)) return undefined
+    return new URL(sourceUrl).protocol === 'file:' ? sourceUrl : undefined
   } catch {
     return undefined
   }

@@ -137,9 +137,6 @@ const appAsarUnpacked = firstExisting([resources && join(resources, 'app.asar.un
 const playwrightRoot = firstExisting([packagedAvidaeRuntime && join(packagedAvidaeRuntime, 'ms-playwright')], 'directory')
 const mediaRoot = firstExisting([packagedAvidaeRuntime && join(packagedAvidaeRuntime, 'media')], 'directory')
 const pyinstallerRoot = firstExisting([packagedAvidaeRuntime && join(packagedAvidaeRuntime, 'VastVideoAudio')], 'directory')
-const catAddonRoot = firstExisting(winUnpacked
-  ? [resources && join(resources, 'cat-addon')]
-  : [join(root, 'resources', 'cat-addon')], 'directory')
 const ffmpeg = firstExisting([mediaRoot && join(mediaRoot, 'ffmpeg.exe')], 'file')
 const ffprobe = firstExisting([mediaRoot && join(mediaRoot, 'ffprobe.exe')], 'file')
 const chromiumDirectories = playwrightRoot && existsSync(playwrightRoot)
@@ -182,8 +179,7 @@ const components = [
   component('playwrightHeadlessShell', 'Playwright headless shell', playwrightRoot, headlessShellDirectories.reduce((sum, path) => sum + treeBytes(path), 0)),
   component('playwrightFfmpeg', 'Playwright recording FFmpeg', playwrightRoot, playwrightFfmpegDirectories.reduce((sum, path) => sum + treeBytes(path), 0)),
   component('ffmpeg', 'FFmpeg', ffmpeg),
-  component('ffprobe', 'FFprobe', ffprobe),
-  component('catAddon', 'Cat Addon', catAddonRoot)
+  component('ffprobe', 'FFprobe', ffprobe)
 ]
 const winUnpackedBytes = artifacts.find((item) => item.id === 'winUnpacked').bytes
 const installerBytes = artifacts.find((item) => item.id === 'installer').bytes

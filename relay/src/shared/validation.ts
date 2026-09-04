@@ -73,7 +73,12 @@ export function optionalSemVer(value: unknown, label: string): string | null {
 
 export function validateCheckin(value: unknown): CheckinRequest {
   const source = objectRecord(value, 'Check-in')
-  exactKeys(source, ['protocol', 'install_id', 'current_version', 'launch_count'], ['instance_kind'], 'Check-in')
+  // Check-ins are deliberately forward-compatible within a protocol version. Newer
+  // clients may add optional fields that an older Relay can safely ignore; required
+  // fields and every field understood by this server remain strictly validated.
+  if (['protocol', 'install_id', 'current_version', 'launch_count'].some((key) => !Object.hasOwn(source, key))) {
+    throw new ValidationError('Check-in is missing a required field.')
+  }
   if (!Number.isInteger(source.protocol) || source.protocol !== PROTOCOL_VERSION) {
     throw new ValidationError('Unsupported Relay protocol.', 400)
   }

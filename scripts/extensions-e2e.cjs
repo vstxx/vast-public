@@ -515,7 +515,18 @@ async function main() {
 async function cleanup() {
   if (pageServer) await new Promise((resolve) => pageServer.close(resolve))
   if (appProcess && appProcess.exitCode === null) await stop(appProcess)
-  fs.rmSync(userDataDir, { recursive: true, force: true })
+  // Windows can retain Chromium profile handles briefly after the Electron
+  // process exits. Retry the complete removal operation because Node's
+  // internal rm retries do not cover every top-level EPERM directory lock.
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+      return
+    } catch (error) {
+      if (!['EBUSY', 'EPERM'].includes(error?.code) || attempt === 19) throw error
+      await wait(200)
+    }
+  }
 }
 
 main().then(cleanup, async (error) => {

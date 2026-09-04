@@ -24,8 +24,6 @@ import {
 } from '../shared/opening-sequence'
 import type { ExtensionManager } from './extensions/extension-manager'
 
-declare const __VAST_CAT_ADDON_AVAILABLE__: boolean
-
 const APP_ICON_PATH = isDev
   ? join(__dirname, process.platform === 'win32' ? '../../assets/logos/vasticon-windows.png' : '../../assets/logos/vasticon.png')
   : join(process.resourcesPath, process.platform === 'win32' ? 'app-icon-windows.png' : 'app-icon.png')
@@ -214,13 +212,6 @@ export function createMainWindow(
   mainWindow.webContents.on('did-finish-load', () => windowRegistry.markRendererReady(mainWindow))
   const publishWindowState = (): void => {
     if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return
-    if (__VAST_CAT_ADDON_AVAILABLE__) {
-      mainWindow.webContents.send('vast:cat-addon:window-state-changed', {
-        visible: mainWindow.isVisible(),
-        minimized: mainWindow.isMinimized(),
-        fullscreen: mainWindow.isFullScreen()
-      })
-    }
     mainWindow.webContents.send('vast:window:state-changed', {
       maximized: mainWindow.isMaximized(),
       fullscreen: mainWindow.isFullScreen()

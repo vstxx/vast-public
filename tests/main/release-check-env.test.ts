@@ -9,7 +9,13 @@ const sourceCommit = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encodi
 function cleanReleaseEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env }
   for (const key of Object.keys(env)) {
-    if (key.includes('LICENSE') || key.includes('ENTITLEMENT') || key === 'WIN_CSC_LINK' || key === 'WIN_CSC_KEY_PASSWORD') {
+    if (
+      key.startsWith('VAST_') ||
+      key.includes('LICENSE') ||
+      key.includes('ENTITLEMENT') ||
+      key === 'WIN_CSC_LINK' ||
+      key === 'WIN_CSC_KEY_PASSWORD'
+    ) {
       delete env[key]
     }
   }
@@ -26,6 +32,8 @@ function runReleaseCheck(overrides: Record<string, string | undefined>) {
       VAST_PRIVATE_BUILD: '0',
       VAST_UPDATE_ENABLED: '1',
       VAST_OBFUSCATE: '1',
+      VAST_RELAY_ENABLED: '1',
+      VAST_RELAY_ENVIRONMENT: 'production',
       VAST_RELEASE_REPO: 'vstxx/vast-public',
       VAST_RELEASE_COMMIT: sourceCommit,
       VAST_PREVIOUS_VERSION: '0.1.5',
@@ -74,46 +82,45 @@ test('public beta release requires a prerelease version', () => {
   assert.match(result.stdout, /prerelease identifier/i)
 })
 
-test('explicit public unsigned beta accepts a stable-shaped version without signing credentials', () => {
+test('explicit public unsigned stable release works without signing credentials', () => {
   const result = runReleaseCheck({
-    VAST_RELEASE_CHANNEL: 'beta',
-    VAST_PUBLIC_UNSIGNED_BETA: '1',
-    VAST_UNSIGNED_BETA_ACK: 'I_ACCEPT_UNSIGNED_PUBLIC_BETA_RISK',
+    VAST_PUBLIC_UNSIGNED_RELEASE: '1',
+    VAST_UNSIGNED_RELEASE_ACK: 'I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK',
     VAST_RELAY_ENABLED: '1',
-    VAST_RELAY_PRODUCTION_ENABLED: '0',
+    VAST_RELAY_ENVIRONMENT: 'production',
     VAST_EXPECTED_SIGNER_SUBJECT: undefined,
     WIN_CSC_LINK: undefined,
     WIN_CSC_KEY_PASSWORD: undefined
   })
   assert.equal(result.status, 0, result.stderr || result.stdout)
   const report = JSON.parse(result.stdout)
-  assert.equal(report.publicUnsignedBeta, true)
-  assert.equal(report.signaturePolicy, 'unsigned-public-beta')
+  assert.equal(report.publicUnsignedRelease, true)
+  assert.equal(report.signaturePolicy, 'unsigned-public-release')
 })
 
-test('public unsigned beta requires the exact risk acknowledgement', () => {
+test('public unsigned release requires the exact risk acknowledgement', () => {
+  const result = runReleaseCheck({
+    VAST_PUBLIC_UNSIGNED_RELEASE: '1',
+    VAST_UNSIGNED_RELEASE_ACK: 'yes',
+    VAST_EXPECTED_SIGNER_SUBJECT: undefined,
+    WIN_CSC_LINK: undefined,
+    WIN_CSC_KEY_PASSWORD: undefined
+  })
+  assert.notEqual(result.status, 0)
+  assert.match(result.stdout, /I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK/)
+})
+
+test('unsigned beta releases still require a prerelease version', () => {
   const result = runReleaseCheck({
     VAST_RELEASE_CHANNEL: 'beta',
-    VAST_PUBLIC_UNSIGNED_BETA: '1',
-    VAST_UNSIGNED_BETA_ACK: 'yes',
+    VAST_PUBLIC_UNSIGNED_RELEASE: '1',
+    VAST_UNSIGNED_RELEASE_ACK: 'I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK',
     VAST_EXPECTED_SIGNER_SUBJECT: undefined,
     WIN_CSC_LINK: undefined,
     WIN_CSC_KEY_PASSWORD: undefined
   })
   assert.notEqual(result.status, 0)
-  assert.match(result.stdout, /I_ACCEPT_UNSIGNED_PUBLIC_BETA_RISK/)
-})
-
-test('stable releases cannot use the unsigned beta exception', () => {
-  const result = runReleaseCheck({
-    VAST_PUBLIC_UNSIGNED_BETA: '1',
-    VAST_UNSIGNED_BETA_ACK: 'I_ACCEPT_UNSIGNED_PUBLIC_BETA_RISK',
-    VAST_EXPECTED_SIGNER_SUBJECT: undefined,
-    WIN_CSC_LINK: undefined,
-    WIN_CSC_KEY_PASSWORD: undefined
-  })
-  assert.notEqual(result.status, 0)
-  assert.match(result.stdout, /beta-only/i)
+  assert.match(result.stdout, /prerelease identifier/i)
 })
 
 test('private development release does not require signing inputs', () => {

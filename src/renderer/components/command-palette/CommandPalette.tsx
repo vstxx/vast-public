@@ -97,7 +97,6 @@ export function CommandPalette(): JSX.Element | null {
   const security = useBrowserStore((state) => state.settings.security)
   const spoofing = useBrowserStore((state) => state.settings.spoofing)
   const labs = useBrowserStore((state) => state.settings.labs)
-  const labsEnabled = labs.enabled
   const featureContextSettings = useMemo(() => ({ labs }) as BrowserSettings, [labs])
   const updateSettings = useBrowserStore((state) => state.updateSettings)
   const [query, setQuery] = useState('')
@@ -271,12 +270,12 @@ export function CommandPalette(): JSX.Element | null {
       {
         id: 'toggle-spoofing',
         title: `${spoofing.enabled ? 'Disable' : 'Enable'} Spoofing`,
-        subtitle: spoofing.enabled ? 'Best-effort identity spoofing is on' : labs.enabled && labs.spoofing ? 'Best-effort identity spoofing is off' : 'Enables the required local Labs flag',
+        subtitle: spoofing.enabled ? 'Best-effort identity spoofing is on' : labs.spoofing ? 'Best-effort identity spoofing is off' : 'Enables Spoofing tools in Labs',
         section: 'Settings',
         keywords: ['spoofing', 'user agent', 'timezone', 'identity', 'privacy', 'toggle'],
         perform: () => updateSettings(spoofing.enabled
           ? { spoofing: { enabled: false } }
-          : { labs: { enabled: true, spoofing: true }, spoofing: { enabled: true } })
+          : { labs: { spoofing: true }, spoofing: { enabled: true } })
       },
       {
         id: 'toggle-https-only',
@@ -489,8 +488,7 @@ export function CommandPalette(): JSX.Element | null {
       perform: () => runtime.openUrlInNewTab(INTERNAL_NOTES_URL)
     }))
 
-    const settingsSections = ['Appearance', 'Advanced', 'Privacy', 'Security', 'Search', 'Workspaces', 'Data', 'Developer']
-    if (labsEnabled) settingsSections.splice(2, 0, 'Labs')
+    const settingsSections = ['Appearance', 'Advanced', 'Labs', 'Privacy', 'Security', 'Search', 'Workspaces', 'Data', 'Developer']
     if (getFeatureState(VastFeatures.NetworkDevices, { settings: featureContextSettings }).available) settingsSections.push('Network')
     if (getFeatureState(VastFeatures.Automation, { settings: featureContextSettings }).available) settingsSections.push('Automation')
 
@@ -507,7 +505,7 @@ export function CommandPalette(): JSX.Element | null {
     }))
 
     const macroCommands: PaletteCommand[] = macros
-      .filter((macro) => labsEnabled && macro.enabled)
+      .filter((macro) => macro.enabled)
       .map<PaletteCommand>((macro) => ({
         id: `macro-${macro.id}`,
         title: `Run Macro: ${macro.name}`,
@@ -519,10 +517,7 @@ export function CommandPalette(): JSX.Element | null {
         }))
       .map(annotateFeatureState)
 
-    const visibleBase = base.filter((command) => {
-      if (!command.featureId || labsEnabled) return true
-      return !getFeatureState(command.featureId, { settings: featureContextSettings }).lab
-    })
+    const visibleBase = base
 
     const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId)
     const extensionCommands: PaletteCommand[] = activeWorkspace?.isPrivate || activeWorkspace?.identity?.sessionMode === 'ephemeral' ? [] : extensionContributions.commands.map((command) => ({
@@ -536,7 +531,7 @@ export function CommandPalette(): JSX.Element | null {
     }))
 
     return [...visibleBase.map(annotateFeatureState), ...extensionCommands, ...macroCommands, ...workspaceCommands, ...tabCommands, ...noteCommands, ...bookmarkCommands, ...historyCommands, ...settingsCommands]
-  }, [activeWorkspaceId, appearance.forceDarkModeWebsites, bookmarks, clearHistory, createMacro, extensionContributions.commands, featureContextSettings, history, labs.enabled, labs.spoofing, labsEnabled, macros, notes, privacy.adBlockerEnabled, privacy.blockThirdPartyCookies, privacy.blockTrackers, privacy.fingerprintingProtection, privacy.stripTrackingParameters, runtime, security.httpsOnlyMode, setActiveWorkspace, setSettingsOpen, setSmartUnloadOpen, spoofing.enabled, tabs, updateSettings, workspaces])
+  }, [activeWorkspaceId, appearance.forceDarkModeWebsites, bookmarks, clearHistory, createMacro, extensionContributions.commands, featureContextSettings, history, labs.spoofing, macros, notes, privacy.adBlockerEnabled, privacy.blockThirdPartyCookies, privacy.blockTrackers, privacy.fingerprintingProtection, privacy.stripTrackingParameters, runtime, security.httpsOnlyMode, setActiveWorkspace, setSettingsOpen, setSmartUnloadOpen, spoofing.enabled, tabs, updateSettings, workspaces])
 
   const filtered = useMemo(() => {
     const recentRank = new Map(recentCommandIds.map((id, index) => [id, recentCommandIds.length - index]))

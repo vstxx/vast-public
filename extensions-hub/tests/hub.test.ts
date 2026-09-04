@@ -3,9 +3,11 @@ import { applyD1Migrations } from 'cloudflare:test'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createVextPackage, sha256Hex, verifyVextPackage, type VextTrustedKey } from '../../src/shared/vext-format.ts'
 import { parseSignedReleaseDescriptor, verifySignedReleaseDescriptor } from '../../src/shared/extension-marketplace.ts'
+import { verifyHubSignerProof } from '../../src/shared/hub-signer-proof.ts'
 import { enforceRateLimit, OAUTH_COOKIE, sha256 } from '../src/security.ts'
 import { optionalLegalConfig, PUBLISHER_TERMS_VERSION, publisherTermsText } from '../src/legal.ts'
-import { TEST_SIGNING_KEY_ID, TEST_SIGNING_PUBLIC_SPKI } from './fixtures/test-signing-key.ts'
+import signerWorker from '../src/signer.ts'
+import { TEST_SIGNING_KEY_ID, TEST_SIGNING_PRIVATE_PKCS8, TEST_SIGNING_PUBLIC_SPKI } from './fixtures/test-signing-key.ts'
 
 const origin = 'https://extensions.vastbrowser.com'
 const publisherId = 'publisher_0123456789abcdef'
@@ -55,11 +57,21 @@ async function fixturePackage(id: string, version = '1.0.0', source = 'globalThi
 beforeEach(async () => {
   await applyD1Migrations(env.DB, env.TEST_MIGRATIONS)
   await env.DB.batch([
-    'extension_report_actions', 'extension_reports', 'submission_reviews', 'submissions', 'extension_screenshots', 'extension_owners', 'download_counters', 'releases', 'extensions', 'publisher_terms_acceptances', 'publisher_sessions', 'oauth_states', 'audit_log', 'rate_limits', 'publishers'
+    'extension_report_actions', 'extension_reports', 'submission_reviews', 'submissions', 'extension_screenshots', 'extension_owners', 'download_counters', 'releases', 'extensions', 'publisher_terms_acceptances', 'publisher_sessions', 'oauth_states', 'audit_log', 'publishers'
   ].map((table) => env.DB.prepare(`DELETE FROM ${table}`)))
 })
 
 describe('public catalog and security envelope', () => {
+  it('returns a fixed deployment-bound proof from the private signer', async () => {
+    const response = await signerWorker.fetch(new Request('https://signer.internal/v1/proof'), {
+      SIGNING_KEY_ID: TEST_SIGNING_KEY_ID,
+      HUB_SIGNING_PRIVATE_KEY_PKCS8: TEST_SIGNING_PRIVATE_PKCS8,
+      HUB_ORIGIN: origin
+    })
+    expect(response.status).toBe(200)
+    await verifyHubSignerProof(await response.json(), TEST_SIGNING_KEY_ID, origin, [{ keyId: TEST_SIGNING_KEY_ID, algorithm: 'Ed25519', publicKeySpkiBase64: TEST_SIGNING_PUBLIC_SPKI, status: 'test' }])
+  })
+
   it('accepts the configured operator and rejects placeholders or insecure production contacts', () => {
     expect(optionalLegalConfig(env)).toEqual({ operatorName: 'Fixture Legal Operator', contactUrl: 'https://legal.test/contact' })
     const production = (operatorName: string, contactUrl: string) => ({
@@ -71,6 +83,11 @@ describe('public catalog and security envelope', () => {
     expect(optionalLegalConfig(production(' Jan Nowacki ', 'https://vastbrowser.com/legal'))).toEqual({ operatorName: 'Jan Nowacki', contactUrl: 'https://vastbrowser.com/legal' })
   })
   it('returns a bounded empty catalog with security headers', async () => {
+    const health = await call('/health')
+    expect(health.status).toBe(200)
+    const healthBody = await health.json() as { ok: boolean; environment: string; signingKeyId: string; signerProof: unknown }
+    expect(healthBody).toEqual(expect.objectContaining({ ok: true, environment: 'test', signingKeyId: TEST_SIGNING_KEY_ID }))
+    await verifyHubSignerProof(healthBody.signerProof, TEST_SIGNING_KEY_ID, origin, [{ keyId: TEST_SIGNING_KEY_ID, algorithm: 'Ed25519', publicKeySpkiBase64: TEST_SIGNING_PUBLIC_SPKI, status: 'test' }])
     const response = await call('/v1/catalog')
     expect(response.status).toBe(200)
     expect(response.headers.get('content-security-policy')).toContain("default-src 'none'")
@@ -85,15 +102,15 @@ describe('public catalog and security envelope', () => {
     expect(body.pageSize).toBe(24)
   })
 
-  it('enforces CSRF and stores rate-limit subjects as keyed hashes', async () => {
+  it('enforces CSRF and delegates request throttling to a native rate-limit binding', async () => {
     await seedPublisher(publisherId, 'publisher', sessionToken, csrfToken)
     const rejected = await call('/v1/publisher/extensions', { method: 'POST', headers: { origin, cookie: `__Host-vast_hub_session=${sessionToken}`, 'content-type': 'application/json' }, body: '{}' })
     expect(rejected.status).toBe(403)
     const request = new Request(`${origin}/`, { headers: { 'cf-connecting-ip': '203.0.113.9' } })
-    await enforceRateLimit(request, env, 'test-bucket', 1, 60_000)
-    await expect(enforceRateLimit(request, env, 'test-bucket', 1, 60_000)).rejects.toMatchObject({ status: 429 })
-    const stored = await env.DB.prepare('SELECT subject_hash FROM rate_limits WHERE bucket=?1').bind('test-bucket').first<{ subject_hash: string }>()
-    expect(stored?.subject_hash).not.toContain('203.0.113.9')
+    let limitedKey = ''
+    const limiter: RateLimit = { async limit(options) { limitedKey = options.key; return { success: false } } }
+    await expect(enforceRateLimit(request, limiter, 'test-bucket')).rejects.toMatchObject({ status: 429 })
+    expect(limitedKey).not.toContain('203.0.113.9')
   })
 
   it('stores OAuth state only as hashes and constrains the return path', async () => {
@@ -341,7 +358,7 @@ describe('publisher upload and role-aware review', () => {
     await expect(verifyVextPackage(storageTamper, [trusted], true)).rejects.toThrow()
   })
 
-  it('allows only an administrator to review and publish their own release', async () => {
+  it('requires a separate reviewer identity even for administrators', async () => {
     await seedPublisher(publisherId, 'admin', sessionToken, csrfToken)
     const id = await createListing({ slug: 'admin-extension', name: 'Admin Extension' })
     const uploadBytes = await fixturePackage(id)
@@ -360,15 +377,11 @@ describe('publisher upload and role-aware review', () => {
     const queue = await call('/review', { headers: { cookie: `__Host-vast_hub_session=${sessionToken}` } })
     expect(queue.status).toBe(200)
     const queueHtml = await queue.text()
-    expect(queueHtml).toContain('Admin self-review')
-    expect(queueHtml).toContain('Approve and publish')
+    expect(queueHtml).toContain('Separate reviewer required')
 
     const approval = await call(`/v1/review/submissions/${submissionId}`, { method: 'POST', headers: { ...authHeaders(), 'content-type': 'application/json' }, body: JSON.stringify({ action: 'approve', note: '' }) })
-    expect(approval.status).toBe(200)
-    expect(await approval.json()).toEqual({ status: 'published' })
-    expect((await call(`/v1/install/${id}`)).status).toBe(200)
-    const audit = await env.DB.prepare('SELECT action,note FROM audit_log WHERE target_id=?1 AND action=?2').bind(release.releaseId, 'admin-self-approve-and-sign').first<{ action: string; note: string }>()
-    expect(audit).toEqual({ action: 'admin-self-approve-and-sign', note: 'Trusted administrator self-approved this release.' })
+    expect(approval.status).toBe(403)
+    expect((await call(`/v1/install/${id}`)).status).toBe(404)
   })
 
   it('enforces ownership, reviewer roles, notes, and static code policy', async () => {

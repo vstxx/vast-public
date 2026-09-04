@@ -31,7 +31,7 @@ import { isInactiveTabUnloadCandidate, restoredTabLifecycle } from './tab-lifecy
 import { cleanTrackingUrl } from '../../shared/url-cleaning'
 import { DEFAULT_WORKSPACE_IDENTITY } from '../../shared/workspace-identity'
 
-type SettingsPatch = Omit<Partial<BrowserSettings>, 'appearance' | 'advanced' | 'privacy' | 'spoofing' | 'security' | 'network' | 'labs' | 'newTab' | 'sidePanel' | 'commandPalette' | 'keyboardShortcuts' | 'catAddon'> & {
+type SettingsPatch = Omit<Partial<BrowserSettings>, 'appearance' | 'advanced' | 'privacy' | 'spoofing' | 'security' | 'network' | 'labs' | 'newTab' | 'sidePanel' | 'commandPalette' | 'keyboardShortcuts'> & {
   appearance?: Partial<BrowserSettings['appearance']>
   advanced?: Partial<BrowserSettings['advanced']>
   privacy?: Partial<BrowserSettings['privacy']>
@@ -45,7 +45,6 @@ type SettingsPatch = Omit<Partial<BrowserSettings>, 'appearance' | 'advanced' | 
   sidePanel?: Partial<BrowserSettings['sidePanel']>
   commandPalette?: Partial<BrowserSettings['commandPalette']>
   keyboardShortcuts?: Partial<BrowserSettings['keyboardShortcuts']>
-  catAddon?: Partial<BrowserSettings['catAddon']>
 }
 
 interface BrowserState extends PersistedData {
@@ -774,10 +773,12 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
   unloadInactiveTabs: (lifecycle = 'sleeping') => {
     const state = get()
     const active = activeTabInWorkspace(state, state.activeWorkspaceId)
-    const cutoffMinutes =
-      lifecycle === 'discarded'
-        ? Math.max(1, state.settings.advanced.discardAfterMinutes + 1)
-        : Math.max(1, state.settings.advanced.hibernateAfterMinutes + 1)
+    // Backdate past the retention controller's discard deadline so a manual
+    // unload always releases the guest, regardless of remaining awake slots.
+    const cutoffMinutes = Math.max(
+      1,
+      Math.max(state.settings.advanced.discardAfterMinutes, state.settings.advanced.hibernateAfterMinutes) + 1
+    )
     const lastAccessedAt = Date.now() - cutoffMinutes * 60_000
     const candidates = new Set(
       state.tabs
@@ -1412,10 +1413,6 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
         ...state.settings.commandPalette,
         ...patch.commandPalette
       }
-      const catAddon = {
-        ...state.settings.catAddon,
-        ...patch.catAddon
-      }
       const fakeHistoryActivated = patch.privacy?.fakeHistoryEnabled === true && !state.settings.privacy.fakeHistoryEnabled
       return {
         settings: {
@@ -1432,7 +1429,6 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
           newTab,
           sidePanel,
           commandPalette,
-          catAddon,
           keyboardShortcuts
         },
         history: fakeHistoryActivated ? fakeHistoryBatch(state.activeWorkspaceId) : state.history

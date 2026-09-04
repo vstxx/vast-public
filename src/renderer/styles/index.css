@@ -413,12 +413,23 @@ button:disabled {
 }
 
 .vast-opening-overlay {
+  width: 100vw;
+  height: 100vh;
   contain: layout paint style;
   isolation: isolate;
-  border-radius: 28px;
+  border: 0;
+  border-radius: 0;
+  background-color: #030406;
   background:
     radial-gradient(circle at 50% 45%, rgba(91, 64, 168, 0.032) 0%, transparent 26%),
     linear-gradient(180deg, #030406 0%, #06070a 54%, #08090b 100%);
+}
+
+/* Windows and Linux clip the opening BrowserWindow with the native shape. A
+   second CSS radius produced a visibly hollow, mismatched edge at some DPI
+   scales. macOS does not use setShape, so it keeps the renderer-side radius. */
+.vast-opening-overlay.platform-darwin {
+  border-radius: 28px;
 }
 
 /* Search-only new tab is intentionally completely flat. Keep shared cards,
@@ -471,28 +482,38 @@ button:disabled {
 }
 
 .vast-opening-logo-frame {
+  /* vast.png is a 1584x396 canvas whose visible mark occupies only about
+     461x144 pixels. Crop the transparent canvas so the mark itself is the
+     element being centered. */
   display: block;
+  width: min(64vw, 15rem);
+  aspect-ratio: 493 / 176;
+  overflow: hidden;
+  filter:
+    drop-shadow(0 0 14px rgba(91, 64, 168, 0.2))
+    drop-shadow(0 18px 40px rgba(0, 0, 0, 0.26));
   animation: vast-opening-logo var(--vast-opening-duration, 5000ms) cubic-bezier(0.33, 0, 0.16, 1) both;
   animation-delay: var(--vast-opening-delay, 0ms);
 }
 
 .vast-opening-logo {
+  position: absolute;
+  /* Compensate for the visible pixels' optical centroid within the crop. */
+  left: calc(50% - 2.07%);
+  top: calc(50% - 5.4%);
   display: block;
-  width: min(110vw, 48rem);
+  width: 321.3%;
   height: auto;
   max-width: none;
   aspect-ratio: 4 / 1;
   object-fit: contain;
-  transform: translateX(-1.5%);
-  filter:
-    brightness(0) invert(1)
-    drop-shadow(0 0 14px rgba(91, 64, 168, 0.2))
-    drop-shadow(0 18px 40px rgba(0, 0, 0, 0.26));
+  transform: translate(-50%, -50%);
+  filter: brightness(0) invert(1);
 }
 
 @media (max-width: 640px) {
-  .vast-opening-logo {
-    width: min(112vw, 42rem);
+  .vast-opening-logo-frame {
+    width: min(64vw, 15rem);
   }
 }
 
@@ -624,6 +645,33 @@ button:disabled {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.2);
   border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+.network-detail-scroll {
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.network-detail-scroll::-webkit-scrollbar {
+  width: 7px;
+}
+
+.network-detail-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.network-detail-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+.network-detail-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border: 2px solid transparent;
   background-clip: padding-box;
 }
 
@@ -1340,6 +1388,16 @@ button:disabled {
   z-index: 1;
 }
 
+.internal-page-zoom-surface {
+  position: absolute;
+  top: 0;
+  left: 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
 .internal-page-section {
   position: relative;
   overflow: clip;
@@ -1793,6 +1851,7 @@ button:disabled {
 }
 
 .settings-grid label,
+.settings-select-label,
 .settings-grid-action {
   display: flex;
   min-height: 4.25rem;
@@ -1819,6 +1878,7 @@ button:disabled {
 }
 
 .settings-grid label:hover,
+.settings-select-label:hover,
 .settings-grid-action:hover {
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.011) 56%, rgba(255, 255, 255, 0.022)),
@@ -1830,6 +1890,7 @@ button:disabled {
 }
 
 .settings-grid label span,
+.settings-select-label span,
 .settings-grid-action span {
   color: var(--vast-text);
   font-weight: 550;
@@ -2704,13 +2765,15 @@ button:disabled {
   backdrop-filter: none !important;
 }
 
-.light-theme .settings-grid label {
+.light-theme .settings-grid label,
+.light-theme .settings-select-label {
   border-color: var(--vast-color-border-default);
   background: #f8fafc;
   box-shadow: var(--vast-shadow-sm);
 }
 
-.light-theme .settings-grid label:hover {
+.light-theme .settings-grid label:hover,
+.light-theme .settings-select-label:hover {
   border-color: var(--vast-color-border-strong);
   background: #ffffff;
   box-shadow: var(--vast-shadow-md);

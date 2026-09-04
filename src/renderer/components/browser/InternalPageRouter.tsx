@@ -75,7 +75,7 @@ export function InternalPageRouter({ tab }: { tab: Tab }): JSX.Element {
     const gate = featureGateForInternalUrl(tab.url)
     const featureState = gate ? getFeatureStateForGate(gate, { settings: featureContextSettings }) : undefined
     if (gate && featureState && !featureState.available) {
-      page = <FeatureGatePage gate={gate} featureState={featureState} labsEnabled={labs.enabled} />
+      page = <FeatureGatePage gate={gate} featureState={featureState} />
     } else {
       page = tab.url === INTERNAL_AVIDAE_URL ? (
         <AvidaePage />

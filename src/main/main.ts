@@ -14,10 +14,6 @@ import { ExternalNavigationRouter } from './windows/ExternalNavigationRouter'
 import { windowRegistry } from './windows/WindowRegistry'
 import { recordDiagnosticsEvent } from './diagnostics-events'
 import { flushPerformanceReport, markPerformance, registerPerformanceProbeIpc } from './performance-probe'
-import { LazyCatAddonService } from './cat-addon-service'
-import { CAT_ADDON_ARCHIVE_SHA256, CAT_ADDON_BUNDLE_VERSION } from '../shared/cat-addon-bundle'
-
-declare const __VAST_CAT_ADDON_AVAILABLE__: boolean
 import { completeLegacyDefaultSessionMigration, prepareLegacyDefaultSessionMigration, type LegacySessionMigrationPlan } from './session-continuity'
 import { isUpdateRestartInProgress } from './update-lifecycle'
 import { initializePasswordVaultSessionLifecycle, lockPasswordVaultSession } from './password-vault-session'
@@ -26,6 +22,7 @@ import { createVastRelayService } from './relay/runtime'
 import type { ExtensionManager } from './extensions/extension-manager'
 import { extensionHubOrigin } from './extensions/extension-hub-config'
 import { VAST_EXTENSION_SCHEME } from './extensions/extension-resource-protocol'
+import { disposePdfResources } from './pdf-resources'
 
 declare const __VAST_INCLUDE_INTERNAL_TEST_HARNESS__: boolean
 
@@ -36,7 +33,7 @@ protocol.registerSchemesAsPrivileged([{ scheme: VAST_EXTENSION_SCHEME, privilege
 markPerformance('main-module-ready')
 registerPerformanceProbeIpc()
 
-if (process.platform === 'win32') {
+if (process.platform === 'win32' && getBuildMetadata().distributionChannel === 'direct') {
   // Groups windows under the Vast identity in the Windows taskbar.
   app.setAppUserModelId('app.vast.browser')
 }
@@ -46,6 +43,7 @@ assertPublicDistributionGuards()
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 const pendingExternalArguments: string[][] = []
 const pendingExternalUrls: string[] = []
+const pendingExternalFiles: string[] = []
 let externalNavigationRouter: ExternalNavigationRouter | undefined
 let legacySessionMigration: LegacySessionMigrationPlan | undefined
 
@@ -66,6 +64,11 @@ if (!hasSingleInstanceLock) {
     if (externalNavigationRouter) externalNavigationRouter.acceptUrl(url)
     else pendingExternalUrls.push(url)
   })
+  app.on('open-file', (event, path) => {
+    event.preventDefault()
+    if (externalNavigationRouter) externalNavigationRouter.acceptFile(path)
+    else pendingExternalFiles.push(path)
+  })
 }
 
 const buildMetadata = getBuildMetadata()
@@ -84,6 +87,8 @@ let extensionUpdateInterval: NodeJS.Timeout | undefined
 const gpuCrashTimes: number[] = []
 let shutdownCleanupStarted = false
 let shutdownCleanupComplete = false
+
+app.on('will-quit', disposePdfResources)
 
 app.on('child-process-gone', (_event, details) => {
   const now = Date.now()
@@ -146,7 +151,7 @@ function syncTitleBarOverlay(): void {
 
 if (hasSingleInstanceLock) void app.whenReady().then(async () => {
   markPerformance('app-ready')
-  setAppUserModelId('app.vast.browser')
+  if (getBuildMetadata().distributionChannel === 'direct') setAppUserModelId('app.vast.browser')
   app.on('browser-window-created', (_, window) => {
     watchWindowShortcuts(window)
   })
@@ -207,7 +212,7 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
     currentSettings = data.settings
     nativeTheme.themeSource = nativeThemeSource(data.settings)
     if (JSON.stringify(runtimeSettings(previousSettings).spoofing) !== JSON.stringify(runtimeSettings(data.settings).spoofing)) {
-      applySpoofingToAllWebContents(runtimeSettings(data.settings))
+      applySpoofingToAllWebContents(runtimeSettings(data.settings), true)
     }
     if (websiteDarkModeEnabled(previousSettings) !== websiteDarkModeEnabled(data.settings)) {
       windowRegistry.broadcast('vast:website-dark-mode-changed', websiteDarkModeEnabled(data.settings))
@@ -217,20 +222,6 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
       console.warn('[extensions] Could not synchronize workspace sessions:', error)
     })
   }
-  const catAddonService = __VAST_CAT_ADDON_AVAILABLE__ && buildMetadata.catAddonAvailable ? new LazyCatAddonService({
-    archivePath: app.isPackaged
-      ? join(process.resourcesPath, 'cat-addon', 'cat_addon.zip')
-      : join(app.getAppPath(), 'resources', 'cat-addon', 'cat_addon.zip'),
-    userDataRoot: app.getPath('userData'),
-    expectedArchiveHash: CAT_ADDON_ARCHIVE_SHA256,
-    bundledVersion: CAT_ADDON_BUNDLE_VERSION,
-    vastVersion: app.getVersion(),
-    onStateChanged: (state) => windowRegistry.broadcast('vast:cat-addon:state', state)
-  }, () => import('./cat-addon')) : undefined
-  await catAddonService?.initializeIfEnabled(currentSettings.catAddon.enabled)
-  const catAddonIpcRegistrar = catAddonService
-    ? (await import('./ipc/cat-addon')).createCatAddonIpcRegistrar(catAddonService)
-    : undefined
   const openDetachedTabWindow = (detachedTab: DetachedTabPayload): void => {
     createMainWindow(onDataSaved, () => currentSettings, {
       kind: 'detached',
@@ -245,7 +236,6 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
   setupIpc({
     onDataSaved,
     onDetachTab: openDetachedTabWindow,
-    featureRegistrars: catAddonIpcRegistrar ? [catAddonIpcRegistrar] : [],
     relayService,
     extensionManager
   })
@@ -277,18 +267,12 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
   externalNavigationRouter.acceptArguments(process.argv)
   for (const args of pendingExternalArguments.splice(0)) externalNavigationRouter.acceptArguments(args)
   for (const url of pendingExternalUrls.splice(0)) externalNavigationRouter.acceptUrl(url)
+  for (const path of pendingExternalFiles.splice(0)) externalNavigationRouter.acceptFile(path)
   syncTitleBarOverlay()
   mainWindow.webContents.once('did-finish-load', () => {
     // Relay is intentionally started only after the primary browser shell is usable.
     // The service itself delays its first request and never blocks window creation.
     void relayService?.start()
-    if (catAddonService && !currentSettings.catAddon.enabled) {
-      setTimeout(() => {
-        void catAddonService.cleanupDisabledInIdle().catch((error) => {
-          console.warn('[cat-addon] Deferred cleanup failed:', error)
-        })
-      }, 5_000)
-    }
     if (__VAST_INCLUDE_INTERNAL_TEST_HARNESS__ && process.env.VAST_INTERNAL_GOOGLE_AUTH_EMAIL_CHECK === '1' && process.env.VAST_TEST_USER_DATA_DIR) {
       void import('./google-auth-test-harness').then(({ startInternalGoogleAuthEmailCheck }) => {
         if (startInternalGoogleAuthEmailCheck()) console.info('[google-auth] Started isolated internal email-only check.')

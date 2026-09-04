@@ -18,8 +18,14 @@ function collectTsx(directory: string): string[] {
 }
 
 test('renderer uses the shared Vast dropdown instead of native selects', () => {
-  const offenders = collectTsx(fileURLToPath(componentsRoot)).filter((path) => /<select\b|<option\b/.test(readFileSync(path, 'utf8')))
+  const componentFiles = collectTsx(fileURLToPath(componentsRoot))
+  const offenders = componentFiles.filter((path) => /<select\b|<option\b/.test(readFileSync(path, 'utf8')))
   assert.deepEqual(offenders, [])
+  const labelWrappedButtons = componentFiles.filter((path) => {
+    const source = readFileSync(path, 'utf8')
+    return [...source.matchAll(/<label\b[^>]*>([\s\S]*?)<\/label>/g)].some((match) => /<VastSelect\b/.test(match[1]))
+  })
+  assert.deepEqual(labelWrappedButtons, [], 'VastSelect buttons must not be nested in labels because label activation can reopen a dismissed menu')
 
   const expectedConsumers = [
     'settings/SettingsModal.tsx',
@@ -81,6 +87,9 @@ test('Vast dropdown exposes exactly three deliberate control lengths', () => {
 test('settings dropdown titles stay concise and on one line', () => {
   assert.match(settingsSource, /className="settings-select-title" title=\{label\}/)
   assert.match(stylesSource, /\.settings-select-title\s*\{[^}]*white-space:\s*nowrap/)
+  assert.match(stylesSource, /\.settings-grid label,\s*\.settings-select-label,\s*\.settings-grid-action\s*\{/)
+  assert.match(stylesSource, /\.settings-grid label:hover,\s*\.settings-select-label:hover,\s*\.settings-grid-action:hover\s*\{/)
+  assert.match(stylesSource, /\.light-theme \.settings-grid label,\s*\.light-theme \.settings-select-label\s*\{/)
   for (const longLabel of [
     'Fingerprinting protection',
     'Microphone permission',

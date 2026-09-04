@@ -5,11 +5,11 @@ import { relayBuildConfigFromEnv } from './src/shared/relay-config'
 
 const embeddedBuildEnv = {
   VAST_RELEASE_CHANNEL: process.env.VAST_RELEASE_CHANNEL,
+  VAST_DISTRIBUTION_CHANNEL: process.env.VAST_DISTRIBUTION_CHANNEL,
   VAST_UPDATE_ENABLED: process.env.VAST_UPDATE_ENABLED,
   VAST_OBFUSCATE: process.env.VAST_OBFUSCATE,
   VAST_PRIVATE_BUILD: process.env.VAST_PRIVATE_BUILD,
   VAST_RELEASE_REPO: process.env.VAST_RELEASE_REPO,
-  VAST_CAT_ADDON_ENABLED: process.env.VAST_CAT_ADDON_ENABLED,
   VAST_PERFORMANCE_GPU: process.env.VAST_PERFORMANCE_GPU,
   VAST_SAFE_GPU: process.env.VAST_SAFE_GPU
 }
@@ -23,30 +23,21 @@ const embeddedNoticesTrust = {
 
 const includeInternalTestHarness = process.env.VAST_INCLUDE_INTERNAL_TEST_HARNESS === '1'
 const embeddedRelayConfig = relayBuildConfigFromEnv(process.env)
-function envFlag(name: string, fallback: boolean): boolean {
-  const value = String(process.env[name] ?? '').trim().toLowerCase()
-  if (!value) return fallback
-  if (['1', 'true', 'yes', 'on'].includes(value)) return true
-  if (['0', 'false', 'no', 'off'].includes(value)) return false
-  return fallback
-}
-
-const releaseChannel = String(process.env.VAST_RELEASE_CHANNEL ?? 'dev').trim().toLowerCase()
-const publicDistribution = ['beta', 'stable'].includes(releaseChannel) && !envFlag('VAST_PRIVATE_BUILD', true)
-const catAddonAvailable = envFlag('VAST_CAT_ADDON_ENABLED', !publicDistribution)
-const sharedBuildDefines = {
-  __VAST_CAT_ADDON_AVAILABLE__: JSON.stringify(catAddonAvailable)
-}
 
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
+    resolve: {
+      // The renderer bundles the complete PSL where it is needed. The main
+      // process loads the same audited data from one minimal extra resource so
+      // it does not grow the startup bundle or ship tldts' source/maps twice.
+      alias: [{ find: /^tldts$/, replacement: resolve(__dirname, 'src/main/tldts-runtime.ts') }]
+    },
     define: {
       __VAST_BUILD_ENV__: JSON.stringify(embeddedBuildEnv),
       __VAST_NOTICES_TRUST__: JSON.stringify(embeddedNoticesTrust),
       __VAST_INCLUDE_INTERNAL_TEST_HARNESS__: JSON.stringify(includeInternalTestHarness),
-      __VAST_RELAY_CONFIG__: JSON.stringify(embeddedRelayConfig),
-      ...sharedBuildDefines
+      __VAST_RELAY_CONFIG__: JSON.stringify(embeddedRelayConfig)
     },
     build: {
       outDir: 'out/main',
@@ -58,7 +49,6 @@ export default defineConfig({
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
-    define: sharedBuildDefines,
     build: {
       outDir: 'out/preload',
       minify: 'esbuild',
@@ -75,7 +65,6 @@ export default defineConfig({
   renderer: {
     root: '.',
     plugins: [react()],
-    define: sharedBuildDefines,
     resolve: {
       alias: {
         '@renderer': resolve('src/renderer'),

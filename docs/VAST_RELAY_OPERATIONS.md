@@ -335,9 +335,9 @@ Incident priorities:
 6. R2 failure: leave signed text active if appropriate; media failure is
    non-fatal.
 
-For an emergency client-side Relay disable, ship Vast with the production Relay
-compile-time gate disabled (`VAST_RELAY_PRODUCTION_ENABLED` absent/not `1`).
-Development/internal builds can use `VAST_RELAY_ENABLED=0`. The endpoint cannot
+For an emergency client-side Relay disable, ship Vast with
+`VAST_RELAY_ENABLED=0`. Development/internal builds select staging with
+`VAST_RELAY_ENVIRONMENT=staging`. The endpoint cannot
 be changed by a remote message. Backend-side containment can return normal
 `messages: []` and `update: null`; it must not break the browser.
 

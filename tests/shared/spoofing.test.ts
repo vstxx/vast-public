@@ -70,3 +70,19 @@ test('spoofing injection script exposes navigator, timezone, WebGL, and geolocat
   assert.match(script, /getCurrentPosition/)
   assert.match(script, /52\.2297/)
 })
+
+test('spoofing normalizes unsafe header values and invalid timezones', () => {
+  const settings = normalizeSpoofingSettings({
+    enabled: true,
+    browserProfile: 'custom',
+    customUserAgent: 'Safe UA\r\nX-Injected: yes',
+    languages: ['pl-PL', 'bad\r\nheader'],
+    timezone: 'Not/A_Timezone'
+  })
+  assert.equal(settings.customUserAgent, 'Safe UAX-Injected: yes')
+  assert.deepEqual(settings.languages, ['pl-PL'])
+  assert.equal(settings.timezone, 'UTC')
+  const headers = buildSpoofingHeaders(settings, {})
+  assert.doesNotMatch(String(headers['User-Agent']), /[\r\n]/)
+  assert.equal(headers['Accept-Language'], 'pl-PL')
+})

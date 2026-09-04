@@ -27,9 +27,6 @@ export interface SettingsSearchResult extends SettingsSearchEntry {
   matchedAlias?: string
 }
 
-declare const __VAST_CAT_ADDON_AVAILABLE__: boolean
-const CAT_ADDON_AVAILABLE = typeof __VAST_CAT_ADDON_AVAILABLE__ !== 'undefined' && __VAST_CAT_ADDON_AVAILABLE__
-
 const groups: Record<SettingsSearchSectionId, readonly SearchDefinition[]> = {
   Appearance: [
     ['Appearance', 'display look visuals wyglad wygląd interfejs'],
@@ -60,7 +57,6 @@ const groups: Record<SettingsSearchSectionId, readonly SearchDefinition[]> = {
     ['Opening sound', 'startup audio launch sound dzwiek startowy'],
     ['Bookmarks bar', 'favorites bar pasek zakladek ulubione'],
     ['Show bookmarks bar only on New Tab', 'new tab favorites only zakladki tylko nowa karta'],
-    ...(CAT_ADDON_AVAILABLE ? [['Cat Addon', 'cat pet kot dodatek'] as const] : []),
     ['Visual style', 'window effects appearance style styl wizualny']
   ],
   Advanced: [
@@ -76,7 +72,7 @@ const groups: Record<SettingsSearchSectionId, readonly SearchDefinition[]> = {
     ['Show internal pages in command palette', 'vast pages commands internal command menu'],
     ['Experimental features', 'experiments beta flags funkcje eksperymentalne'],
     ['Developer Mode', 'dev mode tools tryb programisty'],
-    ['Enable Vast Labs', 'labs experimental lab laboratorium']
+    ['Labs', 'experimental programs lab laboratorium']
   ],
   Labs: [
     ['Labs', 'experimental features feature flags laboratorium eksperymenty'],
@@ -84,8 +80,8 @@ const groups: Record<SettingsSearchSectionId, readonly SearchDefinition[]> = {
     ['Network Devices', 'lan devices discovery urzadzenia sieciowe'],
     ['Automation', 'macros automate workflow automatyzacja makra'],
     ['Password Manager', 'password vault passwords credentials logins menedzer hasel hasla sejf'],
-    ['Advanced diagnostics', 'debug diagnostics logs troubleshooting diagnostyka'],
-    ['Spoofing tools', 'fingerprint identity user agent privacy spoofing maskowanie']
+    ['Diagnostics', 'advanced debug diagnostics logs troubleshooting diagnostyka'],
+    ['Spoofing', 'tools fingerprint identity user agent privacy spoofing maskowanie']
   ],
   Network: [
     ['Network Devices', 'lan local devices discovery siec urzadzenia sieciowe'],
@@ -117,6 +113,9 @@ const groups: Record<SettingsSearchSectionId, readonly SearchDefinition[]> = {
   ],
   Privacy: [
     ['Privacy', 'tracking protection prywatnosc prywatność'],
+    ['Vast Services', 'relay privacy notice support service data telemetry'],
+    ['Privacy Notice', 'vast privacy policy relay data disclosure'],
+    ['Review site data', 'local website storage cookies permissions'],
     ['Block common trackers', 'anti tracking tracker blocker blokowanie sledzenia'],
     ['Ad blocker', 'adblock advertisements ads reklamy blokada reklam'],
     ['Ad blocking', 'adblock mode standard strict custom tryb reklam'],
@@ -245,7 +244,6 @@ const groups: Record<SettingsSearchSectionId, readonly SearchDefinition[]> = {
     ['Password Manager', 'password vault credentials logins menedzer hasel sejf hasla'],
     ['Export all Vast data', 'full backup migrate archive eksport kopia danych'],
     ['Import Vast data', 'restore full backup migrate import przywroc dane'],
-    ['Create local JSON restore point', 'quick backup snapshot recovery point lokalna kopia json'],
     ['Backup report', 'migration result backup status raport kopii']
   ]
 }

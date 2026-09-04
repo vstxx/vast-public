@@ -12,7 +12,8 @@
     "check": "npm run build:panel && npm run types:check && npm run typecheck && npm test",
     "deploy:staging": "node scripts/deploy.mjs staging",
     "deploy:production": "node scripts/deploy.mjs production",
-    "verify:staging": "node scripts/verify-staging.mjs"
+    "verify:staging": "node scripts/verify-staging.mjs",
+    "verify:release-checkin": "node scripts/verify-release-checkin.mjs"
   },
   "dependencies": {
     "jose": "6.2.8",

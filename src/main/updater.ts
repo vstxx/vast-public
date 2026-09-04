@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from 'electron/main'
 import { autoUpdater } from 'electron-updater'
 import { envFlag } from '../shared/build-metadata'
+import { updaterDisabledReason } from '../shared/updater-policy'
 import type { UpdaterDiagnostics, UpdaterEvent } from '../shared/types'
 import { getBuildMetadata } from './build-info'
 import { showRendererNotification } from './ui-bridge'
@@ -34,17 +35,10 @@ function emit(mainWindow: BrowserWindow, payload: UpdaterEvent): void {
   mainWindow.webContents.send('vast:updater', payload)
 }
 
-function disabledReason(): string | null {
-  const metadata = getBuildMetadata()
-  if (!app.isPackaged) return 'Auto-updates are disabled in development builds.'
-  if (!metadata.updateEnabled) return 'Auto-updates are disabled for this build.'
-  return null
-}
-
 export function setupAutoUpdater(mainWindow: BrowserWindow): void {
   updaterWindow = mainWindow
   const metadata = getBuildMetadata()
-  const reason = disabledReason()
+  const reason = updaterDisabledReason(app.isPackaged, metadata)
   const autoDownload = envFlag(process.env, 'VAST_UPDATE_AUTO_DOWNLOAD', false)
   const autoInstallOnQuit = envFlag(process.env, 'VAST_UPDATE_AUTO_INSTALL', false)
 

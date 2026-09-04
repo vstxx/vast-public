@@ -1,0 +1,122 @@
+name: Microsoft Store release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_version:
+        description: Exact package version authorized for this candidate
+        required: true
+        default: 0.2.7
+        type: string
+      channel:
+        description: Public release channel
+        required: true
+        type: choice
+        options: [beta, stable]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: store-release-candidate
+  cancel-in-progress: false
+
+jobs:
+  build-verify:
+    runs-on: windows-latest
+    timeout-minutes: 240
+    environment: public-release
+    env:
+      VAST_RELEASE_CHANNEL: ${{ inputs.channel }}
+      VAST_DISTRIBUTION_CHANNEL: microsoft-store
+      VAST_PRIVATE_BUILD: '0'
+      VAST_UPDATE_ENABLED: '0'
+      VAST_OBFUSCATE: '1'
+      VAST_RELEASE_REPO: vstxx/vast-public
+      VAST_RELAY_ENABLED: '1'
+      VAST_RELAY_ENVIRONMENT: production
+      VAST_MSIX_IDENTITY_NAME: ${{ secrets.VAST_MSIX_IDENTITY_NAME }}
+      VAST_MSIX_PUBLISHER: ${{ secrets.VAST_MSIX_PUBLISHER }}
+      VAST_MSIX_PUBLISHER_DISPLAY_NAME: ${{ secrets.VAST_MSIX_PUBLISHER_DISPLAY_NAME }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fail before runtime preparation when release inputs are unavailable
+        shell: pwsh
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          $required = @{
+            VAST_MSIX_IDENTITY_NAME = $env:VAST_MSIX_IDENTITY_NAME
+            VAST_MSIX_PUBLISHER = $env:VAST_MSIX_PUBLISHER
+            VAST_MSIX_PUBLISHER_DISPLAY_NAME = $env:VAST_MSIX_PUBLISHER_DISPLAY_NAME
+            CLOUDFLARE_API_TOKEN = $env:CLOUDFLARE_API_TOKEN
+            CLOUDFLARE_ACCOUNT_ID = $env:CLOUDFLARE_ACCOUNT_ID
+          }
+          $missing = @($required.GetEnumerator() | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.Value) } | ForEach-Object Key)
+          if ($missing.Count) { throw "Missing Store release inputs: $($missing -join ', ')" }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            relay/package-lock.json
+      - run: npm ci
+      - run: npm ci --prefix relay
+      - name: Bind candidate to the exact clean source SHA
+        shell: pwsh
+        run: |
+          git diff --exit-code
+          git diff --cached --exit-code
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          if ($version -ne '${{ inputs.expected_version }}') { throw "Expected ${{ inputs.expected_version }}, got $version." }
+          $head = git rev-parse HEAD
+          if ($head -ne '${{ github.sha }}') { throw "Checked out $head instead of ${{ github.sha }}." }
+          "VAST_RELEASE_COMMIT=$head" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Fail before runtime preparation when Store production is not ready
+        run: npm run release:store:check
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r resources/avidae/requirements.txt -r resources/avidae/requirements-build.txt
+      - name: Restore verified media runtime cache
+        uses: ./.github/actions/prepare-ffmpeg
+        with:
+          github-token: ${{ github.token }}
+      - run: npm run audit:ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run test:store
+      - run: npm run check --prefix relay
+      - run: npm run test:electron-version
+      - name: Verify production Relay synthetic D1 write
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npm run verify:release-checkin --prefix relay
+      - run: npm run hub:verify:production
+      - run: npm run avidae:runtime:prepare
+      - name: Build and inspect production MSIX
+        run: npm run dist:store
+      - name: Run Windows App Certification Kit
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-windows-app-certification.ps1 -PackagePath release/store/Vast-0.2.7-Store-x64.msix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Vast-0.2.7-Store-x64-candidate-${{ github.sha }}
+          path: |
+            release/store/Vast-0.2.7-Store-x64.msix
+            release/store/Vast-0.2.7-Store-x64-verification.json
+            release/store/Vast-0.2.7-Store-x64-AppxManifest.xml
+            release/store/Vast-0.2.7-Store-x64-SHA256SUMS.txt
+            release/store/browser-recency.json
+            release/store/wack-report.xml
+          if-no-files-found: error
+          retention-days: 14
+
+      # Deliberately no Partner Center submission step. A human must review the
+      # exact artifact and evidence before uploading it to Partner Center.

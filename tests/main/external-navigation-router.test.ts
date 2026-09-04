@@ -6,7 +6,8 @@ import type { BrowserWindow } from 'electron/main'
 import {
   ExternalNavigationRouter,
   externalNavigationTarget,
-  externalNavigationTargets
+  externalNavigationTargets,
+  localPdfArgument
 } from '../../src/main/windows/ExternalNavigationRouter.ts'
 import type { WindowRegistry } from '../../src/main/windows/WindowRegistry.ts'
 
@@ -33,6 +34,13 @@ test('external URL parser rejects unsafe schemes and limits the public vast prot
     'https://example.com/auth?state=a%20b'
   )
   assert.equal(externalNavigationTarget(`vast://open?url=${encodeURIComponent('file:///C:/secret.txt')}`), undefined)
+})
+
+test('OS file activation accepts only local PDF path arguments', () => {
+  assert.match(localPdfArgument('"C:\\Documents\\report.PDF"') ?? '', /report\.PDF$/)
+  assert.equal(localPdfArgument('C:\\Documents\\notes.txt'), undefined)
+  assert.equal(localPdfArgument('https://example.com/report.pdf'), undefined)
+  assert.equal(externalNavigationTarget('file:///C:/Documents/report.pdf'), undefined)
 })
 
 test('rapid distinct links are delivered while duplicate startup events are collapsed', () => {
@@ -64,5 +72,6 @@ test('main process owns single-instance, second-instance, and macOS open-url rou
   assert.match(mainSource, /app\.requestSingleInstanceLock\(\)/)
   assert.match(mainSource, /app\.on\('second-instance'/)
   assert.match(mainSource, /app\.on\('open-url'/)
+  assert.match(mainSource, /app\.on\('open-file'/)
   assert.match(mainSource, /externalNavigationRouter\.acceptArguments\(process\.argv\)/)
 })

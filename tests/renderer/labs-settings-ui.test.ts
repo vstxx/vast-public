@@ -5,13 +5,14 @@ import test from 'node:test'
 const settingsSource = readFileSync(new URL('../../src/renderer/components/settings/SettingsModal.tsx', import.meta.url), 'utf8')
 const internalRouterSource = readFileSync(new URL('../../src/renderer/components/browser/InternalPageRouter.tsx', import.meta.url), 'utf8')
 
-test('settings expose the global and feature-specific local Labs controls', () => {
+test('settings always expose Labs with only feature-specific controls', () => {
   assert.match(settingsSource, /section id="Labs"/)
-  assert.match(settingsSource, /Enable Vast Labs/)
-  for (const label of ['Video & Audio', 'Network Devices', 'Automation', 'Password Manager', 'Advanced diagnostics', 'Spoofing tools']) {
+  assert.doesNotMatch(settingsSource, /Enable Vast Labs/)
+  for (const label of ['Video & Audio', 'Network Devices', 'Automation', 'Password Manager', 'Diagnostics', 'Spoofing']) {
     assert.match(settingsSource, new RegExp(`label="${label}"`))
   }
-  assert.match(settingsSource, /local, experimental feature flags/)
+  assert.doesNotMatch(settingsSource, /local, experimental programs/)
+  assert.doesNotMatch(settingsSource, /memory budget for the app shell|Active probing only checks|Unsafe protocols stay blocked|This identity has its own cookies/)
 })
 
 test('Labs toggles block only coming-soon features', () => {

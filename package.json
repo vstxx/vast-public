@@ -1,7 +1,7 @@
 {
   "name": "vast-browser",
   "productName": "Vast",
-  "version": "0.2.5",
+  "version": "0.2.7",
   "description": "Vast - a local-first, power-user desktop browser shell built with Electron, React, TypeScript, Vite, and TailwindCSS.",
   "author": "VastProductions",
   "main": "out/main/main.js",
@@ -18,10 +18,6 @@
   "scripts": {
     "dev": "node scripts/dev.cjs",
     "build": "node scripts/build-app.cjs",
-    "cat-addon:assets": "python tools/cat_addon/build_cat_assets.py",
-    "cat-addon:bundle": "npm run cat-addon:assets && node scripts/build-cat-addon-archive.cjs",
-    "cat-addon:check": "python tools/cat_addon/build_cat_assets.py --check && node scripts/build-cat-addon-archive.cjs --check",
-    "cat-addon:studio": "python -m http.server 4174 --directory .",
     "avidae:runtime:prepare": "node scripts/prepare-avidae-runtime.cjs",
     "avidae:runtime:check": "node scripts/prepare-avidae-runtime.cjs --check",
     "avidae:ffmpeg:check": "node scripts/avidae-ffmpeg-capabilities.cjs",
@@ -30,6 +26,9 @@
     "build:obfuscated": "npm run build && node scripts/obfuscate-build.cjs && npm run performance:budget",
     "preview": "electron-vite preview",
     "dist": "npm run build:obfuscated && electron-builder",
+    "dist:direct": "node scripts/build-release.cjs upgrader",
+    "dist:store": "node scripts/build-store-msix.cjs",
+    "dist:store:dev": "node scripts/build-store-msix.cjs --development",
     "dist:upgrader": "node scripts/build-release.cjs upgrader",
     "lint": "tsc --noEmit",
     "test": "node scripts/run-node-tests.cjs",
@@ -39,6 +38,9 @@
     "test:upgrade:0.1.5": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/updater/vast-0.1.5-to-0.2.5-upgrade.test.ps1",
     "test:fuses:integration": "node scripts/test-electron-fuses-integration.cjs",
     "test:electron-version": "node scripts/verify-electron-version.cjs",
+    "test:store": "node --test tests/store/*.test.cjs",
+    "test:store:upgrade": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/store/store-msix-upgrade.test.ps1",
+    "store:policy:refresh": "node scripts/check-store-browser-recency.cjs --refresh",
     "test:package:ci": "node scripts/verify-ci-package.cjs",
     "updater:stage": "node scripts/stage-updater-sources.cjs",
     "test:app": "node scripts/run-app-test.cjs",
@@ -49,6 +51,7 @@
     "hub:typecheck": "tsc --noEmit -p extensions-hub/tsconfig.json",
     "hub:test": "vitest run --config extensions-hub/vitest.config.ts",
     "hub:build": "wrangler deploy --dry-run --config extensions-hub/wrangler.jsonc --env= --outdir dist",
+    "hub:verify:production": "node scripts/verify-hub-production-readiness.mjs",
     "test:split-view": "node scripts/run-app-test.cjs --split-view-only",
     "test:google-auth-email": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/google-auth-email-ui-check.ps1",
     "test:google-auth-email:cdp": "node scripts/google-auth-email-check.cjs",
@@ -62,10 +65,14 @@
     "audit:ci": "npm audit --audit-level=high && npm audit --prefix relay --audit-level=high",
     "ci": "npm run audit:ci && npm run lint && npm run test && npm run release:audit",
     "release:check": "node scripts/release-check.cjs",
+    "release:direct:check": "node scripts/release-check.cjs",
+    "release:store:check": "node scripts/release-store-check.cjs",
+    "release:0.2.7": "npm run release:version-check && npm run test:electron-version && npm run test:store",
+    "store:wack": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-windows-app-certification.ps1",
     "release:audit": "node scripts/release-audit.cjs",
     "release:local": "node scripts/local-release-from-env.cjs",
     "release:internal": "node scripts/local-release-from-env.cjs --internal-unsigned",
-    "release:public-unsigned-beta": "node scripts/local-release-from-env.cjs --public-unsigned-beta",
+    "release:public-unsigned": "node scripts/local-release-from-env.cjs --public-unsigned-release",
     "release:check:local": "node scripts/local-release-from-env.cjs release:check",
     "release:verify:published": "node scripts/verify-published-release.cjs",
     "dist:private": "npm run release:audit && npm run dist",
@@ -90,7 +97,7 @@
     "acorn": "8.18.0",
     "autoprefixer": "10.5.0",
     "clsx": "2.1.1",
-    "electron": "43.4.1",
+    "electron": "44.1.0",
     "electron-builder": "26.15.3",
     "electron-vite": "5.0.0",
     "javascript-obfuscator": "^5.4.3",
@@ -100,6 +107,7 @@
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "tailwindcss": "3.4.19",
+    "tldts": "7.4.11",
     "typescript": "6.0.3",
     "vite": "7.3.6",
     "vitest": "4.1.11",
@@ -109,6 +117,8 @@
   "overrides": {
     "tmp": "0.2.7",
     "esbuild": "0.28.1",
+    "fast-uri": "3.1.6",
+    "@xmldom/xmldom": "0.8.15",
     "@electron/get": {
       "undici": "7.29.0"
     }
@@ -120,6 +130,7 @@
     "asar": true,
     "forceCodeSigning": true,
     "afterPack": "scripts/after-pack-hardening.cjs",
+    "afterSign": "scripts/after-sign-all-pe.cjs",
     "directories": {
       "output": "release"
     },
@@ -150,6 +161,14 @@
       {
         "from": "assets/logos/vast.png",
         "to": "app-wordmark.png"
+      },
+      {
+        "from": "node_modules/tldts/dist/index.cjs.min.js",
+        "to": "runtime/tldts.cjs"
+      },
+      {
+        "from": "node_modules/tldts/LICENSE",
+        "to": "licenses/tldts-LICENSE"
       }
     ],
     "protocols": [

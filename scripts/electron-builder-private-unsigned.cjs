@@ -1,5 +1,4 @@
 const { join } = require('node:path')
-const { withBuildCapabilities } = require('./build-capabilities.cjs')
 
 function enabled(name) {
   return ['1', 'true', 'yes', 'on'].includes(String(process.env[name] ?? '').trim().toLowerCase())
@@ -12,7 +11,7 @@ if (!enabled('VAST_PRIVATE_BUILD') || !enabled('VAST_ALLOW_UNSIGNED_PRIVATE_BUIL
 const pkg = require(join(__dirname, '..', 'package.json'))
 
 module.exports = {
-  ...withBuildCapabilities(pkg.build),
+  ...pkg.build,
   forceCodeSigning: false,
   win: {
     ...pkg.build.win,

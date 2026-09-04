@@ -3,7 +3,6 @@ import { useMemo } from 'react'
 import { useBrowserStore, selectActiveWorkspace } from '../../store/browser-store'
 import { BrandMark } from '../ui/BrandMark'
 import { IconButton } from '../ui/IconButton'
-import { notifyCatNewTabButton } from '../../lib/cat-addon-events'
 import { WorkspaceSwitcher } from '../workspaces/WorkspaceSwitcher'
 import { TabRow } from './TabRow'
 
@@ -84,7 +83,7 @@ export function Sidebar({ forcedCollapsed = false }: { forcedCollapsed?: boolean
       </div>
 
       <div className={`no-drag min-h-0 flex-1 overflow-y-auto ${sidebarCollapsed ? 'px-2' : 'px-4'} pb-4`}>
-        <div className="space-y-1" data-testid="vertical-tabs-list" data-cat-tab-list="true">
+        <div className="space-y-1" data-testid="vertical-tabs-list">
           {pinnedTabs.map((tab) => (
             <TabRow key={tab.id} tab={tab} active={tab.id === workspace?.activeTabId} compact={sidebarCollapsed} />
           ))}
@@ -97,14 +96,14 @@ export function Sidebar({ forcedCollapsed = false }: { forcedCollapsed?: boolean
 
       <div className={`no-drag border-t border-white/[0.07] ${sidebarCollapsed ? 'grid place-items-center p-2' : 'p-3'}`}>
         {sidebarCollapsed ? (
-          <IconButton tooltip="New tab" data-testid="vertical-new-tab" onClick={() => { notifyCatNewTabButton(); createTab({ activate: true }) }}>
+          <IconButton tooltip="New tab" data-testid="vertical-new-tab" onClick={() => createTab({ activate: true })}>
             <Plus className="h-4 w-4" />
           </IconButton>
         ) : (
           <button
             type="button"
             title="New tab"
-            onClick={() => { notifyCatNewTabButton(); createTab({ activate: true }) }}
+            onClick={() => createTab({ activate: true })}
             data-testid="vertical-new-tab"
             className="flex h-10 w-full items-center gap-2.5 rounded-xl border border-white/[0.08] bg-white/[0.045] px-3 text-left text-[13px] font-semibold text-white/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] transition hover:border-white/[0.14] hover:bg-white/[0.075] hover:text-white"
           >

@@ -2,7 +2,6 @@ import { CircleAlert, LoaderCircle, LockKeyhole, Moon, Plus, Volume2, X } from '
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type WheelEvent } from 'react'
 import type { Tab, TabGroup } from '../../../shared/types'
 import { selectActiveTab, selectActiveWorkspace, useBrowserStore } from '../../store/browser-store'
-import { notifyCatNewTabButton, notifyCatTabClosing } from '../../lib/cat-addon-events'
 import { openTabContextMenu } from '../../lib/context-menu'
 import { useTabMotion } from '../../lib/tab-motion'
 import { getEffectiveTabUrl, isSecureUrl } from '../../lib/url'
@@ -320,7 +319,6 @@ function PuristTabStrip(): JSX.Element {
                 dragTarget={dragTargetId === tab.id}
                 onActivate={() => activateTab(tab.id)}
                 onClose={() => {
-                  notifyCatTabClosing()
                   closeTab(tab.id)
                 }}
                 onDrop={(event) => onDrop(event, tab.id)}
@@ -336,7 +334,6 @@ function PuristTabStrip(): JSX.Element {
           title="New tab"
           aria-label="New tab"
           onClick={() => {
-            notifyCatNewTabButton()
             createTab({ workspaceId: workspace?.id, activate: true })
           }}
           className="purist-new-tab no-drag grid h-8 w-8 shrink-0 place-items-center rounded-full text-vast-soft transition"

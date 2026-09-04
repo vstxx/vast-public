@@ -28,6 +28,7 @@ const previousVersion = process.env.VAST_PREVIOUS_VERSION || (() => {
 const releaseLike = target === 'dist' || target === 'upgrader'
 const env = {
   ...process.env,
+  VAST_DISTRIBUTION_CHANNEL: 'direct',
   VAST_UPDATE_MANIFEST_URL: defaultManifestUrl,
   VAST_RELEASE_REPO: defaultReleaseRepo
 }
@@ -81,13 +82,13 @@ function electronBuilderArgs(windowsTarget) {
   const args = ['electron-builder']
   if (windowsTarget) args.push('--win', windowsTarget)
   const allowUnsignedPrivate = env.VAST_PRIVATE_BUILD === '1' && process.env.VAST_ALLOW_UNSIGNED_PRIVATE_BUILD !== '0'
-  const allowPublicUnsignedBeta =
+  const allowPublicUnsignedRelease =
     env.VAST_PRIVATE_BUILD === '0' &&
-    env.VAST_RELEASE_CHANNEL === 'beta' &&
-    env.VAST_PUBLIC_UNSIGNED_BETA === '1' &&
-    env.VAST_UNSIGNED_BETA_ACK === 'I_ACCEPT_UNSIGNED_PUBLIC_BETA_RISK'
-  if (allowPublicUnsignedBeta) {
-    args.push('--config', 'scripts/electron-builder-public-unsigned-beta.cjs')
+    ['beta', 'stable'].includes(env.VAST_RELEASE_CHANNEL) &&
+    env.VAST_PUBLIC_UNSIGNED_RELEASE === '1' &&
+    env.VAST_UNSIGNED_RELEASE_ACK === 'I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK'
+  if (allowPublicUnsignedRelease) {
+    args.push('--config', 'scripts/electron-builder-public-unsigned-release.cjs')
   } else if (allowUnsignedPrivate) {
     env.VAST_ALLOW_UNSIGNED_PRIVATE_BUILD = '1'
     args.push('--config', 'scripts/electron-builder-private-unsigned.cjs')

@@ -1,7 +1,6 @@
 const { mkdirSync, readFileSync, writeFileSync } = require('node:fs')
 const { dirname, join } = require('node:path')
 const { readNoticesReleaseConfig } = require('./notices-release-config.cjs')
-const { catAddonEnabled } = require('./build-capabilities.cjs')
 
 const root = join(__dirname, '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
@@ -16,23 +15,26 @@ function flag(name, fallback = false) {
 }
 
 const releaseChannel = String(process.env.VAST_RELEASE_CHANNEL ?? 'dev').trim() || 'dev'
+const distributionChannel = String(process.env.VAST_DISTRIBUTION_CHANNEL ?? 'direct').trim() || 'direct'
 const privateBuild = flag('VAST_PRIVATE_BUILD', true)
 const updateEnabled = flag('VAST_UPDATE_ENABLED', false)
 const obfuscationEnabled = flag('VAST_OBFUSCATE', false)
 const releaseRepo = String(process.env.VAST_RELEASE_REPO ?? 'vstxx/vast-public').trim() || 'vstxx/vast-public'
 const sourceCommit = String(process.env.VAST_RELEASE_COMMIT ?? '').trim().toLowerCase()
 const publicDistribution = (releaseChannel === 'beta' || releaseChannel === 'stable') && !privateBuild
-const publicUnsignedBeta = publicDistribution && releaseChannel === 'beta' && flag('VAST_PUBLIC_UNSIGNED_BETA', false)
-const relayEnvironment = releaseChannel === 'stable' ? 'production' : 'staging'
-const relayEnabled = relayEnvironment === 'production'
-  ? flag('VAST_RELAY_PRODUCTION_ENABLED', false)
-  : flag('VAST_RELAY_ENABLED', true)
+const publicUnsignedRelease = publicDistribution && flag('VAST_PUBLIC_UNSIGNED_RELEASE', false)
+const requestedRelayEnvironment = String(process.env.VAST_RELAY_ENVIRONMENT ?? '').trim().toLowerCase()
+const relayEnvironment = requestedRelayEnvironment || ((releaseChannel === 'beta' || releaseChannel === 'stable') ? 'production' : 'staging')
+const relayEnabled = flag('VAST_RELAY_ENABLED', true)
 const relayEndpoint = relayEnvironment === 'production'
   ? 'https://relay.vastbrowser.com'
   : 'https://relay-staging.vastbrowser.com'
 const relayKeyId = relayEnvironment === 'production' ? 'relay-2026-01' : 'relay-staging-2026-01'
-const catAddonIncluded = catAddonEnabled(process.env)
-const signaturePolicy = publicUnsignedBeta ? 'unsigned-public-beta' : (publicDistribution ? 'authenticode-signed' : 'internal-unsigned')
+const signaturePolicy = distributionChannel === 'microsoft-store'
+  ? 'microsoft-store-submission'
+  : publicUnsignedRelease
+    ? 'unsigned-public-release'
+    : (publicDistribution ? 'authenticode-signed' : 'internal-unsigned')
 const failures = []
 let notices = { enabled: false, feedOrigin: '', keyId: '' }
 
@@ -46,26 +48,27 @@ try {
   failures.push(error instanceof Error ? error.message : String(error))
 }
 
+requireConfig(['direct', 'microsoft-store'].includes(distributionChannel), 'VAST_DISTRIBUTION_CHANNEL must be direct or microsoft-store')
+requireConfig(distributionChannel === 'direct' || !flag('VAST_PUBLIC_UNSIGNED_RELEASE', false), 'VAST_PUBLIC_UNSIGNED_RELEASE is not valid for Microsoft Store packages')
+
 if (publicDistribution) {
-  requireConfig(updateEnabled, `public ${releaseChannel} release metadata requires VAST_UPDATE_ENABLED=1`)
+  requireConfig(
+    distributionChannel === 'microsoft-store' ? !updateEnabled : updateEnabled,
+    `public ${releaseChannel} ${distributionChannel} metadata requires VAST_UPDATE_ENABLED=${distributionChannel === 'microsoft-store' ? '0' : '1'}`
+  )
   requireConfig(obfuscationEnabled, `public ${releaseChannel} release metadata requires VAST_OBFUSCATE=1`)
   requireConfig(releaseRepo === 'vstxx/vast-public', `public ${releaseChannel} release metadata requires VAST_RELEASE_REPO=vstxx/vast-public`)
   requireConfig(/^[a-f0-9]{40}$/.test(sourceCommit), `public ${releaseChannel} release metadata requires a full VAST_RELEASE_COMMIT SHA`)
-  requireConfig(!flag('VAST_PUBLIC_UNSIGNED_BETA', false) || releaseChannel === 'beta', 'VAST_PUBLIC_UNSIGNED_BETA is beta-only')
-  if (publicUnsignedBeta) {
+  if (publicUnsignedRelease) {
     requireConfig(
-      String(process.env.VAST_UNSIGNED_BETA_ACK ?? '').trim() === 'I_ACCEPT_UNSIGNED_PUBLIC_BETA_RISK',
-      'public unsigned beta metadata requires the explicit risk acknowledgement'
+      String(process.env.VAST_UNSIGNED_RELEASE_ACK ?? '').trim() === 'I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK',
+      'public unsigned release metadata requires the explicit risk acknowledgement'
     )
   }
-  requireConfig(!catAddonIncluded, `public ${releaseChannel} metadata requires VAST_CAT_ADDON_ENABLED=0`)
-  if (releaseChannel === 'beta') {
-    requireConfig(relayEnabled, 'public beta metadata requires VAST_RELAY_ENABLED=1')
-    requireConfig(relayEnvironment === 'staging', 'public beta Relay environment must be staging')
-    requireConfig(relayEndpoint === 'https://relay-staging.vastbrowser.com', 'public beta Relay endpoint must be staging')
-    requireConfig(relayKeyId === 'relay-staging-2026-01', 'public beta Relay trust key must be the staging key')
-    requireConfig(!flag('VAST_RELAY_PRODUCTION_ENABLED', false), 'public beta metadata requires VAST_RELAY_PRODUCTION_ENABLED=0')
-  }
+  requireConfig(relayEnabled, `public ${releaseChannel} metadata requires VAST_RELAY_ENABLED=1`)
+  requireConfig(relayEnvironment === 'production', `public ${releaseChannel} Relay environment must be production`)
+  requireConfig(relayEndpoint === 'https://relay.vastbrowser.com', `public ${releaseChannel} Relay endpoint must be production`)
+  requireConfig(relayKeyId === 'relay-2026-01', `public ${releaseChannel} Relay trust key must be the production key`)
 }
 
 if (failures.length > 0) {
@@ -77,8 +80,8 @@ const metadata = {
   productName: pkg.productName,
   version: pkg.version,
   releaseChannel,
+  distributionChannel,
   privateBuild,
-  catAddonIncluded,
   relay: {
     enabled: relayEnabled,
     environment: relayEnvironment,
@@ -105,6 +108,7 @@ console.log(
       outputPath,
       version: metadata.version,
       releaseChannel,
+      distributionChannel,
       privateBuild,
       updateEnabled,
       obfuscationEnabled,

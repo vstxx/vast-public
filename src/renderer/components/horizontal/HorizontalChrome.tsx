@@ -18,13 +18,12 @@ import { INTERNAL_NEW_TAB_URL } from '../../../shared/constants'
 import type { Bookmark as BookmarkModel, BookmarkFolder, Tab, TabGroup, Workspace } from '../../../shared/types'
 import { useBrowserRuntime } from '../../app/browser-runtime'
 import { openTabContextMenu } from '../../lib/context-menu'
-import { displayUrl, isPdfViewerUrl } from '../../lib/url'
+import { displayUrl } from '../../lib/url'
 import { useTabMotion } from '../../lib/tab-motion'
 import { selectActiveTab, selectActiveWorkspace, useBrowserStore } from '../../store/browser-store'
 import { AddressBar } from '../browser/AddressBar'
 import { Favicon, getInternalTabMeta } from '../ui/Favicon'
 import { IconButton } from '../ui/IconButton'
-import { notifyCatNewTabButton, notifyCatTabClosing } from '../../lib/cat-addon-events'
 import { WorkspaceIcon } from '../workspaces/WorkspaceIcon'
 import { WindowControls } from '../window/WindowControls'
 
@@ -213,6 +212,32 @@ function HorizontalTabBar(): JSX.Element {
   const [dragTargetId, setDragTargetId] = useState<string | null>(null)
   const [stripWidth, setStripWidth] = useState(900)
   const stripRef = useRef<HTMLDivElement | null>(null)
+  const overflowRef = useRef<HTMLDivElement | null>(null)
+
+  const closeOverflow = (): void => {
+    setOverflowOpen(false)
+    setOverflowQuery('')
+  }
+
+  useEffect(() => {
+    closeOverflow()
+  }, [workspace?.id])
+
+  useEffect(() => {
+    if (!overflowOpen) return
+    const onPointerDown = (event: PointerEvent): void => {
+      if (event.target instanceof Node && !overflowRef.current?.contains(event.target)) closeOverflow()
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') closeOverflow()
+    }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [overflowOpen])
 
   const workspaceGroups = useMemo(
     () => groups.filter((group) => group.workspaceId === workspace?.id).sort((a, b) => a.order - b.order),
@@ -287,7 +312,7 @@ function HorizontalTabBar(): JSX.Element {
       tab={tab}
       active={tab.id === workspace?.activeTabId}
       onActivate={() => activateTab(tab.id)}
-      onClose={() => { notifyCatTabClosing(); closeTab(tab.id) }}
+      onClose={() => closeTab(tab.id)}
       onDrop={(event) => onDrop(event, tab.id)}
       onDragEnd={(event) => onTabDragEnd(event, tab)}
       onDragTarget={() => setDragTargetId(tab.id)}
@@ -318,7 +343,7 @@ function HorizontalTabBar(): JSX.Element {
         <button
           type="button"
           title="New tab"
-          onClick={() => { notifyCatNewTabButton(); createTab({ workspaceId: workspace?.id, activate: true }) }}
+          onClick={() => createTab({ workspaceId: workspace?.id, activate: true })}
           className="no-drag mt-[3px] grid h-8 w-8 shrink-0 place-items-center self-center rounded-full bg-transparent text-vast-soft/75 transition hover:bg-white/[0.045] hover:text-white/90"
         >
           <Plus className="h-4 w-4" strokeWidth={1.8} />
@@ -326,18 +351,21 @@ function HorizontalTabBar(): JSX.Element {
       </div>
 
       {overflowTabs.length > 0 && (
-        <div className="no-drag relative shrink-0">
+        <div ref={overflowRef} className="no-drag relative shrink-0 translate-y-1 self-center">
           <button
             type="button"
-            onClick={() => setOverflowOpen((value) => !value)}
+            onClick={() => overflowOpen ? closeOverflow() : setOverflowOpen(true)}
+            aria-label={`${overflowTabs.length} more tabs`}
+            aria-haspopup="dialog"
+            aria-expanded={overflowOpen}
             className="flex h-8 items-center gap-1 rounded-xl border border-white/[0.08] bg-white/[0.045] px-2 text-xs text-vast-soft hover:border-white/[0.14] hover:bg-white/[0.08] hover:text-white"
-            title="Tab overflow"
+            title="More tabs"
           >
             <MoreHorizontal className="h-4 w-4" />
             {overflowTabs.length}
           </button>
           {overflowOpen && (
-            <div className="absolute right-0 top-10 z-50 w-80 rounded-2xl border border-white/10 bg-[#090a0d]/[0.98] p-2 shadow-glass backdrop-blur-2xl">
+            <div role="dialog" aria-label={`Tabs in ${workspace?.name ?? 'workspace'}`} className="absolute right-0 top-10 z-50 w-80 rounded-2xl border border-white/10 bg-[#090a0d]/[0.98] p-2 shadow-glass backdrop-blur-2xl">
               <div className="flex items-center justify-between px-3 py-2">
                 <span className="text-[13px] font-semibold text-white">Tabs in {workspace?.name ?? 'workspace'}</span>
                 <span className="text-[13px] text-vast-soft">{workspaceTabs.length}</span>
@@ -352,28 +380,65 @@ function HorizontalTabBar(): JSX.Element {
                   className="vast-control h-10 w-full pl-9 pr-3"
                 />
               </label>
-              <div className="max-h-[min(60vh,440px)] overflow-y-auto">
-              {searchableTabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => {
-                    activateTab(tab.id)
-                    setOverflowOpen(false)
-                  }}
-                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-vast-soft hover:bg-white/[0.07] hover:text-white"
-                >
-                  <Favicon url={tab.url} favicon={tab.favicon} title={tab.title} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm text-white">{tab.title}</span>
-                    <span className="block truncate text-[13px] text-vast-soft">{tabDisplayHost(tab.url)}</span>
-                  </span>
-                  {tab.pinned && <Pin className="h-3.5 w-3.5 shrink-0 text-vast-cyan" aria-label="Pinned" />}
-                </button>
-              ))}
-              {searchableTabs.length === 0 && (
-                <div className="px-3 py-8 text-center text-[13px] text-vast-soft">No tabs match this search.</div>
-              )}
+              <div className="max-h-[min(60vh,440px)] space-y-0.5 overflow-y-auto">
+                {searchableTabs.map((tab) => {
+                  const active = tab.id === workspace?.activeTabId
+                  const state = overflowTabState(tab, active)
+                  const group = workspaceGroups.find((item) => item.id === tab.groupId)
+                  return (
+                    <div
+                      key={tab.id}
+                      data-overflow-tab-id={tab.id}
+                      className={`group/overflow-tab relative flex min-w-0 items-center rounded-xl transition-colors ${active ? 'bg-white/[0.085]' : 'hover:bg-white/[0.055]'}`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          activateTab(tab.id)
+                          closeOverflow()
+                        }}
+                        className="flex min-w-0 flex-1 items-center gap-3 py-2 pl-3 pr-1 text-left"
+                      >
+                        <Favicon url={tab.url} favicon={tab.favicon} title={tab.title} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-white">{tab.title}</span>
+                          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-vast-soft">
+                            <span className="min-w-0 truncate">{tabDisplayHost(tab.url)}</span>
+                            <span aria-hidden="true" className="shrink-0 text-white/20">·</span>
+                            <span className={`inline-flex shrink-0 items-center gap-1 ${state.tone}`} title={tab.error?.description}>
+                              <span className={`h-1.5 w-1.5 rounded-full ${state.dot}`} />
+                              {state.label}
+                            </span>
+                            {group && <span className="max-w-20 shrink truncate text-white/35">{group.name}</span>}
+                          </span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-1 text-vast-soft">
+                          {tab.pinned && <Pin className="h-3.5 w-3.5" aria-label="Pinned" />}
+                          {tab.muted && <Volume2 className="h-3.5 w-3.5" aria-label="Muted" />}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        title={`Close ${tab.title}`}
+                        aria-label={`Close ${tab.title}`}
+                        onClick={() => {
+                          closeTab(tab.id)
+                        }}
+                        className="mr-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white/40 transition-colors hover:bg-white/[0.09] hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/50"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                      {tab.status === 'loading' && (
+                        <span aria-hidden="true" className="pointer-events-none absolute inset-x-2 bottom-0 h-px overflow-hidden rounded-full bg-white/[0.05]">
+                          <span className="block h-full bg-vast-cyan/70" style={{ width: `${Math.min(100, Math.max(8, Math.round(tab.progress * 100)))}%` }} />
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+                {searchableTabs.length === 0 && (
+                  <div className="px-3 py-8 text-center text-[13px] text-vast-soft">No tabs match this search.</div>
+                )}
               </div>
             </div>
           )}
@@ -381,6 +446,22 @@ function HorizontalTabBar(): JSX.Element {
       )}
     </div>
   )
+}
+
+function overflowTabState(tab: Tab, active: boolean): { label: string; tone: string; dot: string } {
+  if (tab.lifecycle === 'crashed') return { label: 'Crashed', tone: 'text-red-300', dot: 'bg-red-300' }
+  if (tab.status === 'error') return { label: 'Load failed', tone: 'text-red-300', dot: 'bg-red-300' }
+  if (tab.status === 'loading') {
+    return {
+      label: `Loading ${Math.max(1, Math.min(100, Math.round(tab.progress * 100)))}%`,
+      tone: 'text-vast-cyan',
+      dot: 'bg-vast-cyan'
+    }
+  }
+  if (active) return { label: 'Active', tone: 'text-vast-lilac', dot: 'bg-vast-lilac' }
+  if (tab.lifecycle === 'sleeping') return { label: 'Sleeping', tone: 'text-vast-soft', dot: 'bg-white/35' }
+  if (tab.lifecycle === 'discarded') return { label: 'Unloaded', tone: 'text-vast-soft', dot: 'bg-white/25' }
+  return { label: 'Ready', tone: 'text-vast-soft', dot: 'bg-emerald-300/70' }
 }
 
 function HorizontalTabComponent({
@@ -551,7 +632,7 @@ export function BookmarksBar({ variant = 'horizontal' }: { variant?: ChromeVaria
 
   useLayoutEffect(() => {
     const bar = barRef.current
-    if (!visible || onlyOnNewTab && activeTabUrl !== INTERNAL_NEW_TAB_URL || isPdfViewerUrl(activeTabUrl)) {
+    if (!visible || onlyOnNewTab && activeTabUrl !== INTERNAL_NEW_TAB_URL) {
       setVisibleCount(Infinity)
       return
     }
@@ -590,7 +671,7 @@ export function BookmarksBar({ variant = 'horizontal' }: { variant?: ChromeVaria
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderedItems.length, visible, onlyOnNewTab, activeTabUrl])
 
-  if (!visible || onlyOnNewTab && activeTabUrl !== INTERNAL_NEW_TAB_URL || isPdfViewerUrl(activeTabUrl)) return null
+  if (!visible || onlyOnNewTab && activeTabUrl !== INTERNAL_NEW_TAB_URL) return null
 
   const visCount = visibleCount === Infinity ? orderedItems.length : visibleCount
   const visibleItems = orderedItems.slice(0, visCount)

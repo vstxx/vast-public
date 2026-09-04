@@ -27,7 +27,7 @@ function capture(source, expression, label) {
 
 requireEqual('package-lock root version', lock.version)
 requireEqual('package-lock package version', lock.packages?.['']?.version)
-requireEqual('public beta workflow expected_version', capture(workflow, /expected_version:[\s\S]*?default:\s*([^\s#]+)/, 'workflow version'))
+requireEqual('public unsigned workflow expected_version', capture(workflow, /expected_version:[\s\S]*?default:\s*([^\s#]+)/, 'workflow version'))
 requireEqual('signed public workflow expected_version', capture(signedWorkflow, /expected_version:[\s\S]*?default:\s*([^\s#]+)/, 'signed workflow version'))
 requireEqual('updater bootstrapper default', capture(bootstrapper, /\[string\]\s*\$Version\s*=\s*'([^']+)'/, 'bootstrapper version'))
 requireEqual('canonical updater targetVersion', updaterConfig.targetVersion)
@@ -50,8 +50,8 @@ for (const token of artifactTokens) {
   if (!token.includes(pkg.version)) failures.push(`artifact token is inconsistent: ${token}`)
 }
 
-if (!/^0\.2\.5$/.test(pkg.version)) failures.push(`0.2.5 release branch expected, found ${pkg.version}`)
-if (!/VAST_PREVIOUS_VERSION:\s*0\.1\.5\b/.test(workflow)) failures.push('public beta workflow must use real previous public version 0.1.5')
+if (!/^0\.2\.7$/.test(pkg.version)) failures.push(`0.2.7 release branch expected, found ${pkg.version}`)
+if (!/VAST_PREVIOUS_VERSION:\s*0\.2\.5\b/.test(workflow)) failures.push('public unsigned workflow must use real previous public version 0.2.5')
 
-console.log(JSON.stringify({ ok: failures.length === 0, version: pkg.version, previousPublicVersion: '0.1.5', artifactTokens, failures }, null, 2))
+console.log(JSON.stringify({ ok: failures.length === 0, version: pkg.version, previousPublicVersion: '0.2.5', artifactTokens, failures }, null, 2))
 if (failures.length) process.exit(1)

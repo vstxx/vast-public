@@ -3,6 +3,7 @@ const { spawnSync } = require('node:child_process')
 const { closeSync, existsSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync } = require('node:fs')
 const { join, relative } = require('node:path')
 const { tmpdir } = require('node:os')
+const { inspectTrustedAuthenticode, inspectUnsignedPe } = require('./windows-authenticode.cjs')
 
 const root = join(__dirname, '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
@@ -110,15 +111,14 @@ function flagValue(value, fallback = false) {
 
 const publicDistributionFromEnv =
   ['beta', 'stable'].includes(process.env.VAST_RELEASE_CHANNEL) && !flagValue(process.env.VAST_PRIVATE_BUILD, true)
-const publicUnsignedBeta =
+const publicUnsignedRelease =
   publicDistributionFromEnv &&
-  process.env.VAST_RELEASE_CHANNEL === 'beta' &&
-  flagValue(process.env.VAST_PUBLIC_UNSIGNED_BETA, false)
-const signedPublicDistribution = publicDistributionFromEnv && !publicUnsignedBeta
+  flagValue(process.env.VAST_PUBLIC_UNSIGNED_RELEASE, false)
+const signedPublicDistribution = publicDistributionFromEnv && !publicUnsignedRelease
 const expectedSignerSubject = String(process.env.VAST_EXPECTED_SIGNER_SUBJECT ?? '').trim()
 const expectedSourceCommit = String(process.env.VAST_RELEASE_COMMIT ?? '').trim().toLowerCase()
 
-if (publicUnsignedBeta) requiredFiles.push('PUBLIC-UNSIGNED-BETA.md')
+if (publicUnsignedRelease) requiredFiles.push('PUBLIC-UNSIGNED-RELEASE.md')
 
 function listFiles(directory) {
   if (!existsSync(directory)) return []
@@ -198,21 +198,19 @@ function assertReleaseBuildMetadata() {
   }
 
   if (publicDistributionFromEnv) {
+    if (metadata.distributionChannel !== 'direct') fail('direct release package metadata must use distributionChannel=direct')
     if (metadata.releaseChannel !== process.env.VAST_RELEASE_CHANNEL) fail('packaged release metadata releaseChannel does not match the public build channel')
     if (metadata.privateBuild !== false) fail('packaged release metadata privateBuild must be false')
     if (metadata.updateEnabled !== true) fail('packaged release metadata updateEnabled must be true')
     if (metadata.obfuscationEnabled !== true) fail('packaged release metadata obfuscationEnabled must be true')
     if (metadata.releaseRepo !== 'vstxx/vast-public') fail('packaged release metadata releaseRepo must be vstxx/vast-public')
-    if (metadata.releaseChannel === 'beta' && metadata.catAddonIncluded !== false) fail('packaged beta metadata must exclude Cat Addon')
-    if (metadata.releaseChannel === 'beta') {
-      if (metadata.relay?.enabled !== true) fail('packaged beta metadata must enable Relay')
-      if (metadata.relay?.environment !== 'staging') fail('packaged beta metadata Relay environment must be staging')
-      if (metadata.relay?.endpoint !== 'https://relay-staging.vastbrowser.com') fail('packaged beta metadata Relay endpoint must be staging')
-      if (metadata.relay?.keyId !== 'relay-staging-2026-01') fail('packaged beta metadata must pin the staging Relay key')
-    }
+    if (metadata.relay?.enabled !== true) fail('packaged public metadata must enable Relay')
+    if (metadata.relay?.environment !== 'production') fail('packaged public metadata Relay environment must be production')
+    if (metadata.relay?.endpoint !== 'https://relay.vastbrowser.com') fail('packaged public metadata Relay endpoint must be production')
+    if (metadata.relay?.keyId !== 'relay-2026-01') fail('packaged public metadata must pin the production Relay key')
     if (!/^[a-f0-9]{40}$/.test(expectedSourceCommit)) fail('public distribution verification requires VAST_RELEASE_COMMIT')
     if (metadata.sourceCommit !== expectedSourceCommit) fail('packaged release metadata sourceCommit does not match VAST_RELEASE_COMMIT')
-    const expectedSignaturePolicy = publicUnsignedBeta ? 'unsigned-public-beta' : 'authenticode-signed'
+    const expectedSignaturePolicy = publicUnsignedRelease ? 'unsigned-public-release' : 'authenticode-signed'
     if (metadata.signaturePolicy !== expectedSignaturePolicy) fail(`packaged release metadata signaturePolicy must be ${expectedSignaturePolicy}`)
   }
 
@@ -228,7 +226,6 @@ function assertReleaseBuildMetadata() {
     noticesEnabled: metadata.noticesEnabled === true,
     noticesFeedOrigin: metadata.noticesFeedOrigin,
     noticesKeyId: metadata.noticesKeyId,
-    catAddonIncluded: metadata.catAddonIncluded === true,
     relay: metadata.relay
   }
 }
@@ -266,61 +263,34 @@ function assertObfuscationReport() {
 function inspectAuthenticode(relativePath) {
   const fullPath = join(releaseRoot, relativePath)
   if (!existsSync(fullPath)) return undefined
-  if (process.platform !== 'win32') {
-    if (signedPublicDistribution) fail(`cannot verify Authenticode outside Windows: ${relativePath}`)
-    return { required: false, status: 'NotChecked' }
-  }
-
-  const command = [
-    '$signature = Get-AuthenticodeSignature -LiteralPath $env:VAST_SIGNATURE_PATH',
-    '$result = [ordered]@{',
-    '  Status = [string]$signature.Status',
-    '  StatusMessage = [string]$signature.StatusMessage',
-    '  SignerSubject = [string]$signature.SignerCertificate.Subject',
-    '  SignerNotAfter = $(if ($signature.SignerCertificate) { $signature.SignerCertificate.NotAfter.ToUniversalTime().ToString("o") } else { "" })',
-    '  TimestampSubject = [string]$signature.TimeStamperCertificate.Subject',
-    '  TimestampNotAfter = $(if ($signature.TimeStamperCertificate) { $signature.TimeStamperCertificate.NotAfter.ToUniversalTime().ToString("o") } else { "" })',
-    '} | ConvertTo-Json -Compress'
-  ].join('\n').replace('} | ConvertTo-Json', '}\n$result | ConvertTo-Json')
-  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], {
-    cwd: root,
-    env: { ...process.env, VAST_SIGNATURE_PATH: fullPath },
-    encoding: 'utf8',
-    windowsHide: true
-  })
-  if (result.error || result.status !== 0) {
-    fail(`could not inspect Authenticode for ${relativePath}: ${result.error?.message || result.stderr || result.stdout}`)
-    return undefined
-  }
-
   try {
-    const signature = JSON.parse(String(result.stdout).trim())
-    if (signedPublicDistribution && signature.Status !== 'Valid') {
-      fail(`signed public distribution artifact has invalid Authenticode status ${signature.Status}: ${relativePath}`)
+    const signature = signedPublicDistribution ? inspectTrustedAuthenticode(fullPath) : inspectUnsignedPe(fullPath)
+    if (signedPublicDistribution && signature.status !== 'Valid') {
+      fail(`signed public distribution artifact has invalid Authenticode status ${signature.status}: ${relativePath}`)
     }
-    if (publicUnsignedBeta && signature.Status !== 'NotSigned') {
-      fail(`public unsigned beta artifact must be NotSigned, got ${signature.Status}: ${relativePath}`)
+    if (publicUnsignedRelease && signature.status !== 'NotSigned') {
+      fail(`public unsigned release artifact must be NotSigned, got ${signature.status}: ${relativePath}`)
     }
-    if (signedPublicDistribution && !signature.SignerSubject) {
+    if (signedPublicDistribution && !signature.signerSubject) {
       fail(`signed public distribution artifact is missing a signer certificate: ${relativePath}`)
     }
-    if (signedPublicDistribution && !signature.TimestampSubject) {
+    if (signedPublicDistribution && !signature.timestampSubject) {
       fail(`signed public distribution artifact is missing an RFC 3161 timestamp: ${relativePath}`)
     }
-    if (signedPublicDistribution && expectedSignerSubject && !signature.SignerSubject.toLowerCase().includes(expectedSignerSubject.toLowerCase())) {
+    if (signedPublicDistribution && expectedSignerSubject && !signature.signerSubject.toLowerCase().includes(expectedSignerSubject.toLowerCase())) {
       fail(`public distribution artifact signer does not match ${expectedSignerSubject}: ${relativePath}`)
     }
     return {
       required: signedPublicDistribution,
-      status: signature.Status,
-      statusMessage: signature.StatusMessage,
-      signerSubject: signature.SignerSubject,
-      signerNotAfter: signature.SignerNotAfter,
-      timestampPresent: Boolean(signature.TimestampSubject),
-      timestampNotAfter: signature.TimestampNotAfter
+      status: signature.status,
+      statusMessage: signature.statusMessage,
+      signerSubject: signature.signerSubject,
+      signerNotAfter: signature.signerNotAfter,
+      timestampPresent: Boolean(signature.timestampSubject),
+      timestampNotAfter: signature.timestampNotAfter
     }
   } catch (error) {
-    fail(`could not parse Authenticode inspection for ${relativePath}: ${error instanceof Error ? error.message : String(error)}`)
+    fail(`could not inspect Authenticode for ${relativePath}: ${error instanceof Error ? error.message : String(error)}`)
     return undefined
   }
 }
@@ -340,10 +310,9 @@ const authenticode = {
   runtime: inspectAuthenticode(`Vast-${version}/win-unpacked/Vast.exe`)
 }
 
-const forbiddenBundledExtensionAsset = /(?:^|\/)(?:cat-addon|first-party-extensions\/idu-plus)(?:[-.\/]|$)|Cat_85|IDU-Plus-by-Vast|IDU-Plus-screenshot|idu-plus-logo|Otfits Grotesk|Audex-Regular|Aligra\.woff2|\.vext$/i
-const forbiddenBundledExtensionSource = /cat-addon|Cat Addon|Cat_85|IDU-Plus-by-Vast|IDU-Plus-screenshot|idu-plus-logo|first-party-extensions[\\/]idu-plus/i
+const forbiddenBundledExtensionAsset = /(?:^|\/)first-party-extensions\/idu-plus(?:[-.\/]|$)|IDU-Plus-by-Vast|IDU-Plus-screenshot|idu-plus-logo|Otfits Grotesk|Audex-Regular|Aligra\.woff2|\.vext$/i
+const forbiddenBundledExtensionSource = /IDU-Plus-by-Vast|IDU-Plus-screenshot|idu-plus-logo|first-party-extensions[\\/]idu-plus/i
 const forbiddenBundledExtensionBinaryMarkers = [
-  'Cat_85',
   'IDU-Plus-by-Vast',
   'IDU-Plus-screenshot',
   'idu-plus-logo',
@@ -413,7 +382,7 @@ function inspectReleaseArtifactForExcludedExtensions(relativePath, { extractionR
       if (portablePath.endsWith('/resources/app.asar')) inspectAsarForExcludedExtensions(fullPath, relativePath)
       if (/\.(?:json|ya?ml)$/i.test(portablePath) && statSync(fullPath).size <= 4 * 1024 * 1024) {
         const text = readFileSync(fullPath, 'utf8')
-        if (/first-party-extensions[\\/]idu-plus|IDU-Plus-by-Vast|Cat_85|cat-addon/i.test(text)) fail(`${relativePath} contains excluded extension metadata in ${portablePath}`)
+        if (/first-party-extensions[\\/]idu-plus|IDU-Plus-by-Vast/i.test(text)) fail(`${relativePath} contains excluded extension metadata in ${portablePath}`)
       }
     }
   } finally {
@@ -431,18 +400,17 @@ if (existsSync(appUpdateConfigPath)) {
     fail('packaged resources/app-update.yml does not target the approved public update repository')
   }
 }
-const excludedBundledExtensionsRequired = publicDistributionFromEnv || packagedBuildMetadata?.catAddonIncluded === false
-if (excludedBundledExtensionsRequired && existsSync(join(packagedResourcesRoot, 'cat-addon'))) {
-  fail('distribution package contains Cat Addon resources while the capability is disabled')
+if (existsSync(join(packagedResourcesRoot, 'cat-addon'))) {
+  fail('distribution package contains removed Cat Addon resources')
 }
-if (excludedBundledExtensionsRequired) {
+if (publicDistributionFromEnv) {
   for (const fullPath of listFiles(join(releaseRoot, `Vast-${version}`))) {
     const portablePath = relative(releaseRoot, fullPath).replace(/\\/g, '/')
     if (forbiddenBundledExtensionAsset.test(portablePath)) fail(`distribution contains forbidden bundled extension asset: ${portablePath}`)
   }
   const appAsarPath = join(packagedResourcesRoot, 'app.asar')
   if (existsSync(appAsarPath)) {
-    try { inspectAsarForExcludedExtensions(appAsarPath, 'public app.asar') } catch (error) { fail(`could not audit app.asar for Cat Addon and IDU+: ${error instanceof Error ? error.message : String(error)}`) }
+    try { inspectAsarForExcludedExtensions(appAsarPath, 'public app.asar') } catch (error) { fail(`could not audit app.asar for IDU+ assets: ${error instanceof Error ? error.message : String(error)}`) }
   }
   for (const artifact of [`Installer/Vast-Setup-${version}.exe`, `Installer/Vast-${version}-Portable.exe`, `Downloads/Vast-${version}-update.zip`]) {
     inspectReleaseArtifactForExcludedExtensions(artifact)
@@ -452,14 +420,17 @@ if (excludedBundledExtensionsRequired) {
 if (publicDistributionFromEnv && existsSync(join(releaseRoot, 'INTERNAL-UNSIGNED.md'))) {
   fail('public distribution contains the internal unsigned marker')
 }
-if (signedPublicDistribution && existsSync(join(releaseRoot, 'PUBLIC-UNSIGNED-BETA.md'))) {
-  fail('signed public distribution contains the public unsigned beta marker')
+if (publicDistributionFromEnv && existsSync(join(releaseRoot, 'PUBLIC-UNSIGNED-BETA.md'))) {
+  fail('public distribution contains the obsolete public unsigned beta marker')
 }
-if (publicUnsignedBeta && !existsSync(join(releaseRoot, 'PUBLIC-UNSIGNED-BETA.md'))) {
-  fail('public unsigned beta is missing PUBLIC-UNSIGNED-BETA.md')
+if (signedPublicDistribution && existsSync(join(releaseRoot, 'PUBLIC-UNSIGNED-RELEASE.md'))) {
+  fail('signed public distribution contains the public unsigned release marker')
 }
-if (publicUnsignedBeta && process.env.VAST_UNSIGNED_BETA_ACK !== 'I_ACCEPT_UNSIGNED_PUBLIC_BETA_RISK') {
-  fail('public unsigned beta verification requires the exact risk acknowledgement')
+if (publicUnsignedRelease && !existsSync(join(releaseRoot, 'PUBLIC-UNSIGNED-RELEASE.md'))) {
+  fail('public unsigned release is missing PUBLIC-UNSIGNED-RELEASE.md')
+}
+if (publicUnsignedRelease && process.env.VAST_UNSIGNED_RELEASE_ACK !== 'I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK') {
+  fail('public unsigned release verification requires the exact risk acknowledgement')
 }
 if (signedPublicDistribution && !expectedSignerSubject) {
   fail('signed public distribution verification requires VAST_EXPECTED_SIGNER_SUBJECT')
@@ -469,7 +440,7 @@ if (existsSync(join(releaseRoot, 'version.json'))) {
   const versionJson = readJson('version.json')
   if (versionJson.version !== version) fail('release/version.json version does not match package.json')
   if (publicDistributionFromEnv && versionJson.sourceCommit !== expectedSourceCommit) fail('release/version.json sourceCommit does not match VAST_RELEASE_COMMIT')
-  if (publicDistributionFromEnv && versionJson.signaturePolicy !== (publicUnsignedBeta ? 'unsigned-public-beta' : 'authenticode-signed')) fail('release/version.json signaturePolicy is incorrect')
+  if (publicDistributionFromEnv && versionJson.signaturePolicy !== (publicUnsignedRelease ? 'unsigned-public-release' : 'authenticode-signed')) fail('release/version.json signaturePolicy is incorrect')
   if ('edition' in versionJson) fail('release/version.json must not generate edition metadata')
   if (versionJson.updater && 'targetEdition' in versionJson.updater) fail('release updater metadata must not generate targetEdition')
   if (String(versionJson.updater?.entrypoint ?? '') !== `Updater/VastUpdater-${version}.exe`) {
@@ -483,7 +454,7 @@ if (existsSync(join(releaseRoot, 'Downloads/update-manifest.json'))) {
   const zipPath = join(releaseRoot, zipRelative)
   if (manifest.version !== version) fail('download manifest version does not match package.json')
   if (publicDistributionFromEnv && manifest.sourceCommit !== expectedSourceCommit) fail('download manifest sourceCommit does not match VAST_RELEASE_COMMIT')
-  if (publicDistributionFromEnv && manifest.signaturePolicy !== (publicUnsignedBeta ? 'unsigned-public-beta' : 'authenticode-signed')) fail('download manifest signaturePolicy is incorrect')
+  if (publicDistributionFromEnv && manifest.signaturePolicy !== (publicUnsignedRelease ? 'unsigned-public-release' : 'authenticode-signed')) fail('download manifest signaturePolicy is incorrect')
   if ('edition' in manifest) fail('download manifest must not generate edition metadata')
   if (manifest.package && 'edition' in manifest.package) fail('download manifest package must not generate edition metadata')
   if (manifest.package?.url !== `Vast-${version}-update.zip`) fail('download manifest package URL is not the expected update ZIP')
@@ -498,7 +469,7 @@ if (existsSync(join(releaseRoot, 'Docs/release-manifest.json'))) {
   const releaseManifest = readJson('Docs/release-manifest.json')
   if (releaseManifest.version !== version) fail('release manifest version does not match package.json')
   if (publicDistributionFromEnv && releaseManifest.sourceCommit !== expectedSourceCommit) fail('release manifest sourceCommit does not match VAST_RELEASE_COMMIT')
-  if (publicDistributionFromEnv && releaseManifest.signaturePolicy !== (publicUnsignedBeta ? 'unsigned-public-beta' : 'authenticode-signed')) fail('release manifest signaturePolicy is incorrect')
+  if (publicDistributionFromEnv && releaseManifest.signaturePolicy !== (publicUnsignedRelease ? 'unsigned-public-release' : 'authenticode-signed')) fail('release manifest signaturePolicy is incorrect')
 }
 
 if (existsSync(join(releaseRoot, 'Installer/latest.yml'))) {
@@ -555,8 +526,8 @@ if (existsSync(appAsarPath)) {
 const report = {
   ok: failures.length === 0,
   version,
-  publicUnsignedBeta,
-  signaturePolicy: publicUnsignedBeta ? 'unsigned-public-beta' : (signedPublicDistribution ? 'authenticode-signed' : 'internal-unsigned'),
+  publicUnsignedRelease,
+  signaturePolicy: publicUnsignedRelease ? 'unsigned-public-release' : (signedPublicDistribution ? 'authenticode-signed' : 'internal-unsigned'),
   releaseRoot,
   requiredFiles,
   packagedBuildMetadata,

@@ -6,7 +6,7 @@ const root = join(__dirname, '..')
 const packageVersion = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version
 
 function usage() {
-  console.error('Usage: node scripts/local-release-from-env.cjs [npm-script] [--env-file .env.release.local] [--internal-unsigned|--public-unsigned-beta]')
+  console.error('Usage: node scripts/local-release-from-env.cjs [npm-script] [--env-file .env.release.local] [--internal-unsigned|--public-unsigned-release]')
   process.exit(1)
 }
 
@@ -14,7 +14,7 @@ const args = process.argv.slice(2)
 let target = 'dist:upgrader'
 let envFile = join(root, '.env.release.local')
 let internalUnsigned = false
-let publicUnsignedBeta = false
+let publicUnsignedRelease = false
 
 for (let index = 0; index < args.length; index++) {
   const arg = args[index]
@@ -23,8 +23,8 @@ for (let index = 0; index < args.length; index++) {
     internalUnsigned = true
     continue
   }
-  if (arg === '--public-unsigned-beta') {
-    publicUnsignedBeta = true
+  if (arg === '--public-unsigned-release') {
+    publicUnsignedRelease = true
     continue
   }
   if (arg === '--env-file') {
@@ -79,9 +79,10 @@ if (!existsSync(envFile)) {
 
 const fileEnv = parseEnvFile(envFile)
 const env = { ...process.env, ...fileEnv }
+env.VAST_DISTRIBUTION_CHANNEL = 'direct'
 
-if (internalUnsigned && publicUnsignedBeta) {
-  throw new Error('Internal unsigned and public unsigned beta modes are mutually exclusive.')
+if (internalUnsigned && publicUnsignedRelease) {
+  throw new Error('Internal unsigned and public unsigned release modes are mutually exclusive.')
 }
 
 if (internalUnsigned) {
@@ -100,13 +101,13 @@ if (internalUnsigned) {
   env.CSC_IDENTITY_AUTO_DISCOVERY = 'false'
 }
 
-if (publicUnsignedBeta) {
-  env.VAST_RELEASE_CHANNEL = 'beta'
+if (publicUnsignedRelease) {
+  env.VAST_RELEASE_CHANNEL = env.VAST_RELEASE_CHANNEL || 'stable'
   env.VAST_PRIVATE_BUILD = '0'
   env.VAST_UPDATE_ENABLED = '1'
   env.VAST_OBFUSCATE = '1'
-  env.VAST_PUBLIC_UNSIGNED_BETA = '1'
-  env.VAST_UNSIGNED_BETA_ACK = 'I_ACCEPT_UNSIGNED_PUBLIC_BETA_RISK'
+  env.VAST_PUBLIC_UNSIGNED_RELEASE = '1'
+  env.VAST_UNSIGNED_RELEASE_ACK = 'I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK'
   delete env.WIN_CSC_LINK
   delete env.CSC_LINK
   delete env.WIN_CSC_KEY_PASSWORD
@@ -132,12 +133,12 @@ if (internalUnsigned) {
     failures.push('VAST_RELEASE_CHANNEL must be beta or stable for a public distribution')
   }
   requireExact('VAST_PRIVATE_BUILD', '0')
-  if (!publicUnsignedBeta && !String(env.VAST_EXPECTED_SIGNER_SUBJECT ?? '').trim()) {
+  if (!publicUnsignedRelease && !String(env.VAST_EXPECTED_SIGNER_SUBJECT ?? '').trim()) {
     failures.push('VAST_EXPECTED_SIGNER_SUBJECT is required for a public distribution')
   }
-  if (publicUnsignedBeta) {
-    requireExact('VAST_PUBLIC_UNSIGNED_BETA', '1')
-    requireExact('VAST_UNSIGNED_BETA_ACK', 'I_ACCEPT_UNSIGNED_PUBLIC_BETA_RISK')
+  if (publicUnsignedRelease) {
+    requireExact('VAST_PUBLIC_UNSIGNED_RELEASE', '1')
+    requireExact('VAST_UNSIGNED_RELEASE_ACK', 'I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK')
   }
 
   const gitHead = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', windowsHide: true })
@@ -171,7 +172,7 @@ console.log(
       privateBuild: flag(env, 'VAST_PRIVATE_BUILD', true),
       sourceCommit: env.VAST_RELEASE_COMMIT || null,
       internalUnsigned,
-      publicUnsignedBeta
+      publicUnsignedRelease
     },
     null,
     2

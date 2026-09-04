@@ -21,6 +21,7 @@ Key shipped components:
 - `pdfjs-dist@6.2.108`: Apache-2.0.
 - React, React DOM, Zustand, Electron Toolkit, and electron-updater: MIT.
 - Lucide React and semver: ISC.
+- `tldts@7.4.11` and `tldts-core@7.4.11`: MIT; used for complete PSL/eTLD+1 classification.
 
 Primary upstream references:
 
@@ -90,12 +91,7 @@ The repository stores a patch overlay, not a Chromium source checkout or staged 
 
 ## Release-blocking asset provenance
 
-`third_party/cat_85_animations/README.vast.md` records that `assets/cat-addon/Cat_85_Animations.zip` contains no license document, author attribution, source URL, or redistribution grant. Derived atlases and `resources/cat-addon/cat_addon.zip` inherit that unresolved provenance.
-
-This is not a license choice between MIT and GPL; it is an absence of permission to redistribute a third-party asset. The root MIT License cannot cure it. Before publication, VastProductions must either:
-
-- obtain a written redistribution/modification grant compatible with public source and binary distribution, record the author/source/license, and add the required notice; or
-- replace/remove the asset and all derived copies with properly licensed material while preserving the surrounding feature code as appropriate.
+The previously bundled unlicensed pixel-art asset (Cat Addon) has been removed from the repository, resolving that provenance blocker.
 
 ## Result
 
@@ -103,5 +99,4 @@ This is not a license choice between MIT and GPL; it is an absence of permission
 - Node/Electron/pdf.js compatibility: **PASS**
 - Python/Playwright/PyInstaller compatibility: **PASS with notice preservation**
 - FFmpeg binary obligations: **PASS — self-built GPLv3 runtime, complete corresponding source and hard release gates**
-- Cat Addon third-party asset: **BLOCKED pending provenance/license**
-- Overall third-party publication readiness: **PASS for the public configuration with `VAST_CAT_ADDON_ENABLED=0`; Cat Addon remains blocked if enabled**
+- Overall third-party publication readiness: **PASS**

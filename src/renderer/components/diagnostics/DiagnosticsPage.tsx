@@ -177,8 +177,7 @@ export function DiagnosticsPage(): JSX.Element {
       <div className="mx-auto max-w-6xl space-y-5">
         <InternalPageHero
           icon={Activity}
-          title="Local debug center"
-          description="Runtime diagnostics, site data visibility, and local browser state in one place. Redacted by default: no passwords, secrets, or full browsing dump."
+          title="Diagnostics"
           actions={
             <div className="grid w-full grid-cols-2 gap-2 sm:w-[25rem]" data-testid="diagnostics-primary-actions">
               <button type="button" onClick={() => void navigator.clipboard.writeText(JSON.stringify(report, null, 2))} className="vault-action-button min-w-0 justify-center px-2">

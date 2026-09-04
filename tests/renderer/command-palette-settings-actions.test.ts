@@ -19,7 +19,7 @@ test('command palette exposes direct, state-aware privacy and appearance toggles
   ]) {
     assert.match(paletteSource, new RegExp(`id: '${commandId}'`))
   }
-  assert.match(paletteSource, /labs: \{ enabled: true, spoofing: true \}, spoofing: \{ enabled: true \}/)
+  assert.match(paletteSource, /labs: \{ spoofing: true \}, spoofing: \{ enabled: true \}/)
 })
 
 test('command palette moves keyboard focus treatment to its rounded search row', () => {

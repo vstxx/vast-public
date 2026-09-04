@@ -1,5 +1,5 @@
-import type { PasswordLoginCandidate } from '../../shared/password-capture-policy'
-import type { PasswordVaultInput, PasswordVaultUpdate } from '../../shared/types'
+import type { PasswordSavePromptAction, PasswordVaultInput, PasswordVaultUpdate } from '../../shared/types'
+import { passwordCaptureCoordinator } from '../password-capture-coordinator'
 import {
   assertNonEmptyString,
   assertObject,
@@ -22,6 +22,11 @@ function assertOrigin(origin: unknown): asserts origin is string {
 
 function assertCredentialId(id: unknown): asserts id is string {
   assertNonEmptyString(id, 'credential id', 256)
+}
+
+function assertAutofillRequestId(requestId: unknown): asserts requestId is string {
+  assertNonEmptyString(requestId, 'autofill request id', 128)
+  if (!/^[a-f0-9]{32}$/i.test(requestId)) throw new Error('Invalid autofill request id.')
 }
 
 export function registerPasswordIpc(
@@ -95,7 +100,7 @@ export function registerPasswordIpc(
       assertPositiveInteger(webContentsId, 'webContents id')
       assertOrigin(origin)
       const owner = senderWindowFor(event)
-      return { ok: true, filled: await (await import('../password-vault')).fillBestAutofillCredential(owner, webContentsId, origin) }
+      return { ok: true, filled: await (await import('../password-vault')).fillBestAutofillCredential(owner, webContentsId, origin, () => session.unlock()) }
     } catch (error) {
       return fail(error)
     }
@@ -112,15 +117,27 @@ export function registerPasswordIpc(
     }
   })
 
-  handle('vast:passwords:fill-by-id', async (event, id: string, webContentsId: number, origin: string) => {
+  handle('vast:passwords:fill-by-id', async (event, id: string, webContentsId: number, origin: string, requestId: string) => {
     try {
       assertCredentialId(id)
       assertPositiveInteger(webContentsId, 'webContents id')
       assertOrigin(origin)
+      assertAutofillRequestId(requestId)
       const owner = senderWindowFor(event)
       const [{ loadData }, vault] = await Promise.all([import('../storage'), import('../password-vault')])
       const data = await loadData()
-      return { ok: true, filled: await vault.fillAutofillCredentialById(owner, id, webContentsId, origin, data.settings.security.alwaysConfirmAutofill) }
+      return {
+        ok: true,
+        filled: await vault.fillAutofillCredentialById(
+          owner,
+          id,
+          webContentsId,
+          origin,
+          requestId,
+          data.settings.security.alwaysConfirmAutofill,
+          () => session.unlock()
+        )
+      }
     } catch (error) {
       return fail(error)
     }
@@ -146,12 +163,13 @@ export function registerPasswordIpc(
     }
   })
 
-  handle('vast:passwords:capture-login', async (event, webContentsId: number, input: PasswordLoginCandidate) => {
+  handle('vast:passwords:resolve-save-prompt', async (event, attemptId: string, action: PasswordSavePromptAction) => {
     try {
-      assertPositiveInteger(webContentsId, 'webContents id')
-      assertObject(input, 'captured login')
-      const owner = senderWindowFor(event)
-      return { ok: true, ...(await (await import('../password-vault')).promptToSaveCapturedLogin(owner, webContentsId, input)) }
+      assertNonEmptyString(attemptId, 'credential attempt id', 64)
+      if (action !== 'save' && action !== 'update' && action !== 'not-now' && action !== 'never') {
+        throw new Error('Invalid password prompt action.')
+      }
+      return { ok: true, outcome: await passwordCaptureCoordinator.resolvePrompt(senderWindowFor(event), attemptId, action) }
     } catch (error) {
       return fail(error)
     }

@@ -1,9 +1,7 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { buildCosmeticAdBlockScript } from '../../../shared/adblock'
-import { getFeatureState, VastFeatures } from '../../../shared/feature-gates'
 import { mouseNavigationActionForButton, shouldTriggerMouseNavigation } from '../../../shared/mouse-navigation'
-import type { ID, Tab, WorkspaceIdentitySettings } from '../../../shared/types'
-import { buildSpoofingInjectionScript } from '../../../shared/spoofing'
+import type { ID, PdfCaptureEvent, Tab, WorkspaceIdentitySettings } from '../../../shared/types'
 import { GuestNavigationUrlQueue, shouldAcceptWebviewNavigationEvent, webviewNavigationUrl } from '../../../shared/webview-navigation'
 import { shouldBypassVastInterference } from '../../../shared/auth-compatibility-policy'
 import { automaticPasswordCaptureOrigin } from '../../../shared/password-capture-policy'
@@ -11,7 +9,8 @@ import { isLikelyCallUrl } from '../../../shared/call-protection'
 import { cleanTrackingUrl, hostMatchesList, siteDomain } from '../../../shared/url-cleaning'
 import { resolveWorkspaceIdentity } from '../../../shared/workspace-identity'
 import { useBrowserStore, type ContextMenuItem } from '../../store/browser-store'
-import { createPdfViewerUrl, displayUrl, isInternalUrl, isSafeLoadUrl, looksLikePdfUrl, webOriginFor } from '../../lib/url'
+import { createPdfViewerUrl, displayUrl, isInternalUrl, isSafeLoadUrl, webOriginFor } from '../../lib/url'
+import { takePendingInitialNavigation } from '../../lib/pending-initial-navigation.ts'
 import { useBrowserRuntime } from '../../app/browser-runtime'
 import { getExtensionContributions } from '../../extensions/extension-runtime'
 
@@ -94,6 +93,8 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
   const puristSafeSpaceRef = useRef(puristSafeSpace)
   const [puristSafeSpaceVisible, setPuristSafeSpaceVisible] = useState(false)
   const initialUrlRef = useRef(tab.url)
+  const pendingInitialNavigationRef = useRef(takePendingInitialNavigation(tab.id))
+  const initialReplayPendingRef = useRef(false)
   const mountWebview = useCallback((webview: Electron.WebviewTag | null): void => {
     ref.current = webview
     if (!webview) return
@@ -102,7 +103,41 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
     // `allowpopups` attribute. Set it before src so the guest is attached with
     // native window-open support from its first navigation.
     webview.setAttribute('allowpopups', '')
-    webview.setAttribute('src', initialUrlRef.current)
+    const navigation = pendingInitialNavigationRef.current
+    if (!navigation) {
+      webview.setAttribute('src', initialUrlRef.current)
+      return
+    }
+    // A pending window.open navigation replays referrer and POST data through
+    // loadURL; mounting straight at the URL would flatten the request to a
+    // plain GET. Subscribe synchronously at insertion — about:blank's
+    // dom-ready can fire before a post-mount effect would attach.
+    webview.setAttribute('src', 'about:blank')
+    initialReplayPendingRef.current = true
+    const uploadData = navigation.postBody?.data.map((entry) => (
+      entry.type === 'rawData'
+        ? { type: 'rawData', bytes: entry.bytes ?? new Uint8Array() }
+        : { type: 'file', filePath: entry.filePath ?? '', offset: entry.offset, length: entry.length }
+    ))
+    // The structures mirror Electron's native Referrer/UploadData exactly —
+    // they were captured from its window-open handler. The sandboxed
+    // renderer has no Buffer global, so plain objects are forwarded as-is.
+    const options = {
+      httpReferrer: navigation.referrer,
+      postData: uploadData
+    } as unknown as Electron.LoadURLOptions
+    pendingInitialNavigationRef.current = undefined
+    const replayOnDomReady = (): void => {
+      webview.removeEventListener('dom-ready', replayOnDomReady)
+      void webview.loadURL(initialUrlRef.current, options).catch((error) => {
+        // Downloads abort the underlying navigation by design; only unexpected
+        // failures are worth surfacing.
+        if (!/ERR_ABORTED|ERR_FAILED/.test(String(error))) {
+          console.warn('[webview] Failed to replay window.open navigation:', error)
+        }
+      })
+    }
+    webview.addEventListener('dom-ready', replayOnDomReady)
   }, [])
   const latestTabRef = useRef(tab)
   const identityRef = useRef(identity)
@@ -112,20 +147,12 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
   const lastKnownUrlRef = useRef(tab.url)
   const guestNavigationUrlsRef = useRef(new GuestNavigationUrlQueue())
   const webContentsIdRef = useRef<number | undefined>(undefined)
+  const routedPdfCaptureIdsRef = useRef(new Set<string>())
   const wheelZoomAccumulatorRef = useRef(0)
   const lastWheelZoomRef = useRef(0)
   const lastMouseNavigationRef = useRef({ action: '', at: 0 })
   const updateTab = useBrowserStore((state) => state.updateTab)
   const privacySettings = useBrowserStore((state) => state.settings.privacy)
-  const spoofingSettings = useBrowserStore((state) => state.settings.spoofing)
-  const spoofingAvailable = useBrowserStore((state) =>
-    getFeatureState(VastFeatures.Spoofing, { settings: state.settings }).available
-  )
-  const effectiveSpoofingSettings = useMemo(
-    () => spoofingAvailable ? spoofingSettings : { ...spoofingSettings, enabled: false },
-    [spoofingAvailable, spoofingSettings]
-  )
-  const effectiveSpoofingSettingsRef = useRef(effectiveSpoofingSettings)
   const upsertSiteMemory = useBrowserStore((state) => state.upsertSiteMemory)
   const addNote = useBrowserStore((state) => state.addNote)
   const addHistoryEntry = useBrowserStore((state) => state.addHistoryEntry)
@@ -155,13 +182,14 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
   }, [identity, identitySeed])
 
   useEffect(() => {
-    effectiveSpoofingSettingsRef.current = effectiveSpoofingSettings
-  }, [effectiveSpoofingSettings])
-
-  useEffect(() => {
     const webview = ref.current
     if (!webview) return
     register(tab.id, webview)
+    try {
+      webContentsIdRef.current = webview.getWebContentsId()
+    } catch {
+      webContentsIdRef.current = undefined
+    }
 
     const updateNavigationFlags = (): void => {
       updateTab(tab.id, {
@@ -213,10 +241,15 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
     const configurePasswordCapture = (): void => {
       const currentUrl = webview.getURL() || latestTabRef.current.url
       const origin = automaticPasswordCaptureOrigin(currentUrl)
-      if (isPrivate || !origin) {
+      const locallyEnabled = useBrowserStore.getState().settings.labs.passwordManager === true
+      if (isPrivate || !origin || !locallyEnabled) {
         sendToGuest('vast:password-capture-config', { enabled: false })
         return
       }
+      // Attach interaction listeners immediately so a fast type-and-Enter after
+      // dom-ready is not missed. Main remains authoritative and rejects a
+      // disabled, suppressed, foreign, non-persistent, or mismatched guest.
+      sendToGuest('vast:password-capture-config', { enabled: true })
       const webContentsId = webview.getWebContentsId()
       void window.vast.passwords.captureStatus(webContentsId, origin).then((result) => {
         if (!(webview as HTMLElement).isConnected) return
@@ -235,21 +268,16 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
       const latestSettings = useBrowserStore.getState().settings
       void window.vast.privacy.configureIdentity(webContentsIdRef.current, identityRef.current, currentUrl, identitySeedRef.current).catch(() => undefined)
       const bypassInterventions = shouldBypassVastInterference({ url: currentUrl }) || siteInterventionsAreDisabled(latestSettings.privacy.siteInterventionsDisabled, currentUrl)
-      if (!bypassInterventions) {
-        const spoofingScript = buildSpoofingInjectionScript(effectiveSpoofingSettingsRef.current, window.vast.app.versions.chrome)
-        if (spoofingScript) {
-          void webview.executeJavaScript(spoofingScript, false).catch(() => undefined)
-        }
-        void webview
-          .executeJavaScript(
-            buildCosmeticAdBlockScript(
-              latestSettings.privacy.adBlockerEnabled,
-              latestSettings.privacy.adBlockerMode ?? 'standard'
-            ),
-            false
-          )
-          .catch(() => undefined)
-      }
+      const bypassCosmeticFiltering = bypassInterventions || hostMatchesList(currentUrl, latestSettings.privacy.adBlockAllowlist)
+      void webview
+        .executeJavaScript(
+          buildCosmeticAdBlockScript(
+            latestSettings.privacy.adBlockerEnabled && !bypassCosmeticFiltering,
+            latestSettings.privacy.adBlockerMode ?? 'standard'
+          ),
+          false
+        )
+        .catch(() => undefined)
       const latestTab = latestTabRef.current
       const audioWebview = webview as Electron.WebviewTag & { setAudioMuted?: (muted: boolean) => void }
       audioWebview.setAudioMuted?.(Boolean(latestTab.muted))
@@ -290,7 +318,16 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
           sendToGuest('vast:password-autofill-config', { enabled: false })
           return
         }
-        sendToGuest('vast:password-autofill-config', { enabled: true, suggestions: result.suggestions })
+        const settings = useBrowserStore.getState().settings
+        const theme = settings.theme === 'system'
+          ? window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+          : settings.theme
+        sendToGuest('vast:password-autofill-config', {
+          enabled: true,
+          suggestions: result.suggestions,
+          theme,
+          accent: settings.accentColor
+        })
       }).catch(() => sendToGuest('vast:password-autofill-config', { enabled: false }))
     }
     const onStop = (): void => {
@@ -313,24 +350,6 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
       const url = webviewNavigationUrl(event as unknown as Parameters<typeof webviewNavigationUrl>[0], currentWebviewUrl)
       lastKnownUrlRef.current = url
       guestNavigationUrlsRef.current.remember(url)
-      if (looksLikePdfUrl(url)) {
-        const returnTo = latestTab.url && latestTab.url !== url ? latestTab.url : undefined
-        updateTab(tab.id, {
-          url: createPdfViewerUrl(url, { returnTo }),
-          displayUrl: url,
-          canGoBack: Boolean(returnTo),
-          canGoForward: false,
-          error: undefined
-        })
-        addHistoryEntry({
-          title: webview.getTitle() || latestTab.title,
-          url,
-          favicon: latestTab.favicon,
-          workspaceId: latestTab.workspaceId
-        })
-        rememberCurrentSite()
-        return
-      }
       updateTab(tab.id, {
         url,
         displayUrl: url,
@@ -432,6 +451,20 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
 
     const onGuestIpcMessage = (event: Event): void => {
       const message = event as unknown as { channel?: string; args?: unknown[] }
+      if (message.channel === 'vast:wheel-zoom') {
+        const deltaY = message.args?.[0]
+        if (typeof deltaY !== 'number' || !Number.isFinite(deltaY) || deltaY === 0) return
+        const now = performance.now()
+        if (now - lastWheelZoomRef.current > 180 || Math.sign(wheelZoomAccumulatorRef.current) !== Math.sign(deltaY)) {
+          wheelZoomAccumulatorRef.current = 0
+        }
+        wheelZoomAccumulatorRef.current += Math.max(-120, Math.min(120, deltaY))
+        lastWheelZoomRef.current = now
+        if (Math.abs(wheelZoomAccumulatorRef.current) < 35) return
+        runtime.adjustZoom(wheelZoomAccumulatorRef.current < 0 ? 1 : -1, tab.id)
+        wheelZoomAccumulatorRef.current = 0
+        return
+      }
       if (message.channel === 'vast:scroll-boundary') {
         const atTop = message.args?.[0]
         if (typeof atTop !== 'boolean') return
@@ -453,45 +486,15 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
       }
       if (message.channel === 'vast:autofill-select') {
         const credentialId = message.args?.[0]
-        if (typeof credentialId !== 'string' || !credentialId || isPrivate) return
+        const requestId = message.args?.[1]
+        if (typeof credentialId !== 'string' || !credentialId || typeof requestId !== 'string' || !/^[a-f0-9]{32}$/i.test(requestId) || isPrivate) return
         const currentUrl = webview.getURL() || latestTabRef.current.url
         if (!hasHttpOrigin(currentUrl)) return
         const origin = new URL(currentUrl).origin
-        void window.vast.passwords.fillById(credentialId, webview.getWebContentsId(), origin).catch(() => undefined)
+        void window.vast.passwords.fillById(credentialId, webview.getWebContentsId(), origin, requestId).catch(() => undefined)
         return
       }
-      if (message.channel !== 'vast:password-login-candidate' || isPrivate) return
-      const input = message.args?.[0]
-      if (!input || typeof input !== 'object') return
-      const candidate = input as { origin?: unknown; username?: unknown; password?: unknown }
-      const currentOrigin = automaticPasswordCaptureOrigin(webview.getURL() || latestTabRef.current.url)
-      if (!currentOrigin || candidate.origin !== currentOrigin || typeof candidate.username !== 'string' || typeof candidate.password !== 'string') return
-      if (candidate.username.length > 512 || candidate.password.length < 1 || candidate.password.length > 4096) return
-      const latestTab = latestTabRef.current
-      void window.vast.passwords.captureLogin(webview.getWebContentsId(), {
-        origin: currentOrigin,
-        username: candidate.username,
-        password: candidate.password,
-        title: latestTab.title,
-        favicon: latestTab.favicon
-      }).then((result) => {
-        if (result.ok && result.outcome === 'suppressed') configurePasswordCapture()
-      }).catch(() => undefined)
-    }
-
-    const onWheelZoom = (event: Event): void => {
-      const wheelEvent = event as WheelEvent
-      if (!wheelEvent.ctrlKey && !wheelEvent.metaKey) return
-      wheelEvent.preventDefault()
-      wheelEvent.stopPropagation()
-
-      const now = performance.now()
-      wheelZoomAccumulatorRef.current += wheelEvent.deltaY
-      if (Math.abs(wheelZoomAccumulatorRef.current) < 35 && now - lastWheelZoomRef.current < 120) return
-
-      runtime.adjustZoom(wheelZoomAccumulatorRef.current < 0 ? 1 : -1, tab.id)
-      wheelZoomAccumulatorRef.current = 0
-      lastWheelZoomRef.current = now
+      return
     }
 
     const onMouseNavigation = (event: MouseEvent): void => {
@@ -852,12 +855,65 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
     webview.addEventListener('ipc-message', onGuestIpcMessage)
     webview.addEventListener('media-started-playing', onMediaStarted)
     webview.addEventListener('media-paused', onMediaPaused)
-    ;(webview as HTMLElement).addEventListener('wheel', onWheelZoom, { passive: false })
     ;(webview as HTMLElement).addEventListener('mousedown', onMouseNavigation, true)
     ;(webview as HTMLElement).addEventListener('mouseup', onMouseNavigation, true)
     ;(webview as HTMLElement).addEventListener('auxclick', onMouseNavigation, true)
     ;(webview as HTMLElement).addEventListener('focus', onFocusedSurface)
     webview.addEventListener('context-menu', onContextMenu)
+    const handlePdfCapture = (capture: PdfCaptureEvent): void => {
+      let currentGuestId = webContentsIdRef.current
+      if (!currentGuestId) {
+        try {
+          currentGuestId = webview.getWebContentsId()
+          webContentsIdRef.current = currentGuestId
+        } catch {
+          return
+        }
+      }
+      if (capture.guestWebContentsId !== currentGuestId) return
+      const progress = capture.totalBytes > 0
+        ? Math.max(0.12, Math.min(0.88, capture.receivedBytes / capture.totalBytes))
+        : 0.2
+      if (routedPdfCaptureIdsRef.current.has(capture.id)) {
+        updateTab(tab.id, {
+          status: capture.state === 'failed' ? 'error' : capture.state === 'ready' ? 'idle' : 'loading',
+          progress: capture.state === 'failed' || capture.state === 'ready' ? 0 : progress,
+          error: capture.state === 'failed'
+            ? { code: 0, description: capture.error || 'PDF download failed.', validatedUrl: capture.sourceUrl }
+            : undefined
+        })
+        return
+      }
+      routedPdfCaptureIdsRef.current.add(capture.id)
+      const latestTab = latestTabRef.current
+      const returnTo = latestTab.url && latestTab.url !== capture.sourceUrl ? latestTab.url : undefined
+      updateTab(tab.id, {
+        url: createPdfViewerUrl(capture.sourceUrl, { returnTo, resourceId: capture.id }),
+        displayUrl: capture.sourceUrl,
+        title: capture.filename || latestTab.title,
+        status: capture.state === 'failed' ? 'error' : 'loading',
+        progress: capture.state === 'failed' ? 0 : progress,
+        canGoBack: Boolean(returnTo),
+        canGoForward: false,
+        error: capture.state === 'failed'
+          ? { code: 0, description: capture.error || 'PDF download failed.', validatedUrl: capture.sourceUrl }
+          : undefined
+      })
+      if (capture.state !== 'failed') {
+        addHistoryEntry({
+          title: capture.filename || latestTab.title,
+          url: capture.sourceUrl,
+          favicon: latestTab.favicon,
+          workspaceId: latestTab.workspaceId
+        })
+      }
+    }
+    const unsubscribePdfCapture = window.vast.pdf.onCapture(handlePdfCapture)
+    if (webContentsIdRef.current) {
+      void window.vast.pdf.captures(webContentsIdRef.current).then((result) => {
+        result.captures?.forEach(handlePdfCapture)
+      }).catch(() => undefined)
+    }
 
     return () => {
       // React may run passive cleanup after Electron has already detached the
@@ -887,12 +943,12 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
       webview.removeEventListener('ipc-message', onGuestIpcMessage)
       webview.removeEventListener('media-started-playing', onMediaStarted)
       webview.removeEventListener('media-paused', onMediaPaused)
-      ;(webview as HTMLElement).removeEventListener('wheel', onWheelZoom)
       ;(webview as HTMLElement).removeEventListener('mousedown', onMouseNavigation, true)
       ;(webview as HTMLElement).removeEventListener('mouseup', onMouseNavigation, true)
       ;(webview as HTMLElement).removeEventListener('auxclick', onMouseNavigation, true)
       ;(webview as HTMLElement).removeEventListener('focus', onFocusedSurface)
       webview.removeEventListener('context-menu', onContextMenu)
+      unsubscribePdfCapture()
       window.clearTimeout(mediaPauseTimer)
       domReadyRef.current = false
       register(tab.id, undefined)
@@ -904,27 +960,19 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
     const webview = ref.current
     if (!webview || !domReadyRef.current) return
     const currentUrl = webview.getURL() || tab.url
-    if (shouldBypassVastInterference({ url: currentUrl }) || siteInterventionsAreDisabled(privacySettings.siteInterventionsDisabled, currentUrl)) return
-    const spoofingScript = buildSpoofingInjectionScript(effectiveSpoofingSettings, window.vast.app.versions.chrome)
-    if (!spoofingScript) return
-    void webview.executeJavaScript(spoofingScript, false).catch(() => undefined)
-  }, [effectiveSpoofingSettings, privacySettings.siteInterventionsDisabled, tab.url])
-
-  useEffect(() => {
-    const webview = ref.current
-    if (!webview || !domReadyRef.current) return
-    const currentUrl = webview.getURL() || tab.url
-    if (shouldBypassVastInterference({ url: currentUrl }) || siteInterventionsAreDisabled(privacySettings.siteInterventionsDisabled, currentUrl)) return
+    const bypass = shouldBypassVastInterference({ url: currentUrl }) ||
+      siteInterventionsAreDisabled(privacySettings.siteInterventionsDisabled, currentUrl) ||
+      hostMatchesList(currentUrl, privacySettings.adBlockAllowlist)
     void webview
       .executeJavaScript(
         buildCosmeticAdBlockScript(
-          privacySettings.adBlockerEnabled,
+          privacySettings.adBlockerEnabled && !bypass,
           privacySettings.adBlockerMode ?? 'standard'
         ),
         false
       )
       .catch(() => undefined)
-  }, [privacySettings.adBlockerEnabled, privacySettings.adBlockerMode, privacySettings.siteInterventionsDisabled, tab.url])
+  }, [privacySettings.adBlockAllowlist, privacySettings.adBlockerEnabled, privacySettings.adBlockerMode, privacySettings.siteInterventionsDisabled, tab.url])
 
   useEffect(() => {
     const webview = ref.current
@@ -936,14 +984,35 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
   useEffect(() => {
     const webview = ref.current
     if (!webview || isInternalUrl(tab.url)) return
+    // While the mount-time replay of a window.open navigation owns this exact
+    // URL, the plain load path must not race it with a metadata-free request.
+    // Any different URL takes over through the normal path immediately.
+    if (initialReplayPendingRef.current && tab.url === initialUrlRef.current) return
+    initialReplayPendingRef.current = false
     if (guestNavigationUrlsRef.current.consume(tab.url)) return
     if (!domReadyRef.current) {
       pendingUrlRef.current = tab.url
+      // A first navigation that becomes a download never reaches dom-ready.
+      // When the user subsequently chooses another URL, do not wait forever
+      // for that impossible event: the webview is already attached, so start
+      // the replacement navigation and retain pendingUrl as a safe fallback.
+      if (tab.url !== initialUrlRef.current) {
+        try {
+          void webview.loadURL(tab.url).catch(() => {
+            if (latestTabRef.current.url === tab.url) pendingUrlRef.current = tab.url
+          })
+        } catch {
+          pendingUrlRef.current = tab.url
+        }
+      }
       return
     }
     try {
       const currentUrl = webview.getURL()
-      if (!currentUrl || currentUrl === tab.url) return
+      // Chromium clears a guest's committed URL when a navigation becomes a
+      // download. An empty URL must not strand that tab: the next omnibar
+      // navigation still needs an explicit loadURL call.
+      if (currentUrl === tab.url) return
       void webview.loadURL(tab.url).catch((error) => {
         console.warn('[webview] Failed to navigate:', error)
       })

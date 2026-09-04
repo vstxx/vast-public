@@ -30,7 +30,6 @@ jobs:
       VAST_RELEASE_CHANNEL: dev
       VAST_PRIVATE_BUILD: '1'
       VAST_RELAY_ENABLED: '0'
-      VAST_CAT_ADDON_ENABLED: '0'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -54,8 +53,10 @@ jobs:
             throw 'Electron runtime installation did not produce electron.exe.'
           }
       - run: python -m pip install -r resources/avidae/requirements.txt -r resources/avidae/requirements-build.txt
-      - name: Build audited FFmpeg and complete corresponding source
-        run: npm run ffmpeg:build
+      - name: Restore or build audited FFmpeg and complete corresponding source
+        uses: ./.github/actions/prepare-ffmpeg
+        with:
+          github-token: ${{ github.token }}
       - name: Prepare and verify self-contained Video & Audio runtime
         run: npm run avidae:runtime:prepare
       - run: npm run lint
@@ -77,6 +78,7 @@ jobs:
       - run: npm run release:check
       - run: npm run test:fuses:integration
       - run: npm run test:electron-version
+      - run: npm run test:store
       - name: Package unsigned CI application
         env:
           VAST_ALLOW_UNSIGNED_PRIVATE_BUILD: '1'
@@ -86,10 +88,13 @@ jobs:
         run: |
           $exe = Resolve-Path 'release/win-unpacked/Vast.exe'
           $profile = Join-Path $env:RUNNER_TEMP 'vast-packaged-smoke'
-          $env:VAST_TEST_USER_DATA_DIR = $profile
-          $process = Start-Process -FilePath $exe -ArgumentList '--disable-gpu' -PassThru -WindowStyle Hidden
-          Start-Sleep -Seconds 10
-          if ($process.HasExited) { throw "Packaged Vast exited early with code $($process.ExitCode)." }
-          Stop-Process -Id $process.Id -Force
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests/store/packaged-launch-health.test.ps1 -ExecutablePath $exe -ProfileRoot $profile
       - name: Verify packaged application resources and fuses
         run: npm run test:package:ci
+      - name: Build and verify native development Store MSIX
+        run: npm run dist:store:dev
+      - name: Verify Store install, launch, upgrade and clean uninstall
+        shell: pwsh
+        run: |
+          $package = Resolve-Path 'release/store/Vast-0.2.7-Store-x64-Development.msix'
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests/store/store-msix-upgrade.test.ps1 -PackagePath $package

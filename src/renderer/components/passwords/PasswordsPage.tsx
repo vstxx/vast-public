@@ -320,8 +320,8 @@ export function PasswordsPage(): JSX.Element {
             <div>
               <h1 className="text-4xl font-semibold tracking-normal md:text-5xl">Password Manager</h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-vast-soft">
-                Vast detects completed sign-ins, asks before saving or updating a password, and offers matching logins
-                on the same site. Secrets stay OS-encrypted in the main process; CSV import/export is manual only.
+                Vast evaluates sign-in results before offering to save or update a password, and offers matching logins
+                only on the same site. Secrets stay OS-encrypted in the main process; CSV import/export is manual only.
               </p>
             </div>
             <div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-3 lg:w-[33rem]" data-testid="password-vault-header-actions">
@@ -377,9 +377,6 @@ export function PasswordsPage(): JSX.Element {
               <div className="flex items-center gap-2 text-sm font-semibold text-white">
                 <BadgeCheck className="h-4 w-4 text-vast-mint" />
                 Automatic save suggestions are on
-              </div>
-              <div className="mt-1 text-xs leading-5 text-vast-soft">
-                Vast asks after a secure sign-in, updates changed passwords, and ignores unchanged credentials. Google authentication windows stay untouched.
               </div>
             </div>
             <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-semibold text-vast-soft">
@@ -596,8 +593,8 @@ export function PasswordsPage(): JSX.Element {
                   </button>
                 </div>
               </div>
-              <label className="grid gap-2 text-sm font-semibold text-white">
-                Autofill on this domain
+              <div className="grid gap-2 text-sm font-semibold text-white">
+                <span>Autofill on this domain</span>
                 <VastSelect
                   value={form.autofillPolicy}
                   options={[
@@ -609,7 +606,7 @@ export function PasswordsPage(): JSX.Element {
                   buttonClassName="h-11 min-h-11 rounded-2xl"
                   align="start"
                 />
-              </label>
+              </div>
               <label className="grid gap-2 text-sm font-semibold text-white">
                 Notes
                 <textarea

@@ -1,10 +1,11 @@
 import { spawnSync } from 'node:child_process'
-import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const relayRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
+const repositoryRoot = join(relayRoot, '..')
 const environment = process.argv[2]
 if (environment !== 'staging' && environment !== 'production') {
   throw new Error('Usage: node scripts/deploy.mjs <staging|production>')
@@ -13,6 +14,30 @@ if (environment === 'production') {
   const verified = join(relayRoot, 'keys', 'staging-verification.json')
   if (!existsSync(verified) || process.env.VAST_RELAY_ALLOW_PRODUCTION_PROVISION !== 'YES') {
     throw new Error('Production provisioning requires a successful staging verification marker and VAST_RELAY_ALLOW_PRODUCTION_PROVISION=YES.')
+  }
+  const marker = JSON.parse(readFileSync(verified, 'utf8'))
+  const headResult = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryRoot, encoding: 'utf8' })
+  const sourceCommit = String(headResult.stdout || '').trim().toLowerCase()
+  const migrationHash = createHash('sha256')
+  for (const name of readdirSync(join(relayRoot, 'migrations')).filter((entry) => /^\d+.*\.sql$/.test(entry)).sort()) {
+    migrationHash.update(name).update('\0').update(readFileSync(join(relayRoot, 'migrations', name))).update('\0')
+  }
+  const expected = {
+    source_commit: sourceCommit,
+    protocol: 1,
+    migration_schema_sha256: migrationHash.digest('hex'),
+    environment: 'staging',
+    database_name: 'vast-relay-staging',
+    database_id: '786cd3fa-013f-43fe-bdc4-1ac610e98c87',
+    key_id: 'relay-staging-2026-01',
+    public_url: 'https://relay-staging.vastbrowser.com',
+    control_panel_url: 'https://controlpanel-staging.vastbrowser.com',
+    fixtures_removed: true
+  }
+  const mismatch = Object.entries(expected).find(([key, value]) => marker[key] !== value)
+  const verifiedAt = Date.parse(String(marker.verified_at || ''))
+  if (headResult.status !== 0 || !/^[a-f0-9]{40}$/.test(sourceCommit) || mismatch || !Number.isFinite(verifiedAt) || Date.now() - verifiedAt > 24 * 60 * 60_000) {
+    throw new Error(`Staging verification marker is stale or mismatched${mismatch ? ` (${mismatch[0]})` : ''}; verify this exact source and schema again.`)
   }
 }
 
@@ -173,6 +198,8 @@ wrangler(['deploy', '--env', environment, '--config', publicConfig])
 
 wrangler(['deploy', '--dry-run', '--env', environment, '--config', adminConfig])
 wrangler(['deploy', '--env', environment, '--config', adminConfig])
+command(process.execPath, [join(repositoryRoot, 'scripts', 'configure-worker-observability.mjs'),
+  `vast-relay-public-${environment}`, `vast-relay-admin-${environment}`])
 
 const secretList = wrangler(['secret', 'list', '--env', environment, '--config', adminConfig, '--format', 'json'], { quiet: true })
 const existingSecrets = JSON.parse(secretList.stdout || '[]').map((entry) => entry.name)

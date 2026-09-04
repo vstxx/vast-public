@@ -32,8 +32,7 @@ either Authenticode signing or the explicit unsigned-beta risk acknowledgement.
 | Previous public version | PASS | Release inputs use `0.1.5`; historical fixtures and the live website download manifest remain factual rather than advertising nonexistent 0.2.5 assets. |
 | Electron runtime | PASS | Electron is pinned exactly to `43.4.1`; the executable reports Chromium `150.0.7871.224`, Node `24.18.1`, and V8 `15.0.245.28-electron.0`. `npm run test:electron-version` checks the installed executable. |
 | Electron fuses | PASS | The actual Electron 43 executable passed fuse application/readback integration with RunAsNode, Node options/inspect disabled and ASAR integrity/ASAR-only loading enabled. |
-| Public beta configuration | PASS | Workflows explicitly set beta channel, Relay enabled against staging, production Relay disabled, previous version `0.1.5`, and Cat Addon disabled. Release metadata includes Relay enabled/environment/endpoint/key ID and is rejected if beta points at production. |
-| Cat Addon capability | PASS | `VAST_CAT_ADDON_ENABLED` centrally gates checks and resources. Compile-time gates remove service construction, feature IPC registration, preload APIs, renderer events and UI from Cat-off builds. The final ASAR has zero Cat/IDU+ path or source-content matches and reports Cat Addon as 0 B. The Cat-on development build and runtime smoke still pass. |
+| Public beta configuration | PASS | Workflows explicitly set beta channel, Relay enabled against production, and previous version `0.1.5`. Release metadata includes Relay enabled/environment/endpoint/key ID and rejects any public build pointed at staging. |
 | IDU+ packaging boundary | PASS | IDU+ remains separate publisher tooling/source. Package verification scans unpacked resources, source inside ASAR, installer, portable executable, updater, update ZIP, nested archives, manifests, `.vext` files, IDU+ media/fonts, and Cat assets whenever metadata marks Cat excluded, including private QA candidates. |
 
 ## Extensions Hub
@@ -96,7 +95,7 @@ evidence only and does not override the publication blockers above.
 | Final beta Cat-off startup | PASS (final packaged runtime remained healthy for 12 seconds with the staging Relay host DNS-blocked; no remote check-in) |
 | `npm run dist:upgrader` pipeline (private unsigned QA) | PASS (installer, portable, updater and full update ZIP; no publication) |
 | `node scripts/verify-release-package.cjs` | PASS (actual packaged FFmpeg/FFprobe, source bundle, ASAR, update ZIP, fuses, Relay metadata and excluded assets) |
-| Distribution budgets | PASS (installer 304.62 MiB; portable 258.11 MiB; update ZIP 427.65 MiB; unpacked runtime 1011.53 MiB; Cat Addon 0 B) |
+| Distribution budgets | PASS (installer 304.62 MiB; portable 258.11 MiB; update ZIP 427.65 MiB; unpacked runtime 1011.53 MiB) |
 | `npm run test:package:ci` | PASS (prepared-release and CI staging layouts supported) |
 | `git diff --check` in all three repositories | PASS |
 | Live staging edge | PASS (isolated read-only verification) |

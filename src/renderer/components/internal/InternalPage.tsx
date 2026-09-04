@@ -28,7 +28,7 @@ export function InternalPageHero({
   icon?: LucideIcon
   eyebrow?: string
   title: string
-  description: string
+  description?: string
   actions?: ReactNode
   children?: ReactNode
   className?: string
@@ -44,7 +44,7 @@ export function InternalPageHero({
             </div>
           )}
           <h1 className="text-4xl font-semibold tracking-tight text-white md:text-5xl">{title}</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-vast-soft md:text-[15px]">{description}</p>
+          {description && <p className="mt-3 max-w-2xl text-sm leading-6 text-vast-soft md:text-[15px]">{description}</p>}
           {children && <div className="mt-5">{children}</div>}
         </div>
         {actions && <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>}
@@ -105,6 +105,31 @@ export function InternalMetricCard({
       <div className="mt-3 text-3xl font-semibold text-white">{value}</div>
       {hint && <div className="mt-1 text-xs text-vast-soft">{hint}</div>}
     </div>
+  )
+}
+
+export function InternalFilterButton({
+  active,
+  onClick,
+  children
+}: {
+  active: boolean
+  onClick: () => void
+  children: ReactNode
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+        active
+          ? 'bg-white/[0.09] text-white'
+          : 'bg-transparent text-vast-soft hover:bg-white/[0.045] hover:text-white'
+      }`}
+    >
+      {children}
+    </button>
   )
 }
 

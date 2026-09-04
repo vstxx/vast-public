@@ -5,10 +5,10 @@ Author / publisher: **VastProductions**
 > Ten dokument opisuje zalecany proces podpisany. Wyjątkowa publiczna unsigned
 > beta jest osobnym, jawnie słabszym trybem i nigdy nie może być użyta dla stable.
 
-> Publiczne `0.1.5` z 2026-08-18 było wydaniem **unsigned**, nie poprzednią
-> podpisaną betą. Przygotowanie kandydata `0.2.5` jest opisane w
-> `docs/RELEASE_0.2.5_READINESS.md` i pozostaje zablokowane; przykłady poniżej
-> pokazują wyłącznie przyszłą sekwencję podpisanych wydań.
+> Publiczne `0.2.5` jest wydaniem **unsigned**, nie poprzednią podpisaną betą.
+> Bieżąca decyzja dla `0.2.7` jest opisana w
+> `docs/RELEASE_0.2.7_READINESS.md`; przykłady poniżej pokazują wyłącznie
+> przyszłą sekwencję podpisanych wydań.
 
 Ten proces obowiązuje identycznie dla publicznej bety i stable. Publiczna beta
 nie jest buildem developerskim: musi przejść pełny audit, podpis Authenticode,
@@ -46,11 +46,11 @@ pakietu i manifestów jako `sourceCommit`.
 
 Do weryfikacji rzeczywistego upgrade path używaj kolejno np.:
 
-1. `0.2.6-beta.1` — pierwszy podpisany publiczny kandydat;
-2. `0.2.6-beta.2` — kolejny podpisany kandydat, aktualizowany z beta.1;
-3. `0.2.6` — final, aktualizowany z ostatniej podpisanej bety.
+1. `0.2.7-beta.1` — pierwszy podpisany publiczny kandydat;
+2. `0.2.7-beta.2` — kolejny podpisany kandydat, aktualizowany z beta.1;
+3. `0.2.7` — final, aktualizowany z ostatniej podpisanej bety.
 
-Updater obsługuje pełną kolejność SemVer: `beta.1 < beta.2 < 0.2.6`. Nie testuj
+Updater obsługuje pełną kolejność SemVer: `beta.1 < beta.2 < 0.2.7`. Nie testuj
 publicznego upgrade na artefaktach unsigned ani na samych atrapach plików.
 
 Jeżeli repo `vstxx/vast-public` nie zawiera jeszcze żadnego opublikowanego Release, uruchom
@@ -70,17 +70,18 @@ Skopiuj `.env.release.example` do ignorowanego `.env.release.local` i ustaw:
 VAST_RELEASE_CHANNEL=beta
 VAST_PRIVATE_BUILD=0
 VAST_RELEASE_REPO=vstxx/vast-public
-VAST_PREVIOUS_VERSION=0.2.6-beta.1
+VAST_PREVIOUS_VERSION=0.2.7-beta.1
 VAST_UPDATE_ENABLED=1
 VAST_OBFUSCATE=1
 VAST_EXPECTED_SIGNER_SUBJECT=VastProductions
-VAST_RELAY_PRODUCTION_ENABLED=0
+VAST_RELAY_ENABLED=1
+VAST_RELAY_ENVIRONMENT=production
 WIN_CSC_LINK=C:\secure\VastProductions-code-signing.pfx
 WIN_CSC_KEY_PASSWORD=<hasło tylko lokalnie>
 ```
 
-Dla stable ustaw `VAST_RELEASE_CHANNEL=stable` i dopiero po pełnym staging gate
-`VAST_RELAY_PRODUCTION_ENABLED=1`.
+Dla stable ustaw `VAST_RELEASE_CHANNEL=stable`; public beta i stable używają
+tego samego produkcyjnego Relay po przejściu staging gate.
 
 ## 4. Pełny lokalny gate
 
@@ -103,15 +104,13 @@ npm run release:local
 
 `release:local` kończy się błędem, jeżeli brakuje certyfikatu, timestampu,
 expected signer, self-contained Video & Audio runtime, obfuscation, updatera lub
-któregokolwiek wymaganego pliku. Beta nie ma wyjątku od tych zasad. Cat Addon
-pozostaje w source, ale hook przed podpisaniem usuwa go z paczki beta, a
-metadata/UI/IPC oznaczają go jako niedostępny.
+któregokolwiek wymaganego pliku. Beta nie ma wyjątku od tych zasad.
 
 Sprawdź ręcznie podpisy bez ujawniania klucza:
 
 ```powershell
-Get-AuthenticodeSignature release\Installer\Vast-Setup-0.2.6.exe | Format-List Status,SignerCertificate,TimeStamperCertificate
-Get-AuthenticodeSignature release\Updater\VastUpdater-0.2.6.exe | Format-List Status,SignerCertificate,TimeStamperCertificate
+Get-AuthenticodeSignature release\Installer\Vast-Setup-0.2.7.exe | Format-List Status,SignerCertificate,TimeStamperCertificate
+Get-AuthenticodeSignature release\Updater\VastUpdater-0.2.7.exe | Format-List Status,SignerCertificate,TimeStamperCertificate
 ```
 
 Status musi być `Valid`, signer musi odpowiadać `VastProductions`, a
@@ -122,9 +121,9 @@ Status musi być `Valid`, signer musi odpowiadać `VastProductions`, a
 Po opublikowaniu poprzedniej podpisanej bety ustaw:
 
 ```powershell
-$env:VAST_PREVIOUS_VERSION='0.2.6-beta.1'
-$env:VAST_RELEASE_VERSION='0.2.6-beta.2'
-$env:VAST_PREVIOUS_RELEASE_BASE_URL='https://github.com/vstxx/vast-public/releases/download/v0.2.6-beta.1'
+$env:VAST_PREVIOUS_VERSION='0.2.7-beta.1'
+$env:VAST_RELEASE_VERSION='0.2.7-beta.2'
+$env:VAST_PREVIOUS_RELEASE_BASE_URL='https://github.com/vstxx/vast-public/releases/download/v0.2.7-beta.1'
 $env:VAST_CURRENT_RELEASE_ROOT=(Resolve-Path release).Path
 $env:VAST_EXPECTED_SIGNER_SUBJECT='VastProductions'
 npm run test:upgrade:public
@@ -153,8 +152,8 @@ poprzednią wersję, produkcyjny URL poprzednich assetów i pozostaw
 Po ręcznym uploadzie odpowiednikiem ostatniego kroku jest:
 
 ```powershell
-$env:VAST_RELEASE_VERSION='0.2.6'
-$env:VAST_PRODUCTION_RELEASE_BASE_URL='https://github.com/vstxx/vast-public/releases/download/v0.2.6'
+$env:VAST_RELEASE_VERSION='0.2.7'
+$env:VAST_PRODUCTION_RELEASE_BASE_URL='https://github.com/vstxx/vast-public/releases/download/v0.2.7'
 $env:VAST_EXPECTED_SIGNER_SUBJECT='VastProductions'
 npm run release:verify:published
 ```
@@ -163,27 +162,28 @@ Nie ogłaszaj wydania, jeżeli ten krok nie jest green. Sam napis
 „VastProductions” w `package.json` nie jest podpisem — to certyfikat i zaufany
 timestamp stanowią dowód wydawcy.
 
-## 7. Wyjątkowa publiczna unsigned beta
+## 7. Jawny publiczny unsigned release
 
-Jeżeli koszt certyfikatu blokuje betę, użyj osobnego workflow **Public unsigned
-beta**. Nie zmienia on ani nie osłabia workflow podpisanego. Wymaga dosłownego:
+Jeżeli certyfikat nie jest jeszcze dostępny, użyj osobnego workflow **Public
+unsigned release**. Nie zmienia on ani nie osłabia workflow podpisanego. Wymaga
+dosłownego:
 
 ```text
-I_ACCEPT_UNSIGNED_PUBLIC_BETA_RISK
+I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK
 ```
 
 Tryb unsigned:
 
-- jest dozwolony wyłącznie dla kanału beta i zawsze publikuje GitHub prerelease;
+- obsługuje kanał beta (GitHub prerelease) oraz stable (normalny GitHub Release);
 - wymaga dokładnego czystego SHA w każdym manifeście;
 - wymaga obfuscation, pełnego CI, Electron Fuses i self-contained Video & Audio;
 - wymaga statusu `NotSigned` dla runtime, instalatora, portable i updatera;
-- publikuje `PUBLIC-UNSIGNED-BETA.md` oraz SHA-256/SHA-512;
+- publikuje `PUBLIC-UNSIGNED-RELEASE.md` oraz SHA-256/SHA-512;
 - pobiera draft, a następnie publiczne assety i porównuje je bajt w bajt;
 - nie dowodzi tożsamości wydawcy i nie ma zaufanego timestampu;
 - nie jest poprawnym poprzednikiem dla testu signed beta → signed beta;
 - rezerwuje wersję i tag na zawsze. Przyszłe podpisane wydanie musi dostać wyższy numer.
 
-Lokalnie użyj `npm run release:public-unsigned-beta`; workflow używa
+Lokalnie użyj `npm run release:public-unsigned`; workflow używa
 `.github/workflows/public-unsigned-beta.yml`. Na stronie pobierania trzeba jasno
 pokazać ostrzeżenie **Unknown publisher / SmartScreen** oraz link do SHA-256.

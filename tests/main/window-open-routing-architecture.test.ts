@@ -13,7 +13,7 @@ test('setWindowOpenHandler is the authoritative web-content routing boundary', (
   assert.match(sessionsSource, /routeWebviewWindowOpen/)
   assert.doesNotMatch(sessionsSource, /\.on\(['"]new-window['"]/)
   assert.doesNotMatch(preloadSource, /vast:new-window-url/)
-  assert.ok(webviewSurfaceSource.indexOf("setAttribute('allowpopups', '')") < webviewSurfaceSource.indexOf("setAttribute('src', initialUrlRef.current)"))
+  assert.ok(webviewSurfaceSource.indexOf("setAttribute('allowpopups', '')") < webviewSurfaceSource.indexOf("setAttribute('src', 'about:blank')"))
 })
 
 test('real popup windows retain opener session without receiving a preload', () => {

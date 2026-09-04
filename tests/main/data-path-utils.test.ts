@@ -8,8 +8,17 @@ import {
   dataPathConfigFile,
   readConfiguredDataRoot,
   validateDataRootCandidate,
-  writeConfiguredDataRoot
+  writeConfiguredDataRoot,
+  portableDataRootFromEnv
 } from '../../src/main/data-path-utils.ts'
+
+test('portable builds keep their profile beside the portable executable', () => {
+  assert.equal(
+    portableDataRootFromEnv({ PORTABLE_EXECUTABLE_DIR: 'D:\\Portable\\Vast' }),
+    resolve('D:\\Portable\\Vast', 'Vast Data')
+  )
+  assert.equal(portableDataRootFromEnv({}), undefined)
+})
 
 test('data root validation accepts writable profile folders', async () => {
   const tempRoot = await mkdtemp(join(tmpdir(), 'vast-data-root-'))

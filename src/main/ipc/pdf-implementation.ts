@@ -1,12 +1,11 @@
 import { shell } from 'electron/common'
-import { app, BrowserWindow } from 'electron/main'
+import { BrowserWindow } from 'electron/main'
 import { randomUUID } from 'node:crypto'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { allowInternalNavigationForWebContents } from '../sessions'
-import { loadPdfFromUrl } from '../pdf-loader'
 
 const printPreviewWindows = new Set<BrowserWindow>()
 
@@ -14,20 +13,6 @@ function sanitizePdfFilename(input: unknown): string {
   const candidate = typeof input === 'string' ? input.trim().replace(/[\\/:*?"<>|]+/g, '_') : ''
   const filename = candidate || 'document.pdf'
   return filename.toLowerCase().endsWith('.pdf') ? filename : `${filename}.pdf`
-}
-
-function printablePdfBytes(input: unknown): Buffer {
-  let bytes: Uint8Array
-  if (Buffer.isBuffer(input)) bytes = input
-  else if (input instanceof Uint8Array) bytes = input
-  else if (input instanceof ArrayBuffer) bytes = new Uint8Array(input)
-  else if (ArrayBuffer.isView(input)) bytes = new Uint8Array(input.buffer, input.byteOffset, input.byteLength)
-  else throw new Error('Invalid PDF data.')
-  if (bytes.byteLength < 4) throw new Error('Invalid PDF data.')
-  if (bytes.byteLength > 200 * 1024 * 1024) throw new Error('PDF is too large to print safely.')
-  const buffer = Buffer.from(bytes)
-  if (buffer.subarray(0, 4).toString('latin1') !== '%PDF') throw new Error('Only PDF files can be printed through the PDF viewer.')
-  return buffer
 }
 
 function delay(ms: number): Promise<void> {
@@ -103,29 +88,47 @@ async function openPdfPrintPreview(buffer: Buffer, filename: string, parentWindo
   }
 }
 
-export async function loadPdf(url: string): Promise<Awaited<ReturnType<typeof loadPdfFromUrl>>> {
-  return loadPdfFromUrl(url, {
-    userAgent: `Vast/${app.getVersion()}`,
-    allowLiteralLoopbackForTests:
-      !app.isPackaged && Boolean(process.env.VAST_TEST_USER_DATA_DIR) && process.env.VAST_E2E_ALLOW_LOOPBACK_PDF === '1'
-  })
+export async function openPdfExternal(path: string): Promise<void> {
+  const openError = await shell.openPath(path)
+  if (openError) throw new Error(openError)
 }
 
-export async function openPdfExternal(data: Uint8Array): Promise<void> {
-  const tempPath = join(tmpdir(), `vast-print-${randomUUID()}.pdf`)
+export async function printPdf(path: string, parentWindow: BrowserWindow): Promise<void> {
+  let printWindow: BrowserWindow | undefined
+  let releaseNavigationTrust: (() => void) | undefined
   try {
-    await writeFile(tempPath, data)
-    const openError = await shell.openPath(tempPath)
-    if (openError) throw new Error(openError)
-    setTimeout(() => rm(tempPath, { force: true }).catch(() => {}), 120_000)
+    printWindow = new BrowserWindow({
+      parent: parentWindow.isDestroyed() ? undefined : parentWindow,
+      show: true,
+      width: 1080,
+      height: 860,
+      minWidth: 760,
+      minHeight: 560,
+      title: 'Vast Print Preview',
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
+        plugins: true
+      }
+    })
+    printPreviewWindows.add(printWindow)
+    printWindow.on('closed', () => {
+      releaseNavigationTrust?.()
+      releaseNavigationTrust = undefined
+      printPreviewWindows.delete(printWindow!)
+    })
+    releaseNavigationTrust = allowInternalNavigationForWebContents(printWindow.webContents)
+    await printWindow.loadURL(pathToFileURL(path).toString())
+    await waitForWebContentsIdle(printWindow.webContents, 15_000)
+    printWindow.focus()
   } catch (error) {
-    void rm(tempPath, { force: true }).catch(() => {})
+    releaseNavigationTrust?.()
+    if (printWindow && !printWindow.isDestroyed()) printWindow.destroy()
     throw error
   }
-}
-
-export async function printPdf(data: Uint8Array, filename: string | undefined, parentWindow: BrowserWindow): Promise<void> {
-  await openPdfPrintPreview(printablePdfBytes(data), sanitizePdfFilename(filename), parentWindow)
 }
 
 export async function printPage(target: Electron.WebContents, parentWindow: BrowserWindow): Promise<void> {

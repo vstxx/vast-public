@@ -33,7 +33,7 @@ const expectedSensitiveHandlers = {
     'vast:passwords:list', 'vast:passwords:create', 'vast:passwords:update', 'vast:passwords:remove',
     'vast:passwords:copy-username', 'vast:passwords:copy-password', 'vast:passwords:autofill',
     'vast:passwords:autofill-suggestions', 'vast:passwords:fill-by-id', 'vast:passwords:save-captured',
-    'vast:passwords:capture-status', 'vast:passwords:capture-login', 'vast:passwords:allow-save-prompts',
+    'vast:passwords:capture-status', 'vast:passwords:resolve-save-prompt', 'vast:passwords:allow-save-prompts',
     'vast:passwords:import-csv', 'vast:passwords:export-csv', 'vast:passwords:audit'
   ],
   [VastFeatures.AdvancedDiagnostics]: ['vast:app:diagnostics', 'vast:app:process-metrics']
@@ -106,7 +106,7 @@ test('password handlers have complete main-process session access policy', () =>
   assert.throws(() => assertSensitiveIpcRegistrationComplete(new Set()), /unregistered handlers/)
 })
 
-test('main runtime disables spoofing unless both exact Labs gates are enabled', () => {
+test('main runtime uses the program flag without an obsolete global Labs gate', () => {
   const requested = {
     ...DEFAULT_SETTINGS,
     spoofing: { ...DEFAULT_SETTINGS.spoofing, enabled: true }
@@ -115,9 +115,14 @@ test('main runtime disables spoofing unless both exact Labs gates are enabled', 
   assert.equal(settingsAllowedByRuntimeFeaturePolicy({
     ...requested,
     labs: { ...requested.labs, spoofing: true }
-  }).spoofing.enabled, false)
-  assert.equal(settingsAllowedByRuntimeFeaturePolicy({
-    ...requested,
-    labs: { ...requested.labs, enabled: true, spoofing: true }
   }).spoofing.enabled, true)
+})
+
+test('display-only usernames and explicit autofill activation work while the vault session is locked', () => {
+  assert.equal(vaultAccessForIpcChannel('vast:passwords:autofill-suggestions'), 'control')
+  assert.equal(vaultAccessForIpcChannel('vast:passwords:fill-by-id'), 'control')
+  assert.equal(vaultAccessForIpcChannel('vast:passwords:autofill'), 'control')
+  assert.equal(vaultAccessForIpcChannel('vast:passwords:capture-status'), 'control')
+  assert.equal(vaultAccessForIpcChannel('vast:passwords:resolve-save-prompt'), 'control')
+  assert.equal(vaultAccessForIpcChannel('vast:passwords:copy-password'), 'fresh')
 })

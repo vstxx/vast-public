@@ -12,7 +12,7 @@ import {
 } from '../shared/auth-compatibility-policy'
 import { BLOCKED_INTERNAL_PROTOCOLS, DEFAULT_SETTINGS } from '../shared/constants'
 import { normalizeShortcutKey, parseShortcut } from '../shared/shortcuts'
-import { buildSpoofingHeaders, resolveSpoofingProfile, spoofingFromSettings } from '../shared/spoofing'
+import { buildSpoofingHeaders, documentSpoofingConfig, resolveSpoofingProfile, spoofingFromSettings, type DocumentSpoofingConfig } from '../shared/spoofing'
 import {
   VAST_DEFAULT_WEBVIEW_PARTITION,
   buildDefaultChromiumIdentity,
@@ -29,6 +29,7 @@ import { vastDataPath } from './data-path'
 import { isTrustedRendererUrl } from './ipc-security'
 import { windowRegistry } from './windows/WindowRegistry'
 import { shouldLoadPopupInitialUrl } from './windows/popup-initial-navigation'
+import { tabOpenNavigationMetadata } from './windows/tab-open-metadata'
 import { chromeWebContentsFor as selectChromeWebContents } from './windows/web-contents-routing'
 import { recordDiagnosticsEvent } from './diagnostics-events'
 import { loadData, saveData } from './storage'
@@ -40,6 +41,8 @@ import { cleanTrackingUrl, hostMatchesList } from '../shared/url-cleaning'
 import { shouldBlockThirdPartyCookieHeaders } from '../shared/cookie-policy'
 import { buildFingerprintingProtectionScript } from '../shared/fingerprinting'
 import { checkpointPersistentBrowserSessions, persistentBrowserSessions } from './session-continuity'
+import { classifyPdfNavigationResponse, pdfAttachmentHeaders } from '../shared/pdf-navigation-policy'
+import { registerPdfNavigationResponse } from './pdf-resources'
 
 const diagnosticLogChains = new Map<string, Promise<void>>()
 
@@ -103,6 +106,7 @@ function sessionScopeForLog(targetSession: Session | undefined): string {
 
 const configuredTrackerSessions = new Set<Session>()
 const configuredSpoofingSessions = new Set<Session>()
+const vastSpoofingDebuggerTargets = new WeakSet<Electron.WebContents>()
 const configuredPermissionSessions = new Set<Session>()
 const configuredDisplayMediaSessions = new Set<Session>()
 const configuredHeaderSessions = new Set<Session>()
@@ -148,16 +152,17 @@ function dispatchBrowserTabOpenRequest(
   source: 'guest' | 'popup' | 'renderer'
 ): boolean {
   const receiver = chromeWebContentsFor(opener)
+  const metadataSummary = `referrer=${request.navigation?.referrer ? 'present' : 'absent'} post=${request.navigation?.postBody ? 'present' : 'absent'}`
   if (receiver) {
     receiver.send('vast:browser:open-tab', request)
     logOAuthPopupFlow(
-      `tab route delivered source=${source} opener=${opener.id} receiver=${receiver.id} disposition=${request.disposition} url=${redactedUrlForLog(request.url)}`
+      `tab route delivered source=${source} opener=${opener.id} receiver=${receiver.id} disposition=${request.disposition} ${metadataSummary} url=${redactedUrlForLog(request.url)}`
     )
     return true
   }
 
   logOAuthPopupFlow(
-    `tab route undeliverable source=${source} opener=${opener.id} disposition=${request.disposition} url=${redactedUrlForLog(request.url)}`
+    `tab route undeliverable source=${source} opener=${opener.id} disposition=${request.disposition} ${metadataSummary} url=${redactedUrlForLog(request.url)}`
   )
   void recordDiagnosticsEvent(source === 'renderer' ? 'window' : 'guest', 'tab-open-undeliverable', {
     openerWebContentsId: opener.id,
@@ -176,6 +181,32 @@ function isLocalHttpHost(hostname: string): boolean {
 }
 
 const blockedRequestCounts = new Map<number, { trackers: number; ads: number; malware: number }>()
+
+// Real popup windows keep native browsing-context semantics, so a misbehaving
+// page could otherwise spawn them without bound. Chromium's popup blocker is
+// stricter than this; Vast keeps a per-opener quota instead.
+const MAX_POPUP_WINDOWS_PER_OPENER = 4
+const popupWindowsByOpener = new Map<number, Set<number>>()
+
+function popupQuotaAvailable(openerId: number): boolean {
+  const open = popupWindowsByOpener.get(openerId)
+  return !open || open.size < MAX_POPUP_WINDOWS_PER_OPENER
+}
+
+function registerPopupWindow(openerId: number | undefined, windowId: number): void {
+  if (!openerId) return
+  const open = popupWindowsByOpener.get(openerId) ?? new Set<number>()
+  open.add(windowId)
+  popupWindowsByOpener.set(openerId, open)
+}
+
+function unregisterPopupWindow(openerId: number | undefined, windowId: number): void {
+  if (!openerId) return
+  const open = popupWindowsByOpener.get(openerId)
+  if (!open) return
+  open.delete(windowId)
+  if (open.size === 0) popupWindowsByOpener.delete(openerId)
+}
 
 function requestTopLevelUrl(details: { url: string; resourceType: string; webContentsId?: number }): string | undefined {
   return details.resourceType === 'mainFrame'
@@ -735,7 +766,7 @@ function configureSecurityHeaders(targetSession: Session): void {
   configuredHeaderSessions.add(targetSession)
 
   targetSession.webRequest.onHeadersReceived((details, callback) => {
-    const responseHeaders = details.responseHeaders ?? {}
+    let responseHeaders = details.responseHeaders ?? {}
     // App chrome headers must never be injected into a website merely because
     // it is hosted on loopback. Vast supports local web apps and control panels;
     // their CSP belongs to the site. Trust only the exact packaged renderer file
@@ -769,6 +800,22 @@ function configureSecurityHeaders(targetSession: Session): void {
       responseHeaders['X-Content-Type-Options'] = ['nosniff']
       responseHeaders['X-Frame-Options'] = ['DENY']
       responseHeaders['Content-Security-Policy'] = [appChromeCsp(app.isPackaged)]
+    }
+
+    const pdf = classifyPdfNavigationResponse(details)
+    const requestingContents = details.webContents ?? (
+      typeof details.webContentsId === 'number' ? webContents.fromId(details.webContentsId) : undefined
+    )
+    if (pdf.capture && requestingContents?.hostWebContents && windowRegistry.vastWindowForWebContents(requestingContents)) {
+      registerPdfNavigationResponse({
+        requestId: details.id,
+        guestWebContentsId: requestingContents.id,
+        sourceUrl: details.url,
+        filename: pdf.filename,
+        mimeType: pdf.mimeType,
+        contentLength: pdf.contentLength
+      })
+      responseHeaders = pdfAttachmentHeaders(responseHeaders, pdf.filename)
     }
 
     callback({ responseHeaders })
@@ -960,6 +1007,7 @@ function createOAuthPopupWindow(options: BrowserWindowConstructorOptions, contex
     popup.show()
     popup.focus()
   })
+  registerPopupWindow(context.opener?.id, popup.id)
   popup.webContents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
     if (!isMainFrame) return
     lastMainFrameUrl = url
@@ -994,6 +1042,7 @@ function createOAuthPopupWindow(options: BrowserWindowConstructorOptions, contex
       })
   })
   popup.on('closed', () => {
+    unregisterPopupWindow(context.opener?.id, popup.id)
     adBlockGuardedPopupWebContents.delete(popupContentsId)
     trustedOAuthPopupWebContents.delete(popupContentsId)
     authCompatibilityWebContents.delete(popupContentsId)
@@ -1044,13 +1093,18 @@ export function createInternalGoogleAuthTestWindow(): Electron.WebContents {
   )
 }
 
-export function applySpoofingToWebContents(contents: Electron.WebContents, settings: BrowserSettings = currentSecuritySettings()): void {
+export function applySpoofingToWebContents(
+  contents: Electron.WebContents,
+  settings: BrowserSettings = currentSecuritySettings(),
+  navigationUrl = contents.getURL()
+): void {
   if (contents.isDestroyed()) return
   if (authCompatibilityWebContents.has(contents.id)) {
     contents.setUserAgent(authCompatibilityUserAgent())
-    if (contents.debugger.isAttached()) {
+    if (vastSpoofingDebuggerTargets.has(contents) && contents.debugger.isAttached()) {
       try {
         contents.debugger.detach()
+        vastSpoofingDebuggerTargets.delete(contents)
       } catch {
         // Auth compatibility windows never retain a CDP attachment.
       }
@@ -1058,30 +1112,67 @@ export function applySpoofingToWebContents(contents: Electron.WebContents, setti
     return
   }
   const spoofing = spoofingFromSettings(settings)
+  const eligibleTarget = contents.getType() === 'webview' && /^https?:/i.test(navigationUrl)
   try {
-    if (!spoofing.enabled || spoofing.location.mode !== 'fixed') {
-      if (contents.debugger.isAttached()) {
-        void contents.debugger.sendCommand('Emulation.clearGeolocationOverride').catch(() => undefined)
+    if (!spoofing.enabled || !eligibleTarget) {
+      if (vastSpoofingDebuggerTargets.has(contents) && contents.debugger.isAttached()) {
+        contents.debugger.detach()
+        vastSpoofingDebuggerTargets.delete(contents)
       }
       return
     }
 
     if (!contents.debugger.isAttached()) {
       contents.debugger.attach('1.3')
+      vastSpoofingDebuggerTargets.add(contents)
+    } else if (!vastSpoofingDebuggerTargets.has(contents)) {
+      // Never take over or detach a debugger owned by DevTools/another feature.
+      writeSpoofingDebug(`native emulation skipped for contents=${contents.id}: debugger already attached`)
+      return
     }
-    void contents.debugger
-      .sendCommand('Emulation.setGeolocationOverride', {
-        latitude: spoofing.location.latitude,
-        longitude: spoofing.location.longitude,
-        accuracy: spoofing.location.accuracy
-      })
-      .catch(() => undefined)
+    const config = documentSpoofingConfig(spoofing, process.versions.chrome)
+    if (!config) return
+    const commands: Array<Promise<unknown>> = [
+      contents.debugger.sendCommand('Emulation.setUserAgentOverride', {
+        userAgent: config.profile.userAgent,
+        acceptLanguage: config.languages.join(','),
+        platform: config.profile.platform,
+        ...(config.profile.brands.length > 0 ? {
+          userAgentMetadata: {
+            brands: config.profile.brands,
+            fullVersionList: config.fullVersionList,
+            fullVersion: config.fullVersion,
+            platform: config.profile.secChUaPlatform,
+            platformVersion: config.profile.secChUaPlatform === 'Windows' ? '15.0.0' : '14.0.0',
+            architecture: 'x86',
+            model: '',
+            mobile: config.profile.mobile,
+            bitness: '64',
+            wow64: false
+          }
+        } : {})
+      }),
+      contents.debugger.sendCommand('Emulation.setLocaleOverride', { locale: config.languages[0] }),
+      contents.debugger.sendCommand('Emulation.setTimezoneOverride', { timezoneId: config.timezone }),
+      contents.debugger.sendCommand('Emulation.setHardwareConcurrencyOverride', { hardwareConcurrency: config.hardwareConcurrency }),
+      config.location.mode === 'fixed'
+        ? contents.debugger.sendCommand('Emulation.setGeolocationOverride', {
+            latitude: config.location.latitude,
+            longitude: config.location.longitude,
+            accuracy: config.location.accuracy
+          })
+        : contents.debugger.sendCommand('Emulation.clearGeolocationOverride')
+    ]
+    void Promise.allSettled(commands).then((results) => {
+      const failures = results.filter((result) => result.status === 'rejected')
+      if (failures.length > 0) writeSpoofingDebug(`native emulation partially failed for contents=${contents.id}: ${failures.length}/${results.length} commands rejected`)
+    })
   } catch (error) {
-    writeSpoofingDebug(`geolocation override failed for contents=${contents.id}: ${error instanceof Error ? error.message : String(error)}`)
+    writeSpoofingDebug(`native emulation failed for contents=${contents.id}: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 
-export function applySpoofingToAllWebContents(settings: BrowserSettings = currentSecuritySettings()): void {
+export function applySpoofingToAllWebContents(settings: BrowserSettings = currentSecuritySettings(), reloadDocuments = false): void {
   const userAgent = userAgentForSettings(settings)
   session.defaultSession.setUserAgent(userAgent)
   for (const contents of webContents.getAllWebContents()) {
@@ -1096,11 +1187,19 @@ export function applySpoofingToAllWebContents(settings: BrowserSettings = curren
       // Some destroyed/internal contents can reject session updates.
     }
     applySpoofingToWebContents(contents, settings)
+    if (reloadDocuments && contents.getType() === 'webview' && /^https?:/i.test(contents.getURL())) {
+      try {
+        contents.reload()
+      } catch {
+        // A guest can disappear while settings are being persisted.
+      }
+    }
   }
 }
 
 function installWindowOpenRouting(contents: Electron.WebContents): void {
-  contents.setWindowOpenHandler(({ url, disposition, frameName, features }) => {
+  contents.setWindowOpenHandler((details) => {
+    const { url, disposition, frameName, features, referrer, postBody } = details
     const isWebviewGuest = Boolean(
       (contents as Electron.WebContents & { hostWebContents?: Electron.WebContents }).hostWebContents
     )
@@ -1110,13 +1209,17 @@ function installWindowOpenRouting(contents: Electron.WebContents): void {
       authWindow: authCompatibilityWebContents.has(contents.id)
     })
     logOAuthPopupFlow(
-      `window-open received contents=${contents.id} guest=${isWebviewGuest} popup=${isRealPopup} disposition=${disposition} url=${redactedUrlForLog(url)}`
+      `window-open received contents=${contents.id} guest=${isWebviewGuest} popup=${isRealPopup} disposition=${disposition} frameName=${frameName || ''} referrer=${referrer?.url ? 'present' : 'absent'} post=${postBody ? 'present' : 'absent'} url=${redactedUrlForLog(url)}`
     )
 
     if (isWebviewGuest || isRealPopup) {
       if (requestExternalProtocolOpen(contents, url)) return { action: 'deny' }
       const settings = currentSecuritySettings()
-      if (!bypassVastInterference && settings.privacy.adBlockerEnabled && settings.privacy.adBlockerMode === 'strict' && isStrictAdNavigationUrl(url)) {
+      const openerUrl = contents.getURL()
+      const bypassAdBlocking = bypassVastInterference ||
+        siteInterventionsDisabled({ url: openerUrl, resourceType: 'mainFrame', webContentsId: contents.id }, settings.privacy.siteInterventionsDisabled) ||
+        hostMatchesList(openerUrl, settings.privacy.adBlockAllowlist)
+      if (!bypassAdBlocking && settings.privacy.adBlockerEnabled && settings.privacy.adBlockerMode === 'strict' && isStrictAdNavigationUrl(url)) {
         logOAuthPopupFlow(`blocked brutal ad popup opener=${contents.id} disposition=${disposition} url=${redactedUrlForLog(url)}`)
         return { action: 'deny' }
       }
@@ -1124,7 +1227,7 @@ function installWindowOpenRouting(contents: Electron.WebContents): void {
       const route = routeWebviewWindowOpen({
         url,
         disposition,
-        adBlockerEnabled: settings.privacy.adBlockerEnabled,
+        adBlockerEnabled: settings.privacy.adBlockerEnabled && !bypassAdBlocking,
         adBlockerMode: settings.privacy.adBlockerMode ?? 'standard',
         frameName,
         features
@@ -1133,6 +1236,10 @@ function installWindowOpenRouting(contents: Electron.WebContents): void {
         `webview window.open route=${route} opener=${contents.id} ${sessionScopeForLog(contents.session)} disposition=${disposition} frameName=${frameName || ''} url=${redactedUrlForLog(url)} features=${features || ''}`
       )
       if (route === 'popup-window') {
+        if (!popupQuotaAvailable(contents.id)) {
+          logOAuthPopupFlow(`popup quota exceeded opener=${contents.id} disposition=${disposition} url=${redactedUrlForLog(url)}`)
+          return { action: 'deny' }
+        }
         return {
           action: 'allow',
           createWindow: (popupOptions) =>
@@ -1166,7 +1273,8 @@ function installWindowOpenRouting(contents: Electron.WebContents): void {
           url: nextUrl,
           sourceWebContentsId: isWebviewGuest ? contents.id : undefined,
           disposition,
-          activate: disposition !== 'background-tab'
+          activate: disposition !== 'background-tab',
+          navigation: tabOpenNavigationMetadata({ referrer, postBody })
         }, isWebviewGuest ? 'guest' : 'popup')
       }
 
@@ -1201,7 +1309,10 @@ export function setupWindowSecurity(
     const partition = typeof params.partition === 'string' ? params.partition : ''
     const extensionSurfaceCandidate = src.startsWith('vast-extension://') || src.startsWith('chrome-extension://')
     const extensionSurface = extensionSurfaceCandidate && partition ? extensionManager?.authorizeSurfaceAttachment(src, partition) : undefined
-    if (src && !isSafeWebUrl(src) && !extensionSurface) {
+    // about:blank is allowed as an inert initial mount: tabs replaying a
+    // window.open navigation start there before loadURL commits the real
+    // http(s) target, and every later navigation still passes the guards below.
+    if (src && src !== 'about:blank' && !isSafeWebUrl(src) && !extensionSurface) {
       event.preventDefault()
       return
     }
@@ -1282,8 +1393,8 @@ export function setupWindowSecurity(
         { webContentsId: contents.id }
       )
     })
-    contents.on('did-start-navigation', (_navigationEvent, _url, _isInPlace, isMainFrame) => {
-      if (isMainFrame) applySpoofingToWebContents(contents)
+    contents.on('did-start-navigation', (_navigationEvent, url, _isInPlace, isMainFrame) => {
+      if (isMainFrame) applySpoofingToWebContents(contents, currentSecuritySettings(), url)
     })
 
     ;(contents as unknown as {
@@ -1389,7 +1500,11 @@ export function setupWindowSecurity(
         return
       }
       const settings = currentSecuritySettings()
-      if ((isWebviewGuest || isGuardedPopup) && settings.privacy.adBlockerEnabled && settings.privacy.adBlockerMode === 'strict' && isStrictAdNavigationUrl(url)) {
+      const currentUrl = contents.getURL()
+      const bypassAdBlocking = shouldBypassVastInterference({ url: currentUrl, authWindow: authCompatibilityWebContents.has(contents.id) }) ||
+        siteInterventionsDisabled({ url: currentUrl, resourceType: 'mainFrame', webContentsId: contents.id }, settings.privacy.siteInterventionsDisabled) ||
+        hostMatchesList(currentUrl, settings.privacy.adBlockAllowlist)
+      if (!bypassAdBlocking && (isWebviewGuest || isGuardedPopup) && settings.privacy.adBlockerEnabled && settings.privacy.adBlockerMode === 'strict' && isStrictAdNavigationUrl(url)) {
         logOAuthPopupFlow(`blocked strict ad navigation contents=${contents.id} url=${redactedUrlForLog(url)}`)
         event.preventDefault()
         return
@@ -1517,10 +1632,21 @@ export function privacyDocumentScriptForWebContents(contents: Electron.WebConten
     .digest('hex')
     .slice(0, 16)
   const disableWebRtc = settings.privacy.webRtcPolicy === 'disabled' && !hostMatchesList(requestedUrl, settings.privacy.webRtcExceptions)
-  const fingerprintingMode = settings.privacy.adBlockerMode === 'strict' && settings.privacy.fingerprintingProtection === 'standard'
-    ? 'strict'
-    : settings.privacy.fingerprintingProtection
-  return buildFingerprintingProtectionScript(fingerprintingMode, sessionSeed, disableWebRtc)
+  return buildFingerprintingProtectionScript(settings.privacy.fingerprintingProtection, sessionSeed, disableWebRtc)
+}
+
+export function spoofingDocumentConfigForWebContents(contents: Electron.WebContents, requestedUrl: string): DocumentSpoofingConfig | null {
+  if (contents.isDestroyed() || !ownerWindowForWebContents(contents)) return null
+  const actualUrl = contents.getURL()
+  try {
+    if (actualUrl && new URL(requestedUrl).origin !== new URL(actualUrl).origin) return null
+  } catch {
+    return null
+  }
+  if (shouldBypassVastInterference({ url: requestedUrl, authWindow: authCompatibilityWebContents.has(contents.id) })) return null
+  const settings = currentSecuritySettings()
+  if (siteInterventionsDisabled({ url: requestedUrl, resourceType: 'mainFrame', webContentsId: contents.id }, settings.privacy.siteInterventionsDisabled)) return null
+  return documentSpoofingConfig(spoofingFromSettings(settings), process.versions.chrome)
 }
 
 export async function getSiteInformation(webContentsId: number, requestedUrl: string): Promise<SiteInformation> {

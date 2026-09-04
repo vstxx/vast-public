@@ -6,7 +6,7 @@ param(
   [string] $PreviousVersion = '',
   [string] $SourceCommit = $env:VAST_RELEASE_COMMIT,
   [string] $PrivateBuild = $env:VAST_PRIVATE_BUILD,
-  [string] $PublicUnsignedBeta = $env:VAST_PUBLIC_UNSIGNED_BETA
+  [string] $PublicUnsignedRelease = $env:VAST_PUBLIC_UNSIGNED_RELEASE
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,14 +34,14 @@ if ($PreviousVersion -notmatch $SemVerPattern) {
 }
 $PrivateBuildEnabled = @('1', 'true', 'yes', 'on').Contains(([string] $PrivateBuild).Trim().ToLowerInvariant())
 $PublicDistribution = @('beta', 'stable').Contains($Channel) -and -not $PrivateBuildEnabled
-$PublicUnsignedBetaEnabled = @('1', 'true', 'yes', 'on').Contains(([string] $PublicUnsignedBeta).Trim().ToLowerInvariant())
-if ($PublicUnsignedBetaEnabled -and ($Channel -ne 'beta' -or $PrivateBuildEnabled)) {
-  throw 'PublicUnsignedBeta/VAST_PUBLIC_UNSIGNED_BETA is allowed only for a non-private beta distribution.'
+$PublicUnsignedReleaseEnabled = @('1', 'true', 'yes', 'on').Contains(([string] $PublicUnsignedRelease).Trim().ToLowerInvariant())
+if ($PublicUnsignedReleaseEnabled -and (-not $PublicDistribution)) {
+  throw 'PublicUnsignedRelease/VAST_PUBLIC_UNSIGNED_RELEASE is allowed only for a non-private beta or stable distribution.'
 }
-if ($PublicUnsignedBetaEnabled -and $env:VAST_UNSIGNED_BETA_ACK -ne 'I_ACCEPT_UNSIGNED_PUBLIC_BETA_RISK') {
-  throw 'Public unsigned beta preparation requires the exact risk acknowledgement.'
+if ($PublicUnsignedReleaseEnabled -and $env:VAST_UNSIGNED_RELEASE_ACK -ne 'I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK') {
+  throw 'Public unsigned release preparation requires the exact risk acknowledgement.'
 }
-$SignaturePolicy = if ($PublicUnsignedBetaEnabled) { 'unsigned-public-beta' } elseif ($PublicDistribution) { 'authenticode-signed' } else { 'internal-unsigned' }
+$SignaturePolicy = if ($PublicUnsignedReleaseEnabled) { 'unsigned-public-release' } elseif ($PublicDistribution) { 'authenticode-signed' } else { 'internal-unsigned' }
 if ($PublicDistribution -and $SourceCommit -notmatch '^[a-fA-F0-9]{40}$') {
   throw 'A public distribution requires SourceCommit/VAST_RELEASE_COMMIT as a full Git SHA.'
 }
@@ -97,6 +97,29 @@ function Reset-Directory {
   New-Item -ItemType Directory -Path $Path -Force | Out-Null
 }
 
+function Get-CryptographicFileHash {
+  param(
+    [string] $Path,
+    [ValidateSet('SHA256', 'SHA512')]
+    [string] $Algorithm
+  )
+
+  $hashAlgorithm = switch ($Algorithm) {
+    'SHA256' { [System.Security.Cryptography.SHA256]::Create() }
+    'SHA512' { [System.Security.Cryptography.SHA512]::Create() }
+  }
+  try {
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+      return [System.BitConverter]::ToString($hashAlgorithm.ComputeHash($stream)).Replace('-', '').ToLowerInvariant()
+    } finally {
+      $stream.Dispose()
+    }
+  } finally {
+    $hashAlgorithm.Dispose()
+  }
+}
+
 function New-FileManifest {
   param(
     [string] $Root,
@@ -110,7 +133,7 @@ function New-FileManifest {
     [pscustomobject]@{
       path = $_.FullName.Substring($resolvedRoot.Length).TrimStart('\') -replace '\\','/'
       size = $_.Length
-      sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+      sha256 = Get-CryptographicFileHash -Path $_.FullName -Algorithm SHA256
     }
   }
 
@@ -257,7 +280,7 @@ Compress-Archive -Path (Join-Path $bundleStage '*') -DestinationPath $updateZip 
 Remove-Item -LiteralPath $bundleStage -Recurse -Force
 
 $zipItem = Get-Item -LiteralPath $updateZip
-$zipSha256 = (Get-FileHash -LiteralPath $updateZip -Algorithm SHA256).Hash.ToLowerInvariant()
+$zipSha256 = Get-CryptographicFileHash -Path $updateZip -Algorithm SHA256
 $packageUrl = "Vast-$Version-update.zip"
 $remotePackageUrl = ([System.Uri]::new([System.Uri]::new($UpdateBaseUrl), $packageUrl)).ToString()
 
@@ -580,18 +603,19 @@ $releaseManifest = [pscustomobject]@{
 $releaseManifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $DocsRoot 'release-manifest.json') -Encoding UTF8
 
 $InternalUnsignedMarker = Join-Path $ReleaseRoot 'INTERNAL-UNSIGNED.md'
-$PublicUnsignedMarker = Join-Path $ReleaseRoot 'PUBLIC-UNSIGNED-BETA.md'
-foreach ($marker in @($InternalUnsignedMarker, $PublicUnsignedMarker)) {
+$PublicUnsignedMarker = Join-Path $ReleaseRoot 'PUBLIC-UNSIGNED-RELEASE.md'
+$LegacyPublicUnsignedBetaMarker = Join-Path $ReleaseRoot 'PUBLIC-UNSIGNED-BETA.md'
+foreach ($marker in @($InternalUnsignedMarker, $PublicUnsignedMarker, $LegacyPublicUnsignedBetaMarker)) {
   if (Test-Path -LiteralPath $marker) {
     Remove-Item -LiteralPath $marker -Force
   }
 }
 
-if ($PublicUnsignedBetaEnabled) {
+if ($PublicUnsignedReleaseEnabled) {
   @"
-# PUBLIC UNSIGNED BETA
+# PUBLIC UNSIGNED RELEASE
 
-Vast $Version is a public beta whose Windows executables are intentionally unsigned.
+Vast $Version is a public release whose Windows executables are intentionally unsigned.
 
 - Windows will show **Unknown publisher** and Microsoft Defender SmartScreen may warn before launch.
 - This build does not prove the publisher identity through Authenticode and has no RFC 3161 timestamp.
@@ -602,7 +626,7 @@ Vast $Version is a public beta whose Windows executables are intentionally unsig
 
   foreach ($document in @((Join-Path $ReleaseRoot 'README.md'), (Join-Path $ReleaseRoot 'release-notes.md'))) {
     $body = Get-Content -Raw -LiteralPath $document
-    "# Public unsigned beta`r`n`r`n**Warning:** this Windows beta is intentionally unsigned. Expect Unknown publisher/SmartScreen warnings. Verify the published SHA-256 before running it.`r`n`r`n$body" |
+    "# Public unsigned release`r`n`r`n**Warning:** this Windows release is intentionally unsigned. Expect Unknown publisher/SmartScreen warnings. Verify the published SHA-256 before running it.`r`n`r`n$body" |
       Set-Content -LiteralPath $document -Encoding UTF8
   }
 }
@@ -636,8 +660,8 @@ $sha512Lines = New-Object System.Collections.Generic.List[string]
 $checksumJson = New-Object System.Collections.Generic.List[object]
 foreach ($file in $checksumRelativeFiles) {
   $relative = $file.FullName.Substring($ReleaseRoot.Length).TrimStart('\') -replace '\\','/'
-  $sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-  $sha512 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA512).Hash.ToLowerInvariant()
+  $sha256 = Get-CryptographicFileHash -Path $file.FullName -Algorithm SHA256
+  $sha512 = Get-CryptographicFileHash -Path $file.FullName -Algorithm SHA512
   $sha256Lines.Add("$sha256  $relative")
   $sha512Lines.Add("$sha512  $relative")
   $checksumJson.Add([pscustomobject]@{

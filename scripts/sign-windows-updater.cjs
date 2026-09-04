@@ -29,11 +29,11 @@ function isPublicDistribution() {
   return ['beta', 'stable'].includes(process.env.VAST_RELEASE_CHANNEL) && !flag('VAST_PRIVATE_BUILD', true)
 }
 
-function isPublicUnsignedBeta() {
-  return process.env.VAST_RELEASE_CHANNEL === 'beta' &&
+function isPublicUnsignedRelease() {
+  return ['beta', 'stable'].includes(process.env.VAST_RELEASE_CHANNEL) &&
     !flag('VAST_PRIVATE_BUILD', true) &&
-    flag('VAST_PUBLIC_UNSIGNED_BETA', false) &&
-    String(process.env.VAST_UNSIGNED_BETA_ACK ?? '').trim() === 'I_ACCEPT_UNSIGNED_PUBLIC_BETA_RISK'
+    flag('VAST_PUBLIC_UNSIGNED_RELEASE', false) &&
+    String(process.env.VAST_UNSIGNED_RELEASE_ACK ?? '').trim() === 'I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK'
 }
 
 function findSignTool() {
@@ -159,8 +159,8 @@ function runSignTool(signTool, certificatePath, password) {
 }
 
 async function main() {
-  if (isPublicUnsignedBeta()) {
-    console.log('Skipped updater Authenticode signing for an explicitly acknowledged public unsigned beta.')
+  if (isPublicUnsignedRelease()) {
+    console.log('Skipped updater Authenticode signing for an explicitly acknowledged public unsigned release.')
     return
   }
   if (!isPublicDistribution()) {

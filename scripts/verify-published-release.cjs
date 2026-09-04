@@ -5,6 +5,7 @@ const { pipeline } = require('node:stream/promises')
 const { Readable } = require('node:stream')
 const { tmpdir } = require('node:os')
 const { basename, join, resolve, sep } = require('node:path')
+const { inspectTrustedAuthenticode, inspectUnsignedPe } = require('./windows-authenticode.cjs')
 
 const root = join(__dirname, '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
@@ -17,9 +18,13 @@ const token = String(process.env.VAST_RELEASE_TOKEN || process.env.GH_TOKEN || p
 const keepDownloads = process.argv.includes('--keep-downloads')
 const skipLocalMatch = process.argv.includes('--skip-local-match')
 const draftReleaseApi = process.env.VAST_GITHUB_DRAFT_RELEASE === '1'
-const publicUnsignedBeta =
+const legacyPublicUnsignedBeta =
   process.env.VAST_RELEASE_CHANNEL === 'beta' &&
   ['1', 'true', 'yes', 'on'].includes(String(process.env.VAST_PUBLIC_UNSIGNED_BETA ?? '').trim().toLowerCase())
+const publicUnsignedRelease =
+  ['beta', 'stable'].includes(process.env.VAST_RELEASE_CHANNEL) &&
+  ['1', 'true', 'yes', 'on'].includes(String(process.env.VAST_PUBLIC_UNSIGNED_RELEASE ?? '').trim().toLowerCase())
+const unsignedPublicDistribution = legacyPublicUnsignedBeta || publicUnsignedRelease
 const maximumDownloadBytes = 3 * 1024 * 1024 * 1024
 const tempRoot = mkdtempSync(join(tmpdir(), `vast-published-${version}-`))
 
@@ -39,7 +44,8 @@ const assets = [
   { name: 'version.json', local: 'version.json' }
 ]
 
-if (publicUnsignedBeta) assets.push({ name: 'PUBLIC-UNSIGNED-BETA.md', local: 'PUBLIC-UNSIGNED-BETA.md' })
+if (legacyPublicUnsignedBeta) assets.push({ name: 'PUBLIC-UNSIGNED-BETA.md', local: 'PUBLIC-UNSIGNED-BETA.md' })
+if (publicUnsignedRelease) assets.push({ name: 'PUBLIC-UNSIGNED-RELEASE.md', local: 'PUBLIC-UNSIGNED-RELEASE.md' })
 
 function sha256(file) {
   return createHash('sha256').update(readFileSync(file)).digest('hex')
@@ -51,9 +57,12 @@ function assertSafeVersion() {
   }
   const parsed = new URL(`${baseUrl}/`)
   if (parsed.protocol !== 'https:') throw new Error('Published release verification requires an HTTPS production source.')
-  if (!publicUnsignedBeta && !expectedSigner) throw new Error('VAST_EXPECTED_SIGNER_SUBJECT is required for a signed release.')
-  if (publicUnsignedBeta && process.env.VAST_UNSIGNED_BETA_ACK !== 'I_ACCEPT_UNSIGNED_PUBLIC_BETA_RISK') {
+  if (!unsignedPublicDistribution && !expectedSigner) throw new Error('VAST_EXPECTED_SIGNER_SUBJECT is required for a signed release.')
+  if (legacyPublicUnsignedBeta && process.env.VAST_UNSIGNED_BETA_ACK !== 'I_ACCEPT_UNSIGNED_PUBLIC_BETA_RISK') {
     throw new Error('Public unsigned beta verification requires the exact risk acknowledgement.')
+  }
+  if (publicUnsignedRelease && process.env.VAST_UNSIGNED_RELEASE_ACK !== 'I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK') {
+    throw new Error('Public unsigned release verification requires the exact risk acknowledgement.')
   }
   if (!/^[a-f0-9]{40}$/.test(expectedSourceCommit)) throw new Error('VAST_RELEASE_COMMIT must be a full source commit SHA.')
 }
@@ -76,6 +85,32 @@ async function releaseAssetUrls() {
     : undefined
   if (!release) throw new Error(`Could not find draft release v${version} in ${releaseRepo}.`)
   return new Map((release.assets || []).map((asset) => [asset.name, asset.url]))
+}
+
+async function publicSourceFile(path) {
+  const response = await fetch(`https://api.github.com/repos/${releaseRepo}/contents/${path}?ref=${encodeURIComponent(`v${version}`)}`, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': `VastReleaseVerifier/${version}`,
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+  })
+  if (!response.ok) throw new Error(`Public source tag is missing ${path}: HTTP ${response.status}`)
+  const body = await response.json()
+  if (body?.encoding !== 'base64' || typeof body.content !== 'string') throw new Error(`Public source tag returned malformed ${path}.`)
+  return JSON.parse(Buffer.from(body.content.replace(/\s/g, ''), 'base64').toString('utf8'))
+}
+
+async function verifyPublicSourceTag() {
+  const [sourcePackage, provenance] = await Promise.all([
+    publicSourceFile('package.json'),
+    publicSourceFile('.vast-source-provenance.json')
+  ])
+  if (sourcePackage.version !== version) throw new Error(`Public tag v${version} exposes package.json version ${sourcePackage.version}.`)
+  if (provenance.version !== version || provenance.sourceCommit !== expectedSourceCommit) {
+    throw new Error(`Public tag v${version} does not correspond to the released source commit.`)
+  }
 }
 
 async function download(asset, apiUrls) {
@@ -107,27 +142,17 @@ async function download(asset, apiUrls) {
 }
 
 function inspectAuthenticode(file) {
-  if (process.platform !== 'win32') throw new Error('Authenticode verification requires Windows.')
-  const script = [
-    '$s = Get-AuthenticodeSignature -LiteralPath $env:VAST_SIGNATURE_PATH',
-    '$r = [ordered]@{ Status=[string]$s.Status; Signer=[string]$s.SignerCertificate.Subject; Timestamp=[string]$s.TimeStamperCertificate.Subject }',
-    '$r | ConvertTo-Json -Compress'
-  ].join('\n')
-  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
-    env: { ...process.env, VAST_SIGNATURE_PATH: file }, encoding: 'utf8', windowsHide: true
-  })
-  if (result.error || result.status !== 0) throw new Error(`Could not inspect Authenticode for ${basename(file)}.`)
-  const signature = JSON.parse(String(result.stdout).trim())
-  if (publicUnsignedBeta) {
-    if (signature.Status !== 'NotSigned') throw new Error(`${basename(file)} must be intentionally NotSigned, got ${signature.Status}.`)
-    return { file: basename(file), status: signature.Status, signer: '', timestamped: false }
+  const signature = unsignedPublicDistribution ? inspectUnsignedPe(file) : inspectTrustedAuthenticode(file)
+  if (unsignedPublicDistribution) {
+    if (signature.status !== 'NotSigned') throw new Error(`${basename(file)} must be intentionally NotSigned, got ${signature.status}.`)
+    return { file: basename(file), status: signature.status, signer: '', timestamped: false }
   }
-  if (signature.Status !== 'Valid') throw new Error(`${basename(file)} Authenticode status is ${signature.Status}.`)
-  if (!String(signature.Timestamp || '').trim()) throw new Error(`${basename(file)} has no trusted timestamp.`)
-  if (!String(signature.Signer || '').toLowerCase().includes(expectedSigner.toLowerCase())) {
+  if (signature.status !== 'Valid') throw new Error(`${basename(file)} Authenticode status is ${signature.status}.`)
+  if (!String(signature.timestampSubject || '').trim()) throw new Error(`${basename(file)} has no trusted timestamp.`)
+  if (!String(signature.signerSubject || '').toLowerCase().includes(expectedSigner.toLowerCase())) {
     throw new Error(`${basename(file)} is not signed by ${expectedSigner}.`)
   }
-  return { file: basename(file), signer: signature.Signer, timestamped: true }
+  return { file: basename(file), signer: signature.signerSubject, timestamped: true }
 }
 
 function extractRuntime(zipFile, manifest) {
@@ -151,6 +176,7 @@ function extractRuntime(zipFile, manifest) {
 
 async function main() {
   assertSafeVersion()
+  await verifyPublicSourceTag()
   const apiUrls = await releaseAssetUrls()
   const downloaded = new Map()
   for (const asset of assets) downloaded.set(asset.name, await download(asset, apiUrls))
@@ -161,7 +187,9 @@ async function main() {
   const zip = downloaded.get(zipName)
   if (manifest.version !== version) throw new Error('Production update manifest version does not match the release.')
   if (manifest.sourceCommit !== expectedSourceCommit) throw new Error('Production update manifest sourceCommit does not match VAST_RELEASE_COMMIT.')
-  const expectedSignaturePolicy = publicUnsignedBeta ? 'unsigned-public-beta' : 'authenticode-signed'
+  const expectedSignaturePolicy = legacyPublicUnsignedBeta
+    ? 'unsigned-public-beta'
+    : (publicUnsignedRelease ? 'unsigned-public-release' : 'authenticode-signed')
   if (manifest.signaturePolicy !== expectedSignaturePolicy) throw new Error('Production update manifest signaturePolicy is incorrect.')
   if (releaseManifest.version !== version || releaseManifest.sourceCommit !== expectedSourceCommit) {
     throw new Error('Production release manifest provenance does not match this version and source commit.')

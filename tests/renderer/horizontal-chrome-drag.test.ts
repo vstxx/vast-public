@@ -23,6 +23,19 @@ test('workspace popover uses a clear product heading without technical helper co
   assert.doesNotMatch(source, />Workspaces<\/div>/)
 })
 
+test('tab overflow is aligned and exposes lifecycle plus direct close controls', () => {
+  assert.match(source, /overflowRef[^\n]*translate-y-1 self-center/)
+  assert.match(source, /function overflowTabState\(tab: Tab, active: boolean\)/)
+  for (const state of ['Crashed', 'Load failed', 'Active', 'Sleeping', 'Unloaded', 'Ready']) {
+    assert.match(source, new RegExp(`label: '${state}`))
+  }
+  assert.match(source, /label: `Loading \$\{/)
+  assert.match(source, /aria-label=\{`Close \$\{tab\.title\}`\}/)
+  assert.match(source, /closeTab\(tab\.id\)/)
+  assert.match(source, /document\.addEventListener\('pointerdown', onPointerDown, true\)/)
+  assert.match(source, /event\.key === 'Escape'/)
+})
+
 test('dragging a tab out requests a detached Vast window', () => {
   assert.match(source, /onDragEnd=\{\(event\) => onTabDragEnd\(event, tab\)\}/)
   assert.match(source, /window\.vast\.browser\.detachTab\(payload\)/)

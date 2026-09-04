@@ -11,8 +11,19 @@ const artifactsDir = process.env.VAST_E2E_ARTIFACTS_DIR
 const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vast-e2e-profile-'))
 const downloadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vast-e2e-downloads-'))
 const passwordImportCsvPath = path.join(userDataDir, 'password-import.csv')
+const localPdfPath = path.join(userDataDir, 'vast-local-open.pdf')
 const port = 9400 + Math.floor(Math.random() * 400)
 const electronVersion = require('electron/package.json').version
+
+const forcedWindowSize = process.env.VAST_E2E_WINDOW_SIZE?.match(/^(\d+)x(\d+)$/i)
+if (forcedWindowSize) {
+  const width = Number(forcedWindowSize[1])
+  const height = Number(forcedWindowSize[2])
+  if (width < 980 || height < 680) fail('VAST_E2E_WINDOW_SIZE must be at least 980x680.')
+  fs.writeFileSync(path.join(userDataDir, 'window-state.json'), JSON.stringify({
+    main: { x: 0, y: 0, width, height, maximized: false }
+  }))
+}
 
 fs.mkdirSync(artifactsDir, { recursive: true })
 const seedPartition = process.env.VAST_E2E_SEED_PARTITION
@@ -46,14 +57,15 @@ const packagedPdfUrl = process.env.VAST_E2E_PUBLIC_PDF_URL?.trim()
 const launchExecutable = packagedExecutable ?? electronExe
 const launchArgs = packagedExecutable
   ? [`--remote-debugging-port=${port}`, `--vast-performance-report=${path.join(userDataDir, 'packaged-smoke-performance.json')}`]
-  : [`--remote-debugging-port=${port}`, root]
+  // Electron 44 parses switches before the app path as electron CLI options.
+  // Put the app path first so Chromium receives the remote-debugging switch.
+  : [root, `--remote-debugging-port=${port}`]
 
 const env = {
   ...process.env,
   VAST_TEST_USER_DATA_DIR: userDataDir,
   VAST_TEST_DOWNLOAD_DIR: downloadDir,
   VAST_TEST_PASSWORD_IMPORT_CSV: passwordImportCsvPath,
-  VAST_E2E_ALLOW_LOOPBACK_PDF: '1',
   VAST_RELAY_TEST_OFFLINE: '1'
 }
 delete env.ELECTRON_RUN_AS_NODE
@@ -64,6 +76,7 @@ const rendererIssues = []
 const checks = []
 let appProcess
 let downloadServer
+let authenticatedPdfRequests = 0
 
 function record(name, detail = '') {
   checks.push({ name, detail })
@@ -390,6 +403,75 @@ async function executeInActiveWebview(session, expression) {
   })()`)
 }
 
+async function typeInActiveWebview(session, selector, value) {
+  const quotedSelector = JSON.stringify(selector)
+  const quotedValue = JSON.stringify(value)
+  await executeInActiveWebview(session, `(() => {
+    const input = document.querySelector(${quotedSelector});
+    if (!(input instanceof HTMLInputElement)) throw new Error('Guest input not found: ' + ${quotedSelector});
+    input.focus();
+    input.value = '';
+    return true;
+  })()`)
+  // Autofill configuration can arrive just after focus and intentionally place
+  // the saved username. Let that one-shot action settle, then model the user
+  // replacing it with trusted keyboard input.
+  await wait(120)
+  await executeInActiveWebview(session, `(() => {
+    const input = document.querySelector(${quotedSelector});
+    if (!(input instanceof HTMLInputElement)) throw new Error('Guest input disappeared: ' + ${quotedSelector});
+    input.focus();
+    input.value = '';
+    return true;
+  })()`)
+  for (const character of value) {
+    await session.evaluate(`(() => {
+      const webview = [...document.querySelectorAll('webview.browser-webview')]
+        .find((item) => item.getClientRects().length > 0 && item.getBoundingClientRect().width > 0);
+      if (!webview) throw new Error('Active browser webview not found for input.');
+      webview.sendInputEvent({ type: 'char', keyCode: ${JSON.stringify(character)} });
+      return true;
+    })()`)
+  }
+  try {
+    await waitForActiveWebview(session, `document.querySelector(${quotedSelector})?.value === ${quotedValue}`, `trusted input ${selector}`)
+  } catch {
+    const observedValue = await executeInActiveWebview(session, `document.querySelector(${quotedSelector})?.value ?? null`).catch(() => null)
+    fail(`Trusted input ${selector} produced ${JSON.stringify(observedValue)} instead of ${quotedValue}.`)
+  }
+}
+
+async function keyInActiveWebview(session, keyCode) {
+  const quotedKey = JSON.stringify(keyCode)
+  await session.evaluate(`(() => {
+    const webview = [...document.querySelectorAll('webview.browser-webview')]
+      .find((item) => item.getClientRects().length > 0 && item.getBoundingClientRect().width > 0);
+    if (!webview) throw new Error('Active browser webview not found for keyboard input.');
+    webview.sendInputEvent({ type: 'keyDown', keyCode: ${quotedKey} });
+    if (${quotedKey} === 'Enter') webview.sendInputEvent({ type: 'char', keyCode: '\\r' });
+    webview.sendInputEvent({ type: 'keyUp', keyCode: ${quotedKey} });
+    return true;
+  })()`)
+}
+
+async function trustedClickInActiveWebview(session, selector) {
+  const quotedSelector = JSON.stringify(selector)
+  const point = await executeInActiveWebview(session, `(() => {
+    const element = document.querySelector(${quotedSelector});
+    if (!element) throw new Error('Guest element not found: ' + ${quotedSelector});
+    const rect = element.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  })()`)
+  await session.evaluate(`(() => {
+    const webview = [...document.querySelectorAll('webview.browser-webview')]
+      .find((item) => item.getClientRects().length > 0 && item.getBoundingClientRect().width > 0);
+    if (!webview) throw new Error('Active browser webview not found for mouse input.');
+    webview.sendInputEvent({ type: 'mouseDown', x: ${Number(point.x)}, y: ${Number(point.y)}, button: 'left', clickCount: 1 });
+    webview.sendInputEvent({ type: 'mouseUp', x: ${Number(point.x)}, y: ${Number(point.y)}, button: 'left', clickCount: 1 });
+    return true;
+  })()`)
+}
+
 async function waitForActiveWebview(session, expression, label, timeoutMs = 15000) {
   const started = Date.now()
   while (Date.now() - started < timeoutMs) {
@@ -505,6 +587,15 @@ async function setAddress(session, value) {
     input.focus();
     setter.call(input, ${quoted});
     input.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`)
+  // React commits the controlled input state after the input event. Submitting
+  // in the same renderer task can make onSubmit observe the previous URL,
+  // which is not representative of a user typing and then pressing Enter.
+  await wait(50)
+  await session.evaluate(`(() => {
+    const input = [...document.querySelectorAll('input')].find((item) => item.placeholder === 'Search or enter address');
+    if (!input || !input.form) throw new Error('Address input disappeared before submit.');
     input.form.requestSubmit();
     return true;
   })()`)
@@ -555,7 +646,10 @@ async function setSelectByLabel(session, labelText, value) {
       select.dispatchEvent(new Event('change', { bubbles: true }));
       return true;
     }
-    const custom = label?.querySelector('[data-settings-select]');
+    // SettingsSelect wraps VastSelect in a div (not a label) and forwards the
+    // setting name through data-settings-select.
+    const custom = label?.querySelector('[data-settings-select]') ??
+      document.querySelector('[data-settings-select=' + CSS.escape(${quotedLabel}) + ']');
     const trigger = custom?.querySelector('button[aria-haspopup="listbox"]');
     if (!custom || !trigger) throw new Error('Select not found for label: ' + ${quotedLabel});
     trigger.click();
@@ -721,6 +815,70 @@ async function startDownloadServer() {
         response.end('<!doctype html><title>Script Open Result</title><h1>Script Open Result</h1>')
         return
       }
+      if (parsedRequestUrl.pathname === '/compat-source') {
+        response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' })
+        response.end(`<!doctype html><title>Compat Source</title><body>
+          <a id="guarded-download" href="/guarded-download?token=vast-compat-token" target="_blank">Guarded download</a>
+          <form id="compat-post" method="POST" action="/post-target" target="_blank">
+            <input type="hidden" name="token" value="vast-post-test">
+          </form>
+          <button id="compat-named-one" onclick="window.__compatFirst = window.open('/compat-one', 'vast-compat-named')">Named one</button>
+          <button id="compat-named-two" onclick="window.__compatSecond = window.open('/compat-two', 'vast-compat-named')">Named two</button>
+          <div id="compat-status"></div>
+          <script>
+            window.addEventListener('message', (event) => {
+              if (typeof event.data === 'string' && event.data.startsWith('compat:')) {
+                const status = document.getElementById('compat-status')
+                status.dataset.messages = (status.dataset.messages ?? '') + event.data.slice(6) + ';'
+              }
+            })
+          </script>
+        </body>`)
+        return
+      }
+      if (parsedRequestUrl.pathname === '/guarded-download') {
+        const referer = String(request.headers.referer ?? '')
+        const token = parsedRequestUrl.searchParams.get('token')
+        if (!referer.endsWith('/compat-source')) {
+          response.writeHead(302, { Location: '/compat-source?failed=referrer', 'Cache-Control': 'no-store' })
+          response.end()
+          return
+        }
+        if (token !== 'vast-compat-token') {
+          response.writeHead(302, { Location: '/compat-source?failed=token', 'Cache-Control': 'no-store' })
+          response.end()
+          return
+        }
+        const payload = Buffer.from('vast-compat-guarded-download\n', 'utf8')
+        response.writeHead(200, {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': String(payload.length),
+          'Content-Disposition': 'attachment; filename="vast-compat-download.txt"'
+        })
+        response.end(payload)
+        return
+      }
+      if (parsedRequestUrl.pathname === '/post-target') {
+        const chunks = []
+        request.on('data', (chunk) => chunks.push(chunk))
+        request.on('end', () => {
+          const body = Buffer.concat(chunks).toString('utf8')
+          const verdict = request.method === 'POST'
+            ? (body.includes('token=vast-post-test') ? 'post-ok' : 'post-missing-body')
+            : `wrong-method-${request.method.toLowerCase()}`
+          response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' })
+          response.end(`<!doctype html><title>Post Target</title><body data-post-verdict="${verdict}"><h1>${verdict}</h1></body>`)
+        })
+        return
+      }
+      if (parsedRequestUrl.pathname === '/compat-one' || parsedRequestUrl.pathname === '/compat-two') {
+        const label = parsedRequestUrl.pathname.slice(1)
+        response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' })
+        response.end(`<!doctype html><title>Compat ${label}</title><body><h1>${label}</h1><script>
+          try { window.opener.postMessage('compat:${label}:${parsedRequestUrl.pathname}', '*') } catch (error) {}
+        </script></body>`)
+        return
+      }
       if (parsedRequestUrl.pathname === '/password-login') {
         response.writeHead(200, { 'Content-Type': 'text/html' })
         response.end(`<!doctype html><title>Vast Password Login</title>
@@ -740,6 +898,113 @@ async function startDownloadServer() {
       if (parsedRequestUrl.pathname === '/password-login-complete') {
         response.writeHead(200, { 'Content-Type': 'text/html' })
         response.end('<!doctype html><title>Vast Password Login Complete</title><h1>Login complete</h1>')
+        return
+      }
+      if (request.url === '/pdf-auth') {
+        response.writeHead(200, {
+          'Content-Type': 'text/html',
+          'Set-Cookie': 'vast_pdf_session=authorized; Path=/; HttpOnly; SameSite=Lax'
+        })
+        response.end('<!doctype html><title>Authenticated PDF source</title><a id="secure-pdf" href="/secure-export?id=one-shot">Open protected PDF</a>')
+        return
+      }
+      if (parsedRequestUrl.pathname === '/secure-export') {
+        authenticatedPdfRequests += 1
+        const authorized = String(request.headers.cookie || '').includes('vast_pdf_session=authorized')
+        const referred = String(request.headers.referer || '').endsWith('/pdf-auth')
+        const browserUserAgent = !String(request.headers['user-agent'] || '').startsWith('Vast/')
+        if (!authorized || !referred || !browserUserAgent || authenticatedPdfRequests !== 1) {
+          response.writeHead(403, { 'Content-Type': 'text/html' })
+          response.end('<!doctype html><title>PDF authorization failed</title>PDF authorization failed')
+          return
+        }
+        response.writeHead(200, {
+          'Content-Type': 'application/pdf',
+          'Content-Length': String(pdfBuffer.length),
+          'Content-Disposition': 'inline; filename="authenticated-session.pdf"'
+        })
+        response.end(pdfBuffer)
+        return
+      }
+      if (parsedRequestUrl.pathname === '/password-login-fail') {
+        response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' })
+        response.end(`<!doctype html><title>Vast Password Login Failed</title>
+          <form>
+            <label>Użytkownik <input id="fail-user" name="username" autocomplete="username" type="email"></label>
+            <label>Hasło <input id="fail-password" name="password" autocomplete="current-password" type="password"></label>
+            <button id="fail-submit" type="submit" aria-label="Submit"><span aria-hidden="true">→</span></button>
+          </form><main id="fail-result"></main>
+          <script>document.querySelector('form').addEventListener('submit', (event) => {
+            event.preventDefault(); setTimeout(() => {
+              document.querySelector('#fail-result').innerHTML = '<div role="alert">Nieprawidłowe dane</div>';
+              document.querySelector('#fail-password').focus();
+            }, 80)
+          })</script>`)
+        return
+      }
+      if (parsedRequestUrl.pathname === '/password-spa') {
+        response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' })
+        response.end(`<!doctype html><title>Vast Password SPA</title><main id="spa-root">
+          <div role="form"><input id="spa-user" name="email" autocomplete="section-login username" type="email">
+          <input id="spa-password" autocomplete="section-login current-password" type="password">
+          <button id="spa-submit" type="button">Zaloguj</button></div></main>
+          <script>document.querySelector('#spa-submit').addEventListener('click', () => setTimeout(() => {
+            history.pushState({}, '', '/password-spa/home'); document.title = 'Vast Password SPA Complete';
+            document.querySelector('#spa-root').innerHTML = '<h1>Authenticated</h1>';
+          }, 80))</script>`)
+        return
+      }
+      if (parsedRequestUrl.pathname === '/password-formless-enter') {
+        response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' })
+        response.end(`<!doctype html><title>Vast Formless Login</title><main id="formless-root">
+          <div><input id="formless-user" name="email" autocomplete="username" type="email"></div>
+          <div><input id="formless-password" autocomplete="current-password" type="password"></div>
+          <div><button id="formless-submit" type="button" aria-label="Continue">→</button></div>
+          </main><script>
+            const complete = () => setTimeout(() => {
+              history.pushState({}, '', '/password-formless-enter/home')
+              document.querySelector('#formless-root').innerHTML = '<h1>Authenticated</h1>'
+            }, 80)
+            document.querySelector('#formless-password').addEventListener('keydown', (event) => {
+              if (event.key === 'Enter') { event.preventDefault(); complete() }
+            })
+            document.querySelector('#formless-submit').addEventListener('click', complete)
+          </script>`)
+        return
+      }
+      if (parsedRequestUrl.pathname === '/password-username-first') {
+        response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' })
+        response.end(`<!doctype html><title>Vast Username First</title><main id="multi-root">
+          <form id="username-step"><input id="multi-user" type="email" autocomplete="section-account username"><button type="submit">Dalej</button></form>
+          </main><script>document.querySelector('#username-step').addEventListener('submit', (event) => {
+            event.preventDefault(); history.pushState({}, '', '/password-username-first/password');
+            document.querySelector('#multi-root').innerHTML = '<form id="password-step"><input id="multi-password" type="password" autocomplete="section-account current-password"><button type="submit">→</button></form>';
+            document.querySelector('#password-step').addEventListener('submit', (nextEvent) => {
+              nextEvent.preventDefault(); setTimeout(() => { history.pushState({}, '', '/password-username-first/home'); document.querySelector('#multi-root').innerHTML = '<h1>Welcome</h1>'; }, 80)
+            })
+          })</script>`)
+        return
+      }
+      if (parsedRequestUrl.pathname === '/password-signup') {
+        response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' })
+        response.end(`<!doctype html><title>Vast Password Signup</title><main id="signup-root"><form>
+          <input id="signup-user" type="email" autocomplete="username"><input id="signup-password" type="password" autocomplete="new-password">
+          <input id="signup-confirm" type="password" autocomplete="new-password"><button type="submit">Utwórz</button>
+          </form></main><script>document.querySelector('form').addEventListener('submit', (event) => {
+            event.preventDefault(); setTimeout(() => { history.replaceState({}, '', '/password-signup/complete'); document.querySelector('#signup-root').innerHTML = '<h1>Created</h1>'; }, 80)
+          })</script>`)
+        return
+      }
+      if (parsedRequestUrl.pathname === '/password-change') {
+        response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' })
+        response.end(`<!doctype html><title>Vast Password Change</title><main id="change-root"><form>
+          <input id="change-user" type="email" autocomplete="username">
+          <input id="change-current" type="password" autocomplete="current-password">
+          <input id="change-new" type="password" autocomplete="new-password">
+          <input id="change-confirm" type="password" autocomplete="new-password"><button type="submit">Zmień</button>
+          </form></main><script>document.querySelector('form').addEventListener('submit', (event) => {
+            event.preventDefault(); setTimeout(() => { history.replaceState({}, '', '/password-change/complete'); document.querySelector('#change-root').innerHTML = '<h1>Changed</h1>'; }, 80)
+          })</script>`)
         return
       }
       if (parsedRequestUrl.pathname === '/session-start') {
@@ -821,6 +1086,218 @@ async function startDownloadServer() {
     })
     downloadServer.listen(0, '127.0.0.1', () => resolve(downloadServer.address().port))
   })
+}
+
+async function runPasswordManagerSmoke(session, localServerPort) {
+  await openCommand(session, 'Open settings')
+  await clickByText(session, 'Open settings')
+  await waitFor(session, 'Boolean(document.querySelector(".settings-modal-shell"))', 'Password Manager smoke settings')
+  await clickByText(session, 'Labs')
+  await setCheckboxByLabel(session, 'Password Manager', true)
+  await waitForStorage(session, '(data) => data.settings.labs.passwordManager === true', 'Password Manager enabled')
+  await clickByTitle(session, 'Close settings')
+
+  const lockedState = await session.evaluate('window.vast.passwords.sessionStatus()')
+  assert(lockedState.ok === true && lockedState.state?.locked === true, 'Password Manager did not begin the automatic-capture test locked.')
+
+  const origin = `http://127.0.0.1:${localServerPort}`
+  const vaultPath = path.join(userDataDir, 'password-vault.json')
+  const readVault = () => JSON.parse(fs.readFileSync(vaultPath, 'utf8'))
+  const waitForVault = async (predicate, label) => {
+    const started = Date.now()
+    while (Date.now() - started < 15_000) {
+      if (fs.existsSync(vaultPath)) {
+        const vault = readVault()
+        if (predicate(vault)) return vault
+      }
+      await wait(100)
+    }
+    fail(`Timed out waiting for Password Manager vault state: ${label}`)
+  }
+  const assertNoPrompt = async (label, delay = 2_200) => {
+    await wait(delay)
+    const text = await session.bodyText()
+    assert(!text.includes('Save password?') && !text.includes('Save this new account?') && !text.includes('Update saved password?'), label)
+  }
+  const resolvePrompt = async (action = 'save') => {
+    const selector = action === 'save' || action === 'update'
+      ? '[data-testid="password-save-confirm"]'
+      : action === 'never'
+        ? '[data-testid="password-save-never"]'
+        : '[data-testid="password-save-not-now"]'
+    await session.evaluate(`document.querySelector(${JSON.stringify(selector)})?.click()`)
+    await waitFor(session, '!document.querySelector("[data-testid=\\"password-save-prompt\\"]")', `password prompt ${action}`)
+  }
+  const submitLogin = async (username, password, method = 'requestSubmit', captureExpected = true) => {
+    await setAddress(session, `${origin}/password-login`)
+    await waitForActiveWebview(session, 'document.title === "Vast Password Login" && Boolean(document.querySelector("#login-submit"))', 'password login fixture')
+    const captureStatus = await session.evaluate(`(() => {
+      const webview = [...document.querySelectorAll('webview.browser-webview')].find((item) => item.getClientRects().length > 0);
+      if (!webview) throw new Error('Missing active password webview.');
+      return window.vast.passwords.captureStatus(webview.getWebContentsId(), ${JSON.stringify(origin)});
+    })()`)
+    assert(
+      captureStatus.ok === true && captureStatus.enabled === captureExpected,
+      `Automatic capture status did not match the fixture expectation: ${JSON.stringify(captureStatus)}`
+    )
+    await typeInActiveWebview(session, '#login-user', username)
+    await typeInActiveWebview(session, '#login-password', password)
+    if (method === 'enter') {
+      await executeInActiveWebview(session, 'document.querySelector("#login-password").focus(); true')
+      await keyInActiveWebview(session, 'Enter')
+    } else if (method === 'click') {
+      await trustedClickInActiveWebview(session, '#login-submit')
+    } else {
+      await executeInActiveWebview(session, 'document.querySelector("form").requestSubmit(); true')
+    }
+    await waitForActiveWebview(session, 'document.title === "Vast Password Login Complete"', 'successful password login')
+  }
+
+  await setAddress(session, `${origin}/password-login-fail`)
+  await waitForActiveWebview(session, 'Boolean(document.querySelector("#fail-submit"))', 'failed password login fixture')
+  await typeInActiveWebview(session, '#fail-user', 'wrong@example.test')
+  await typeInActiveWebview(session, '#fail-password', 'Wrong-Smoke-Secret-000!')
+  await trustedClickInActiveWebview(session, '#fail-submit')
+  await waitForActiveWebview(session, 'Boolean(document.querySelector("[role=alert]"))', 'failed login feedback')
+  await assertNoPrompt('A failed localized/icon-button login produced a save prompt.')
+  record('password failure inference', 'validation feedback, retained form, and password refocus suppress saving')
+
+  const firstSecret = 'Captured-Smoke-Secret-789!'
+  await submitLogin('captured-user@example.test', firstSecret, 'enter')
+  await waitFor(session, 'document.body.innerText.includes("Save password?") && Boolean(document.querySelector("[data-testid=\\"password-save-prompt\\"]"))', 'locked-vault save prompt')
+  assert(!(await session.bodyText()).includes(firstSecret), 'The password save prompt exposed its plaintext secret.')
+  await resolvePrompt('save')
+  const vaultAfterSave = await waitForVault((vault) => vault.records?.filter((record) => record.origin === origin).length === 1, 'first captured login')
+  const firstRecord = vaultAfterSave.records.find((record) => record.origin === origin)
+  assert(firstRecord && !JSON.stringify(vaultAfterSave).includes(firstSecret), 'The first captured password was not stored exclusively as ciphertext.')
+  record('password save while locked', 'Enter submission saves after success evidence without unlocking the management UI')
+
+  await submitLogin('captured-user@example.test', firstSecret)
+  await assertNoPrompt('Unchanged credentials produced another prompt.', 1_300)
+  const unchangedVault = readVault()
+  const unchangedRecord = unchangedVault.records.find((record) => record.id === firstRecord.id)
+  assert(unchangedRecord?.encryptedPassword === firstRecord.encryptedPassword, 'Unchanged login was unnecessarily re-encrypted.')
+  assert(unchangedVault.records.filter((record) => record.origin === origin).length === 1, 'Username case differences created a duplicate credential.')
+  record('canonical unchanged match', 'requestSubmit and unchanged ciphertext resolve to one account without a duplicate')
+
+  const secondSecret = 'Captured-Smoke-Changed-012!'
+  await submitLogin('captured-user@example.test', secondSecret, 'click')
+  await waitFor(session, 'document.body.innerText.includes("Update saved password?")', 'changed-password update prompt')
+  await resolvePrompt('update')
+  const vaultAfterUpdate = await waitForVault((vault) => {
+    const record = vault.records?.find((item) => item.id === firstRecord.id)
+    return record?.encryptedPassword && record.encryptedPassword !== firstRecord.encryptedPassword
+  }, 'updated captured password')
+  assert(vaultAfterUpdate.records.filter((record) => record.origin === origin).length === 1, 'Updating a captured password created a duplicate.')
+  assert(!JSON.stringify(vaultAfterUpdate).includes(secondSecret), 'The updated password leaked into the vault file.')
+  record('password update matching', 'native click updates the existing canonical account without duplication')
+
+  const submitChange = async (currentPassword, newPassword, confirmation = newPassword) => {
+    await setAddress(session, `${origin}/password-change`)
+    await waitForActiveWebview(session, 'Boolean(document.querySelector("#change-confirm"))', 'password-change fixture')
+    await typeInActiveWebview(session, '#change-user', 'captured-user@example.test')
+    await typeInActiveWebview(session, '#change-current', currentPassword)
+    await typeInActiveWebview(session, '#change-new', newPassword)
+    await typeInActiveWebview(session, '#change-confirm', confirmation)
+    await executeInActiveWebview(session, 'document.querySelector("form").requestSubmit(); true')
+    await waitForActiveWebview(session, 'document.body.innerText.includes("Changed")', 'password-change completion')
+  }
+  await submitChange('wrong-current-password', 'Must-Not-Replace-333!')
+  await assertNoPrompt('A wrong current password offered to update a stored account.', 1_400)
+  await submitChange(secondSecret, 'Captured-Smoke-Changed-Again-444!')
+  await waitFor(session, 'document.body.innerText.includes("Update saved password?")', 'safe password-change update prompt')
+  await resolvePrompt('update')
+  await submitChange('Captured-Smoke-Changed-Again-444!', 'Mismatch-New-A!', 'Mismatch-New-B!')
+  await assertNoPrompt('Mismatching change-password confirmation produced a prompt.', 1_300)
+  record('password-change resolution', 'current password identifies the account; wrong current and mismatching confirmation are rejected')
+
+  await setAddress(session, `${origin}/password-spa`)
+  await waitForActiveWebview(session, 'Boolean(document.querySelector("#spa-submit"))', 'SPA password fixture')
+  await typeInActiveWebview(session, '#spa-user', 'spa-user@example.test')
+  await typeInActiveWebview(session, '#spa-password', 'SPA-Smoke-Secret-111!')
+  await trustedClickInActiveWebview(session, '#spa-submit')
+  await waitForActiveWebview(session, 'document.title === "Vast Password SPA Complete"', 'SPA authentication completion')
+  await waitFor(session, 'document.body.innerText.includes("Save password?")', 'SPA password prompt')
+  await resolvePrompt('save')
+  record('SPA credential capture', 'custom no-form control, history navigation, and DOM replacement produce one save decision')
+
+  await setAddress(session, `${origin}/password-formless-enter`)
+  await waitForActiveWebview(session, 'Boolean(document.querySelector("#formless-password"))', 'form-less Enter login fixture')
+  await typeInActiveWebview(session, '#formless-user', 'formless-user@example.test')
+  await typeInActiveWebview(session, '#formless-password', 'Formless-Smoke-Secret-112!')
+  await executeInActiveWebview(session, 'document.querySelector("#formless-password").focus(); true')
+  await keyInActiveWebview(session, 'Enter')
+  await waitForActiveWebview(session, 'document.body.innerText.includes("Authenticated")', 'form-less Enter authentication completion')
+  await waitFor(session, 'document.body.innerText.includes("formless-user@example.test") && document.body.innerText.includes("Save password?")', 'form-less Enter password prompt')
+  await resolvePrompt('save')
+  record('form-less Enter capture', 'sibling input wrappers resolve to one bounded credential scope without language or form markup')
+
+  await setAddress(session, `${origin}/password-username-first`)
+  await waitForActiveWebview(session, 'Boolean(document.querySelector("#multi-user"))', 'username-first fixture')
+  await typeInActiveWebview(session, '#multi-user', 'multi-user@example.test')
+  await executeInActiveWebview(session, 'document.querySelector("#username-step").requestSubmit(); true')
+  await waitForActiveWebview(session, 'Boolean(document.querySelector("#multi-password"))', 'username-first password step')
+  await typeInActiveWebview(session, '#multi-password', 'Multi-Smoke-Secret-222!')
+  await executeInActiveWebview(session, 'document.querySelector("#password-step").requestSubmit(); true')
+  await waitForActiveWebview(session, 'document.body.innerText.includes("Welcome")', 'username-first completion')
+  await waitFor(session, 'document.body.innerText.includes("multi-user@example.test")', 'username-first correlated prompt')
+  await resolvePrompt('save')
+  record('username-first capture', 'the user-entered first step is correlated to the later password in the same tab and origin')
+
+  await setAddress(session, `${origin}/password-signup`)
+  await waitForActiveWebview(session, 'Boolean(document.querySelector("#signup-confirm"))', 'signup mismatch fixture')
+  await typeInActiveWebview(session, '#signup-user', 'mismatch@example.test')
+  await typeInActiveWebview(session, '#signup-password', 'Signup-Mismatch-A!')
+  await typeInActiveWebview(session, '#signup-confirm', 'Signup-Mismatch-B!')
+  await executeInActiveWebview(session, 'document.querySelector("form").requestSubmit(); true')
+  await waitForActiveWebview(session, 'document.body.innerText.includes("Created")', 'mismatched signup completion')
+  await assertNoPrompt('Mismatching signup confirmation produced a prompt.', 1_300)
+
+  await setAddress(session, `${origin}/password-signup`)
+  await waitForActiveWebview(session, 'Boolean(document.querySelector("#signup-confirm"))', 'signup fixture')
+  await typeInActiveWebview(session, '#signup-user', 'signup-user@example.test')
+  await typeInActiveWebview(session, '#signup-password', 'Signup-Smoke-Secret-333!')
+  await typeInActiveWebview(session, '#signup-confirm', 'Signup-Smoke-Secret-333!')
+  await executeInActiveWebview(session, 'document.querySelector("form").requestSubmit(); true')
+  await waitForActiveWebview(session, 'document.body.innerText.includes("Created")', 'signup completion')
+  await waitFor(session, 'document.body.innerText.includes("Save this new account?")', 'signup save prompt')
+  await resolvePrompt('save')
+  record('signup capture', 'matching new-password fields save; mismatching confirmation does not')
+
+  await setAddress(session, `${origin}/password-dynamic`)
+  await waitForActiveWebview(session, 'Boolean(document.querySelector("#show-login"))', 'dynamic login fixture')
+  await clickInActiveWebview(session, '#show-login')
+  await waitForActiveWebview(session, 'Boolean(document.querySelector("#dynamic-password"))', 'dynamically inserted login form')
+  await typeInActiveWebview(session, '#dynamic-user', 'dynamic-user@example.test')
+  await typeInActiveWebview(session, '#dynamic-password', 'Dynamic-Smoke-Secret-555!')
+  await executeInActiveWebview(session, 'document.querySelector("form").requestSubmit(); true')
+  await waitFor(session, 'document.body.innerText.includes("Save password?")', 'dynamic login save prompt')
+  await resolvePrompt('save')
+  record('dynamic credential capture', 'one batched observer discovers a late-mounted form without polling')
+
+  await submitLogin('never-save@example.test', 'Never-Save-Smoke-345!')
+  await waitFor(session, 'document.body.innerText.includes("Save password?")', 'Never-for-site prompt')
+  await resolvePrompt('never')
+  const suppressedVault = await waitForVault((vault) => vault.savePromptNeverOrigins?.includes(origin), 'Never-for-site persistence')
+  assert(!JSON.stringify(suppressedVault).includes('Never-Save-Smoke-345!'), 'Never-for-site retained a dismissed plaintext candidate.')
+  await submitLogin('never-save-again@example.test', 'Never-Save-Again-Smoke-678!', 'requestSubmit', false)
+  await assertNoPrompt('A suppressed origin produced a repeated password prompt.', 1_300)
+  record('Never for this site', 'origin-scoped durable suppression prevents later capture before another decision is created')
+
+  const finalVaultRaw = fs.readFileSync(vaultPath, 'utf8')
+  for (const secret of [
+    'Wrong-Smoke-Secret-000!', firstSecret, secondSecret, 'Must-Not-Replace-333!',
+    'Captured-Smoke-Changed-Again-444!', 'Mismatch-New-A!', 'Mismatch-New-B!',
+    'SPA-Smoke-Secret-111!', 'Formless-Smoke-Secret-112!', 'Multi-Smoke-Secret-222!', 'Signup-Mismatch-A!',
+    'Signup-Mismatch-B!', 'Signup-Smoke-Secret-333!', 'Dynamic-Smoke-Secret-555!',
+    'Never-Save-Smoke-345!', 'Never-Save-Again-Smoke-678!'
+  ]) assert(!finalVaultRaw.includes(secret), `Plaintext credential leaked into password-vault.json: ${secret}`)
+  const normalStorageLeaks = await session.evaluate(`window.vast.storage.load().then((data) => ${JSON.stringify([
+    firstSecret, secondSecret, 'Captured-Smoke-Changed-Again-444!', 'SPA-Smoke-Secret-111!',
+    'Formless-Smoke-Secret-112!', 'Multi-Smoke-Secret-222!', 'Signup-Smoke-Secret-333!', 'Dynamic-Smoke-Secret-555!'
+  ])}.some((secret) => JSON.stringify(data).includes(secret)))`)
+  assert(normalStorageLeaks === false, 'A plaintext credential leaked into normal Vast persisted storage.')
+  record('password plaintext boundary', 'prompt DOM, normal browser storage, and encrypted vault files contain no submitted plaintext')
 }
 
 async function runSplitViewSmoke(session, localServerPort) {
@@ -939,6 +1416,9 @@ async function runSplitViewSmoke(session, localServerPort) {
 
 async function main() {
   const localServerPort = await startDownloadServer()
+  if (process.argv.includes('--local-pdf-only')) {
+    fs.writeFileSync(localPdfPath, createPdfBuffer('Vast Local PDF Smoke'))
+  }
 
   appProcess = spawn(launchExecutable, launchArgs, {
     cwd: root,
@@ -999,6 +1479,133 @@ async function main() {
     return
   }
   await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"new-tab-identity\\"]")) && document.body.innerText.includes("New tab")', 'initial new tab')
+  if (process.argv.includes('--local-pdf-only')) {
+    const activationArgs = packagedExecutable ? [localPdfPath] : [root, localPdfPath]
+    const activationProcess = spawn(launchExecutable, activationArgs, {
+      cwd: root,
+      env,
+      windowsHide: true,
+      stdio: 'ignore'
+    })
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('The secondary file-activation process did not exit.')), 10_000)
+      activationProcess.once('error', (error) => {
+        clearTimeout(timeout)
+        reject(error)
+      })
+      activationProcess.once('exit', () => {
+        clearTimeout(timeout)
+        resolve()
+      })
+    })
+    await waitFor(
+      session,
+      'document.body.innerText.includes("BUILT-IN PDF") && document.body.innerText.includes("vast-local-open.pdf") && document.body.innerText.includes("Ready")',
+      'Windows local PDF file activation',
+      30_000
+    )
+    assert(fs.existsSync(localPdfPath), 'Viewing a local PDF removed the original file.')
+    record('local PDF file activation', 'a second Vast launch routes the original file into the owner-scoped built-in viewer without deleting it')
+
+    await setAddress(session, 'vast://newtab')
+    await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"new-tab-identity\\"]"))', 'new tab before local PDF drop')
+    const dropPoint = await session.evaluate(`(() => {
+      const target = document.querySelector('.address-bar-form');
+      if (!target) throw new Error('Address bar drop target is unavailable.');
+      const rect = target.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    })()`)
+    const dragData = {
+      items: [{ mimeType: 'application/pdf', data: '' }],
+      files: [localPdfPath],
+      dragOperationsMask: 1
+    }
+    await session.send('Input.dispatchDragEvent', { type: 'dragEnter', ...dropPoint, data: dragData })
+    await session.send('Input.dispatchDragEvent', { type: 'dragOver', ...dropPoint, data: dragData })
+    await session.send('Input.dispatchDragEvent', { type: 'drop', ...dropPoint, data: dragData })
+    await waitFor(
+      session,
+      'document.body.innerText.includes("BUILT-IN PDF") && document.body.innerText.includes("vast-local-open.pdf") && document.body.innerText.includes("Ready")',
+      'local PDF dropped on the omnibar',
+      30_000
+    )
+    record('omnibar local PDF drop', 'a native file drop opens the validated local PDF in the built-in viewer')
+    const unexpectedRendererIssues = rendererIssues.filter((issue) => !isExpectedRendererIssue(issue))
+    if (unexpectedRendererIssues.length) fail(`Renderer errors observed:\n${unexpectedRendererIssues.join('\n')}`)
+    session.close()
+    cleanup()
+    console.log(`\n${checks.length} targeted app checks passed.`)
+    console.log(`Artifacts: ${artifactsDir}`)
+    return
+  }
+  if (process.argv.includes('--download-only') || process.argv.includes('--download-pdf-only')) {
+    await setAddress(session, `http://127.0.0.1:${localServerPort}/download.txt`)
+    await waitFor(session, 'Boolean(document.querySelector(".download-progress-toast"))', 'download progress toast', 10_000)
+    await waitForStorage(session, '(data) => data.downloads.some((item) => item.filename === "vast-smoke-download.txt" && item.state === "completed")', 'download completed', 30_000)
+    record('download progress lifecycle', 'progress card appears from the initial event and the download completes')
+    if (process.argv.includes('--download-pdf-only')) {
+      await setAddress(session, `http://127.0.0.1:${localServerPort}/viewer.pdf`)
+      await waitFor(
+        session,
+        'document.body.innerText.includes("BUILT-IN PDF") && document.body.innerText.includes("vast-smoke.pdf") && document.body.innerText.includes("Ready")',
+        'PDF navigation after a download',
+        30_000
+      )
+      record('post-download PDF navigation', 'a download cannot strand the guest before the next omnibar navigation')
+    }
+    const unexpectedRendererIssues = rendererIssues.filter((issue) => !isExpectedRendererIssue(issue))
+    if (unexpectedRendererIssues.length) fail(`Renderer errors observed:\n${unexpectedRendererIssues.join('\n')}`)
+    session.close()
+    cleanup()
+    console.log(`\n${checks.length} targeted app checks passed.`)
+    console.log(`Artifacts: ${artifactsDir}`)
+    return
+  }
+  if (process.argv.includes('--pdf-only')) {
+    await setAddress(session, `http://127.0.0.1:${localServerPort}/pdf-auth`)
+    await waitForActiveWebview(session, 'document.title === "Authenticated PDF source"', 'authenticated PDF source')
+    await executeInActiveWebview(session, 'document.querySelector("#secure-pdf").click(); true')
+    await waitFor(
+      session,
+      'document.body.innerText.includes("BUILT-IN PDF") && document.body.innerText.includes("authenticated-session.pdf") && document.body.innerText.includes("Ready")',
+      'session-bound PDF viewer',
+      30_000
+    )
+    assert(authenticatedPdfRequests === 1, `Protected PDF was requested ${authenticatedPdfRequests} times instead of exactly once.`)
+    const captured = await session.evaluate(`window.vast.storage.load().then(async (data) => {
+      const activeWorkspace = data.workspaces.find((workspace) => workspace.id === data.activeWorkspaceId);
+      const tab = data.tabs.find((candidate) => candidate.id === activeWorkspace?.activeTabId);
+      const id = tab ? new URL(tab.url).searchParams.get('id') : null;
+      return id ? window.vast.pdf.info(id) : { ok: false, error: 'missing id' };
+    })`)
+    assert(captured?.ok === true && captured.resource?.filename === 'authenticated-session.pdf', `Captured PDF metadata is invalid: ${JSON.stringify(captured)}`)
+    record('session-aware PDF pipeline', 'cookie, Referer and Chromium UA survive one original MIME-detected request; viewer uses scoped cached ranges')
+    await setAddress(session, `http://127.0.0.1:${localServerPort}/viewer.pdf`)
+    await waitFor(
+      session,
+      'document.body.innerText.includes("BUILT-IN PDF") && document.body.innerText.includes("vast-smoke.pdf") && document.body.innerText.includes("Ready")',
+      'direct omnibar PDF navigation',
+      30_000
+    )
+    record('direct PDF navigation', 'typing a PDF URL in the omnibar routes the host-initiated download into the built-in viewer')
+    const unexpectedRendererIssues = rendererIssues.filter((issue) => !isExpectedRendererIssue(issue))
+    if (unexpectedRendererIssues.length) fail(`Renderer errors observed:\n${unexpectedRendererIssues.join('\n')}`)
+    session.close()
+    cleanup()
+    console.log(`\n${checks.length} targeted app checks passed.`)
+    console.log(`Artifacts: ${artifactsDir}`)
+    return
+  }
+  if (process.argv.includes('--password-manager-only')) {
+    await runPasswordManagerSmoke(session, localServerPort)
+    const unexpectedRendererIssues = rendererIssues.filter((issue) => !isExpectedRendererIssue(issue))
+    if (unexpectedRendererIssues.length) fail(`Renderer errors observed:\n${unexpectedRendererIssues.join('\n')}`)
+    session.close()
+    cleanup()
+    console.log(`\n${checks.length} targeted app checks passed.`)
+    console.log(`Artifacts: ${artifactsDir}`)
+    return
+  }
   if (process.argv.includes('--purist-visual-only')) {
     await openCommand(session, 'Open settings')
     await clickByText(session, 'Open settings')
@@ -1364,6 +1971,8 @@ async function main() {
     if (!input) return null;
     // onBlur defers state by 120 ms and the color transition takes 150 ms.
     // Leave scheduler headroom so CI never samples the transition boundary.
+    input.focus();
+    await new Promise((resolve) => setTimeout(resolve, 30));
     input.blur();
     await new Promise((resolve) => setTimeout(resolve, 450));
     const unfocusedInput = document.querySelector('.address-bar-input');
@@ -1376,7 +1985,7 @@ async function main() {
   await session.evaluate(`(() => {
     const input = document.querySelector('.address-bar-input');
     if (!input) throw new Error('Address input not found for focus styling.');
-    input.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    input.focus();
     return true;
   })()`)
   await wait(450)
@@ -1404,7 +2013,7 @@ async function main() {
       unfocusedColor: ${JSON.stringify(addressUnfocusedState.color)},
       className: focusedInput.className
     };
-    focusedInput.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    focusedInput.blur();
     return result;
   })()`)
   assert(addressFocusStyle && !addressFocusStyle.outlineVisible, `Address input renders an inner focus outline: ${JSON.stringify(addressFocusStyle)}`)
@@ -1648,6 +2257,63 @@ async function main() {
   await clickByTitle(session, 'Vast Local Test')
   await waitForActiveWebview(session, `document.title === 'Vast Local Test'`, 'source tab restored after window.open')
 
+
+  await setAddress(session, `http://127.0.0.1:${localServerPort}/compat-source`)
+  await waitForActiveWebview(session, `document.title === 'Compat Source'`, 'compat source page')
+
+  await clickInActiveWebview(session, '#guarded-download')
+  try {
+    await waitForStorage(session, '(data) => data.downloads.some((item) => item.filename === "vast-compat-download.txt" && item.state === "completed")', 'guarded referer download completed', 20_000)
+  } catch (error) {
+    const activeWebviewState = await session.evaluate(`(() => {
+      const webview = [...document.querySelectorAll('webview.browser-webview')]
+        .find((item) => item.getClientRects().length > 0 && item.getBoundingClientRect().width > 0)
+      return webview ? webview.getAttribute('src') : 'none-visible'
+    })()`).catch((evaluateError) => `eval-failed:${evaluateError.message}`)
+    const guestState = await Promise.resolve(executeInActiveWebview(session, 'location.href + " | " + document.title'))
+      .catch((evaluateError) => `guest-eval-failed:${evaluateError.message}`)
+    console.log('DIAG guarded-download activeWebviewSrc:', activeWebviewState)
+    console.log('DIAG guarded-download guest:', guestState)
+    const authLogDiagnostic = path.join(userDataDir, 'Logs', 'google-auth.log')
+    try {
+      const authLogText = fs.readFileSync(authLogDiagnostic, 'utf8')
+      console.log('DIAG guarded-download auth log:', authLogText.split('\n').filter((line) => line.includes('guarded-download')).slice(-5).join('\n'))
+    } catch (readError) {
+      console.log('DIAG guarded-download auth log missing:', readError.message)
+    }
+    throw error
+  }
+  await waitForStorage(session, '(data) => !data.tabs.some((tab) => tab.url.includes("failed=referrer") || tab.url.includes("failed=token"))', 'guarded download did not bounce back to the source page')
+  await session.ctrl('w', 'KeyW', 87)
+  record('guarded target=_blank download', 'referrer-guarded target=_blank download completes with Content-Disposition instead of bouncing to the source page')
+
+  await clickByTitle(session, 'Compat Source')
+  await waitForActiveWebview(session, `document.title === 'Compat Source'`, 'compat source page restored')
+  await executeInActiveWebview(session, `document.getElementById('compat-post').submit(); true`)
+  await waitForActiveWebview(session, `document.body.dataset.postVerdict === 'post-ok'`, 'POST body preserved in new tab', 20_000)
+  await session.ctrl('w', 'KeyW', 87)
+  record('target=_blank POST navigation', 'form POST target=_blank stays POST with its body in the new Vast tab')
+
+  await clickByTitle(session, 'Compat Source')
+  await waitForActiveWebview(session, `document.title === 'Compat Source'`, 'compat source page restored again')
+  await executeInActiveWebview(session, `document.getElementById('compat-named-one').click(); true`)
+  await waitForActiveWebview(session, `(document.getElementById('compat-status').dataset.messages ?? '').includes('one:/compat-one')`, 'named popup first message', 15_000)
+  await executeInActiveWebview(session, `document.getElementById('compat-named-two').click(); true`)
+  await waitForActiveWebview(session, `(document.getElementById('compat-status').dataset.messages ?? '').includes('two:/compat-two')`, 'named popup second message', 15_000)
+  const namedReuseVerdict = await executeInActiveWebview(session, `(() => ({
+    firstNotNull: window.__compatFirst !== null && window.__compatFirst !== undefined,
+    sameWindow: window.__compatFirst === window.__compatSecond,
+    firstPath: window.__compatFirst && window.__compatFirst.location.pathname
+  }))()`)
+  assert(namedReuseVerdict.firstNotNull && namedReuseVerdict.sameWindow && namedReuseVerdict.firstPath === '/compat-two', `Named window.open reuse broken: ${JSON.stringify(namedReuseVerdict)}`)
+  await waitForStorage(session, '(data) => !data.tabs.some((tab) => tab.url.includes("/compat-one") || tab.url.includes("/compat-two"))', 'named popups did not become tabs')
+  await executeInActiveWebview(session, `window.__compatFirst.close(); true`)
+  record('named window.open', 'named window.open opens one reusable real popup with native opener semantics')
+  // The compat fixtures navigated the original source tab; restore it before
+  // the popup checks that depend on its message listener.
+  await setAddress(session, `http://127.0.0.1:${localServerPort}/`)
+  await waitForActiveWebview(session, `document.title === 'Vast Local Test'`, 'source page restored before popup checks')
+
   await executeInActiveWebview(session, `(() => {
     const popup = window.open('about:blank', 'blank-oauth', 'width=520,height=640');
     popup.location.href = '/oauth-callback';
@@ -1680,16 +2346,26 @@ async function main() {
     return true;
   })()`)
   if (openedSidebarForLibrary) {
-    await waitFor(session, 'Boolean(document.querySelector(\'[title="History"]\'))', 'Sidebar library controls')
+    try {
+      await waitFor(session, `Boolean(document.querySelector('[title="History"]'))`, 'Sidebar library controls')
+    } catch (error) {
+      const libraryState = await session.evaluate('window.vast.storage.load().then((data) => JSON.stringify({ activeWorkspaceId: data.activeWorkspaceId, sidePanelOpen: data.sidePanelOpen, activeSidePanel: data.activeSidePanel, workspaceNames: data.workspaces.map((w) => w.name), tabTitles: data.tabs.map((t) => t.title) }))').catch((e) => 'eval-failed:' + e.message)
+      console.log('DIAG history sidebar:', libraryState)
+      throw error
+    }
   }
-  await clickByTitle(session, 'History')
+  await activateButtonByTitle(session, 'History')
   await waitFor(session, 'document.body.innerText.includes("127.0.0.1")', 'history Sidebar')
   await waitForStorage(session, '(data) => data.history.some((entry) => entry.url.includes("127.0.0.1"))', 'history persisted')
   record('history', 'visited page recorded')
 
-  await clickByTitle(session, 'Bookmark page')
+  // A shell-level CDP mouse coordinate can drift after the right side panel
+  // changes the browser viewport on scaled Windows runners. Activate the
+  // visible chrome control directly, then keep both the rendered-state and
+  // persisted-storage assertions below as the behavior gate.
+  await activateButtonByTitle(session, 'Bookmark page')
   await waitFor(session, 'Boolean(document.querySelector("[title=\\"Remove bookmark\\"]"))', 'bookmark star filled')
-  await clickByTitle(session, 'Bookmarks')
+  await activateButtonByTitle(session, 'Bookmarks')
   await clickByText(session, 'New folder')
   await submitPrompt(session, 'QA Folder', 'Create folder', true)
   await waitForStorage(session, '(data) => data.bookmarks.some((entry) => entry.url.includes("127.0.0.1"))', 'bookmark persisted')
@@ -1706,18 +2382,18 @@ async function main() {
   await session.key('Escape', 'Escape', 27)
   record('command search', 'tabs, bookmarks, and history appear in palette search')
 
-  await clickByTitle(session, 'More browser tools')
+  await activateButtonByTitle(session, 'More browser tools')
   await clickByText(session, 'Save to reading list')
-  await clickByTitle(session, 'Reading')
+  await activateButtonByTitle(session, 'Reading')
   await waitForStorage(session, '(data) => data.readingList.some((entry) => entry.url.includes("127.0.0.1"))', 'reading list persisted')
   record('reading list', 'current page saved')
 
-  await clickByTitle(session, 'Notes')
+  await activateButtonByTitle(session, 'Notes')
   await clickByText(session, 'New URL/workspace note')
   await waitForStorage(session, '(data) => data.notes.length >= 1', 'note creation persisted')
   record('notes', 'URL/workspace note created')
 
-  await clickByTitle(session, 'More browser tools')
+  await activateButtonByTitle(session, 'More browser tools')
   await clickByText(session, 'Find in page')
   await waitFor(session, 'Boolean(document.querySelector("input[placeholder=\\"Find in page\\"]"))', 'find bar')
   await session.type('Example')
@@ -1892,9 +2568,16 @@ async function main() {
   await openCommand(session, 'Open Privacy Settings')
   await clickByText(session, 'Open Privacy Settings')
   await waitFor(session, 'document.body.innerText.includes("Customize Vast without sending data anywhere.")', 'settings modal')
-  const labsDescriptionPresent = await session.evaluate('document.querySelector(\'section#Labs\')?.textContent?.includes(\'local, experimental feature flags\') === true')
-  assert(labsDescriptionPresent === true, 'Labs does not describe its local feature-flag model.')
-  record('Labs settings model', 'local feature flags are exposed without product-tier controls')
+  const labsSectionState = await session.evaluate(`(() => {
+    const section = document.querySelector('section#Labs')
+    return {
+      present: Boolean(section),
+      hasFeatureToggles: Boolean(section?.querySelector('input[type="checkbox"]')),
+      removedDescriptionGone: section?.textContent?.includes('local, experimental feature flags') !== true
+    }
+  })()`)
+  assert(labsSectionState.present && labsSectionState.hasFeatureToggles && labsSectionState.removedDescriptionGone, `Labs section state unexpected: ${JSON.stringify(labsSectionState)}`)
+  record('Labs settings model', 'local feature flags are exposed through toggles without description blocks or product-tier controls')
   await setCheckboxByLabel(session, 'Block common trackers', false)
   await waitForStorage(session, '(data) => data.settings.privacy.blockTrackers === false', 'settings mutation persisted')
   await setCheckboxByLabel(session, 'Opening animation', false)
@@ -1928,17 +2611,16 @@ async function main() {
   await setCheckboxByLabel(session, 'Bookmarks bar', true)
   await setCheckboxByLabel(session, 'Show bookmarks bar only on New Tab', false)
   await setSelectByLabel(session, 'New tab layout', 'blank')
-  await setCheckboxByLabel(session, 'Enable Vast Labs', true)
   await setCheckboxByLabel(session, 'Video & Audio', true)
   await setCheckboxByLabel(session, 'Network Devices', true)
   await setCheckboxByLabel(session, 'Automation', true)
   await setCheckboxByLabel(session, 'Password Manager', true)
-  await setCheckboxByLabel(session, 'Advanced diagnostics', true)
+  await setCheckboxByLabel(session, 'Diagnostics', true)
   await setSelectByLabel(session, 'Sidebar mode', 'docked')
   await setSelectByLabel(session, 'Layout', 'horizontal')
   await waitForStorage(
     session,
-    '(data) => data.settings.layoutMode === "horizontal" && data.settings.sidePanel.mode === "docked" && data.settings.bookmarksBarVisible === true && data.settings.bookmarksBarOnlyOnNewTab === false && data.settings.newTabBehavior === "blank" && data.settings.labs.enabled === true && data.settings.labs.avidae === true && data.settings.labs.networkDevices === true && data.settings.labs.automation === true && data.settings.labs.passwordManager === true && data.settings.labs.advancedDiagnostics === true',
+    '(data) => data.settings.layoutMode === "horizontal" && data.settings.sidePanel.mode === "docked" && data.settings.bookmarksBarVisible === true && data.settings.bookmarksBarOnlyOnNewTab === false && data.settings.newTabBehavior === "blank" && data.settings.labs.avidae === true && data.settings.labs.networkDevices === true && data.settings.labs.automation === true && data.settings.labs.passwordManager === true && data.settings.labs.advancedDiagnostics === true',
     'horizontal settings persisted'
   )
   await waitFor(
@@ -1946,192 +2628,6 @@ async function main() {
     'Boolean(document.querySelector(".horizontal-chrome"))',
     'live horizontal layout while settings remain open'
   )
-  if (process.argv.includes('--cat-addon-visuals')) {
-    const catMemoryDisabled = await session.evaluate('window.vast.app.processMetrics()')
-    await setCheckboxByLabel(session, 'Cat Addon', true)
-  await waitForStorage(session, '(data) => data.settings.catAddon.enabled === true', 'Cat Addon enabled preference')
-  await waitFor(
-    session,
-    'document.documentElement.dataset.catAddonEnabled === "true" && Boolean(document.querySelector("[data-testid=\\"cat-addon-layer\\"] [data-testid=\\"cat-addon-resident\\"] [data-cat-entity=\\"true\\"]"))',
-    'Cat Addon live resident'
-  )
-  const darkCatRender = await session.evaluate(`(() => {
-    const sprite = document.querySelector('[data-testid="cat-addon-resident"] .cat-sprite');
-    if (!sprite) throw new Error('Canonical cat sprite is missing.');
-    const style = getComputedStyle(sprite);
-    return { backgroundImage: style.backgroundImage, imageRendering: style.imageRendering, width: style.width, height: style.height };
-  })()`)
-  assert(darkCatRender.backgroundImage.includes('data:image/png;base64,'), 'Cat Addon does not render the validated in-memory PNG atlas.')
-  assert(['pixelated', 'crisp-edges'].includes(darkCatRender.imageRendering), 'Cat Addon is not using nearest-neighbor rendering.')
-  assert(darkCatRender.width === darkCatRender.height, 'Cat Addon source aspect ratio changed.')
-  await setSelectByLabel(session, 'Theme', 'light')
-  const lightCatBackground = await session.evaluate('getComputedStyle(document.querySelector("[data-testid=\\"cat-addon-resident\\"] .cat-sprite")).backgroundImage')
-  assert(lightCatBackground === darkCatRender.backgroundImage, 'Theme switching replaced or recolored the canonical cat atlas.')
-  await setSelectByLabel(session, 'Theme', 'dark')
-  const catMemoryEnabled = await session.evaluate('window.vast.app.processMetrics()')
-  await session.key('Escape', 'Escape', 27)
-  await waitFor(session, '!document.body.innerText.includes("Customize Vast without sending data anywhere.")', 'settings closed for Cat Addon visual')
-  await setAddress(session, 'vast://newtab')
-  await waitForStorage(session, '(data) => data.tabs.some((tab) => tab.id === data.workspaces.find((workspace) => workspace.id === data.activeWorkspaceId)?.activeTabId && tab.url === "vast://newtab")', 'Cat Addon idle New Tab')
-  await waitFor(session, '!document.body.innerText.includes("Cat Addon enabled")', 'Cat Addon success toast dismissed', 7_000)
-  const naturalCatState = await session.evaluate(`(() => {
-    const layer = document.querySelector('[data-testid="cat-addon-layer"]');
-    return { count: Number(layer?.dataset.sceneStartCount || 0), active: layer?.dataset.activeScene || '' };
-  })()`)
-  if (!naturalCatState.active) {
-    await waitFor(
-      session,
-      `(() => {
-        const layer = document.querySelector('[data-testid="cat-addon-layer"]');
-        return Number(layer?.dataset.sceneStartCount || 0) > ${Number(naturalCatState.count)} && Boolean(layer?.dataset.activeScene);
-      })()`,
-      'Cat Addon natural ambient scene',
-      22_000
-    )
-  }
-  await waitFor(
-    session,
-    `(() => {
-      const actor = document.querySelector('[data-testid="cat-addon-layer"] .cat-actor--scene');
-      if (!actor || getComputedStyle(actor).visibility !== 'visible') return false;
-      const rect = actor.getBoundingClientRect();
-      return rect.left >= 24 && rect.right <= innerWidth - 24 && rect.top >= 0 && rect.bottom <= innerHeight;
-    })()`,
-    'Cat Addon natural actor entered the viewport',
-    8_000
-  )
-  const naturalCatCapture = await session.evaluate(`(() => {
-    const layer = document.querySelector('[data-testid="cat-addon-layer"]');
-    const actor = layer?.querySelector('.cat-actor--scene');
-    if (!layer || !actor) throw new Error('Natural Cat Addon actor is missing.');
-    const rect = actor.getBoundingClientRect();
-    return {
-      id: layer.dataset.activeScene,
-      count: Number(layer.dataset.sceneStartCount || 0),
-      y: Number(actor.dataset.catY),
-      viewportWidth: innerWidth,
-      viewportHeight: innerHeight,
-      rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
-      visible: getComputedStyle(actor).visibility
-    };
-  })()`)
-  assert(naturalCatCapture.id, 'Cat Addon did not select a natural ambient scene.')
-  assert(naturalCatCapture.count >= 1, 'Cat Addon natural scene counter did not advance.')
-  assert(naturalCatCapture.visible === 'visible', 'Cat Addon natural ambient actor is hidden.')
-  assert(naturalCatCapture.y >= 6 && naturalCatCapture.y <= naturalCatCapture.viewportHeight - 40, 'Cat Addon natural scene is outside the visible viewport.')
-  assert(naturalCatCapture.rect.left >= 24 && naturalCatCapture.rect.right <= naturalCatCapture.viewportWidth - 24, 'Cat Addon natural actor never entered the visible viewport.')
-  await session.screenshot('03b-cat-natural-ambient')
-  await waitFor(session, 'document.querySelector("[data-testid=\\"cat-addon-layer\\"]")?.dataset.activeScene === ""', 'Cat Addon natural scene completed', 12_000)
-  const idleMetricsBefore = await session.send('Performance.getMetrics')
-  await wait(2_000)
-  const idleMetricsAfter = await session.send('Performance.getMetrics')
-  const taskDuration = (metrics) => metrics.metrics.find((metric) => metric.name === 'TaskDuration')?.value ?? 0
-  const catIdleTaskPercent = Math.max(0, taskDuration(idleMetricsAfter) - taskDuration(idleMetricsBefore)) / 2 * 100
-  const activeMetricsBefore = await session.send('Performance.getMetrics')
-  const catOverlaySafety = await session.evaluate(`(() => {
-    const layer = document.querySelector('[data-testid="cat-addon-layer"]');
-    if (!layer) throw new Error('Cat Addon layer not found.');
-    const input = document.querySelector('.vast-top-address input');
-    if (!input) throw new Error('Omnibox input not found.');
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-    setter.call(input, 'meow');
-    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'meow' }));
-    return {
-      pointerEvents: getComputedStyle(layer).pointerEvents,
-      ariaHidden: layer.getAttribute('aria-hidden'),
-      role: layer.getAttribute('role'),
-      catCount: layer.querySelectorAll('[data-cat-entity="true"]').length,
-      sourceCharacter: layer.querySelector('.cat-sprite')?.parentElement?.dataset.sourceCharacter
-    };
-  })()`)
-  assert(catOverlaySafety.pointerEvents === 'none', 'Cat Addon overlay can intercept pointer input.')
-  assert(catOverlaySafety.ariaHidden === 'true' && catOverlaySafety.role === 'presentation', 'Cat Addon overlay is exposed to accessibility.')
-  assert(catOverlaySafety.catCount >= 1, 'Cat Addon enabled without its resident cat.')
-  assert(catOverlaySafety.sourceCharacter === 'Cat_Grey_White', 'Cat Addon rendered a non-canonical character.')
-  await waitFor(session, 'document.querySelector("[data-testid=\\"cat-addon-layer\\"]")?.dataset.activeScene === "secret-meow"', 'Cat Addon local secret reaction')
-  await waitFor(session, 'document.querySelectorAll("[data-cat-entity=\\"true\\"]").length >= 2', 'resident remains present during a reaction')
-  await wait(450)
-  const activeMetricsAfter = await session.send('Performance.getMetrics')
-  const catActiveTaskPercent = Math.max(0, taskDuration(activeMetricsAfter) - taskDuration(activeMetricsBefore)) * 100
-  const catSceneCaptures = []
-  const previewCatScene = async (id, screenshot, theme = 'dark', settleMs = 450) => {
-    await setAddress(session, 'vast://newtab')
-    await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"cat-addon-layer\\"]"))', 'Cat Addon preview layer')
-    await session.evaluate(`(() => {
-      const shell = document.querySelector('.light-theme, .dim-theme, .dark-theme');
-      if (!shell) throw new Error('Theme shell not found for Cat Addon capture.');
-      shell.classList.remove('light-theme', 'dim-theme', 'dark-theme');
-      shell.classList.add(${JSON.stringify(theme)} + '-theme');
-    })()`)
-    let started = false
-    for (let attempt = 0; attempt < 3 && !started; attempt += 1) {
-      await session.evaluate(`window.dispatchEvent(new CustomEvent('vast:cat-addon:preview-scene', { detail: { id: ${JSON.stringify(id)} } }))`)
-      try {
-        await waitFor(session, `document.querySelector('[data-testid="cat-addon-layer"]')?.dataset.activeScene === ${JSON.stringify(id)}`, `Cat Addon ${id} scene`, 2_000)
-        started = true
-      } catch {
-        await wait(120)
-      }
-    }
-    assert(started, `Cat Addon ${id} preview event was not accepted after three attempts.`)
-    await wait(settleMs)
-    catSceneCaptures.push(await session.evaluate(`(() => {
-      const actor = document.querySelector('.cat-actor--scene');
-      if (!actor) throw new Error('Cat Addon scene actor is missing.');
-      const style = getComputedStyle(actor);
-      return {
-        id: ${JSON.stringify(id)},
-        animation: actor.dataset.animation,
-        targetX: Number(actor.dataset.catX),
-        targetY: Number(actor.dataset.catY),
-        transform: style.transform,
-        visible: style.visibility,
-        opacity: style.opacity
-      };
-    })()`))
-    await session.screenshot(screenshot)
-  }
-  await previewCatScene('omnibox-peek', '03c-cat-omnibox-peek-dark')
-  await previewCatScene('tab-run', '03d-cat-tab-walk-light', 'light', 900)
-  await previewCatScene('tab-climb', '03e-cat-tab-climb', 'dark', 1_200)
-  await previewCatScene('idle-cat', '03f-cat-idle-dream', 'dark', 4_600)
-  await previewCatScene('toolbar-patrol', '03h-cat-toolbar-patrol', 'dark', 1_650)
-  await previewCatScene('edge-zoomies', '03i-cat-edge-zoomies', 'dark', 1_550)
-  await previewCatScene('tab-nap', '03j-cat-tab-nap', 'dark', 4_000)
-  await previewCatScene('bookmark-paw', '03k-cat-bookmark-paw', 'light', 1_050)
-  fs.writeFileSync(path.join(artifactsDir, 'cat-addon-scene-captures.json'), JSON.stringify(catSceneCaptures, null, 2))
-  await session.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] })
-  await waitFor(session, 'window.matchMedia("(prefers-reduced-motion: reduce)").matches === true', 'Cat Addon reduced-motion emulation')
-  await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"cat-addon-resident\\"] .cat-sprite"))', 'Cat Addon reduced-motion static resident')
-  await session.screenshot('03g-cat-reduced-motion')
-  await session.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] })
-  await waitFor(session, 'window.matchMedia("(prefers-reduced-motion: reduce)").matches === false', 'Cat Addon motion emulation restored')
-  await openCommand(session, 'Open Privacy Settings')
-  await clickByText(session, 'Open Privacy Settings')
-  await waitFor(session, 'document.body.innerText.includes("Customize Vast without sending data anywhere.")', 'settings reopened for Cat Addon disable')
-  await setCheckboxByLabel(session, 'Cat Addon', false)
-  await waitForStorage(session, '(data) => data.settings.catAddon.enabled === false', 'Cat Addon disabled preference')
-  await waitFor(session, '!document.documentElement.dataset.catAddonEnabled && !document.querySelector("[data-testid=\\"cat-addon-layer\\"]")', 'Cat Addon live removal')
-  const catMemoryAfterDisable = await session.evaluate('window.vast.app.processMetrics()')
-  fs.writeFileSync(path.join(artifactsDir, 'cat-addon-performance.json'), JSON.stringify({
-    rendererTaskDuration: {
-      enabledIdlePercent: catIdleTaskPercent,
-      activeReactionPercent: catActiveTaskPercent,
-      idleSampleSeconds: 2,
-      activeSampleSeconds: 1
-    },
-    totalWorkingSetMb: {
-      beforeEnable: catMemoryDisabled.totalWorkingSetMb,
-      enabled: catMemoryEnabled.totalWorkingSetMb,
-      afterDisable: catMemoryAfterDisable.totalWorkingSetMb
-    }
-  }, null, 2))
-  record('Cat Addon', 'validated Cat_Grey_White atlas, timed scenes, local secret reaction, input-transparent overlay, reduced motion and live disable work without restart')
-    record(
-      'Cat Addon performance',
-      `renderer TaskDuration observed ${catIdleTaskPercent.toFixed(2)}% enabled-idle and ${catActiveTaskPercent.toFixed(2)}% during a one-second reaction; total app working set ${catMemoryDisabled.totalWorkingSetMb.toFixed(1)} MB before, ${catMemoryEnabled.totalWorkingSetMb.toFixed(1)} MB enabled, ${catMemoryAfterDisable.totalWorkingSetMb.toFixed(1)} MB after disable`
-    )
-  }
   await session.evaluate(`(() => {
     const button = document.querySelector('button[title="Close settings"]');
     if (!button) throw new Error('Visible settings close button not found.');
@@ -2303,34 +2799,45 @@ async function main() {
   record('password manager command', 'command palette opens the built-in password vault')
 
   const capturedOrigin = `http://127.0.0.1:${localServerPort}`
-  const submitCapturedLogin = async (username, password) => {
+  const submitCapturedLogin = async (username, password, submission = 'requestSubmit') => {
     await setAddress(session, `${capturedOrigin}/password-login`)
     await waitForActiveWebview(session, 'document.title === "Vast Password Login" && Boolean(document.querySelector("#login-submit"))', 'password capture fixture')
     await wait(350)
-    await executeInActiveWebview(session, `(() => {
-      const values = { '#login-user': ${JSON.stringify(username)}, '#login-password': ${JSON.stringify(password)} };
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-      for (const [selector, value] of Object.entries(values)) {
-        const input = document.querySelector(selector);
-        if (!input) throw new Error('Missing password fixture input: ' + selector);
-        setter.call(input, value);
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-      const form = document.querySelector('form');
-      if (!form) throw new Error('Missing password fixture form.');
-      form.requestSubmit();
-      return true;
-    })()`)
+    await typeInActiveWebview(session, '#login-user', username)
+    await typeInActiveWebview(session, '#login-password', password)
+    if (submission === 'enter') {
+      await executeInActiveWebview(session, 'document.querySelector("#login-password").focus(); true')
+      await keyInActiveWebview(session, 'Enter')
+    } else if (submission === 'click') {
+      await trustedClickInActiveWebview(session, '#login-submit')
+    } else {
+      await executeInActiveWebview(session, `(() => {
+        const form = document.querySelector('form');
+        if (!form) throw new Error('Missing password fixture form.');
+        form.requestSubmit();
+        return true;
+      })()`)
+    }
     await waitForActiveWebview(session, 'document.title === "Vast Password Login Complete"', 'password fixture completion')
   }
 
-  await submitCapturedLogin('captured-user@example.test', 'Captured-Smoke-Secret-789!')
-  await waitFor(session, 'document.body.innerText.includes("Save this password?")', 'automatic password save prompt')
+  await setAddress(session, `${capturedOrigin}/password-login-fail`)
+  await waitForActiveWebview(session, 'Boolean(document.querySelector("#fail-submit"))', 'failed password fixture')
+  await typeInActiveWebview(session, '#fail-user', 'wrong@example.test')
+  await typeInActiveWebview(session, '#fail-password', 'Wrong-Smoke-Secret-000!')
+  await executeInActiveWebview(session, 'document.querySelector("form").requestSubmit(); true')
+  await waitForActiveWebview(session, 'Boolean(document.querySelector("[role=alert]"))', 'failed login error')
+  await wait(2_100)
+  body = await session.bodyText()
+  assert(!body.includes('Save password?') && !body.includes('Update saved password?'), 'Failed login produced a password prompt.')
+  record('failed login rejection', 'validation failure and a refocused password field do not produce a save prompt')
+
+  await submitCapturedLogin('captured-user@example.test', 'Captured-Smoke-Secret-789!', 'enter')
+  await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"password-save-prompt\\"]")) && document.body.innerText.includes("Save password?")', 'automatic password save prompt')
   body = await session.bodyText()
   assert(!body.includes('Captured-Smoke-Secret-789!'), 'Automatic save prompt exposed a plaintext password.')
-  await clickByText(session, 'Save password')
-  await waitFor(session, '!document.body.innerText.includes("Save this password?")', 'automatic password save prompt resolved')
+  await session.evaluate('document.querySelector("[data-testid=\\"password-save-confirm\\"]")?.click()')
+  await waitFor(session, '!document.querySelector("[data-testid=\\"password-save-prompt\\"]")', 'automatic password save prompt resolved')
   let capturedList
   let capturedLogin
   for (let attempt = 0; attempt < 60; attempt += 1) {
@@ -2347,14 +2854,14 @@ async function main() {
   await submitCapturedLogin('captured-user@example.test', 'Captured-Smoke-Secret-789!')
   await wait(900)
   body = await session.bodyText()
-  assert(!body.includes('Save this password?') && !body.includes('Update saved password?'), 'Unchanged captured credentials prompted again.')
+  assert(!body.includes('Save password?') && !body.includes('Update saved password?'), 'Unchanged captured credentials prompted again.')
   record('unchanged password recognition', 'matching credentials update usage without repeating the save prompt')
 
   const encryptedBeforeUpdate = JSON.parse(fs.readFileSync(path.join(userDataDir, 'password-vault.json'), 'utf8'))
     .records.find((item) => item.id === capturedLogin.id)?.encryptedPassword
-  await submitCapturedLogin('captured-user@example.test', 'Captured-Smoke-Changed-012!')
+  await submitCapturedLogin('captured-user@example.test', 'Captured-Smoke-Changed-012!', 'click')
   await waitFor(session, 'document.body.innerText.includes("Update saved password?")', 'automatic password update prompt')
-  await clickByText(session, 'Update password')
+  await session.evaluate('document.querySelector("[data-testid=\\"password-save-confirm\\"]")?.click()')
   await waitFor(session, '!document.body.innerText.includes("Update saved password?")', 'automatic password update prompt resolved')
   let vaultAfterUpdate
   let encryptedAfterUpdate
@@ -2368,10 +2875,30 @@ async function main() {
   assert(!JSON.stringify(vaultAfterUpdate).includes('Captured-Smoke-Changed-012!'), 'Updated captured password leaked into password-vault.json.')
   record('automatic password update', 'changed credentials produce an explicit update prompt and replace the encrypted secret')
 
+  const submitPasswordChange = async (currentPassword, nextPassword) => {
+    await setAddress(session, `${capturedOrigin}/password-change`)
+    await waitForActiveWebview(session, 'Boolean(document.querySelector("#change-confirm"))', 'password change fixture')
+    await typeInActiveWebview(session, '#change-user', 'captured-user@example.test')
+    await typeInActiveWebview(session, '#change-current', currentPassword)
+    await typeInActiveWebview(session, '#change-new', nextPassword)
+    await typeInActiveWebview(session, '#change-confirm', nextPassword)
+    await executeInActiveWebview(session, 'document.querySelector("form").requestSubmit(); true')
+    await waitForActiveWebview(session, 'document.body.innerText.includes("Changed")', 'password change completion')
+  }
+  await submitPasswordChange('wrong-current-password', 'Must-Not-Replace-333!')
+  await wait(1_400)
+  body = await session.bodyText()
+  assert(!body.includes('Update saved password?'), 'Wrong current password offered to update an existing credential.')
+  await submitPasswordChange('Captured-Smoke-Changed-012!', 'Captured-Smoke-Changed-Again-444!')
+  await waitFor(session, 'document.body.innerText.includes("Update saved password?")', 'password change update prompt')
+  await session.evaluate('document.querySelector("[data-testid=\\"password-save-confirm\\"]")?.click()')
+  await waitFor(session, '!document.body.innerText.includes("Update saved password?")', 'password change update resolved')
+  record('password change resolution', 'current/new/confirm updates only the matching stored account and rejects a wrong current password')
+
   await submitCapturedLogin('never-save@example.test', 'Never-Save-Smoke-345!')
-  await waitFor(session, 'document.body.innerText.includes("Save this password?")', 'never-save password prompt')
+  await waitFor(session, 'document.body.innerText.includes("Save password?")', 'never-save password prompt')
   await clickByText(session, 'Never for this site')
-  await waitFor(session, '!document.body.innerText.includes("Save this password?")', 'never-save password prompt resolved')
+  await waitFor(session, '!document.body.innerText.includes("Save password?")', 'never-save password prompt resolved')
   let suppressedList
   for (let attempt = 0; attempt < 60; attempt += 1) {
     suppressedList = await session.evaluate('window.vast.passwords.list()')
@@ -2382,12 +2909,48 @@ async function main() {
   await submitCapturedLogin('never-save-again@example.test', 'Never-Save-Again-Smoke-678!')
   await wait(900)
   body = await session.bodyText()
-  assert(!body.includes('Save this password?'), 'Suppressed origin produced another password save prompt.')
+  assert(!body.includes('Save password?'), 'Suppressed origin produced another password save prompt.')
   const allowAgain = await session.evaluate(`window.vast.passwords.allowSavePrompts(${JSON.stringify(capturedOrigin)})`)
   assert(allowAgain.ok === true, 'Could not restore automatic save prompts for a suppressed origin.')
   const restoredPromptList = await session.evaluate('window.vast.passwords.list()')
   assert(!restoredPromptList.suppressedOrigins?.includes(capturedOrigin), 'Restored origin remained suppressed.')
   record('password prompt site preference', 'Never is durable, prevents repeat prompts, and can be reversed from Password Manager')
+
+  await setAddress(session, `${capturedOrigin}/password-spa`)
+  await waitForActiveWebview(session, 'Boolean(document.querySelector("#spa-submit"))', 'SPA password fixture')
+  await typeInActiveWebview(session, '#spa-user', 'spa-user@example.test')
+  await typeInActiveWebview(session, '#spa-password', 'SPA-Smoke-Secret-111!')
+  await trustedClickInActiveWebview(session, '#spa-submit')
+  await waitForActiveWebview(session, 'document.title === "Vast Password SPA Complete"', 'SPA login completion')
+  await waitFor(session, 'document.body.innerText.includes("Save password?")', 'SPA save prompt')
+  await session.evaluate('document.querySelector("[data-testid=\\"password-save-confirm\\"]")?.click()')
+  await waitFor(session, '!document.querySelector("[data-testid=\\"password-save-prompt\\"]")', 'SPA save resolved')
+  record('SPA password save', 'custom localized control, History API navigation, and removed login UI produce one prompt')
+
+  await setAddress(session, `${capturedOrigin}/password-username-first`)
+  await waitForActiveWebview(session, 'Boolean(document.querySelector("#multi-user"))', 'username-first fixture')
+  await typeInActiveWebview(session, '#multi-user', 'multi-user@example.test')
+  await executeInActiveWebview(session, 'document.querySelector("#username-step").requestSubmit(); true')
+  await waitForActiveWebview(session, 'Boolean(document.querySelector("#multi-password"))', 'username-first password step')
+  await typeInActiveWebview(session, '#multi-password', 'Multi-Smoke-Secret-222!')
+  await executeInActiveWebview(session, 'document.querySelector("#password-step").requestSubmit(); true')
+  await waitForActiveWebview(session, 'document.body.innerText.includes("Welcome")', 'username-first completion')
+  await waitFor(session, 'document.body.innerText.includes("multi-user@example.test") && document.body.innerText.includes("Save password?")', 'username-first correlated prompt')
+  await session.evaluate('document.querySelector("[data-testid=\\"password-save-confirm\\"]")?.click()')
+  await waitFor(session, '!document.querySelector("[data-testid=\\"password-save-prompt\\"]")', 'username-first save resolved')
+  record('username-first password save', 'the user-entered first step is correlated only with the later password in the same tab and origin')
+
+  await setAddress(session, `${capturedOrigin}/password-signup`)
+  await waitForActiveWebview(session, 'Boolean(document.querySelector("#signup-confirm"))', 'signup fixture')
+  await typeInActiveWebview(session, '#signup-user', 'signup-user@example.test')
+  await typeInActiveWebview(session, '#signup-password', 'Signup-Smoke-Secret-333!')
+  await typeInActiveWebview(session, '#signup-confirm', 'Signup-Smoke-Secret-333!')
+  await executeInActiveWebview(session, 'document.querySelector("form").requestSubmit(); true')
+  await waitForActiveWebview(session, 'document.body.innerText.includes("Created")', 'signup completion')
+  await waitFor(session, 'document.body.innerText.includes("Save this new account?")', 'signup save prompt')
+  await session.evaluate('document.querySelector("[data-testid=\\"password-save-confirm\\"]")?.click()')
+  await waitFor(session, '!document.querySelector("[data-testid=\\"password-save-prompt\\"]")', 'signup save resolved')
+  record('signup password save', 'matching new-password confirmation is recognized as account creation')
 
   const disableAutofillConfirmation = await session.evaluate(`window.vast.storage.load().then((data) => {
     data.settings.security.alwaysConfirmAutofill = false;
@@ -2400,12 +2963,8 @@ async function main() {
   await waitForActiveWebview(session, 'Boolean(document.querySelector("#__vast_af_root"))', 'dynamic autofill suggestions attached', 30_000)
   await executeInActiveWebview(session, 'document.querySelector("#dynamic-user").focus(); true')
   await waitForActiveWebview(session, 'document.querySelector("#__vast_af_root")?.classList.contains("visible")', 'dynamic autofill suggestions visible')
-  await executeInActiveWebview(session, `(() => {
-    const item = [...document.querySelectorAll('.vast-af-item')].find((entry) => entry.textContent.includes('captured-user@example.test'));
-    if (!item) throw new Error('Captured autofill suggestion is missing.');
-    item.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-    return true;
-  })()`)
+  await keyInActiveWebview(session, 'Down')
+  await keyInActiveWebview(session, 'Enter')
   await waitForActiveWebview(
     session,
     'document.querySelector("#dynamic-user")?.value === "captured-user@example.test" && document.querySelector("#dynamic-password")?.value.length > 0',
@@ -2418,6 +2977,14 @@ async function main() {
   })`)
   assert(restoreAutofillConfirmation.ok === true, 'Could not restore the default autofill confirmation setting.')
   record('dynamic password autofill', 'saved login suggestions discover SPA-inserted forms and fill only after explicit selection')
+
+  const lockedCapture = await session.evaluate('window.vast.passwords.lockSession()')
+  assert(lockedCapture.ok === true && lockedCapture.state?.locked === true, 'Could not lock Password Manager before locked-capture regression.')
+  await submitCapturedLogin('locked-capture@example.test', 'Locked-Capture-Smoke-444!')
+  await waitFor(session, 'document.body.innerText.includes("Save password?")', 'locked vault capture prompt')
+  await clickByText(session, 'Not now')
+  await waitFor(session, '!document.body.innerText.includes("Save password?")', 'locked vault capture dismissed')
+  record('locked vault capture', 'routine successful-login detection remains available while management and reveal actions are locked')
 
     await waitFor(session, '!document.body.innerText.includes("Password prompts disabled")', 'password preference toast cleared', 10_000)
   }
@@ -2469,18 +3036,44 @@ async function main() {
   })()`)
   assert(openedWorkspaceDropdown, 'Notes workspace dropdown did not expose the shared Vast control.')
   await waitFor(session, 'Boolean(document.querySelector(\'[role="listbox"][aria-label="Workspace"]\'))', 'workspace dropdown menu')
+  try {
+    await waitFor(session, `(() => {
+      const menu = document.querySelector('[role="listbox"][aria-label="Workspace"]');
+      if (!menu || getComputedStyle(menu).position !== 'fixed' || menu.parentElement?.parentElement !== document.body) return false;
+      const rect = menu.getBoundingClientRect();
+      return rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight;
+    })()`, 'workspace dropdown settled inside viewport', 5000)
+  } catch (error) {
+    const diagnostic = await session.evaluate(`(() => {
+      const menu = document.querySelector('[role="listbox"][aria-label="Workspace"]');
+      if (!menu) return { present: false, innerWidth, innerHeight };
+      const rect = menu.getBoundingClientRect();
+      return {
+        present: true,
+        position: getComputedStyle(menu).position,
+        portaledToBody: menu.parentElement?.parentElement === document.body,
+        rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height },
+        viewport: { width: innerWidth, height: innerHeight }
+      };
+    })()`)
+    throw new Error(`${error instanceof Error ? error.message : String(error)} State: ${JSON.stringify(diagnostic)}`)
+  }
   const workspaceDropdownState = await session.evaluate(`(() => {
     const menu = document.querySelector('[role="listbox"][aria-label="Workspace"]');
     if (!menu) return null;
     const rect = menu.getBoundingClientRect();
     return {
       position: getComputedStyle(menu).position,
+      portaledToBody: menu.parentElement?.parentElement === document.body,
       insideViewport: rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight,
       options: [...menu.querySelectorAll('[role="option"]')].map((option) => option.innerText.trim()),
       nativeSelectCount: document.querySelectorAll('select').length
     };
   })()`)
-  assert(workspaceDropdownState?.position === 'fixed' && workspaceDropdownState.insideViewport, 'Workspace dropdown is clipped or is not portaled above the page.')
+  assert(
+    workspaceDropdownState?.position === 'fixed' && workspaceDropdownState.portaledToBody && workspaceDropdownState.insideViewport,
+    `Workspace dropdown is clipped or is not portaled above the page: ${JSON.stringify(workspaceDropdownState)}`
+  )
   assert(workspaceDropdownState.options.includes('All workspaces') && workspaceDropdownState.options.includes('Workspace'), 'Workspace dropdown is missing expected options.')
   assert(workspaceDropdownState.nativeSelectCount === 0, 'An active Vast page still renders a native select.')
   await session.screenshot('04d-workspace-dropdown')

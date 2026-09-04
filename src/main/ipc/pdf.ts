@@ -1,5 +1,8 @@
 import type { BrowserWindow } from 'electron/main'
-import { assertNonEmptyString, assertPositiveInteger, fail, ok, type IpcHandle, type SenderWindowFor } from './registration'
+import { app, dialog } from 'electron/main'
+import { join } from 'node:path'
+import { assertPositiveInteger, fail, ok, type IpcHandle, type SenderWindowFor } from './registration'
+import { pdfCapturesForGuest, pdfResourceInfo, pdfResourcePath, pdfViewerUrlForResource, readPdfResourceRange, registerLocalPdfResource, sanitizePdfFilename, savePdfResource } from '../pdf-resources'
 
 type ResolveGuest = (host: Electron.WebContents, id: number) => Electron.WebContents
 type Notify = (window: BrowserWindow, notification: {
@@ -9,8 +12,8 @@ type Notify = (window: BrowserWindow, notification: {
   detail: string
 }) => void
 
-function assertPdfData(data: unknown): asserts data is Uint8Array {
-  if (!(data instanceof Uint8Array) && !Buffer.isBuffer(data)) throw new Error('Invalid PDF data.')
+function assertResourceId(value: unknown): asserts value is string {
+  if (typeof value !== 'string' || !/^[a-f0-9-]{36}$/i.test(value)) throw new Error('Invalid PDF resource id.')
 }
 
 export function registerPdfIpc(
@@ -35,32 +38,92 @@ export function registerPdfIpc(
     }
   })
 
-  handle('vast:pdf:load', async (_event, url: string) => {
+  handle('vast:pdf:info', async (event, id: string) => {
     try {
-      assertNonEmptyString(url, 'PDF URL', 32_768)
-      const pdf = await (await import('./pdf-implementation')).loadPdf(url.trim())
-      return { ok: true, data: pdf.data, mimeType: pdf.mimeType, filename: pdf.filename }
+      assertResourceId(id)
+      return { ok: true, resource: pdfResourceInfo(event.sender.id, id) }
     } catch (error) {
       return fail(error)
     }
   })
 
-  handle('vast:pdf:open-external-fallback', async (_event, data: Uint8Array) => {
+  handle('vast:pdf:open-local-file', async (event, path: string) => {
+    let owner: BrowserWindow | undefined
     try {
-      assertPdfData(data)
-      await (await import('./pdf-implementation')).openPdfExternal(data)
+      owner = senderWindowFor(event)
+      const resource = await registerLocalPdfResource(owner.webContents.id, path)
+      return { ok: true, viewerUrl: pdfViewerUrlForResource(resource) }
+    } catch (error) {
+      if (owner) {
+        notify(owner, {
+          tone: 'error', title: 'PDF could not be opened', message: 'Vast could not open this local PDF.',
+          detail: error instanceof Error ? error.message : String(error)
+        })
+      }
+      return fail(error)
+    }
+  })
+
+  handle('vast:pdf:captures', async (event, guestWebContentsId: number) => {
+    try {
+      assertPositiveInteger(guestWebContentsId, 'webContents id')
+      resolveGuest(event.sender, guestWebContentsId)
+      return { ok: true, captures: pdfCapturesForGuest(event.sender.id, guestWebContentsId) }
+    } catch (error) {
+      return fail(error)
+    }
+  })
+
+  handle('vast:pdf:read-range', async (event, id: string, begin: number, end: number) => {
+    try {
+      assertResourceId(id)
+      return { ok: true, data: await readPdfResourceRange(event.sender.id, id, begin, end) }
+    } catch (error) {
+      return fail(error)
+    }
+  })
+
+  handle('vast:pdf:save', async (event, id: string, filename?: string) => {
+    try {
+      assertResourceId(id)
+      const owner = senderWindowFor(event)
+      const suggested = sanitizePdfFilename(filename ?? pdfResourceInfo(event.sender.id, id).filename)
+      const selection = await dialog.showSaveDialog(owner, {
+        title: 'Save PDF',
+        defaultPath: join(app.getPath('downloads'), suggested),
+        filters: [{ name: 'PDF document', extensions: ['pdf'] }]
+      })
+      if (selection.canceled || !selection.filePath) return { ok: true, canceled: true }
+      await savePdfResource(owner, id, selection.filePath)
+      return { ok: true, canceled: false }
+    } catch (error) {
+      notify(senderWindowFor(event), {
+        tone: 'error', title: 'PDF save failed', message: 'Vast could not save this PDF.',
+        detail: error instanceof Error ? error.message : String(error)
+      })
+      return fail(error)
+    }
+  })
+
+  handle('vast:pdf:open-external-fallback', async (event, id: string) => {
+    try {
+      assertResourceId(id)
+      await (await import('./pdf-implementation')).openPdfExternal(pdfResourcePath(event.sender.id, id))
       return ok()
     } catch (error) {
+      notify(senderWindowFor(event), {
+        tone: 'error', title: 'External PDF fallback failed', message: 'Vast could not open this PDF in the system viewer.',
+        detail: error instanceof Error ? error.message : String(error)
+      })
       return fail(error)
     }
   })
 
-  handle('vast:pdf:print', async (event, data: Uint8Array, filename?: string) => {
+  handle('vast:pdf:print', async (event, id: string) => {
     try {
-      assertPdfData(data)
-      if (filename !== undefined && (typeof filename !== 'string' || filename.length > 512)) throw new Error('Invalid PDF filename.')
+      assertResourceId(id)
       const owner = senderWindowFor(event)
-      await (await import('./pdf-implementation')).printPdf(data, filename, owner)
+      await (await import('./pdf-implementation')).printPdf(pdfResourcePath(event.sender.id, id), owner)
       return ok()
     } catch (error) {
       notify(senderWindowFor(event), {

@@ -93,11 +93,34 @@ export interface DetachedTabPayload {
  * model. The source guest id lets the renderer preserve workspace, group, and
  * private-session ownership without trusting renderer-supplied routing data.
  */
+export interface TabOpenPostDataEntry {
+  type: 'rawData' | 'file'
+  bytes?: Uint8Array
+  filePath?: string
+  offset?: number
+  length?: number
+}
+
+/**
+ * Ephemeral navigation metadata captured from Electron's window-open handler so
+ * a Vast-tab initial navigation matches what Chromium would have requested:
+ * same URL, same referrer, same POST body. Never persisted to storage.
+ */
+export interface TabOpenNavigationMetadata {
+  referrer?: { url: string; policy: string }
+  postBody?: {
+    contentType: string
+    boundary?: string
+    data: TabOpenPostDataEntry[]
+  }
+}
+
 export interface BrowserTabOpenRequest {
   url: string
   sourceWebContentsId?: number
   disposition: string
   activate: boolean
+  navigation?: TabOpenNavigationMetadata
 }
 
 export interface ExternalProtocolRequest {
@@ -317,9 +340,6 @@ export interface BrowserSettings {
   animations: boolean
   openingAnimation: boolean
   openingAnimationSoundVolume: number
-  catAddon: {
-    enabled: boolean
-  }
   privacy: {
     blockTrackers: boolean
     adBlockerEnabled: boolean
@@ -520,22 +540,6 @@ export interface UiPromptAction {
   id: string
   label: string
   tone?: 'default' | 'primary' | 'success' | 'danger'
-}
-
-export type CatAddonPhase = 'disabled' | 'enabling' | 'enabled' | 'disabling' | 'error'
-
-export interface CatAddonState {
-  enabled: boolean
-  installed: boolean
-  phase: CatAddonPhase
-  version?: string
-  error?: string
-}
-
-export interface CatAddonWindowState {
-  visible: boolean
-  minimized: boolean
-  fullscreen: boolean
 }
 
 export interface WindowFrameState {
@@ -841,6 +845,19 @@ export interface PasswordVaultSessionState {
   freshUntil?: number
 }
 
+export interface PasswordSavePromptPayload {
+  attemptId: string
+  webContentsId: number
+  origin: string
+  hostname: string
+  username: string
+  kind: 'login' | 'signup' | 'change-password'
+  action: 'save' | 'update'
+  expiresAt: number
+}
+
+export type PasswordSavePromptAction = 'save' | 'update' | 'not-now' | 'never'
+
 export type VastNoticeSeverity = 'info' | 'important' | 'security'
 
 export interface VastNotice {
@@ -974,6 +991,29 @@ export interface MigrationReport {
   error?: string
 }
 
+export interface PdfCaptureEvent {
+  id: string
+  guestWebContentsId: number
+  state: 'started' | 'progress' | 'ready' | 'failed'
+  sourceUrl: string
+  filename: string
+  mimeType: string
+  receivedBytes: number
+  totalBytes: number
+  error?: string
+}
+
+export interface PdfResourceInfo {
+  sourceUrl: string
+  filename: string
+  mimeType: string
+  sizeBytes: number
+  state: 'downloading' | 'ready' | 'failed'
+  receivedBytes: number
+  totalBytes: number
+  error?: string
+}
+
 export interface VastApi {
   storage: {
     load: () => Promise<PersistedData>
@@ -983,9 +1023,6 @@ export interface VastApi {
     importData: () => Promise<{ ok: boolean; data?: PersistedData; error?: string }>
     exportFullBackup: () => Promise<MigrationReport>
     importFullBackup: () => Promise<MigrationReport>
-    listBackups: () => Promise<{ ok: boolean; backups?: StorageBackupInfo[]; recovery?: StorageRecoveryState; error?: string }>
-    restoreBackup: (id: string) => Promise<{ ok: boolean; data?: PersistedData; error?: string }>
-    createBackup: () => Promise<{ ok: boolean; backup?: StorageBackupInfo; error?: string }>
     onSitePermissionsChanged: (callback: (permissions: SitePermissionOverride[]) => void) => () => void
   }
   dataPath: {
@@ -1027,15 +1064,6 @@ export interface VastApi {
     updateFilters: () => Promise<{ ok: boolean; status?: PrivacyFilterStatus; error?: string }>
     configureIdentity: (webContentsId: number, identity: WorkspaceIdentitySettings, url: string, identityId: ID) => Promise<{ ok: boolean; error?: string }>
   }
-  catAddon: {
-    status: () => Promise<CatAddonState>
-    runtime: () => Promise<import('./cat-addon-runtime').CatAddonRuntimeBundle>
-    windowState: () => Promise<CatAddonWindowState>
-    enable: () => Promise<CatAddonState>
-    disable: () => Promise<CatAddonState>
-    onStateChanged: (callback: (state: CatAddonState) => void) => () => void
-    onWindowStateChanged: (callback: (state: CatAddonWindowState) => void) => () => void
-  }
   avidae: {
     status: () => Promise<AvidaeStatus>
     start: () => Promise<AvidaeStatus>
@@ -1053,16 +1081,18 @@ export interface VastApi {
     copyPassword: (id: ID) => Promise<{ ok: boolean; error?: string }>
     fillAutofill: (webContentsId: number, origin: string) => Promise<{ ok: boolean; filled?: boolean; error?: string }>
     getAutofillSuggestions: (webContentsId: number, origin: string) => Promise<{ ok: boolean; suggestions?: PasswordAutofillSuggestion[]; error?: string }>
-    fillById: (id: ID, webContentsId: number, origin: string) => Promise<{ ok: boolean; filled?: boolean; error?: string }>
+    fillById: (id: ID, webContentsId: number, origin: string, requestId: string) => Promise<{ ok: boolean; filled?: boolean; error?: string }>
     saveCapturedLogin: (input: PasswordVaultInput) => Promise<{ ok: boolean; item?: PasswordVaultItem; error?: string }>
     captureStatus: (webContentsId: number, origin: string) => Promise<{ ok: boolean; enabled?: boolean; error?: string }>
-    captureLogin: (webContentsId: number, input: import('./password-capture-policy').PasswordLoginCandidate) => Promise<{ ok: boolean; outcome?: PasswordCaptureOutcome; item?: PasswordVaultItem; error?: string }>
     allowSavePrompts: (origin: string) => Promise<{ ok: boolean; error?: string }>
     importCsv: () => Promise<{ ok: boolean; imported?: number; skipped?: number; error?: string }>
     exportCsv: () => Promise<{ ok: boolean; path?: string; error?: string }>
     audit: () => Promise<{ ok: boolean; audit?: PasswordVaultAudit; error?: string }>
     unlockSession: () => Promise<{ ok: boolean; state?: PasswordVaultSessionState; error?: string }>
     onSessionState: (callback: (state: PasswordVaultSessionState) => void) => () => void
+    onSavePrompt: (callback: (prompt: PasswordSavePromptPayload) => void) => () => void
+    onSavePromptCleared: (callback: (attemptId: string) => void) => () => void
+    resolveSavePrompt: (attemptId: string, action: PasswordSavePromptAction) => Promise<{ ok: boolean; outcome?: PasswordCaptureOutcome; error?: string }>
   }
   notes: {
     exportMarkdown: (title: string, body: string) => Promise<{ ok: boolean; path?: string; error?: string }>
@@ -1120,16 +1150,14 @@ export interface VastApi {
     printWebContents: (webContentsId: number) => Promise<{ ok: boolean; error?: string }>
   }
   pdf: {
-    load: (
-      url: string
-    ) => Promise<{
-      ok: boolean
-      data?: Uint8Array
-      mimeType?: string
-      filename?: string
-      error?: string
-    }>
-    print: (data: Uint8Array, filename?: string) => Promise<{ ok: boolean; error?: string }>
+    onCapture: (callback: (event: PdfCaptureEvent) => void) => () => void
+    captures: (guestWebContentsId: number) => Promise<{ ok: boolean; captures?: PdfCaptureEvent[]; error?: string }>
+    openLocalFile: (file: File) => Promise<{ ok: boolean; viewerUrl?: string; error?: string }>
+    info: (id: string) => Promise<{ ok: boolean; resource?: PdfResourceInfo; error?: string }>
+    readRange: (id: string, begin: number, end: number) => Promise<{ ok: boolean; data?: Uint8Array; error?: string }>
+    save: (id: string, filename?: string) => Promise<{ ok: boolean; canceled?: boolean; error?: string }>
+    openExternal: (id: string) => Promise<{ ok: boolean; error?: string }>
+    print: (id: string) => Promise<{ ok: boolean; error?: string }>
   }
   app: {
     platform: string
@@ -1145,7 +1173,6 @@ export interface VastApi {
       openingAnimationEnabled: boolean
       openingAnimationHandledBySplash: boolean
       openingAnimationSoundVolume: number
-      catAddonAvailable: boolean
     }
     versions: {
       electron: string
@@ -1173,6 +1200,7 @@ export interface VastApi {
         logPath: string
       }
       releaseChannel: string
+      distributionChannel: string
       releaseRepo: string
       updaterEnabled: boolean
       updaterReason: string

@@ -5,9 +5,12 @@ performance-results/
 preview-screenshots/
 .vast-test-artifacts
 dist
+extensions-hub/dist-signer/
+extensions-hub/signer/dist-signer/
 obj/
 bin/
 .DS_Store
+desktop.ini
 *.log
 npm-debug.log*
 yarn-debug.log*

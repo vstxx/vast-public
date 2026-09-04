@@ -2,12 +2,14 @@ import { shell } from 'electron/common'
 import { app } from 'electron/main'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { getBuildMetadata } from './build-info'
 
 const execFileAsync = promisify(execFile)
 const WINDOWS_REGISTERED_APP_NAME = 'Vast'
 const WINDOWS_CLIENT_KEY = 'HKCU\\Software\\Clients\\StartMenuInternet\\Vast'
 const WINDOWS_CAPABILITIES_PATH = 'Software\\Clients\\StartMenuInternet\\Vast\\Capabilities'
 const VAST_PROG_ID = 'VastHTML'
+const VAST_PDF_PROG_ID = 'VastPDF'
 
 export interface DefaultBrowserStatus {
   supported: boolean
@@ -35,6 +37,10 @@ async function regAdd(key: string, args: string[]): Promise<void> {
 }
 
 async function registerWindowsDefaultBrowserCapabilities(): Promise<void> {
+  // Packaged apps declare their protocols in AppxManifest.xml. Writing a
+  // second unpackaged registration would leave stale handlers after MSIX
+  // uninstall and can point Windows at a versioned WindowsApps path.
+  if (getBuildMetadata().distributionChannel === 'microsoft-store') return
   const exe = appExePath()
   await regAdd('HKCU\\Software\\RegisteredApplications', ['/v', WINDOWS_REGISTERED_APP_NAME, '/t', 'REG_SZ', '/d', WINDOWS_CAPABILITIES_PATH])
   await regAdd(WINDOWS_CLIENT_KEY, ['/ve', '/t', 'REG_SZ', '/d', 'Vast'])
@@ -45,17 +51,17 @@ async function registerWindowsDefaultBrowserCapabilities(): Promise<void> {
   await regAdd(`${WINDOWS_CLIENT_KEY}\\Capabilities`, ['/v', 'ApplicationIcon', '/t', 'REG_SZ', '/d', `${exe},0`])
   await regAdd(`${WINDOWS_CLIENT_KEY}\\Capabilities\\URLAssociations`, ['/v', 'http', '/t', 'REG_SZ', '/d', VAST_PROG_ID])
   await regAdd(`${WINDOWS_CLIENT_KEY}\\Capabilities\\URLAssociations`, ['/v', 'https', '/t', 'REG_SZ', '/d', VAST_PROG_ID])
+  await regAdd(`${WINDOWS_CLIENT_KEY}\\Capabilities\\FileAssociations`, ['/v', '.pdf', '/t', 'REG_SZ', '/d', VAST_PDF_PROG_ID])
   await regAdd(`HKCU\\Software\\Classes\\${VAST_PROG_ID}`, ['/ve', '/t', 'REG_SZ', '/d', 'Vast HTML Document'])
   await regAdd(`HKCU\\Software\\Classes\\${VAST_PROG_ID}\\Application`, ['/v', 'ApplicationName', '/t', 'REG_SZ', '/d', 'Vast'])
   await regAdd(`HKCU\\Software\\Classes\\${VAST_PROG_ID}\\Application`, ['/v', 'ApplicationCompany', '/t', 'REG_SZ', '/d', 'Vast'])
   await regAdd(`HKCU\\Software\\Classes\\${VAST_PROG_ID}\\DefaultIcon`, ['/ve', '/t', 'REG_SZ', '/d', `${exe},0`])
   await regAdd(`HKCU\\Software\\Classes\\${VAST_PROG_ID}\\shell\\open\\command`, ['/ve', '/t', 'REG_SZ', '/d', openCommand()])
-}
-
-function setElectronProtocolClient(protocol: 'http' | 'https'): boolean {
-  if (app.isPackaged) return app.setAsDefaultProtocolClient(protocol)
-  if (!process.argv[1]) return app.setAsDefaultProtocolClient(protocol)
-  return app.setAsDefaultProtocolClient(protocol, process.execPath, [process.argv[1]])
+  await regAdd(`HKCU\\Software\\Classes\\${VAST_PDF_PROG_ID}`, ['/ve', '/t', 'REG_SZ', '/d', 'PDF Document'])
+  await regAdd(`HKCU\\Software\\Classes\\${VAST_PDF_PROG_ID}\\Application`, ['/v', 'ApplicationName', '/t', 'REG_SZ', '/d', 'Vast'])
+  await regAdd(`HKCU\\Software\\Classes\\${VAST_PDF_PROG_ID}\\Application`, ['/v', 'ApplicationCompany', '/t', 'REG_SZ', '/d', 'Vast'])
+  await regAdd(`HKCU\\Software\\Classes\\${VAST_PDF_PROG_ID}\\DefaultIcon`, ['/ve', '/t', 'REG_SZ', '/d', `${exe},0`])
+  await regAdd(`HKCU\\Software\\Classes\\${VAST_PDF_PROG_ID}\\shell\\open\\command`, ['/ve', '/t', 'REG_SZ', '/d', openCommand()])
 }
 
 export function getDefaultBrowserStatus(): DefaultBrowserStatus {
@@ -82,8 +88,11 @@ export async function openDefaultBrowserSettings(): Promise<DefaultBrowserStatus
   if (process.platform !== 'win32') return getDefaultBrowserStatus()
 
   await registerWindowsDefaultBrowserCapabilities()
-  setElectronProtocolClient('http')
-  setElectronProtocolClient('https')
+
+  if (getBuildMetadata().distributionChannel === 'microsoft-store') {
+    await shell.openExternal('ms-settings:defaultapps')
+    return getDefaultBrowserStatus()
+  }
 
   const focusedUri = `ms-settings:defaultapps?registeredAppUser=${encodeURIComponent(WINDOWS_REGISTERED_APP_NAME)}`
   let openedFocused = true

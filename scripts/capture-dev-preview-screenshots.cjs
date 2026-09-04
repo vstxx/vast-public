@@ -341,7 +341,9 @@ async function buildDemoData() {
   const now = Date.now()
   const workspaceId = 'workspace-research'
   const pdfSource = `http://127.0.0.1:${webPort}/vast-preview-brief.pdf`
-  const pdfUrl = `vast://pdf?src=${encodeURIComponent(pdfSource)}`
+  // Exercise the real MIME/session-aware interception path. Internal viewer
+  // URLs are created only after the original PDF response is captured.
+  const pdfUrl = pdfSource
   const settings = {
     ...data.settings,
     ...(current.settings ?? {}),

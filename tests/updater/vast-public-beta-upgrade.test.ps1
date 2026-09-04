@@ -4,17 +4,44 @@ param(
   [string] $CurrentReleaseRoot = $env:VAST_CURRENT_RELEASE_ROOT,
   [string] $PreviousVersion = $env:VAST_PREVIOUS_VERSION,
   [string] $CurrentVersion = $env:VAST_RELEASE_VERSION,
-  [string] $ExpectedSignerSubject = $env:VAST_EXPECTED_SIGNER_SUBJECT
+  [string] $ExpectedSignerSubject = $env:VAST_EXPECTED_SIGNER_SUBJECT,
+  [string] $PreviousSignaturePolicy = $(if ($env:VAST_PREVIOUS_SIGNATURE_POLICY) { $env:VAST_PREVIOUS_SIGNATURE_POLICY } else { 'signed' }),
+  [string] $CurrentSignaturePolicy = $(if ($env:VAST_CURRENT_SIGNATURE_POLICY) { $env:VAST_CURRENT_SIGNATURE_POLICY } else { 'signed' })
 )
 
 $ErrorActionPreference = 'Stop'
 if ([string]::IsNullOrWhiteSpace($PreviousBaseUrl)) { throw 'The previous production release base URL is required.' }
 if ([string]::IsNullOrWhiteSpace($CurrentBaseUrl) -and [string]::IsNullOrWhiteSpace($CurrentReleaseRoot)) { throw 'CurrentBaseUrl or CurrentReleaseRoot is required.' }
 if ([string]::IsNullOrWhiteSpace($PreviousVersion) -or [string]::IsNullOrWhiteSpace($CurrentVersion)) { throw 'Both beta upgrade versions are required.' }
-if ([string]::IsNullOrWhiteSpace($ExpectedSignerSubject)) { throw 'Expected signer subject is required.' }
+if (($PreviousSignaturePolicy -eq 'signed' -or $CurrentSignaturePolicy -eq 'signed') -and [string]::IsNullOrWhiteSpace($ExpectedSignerSubject)) { throw 'Expected signer subject is required for signed upgrade artifacts.' }
+
+# GitHub Actions runs release steps in PowerShell 7, then invokes this script
+# with Windows PowerShell for Authenticode. PSModulePath can still point at the
+# PowerShell 7 module tree, which makes Windows PowerShell find an incompatible
+# Microsoft.PowerShell.Security module. Import the module shipped with the
+# current host explicitly so the public upgrade gate never depends on inherited
+# shell state.
+$securityModule = Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1'
+if (-not (Test-Path -LiteralPath $securityModule -PathType Leaf)) {
+  throw "The Authenticode security module is unavailable for this PowerShell host: $securityModule"
+}
+Import-Module -Name $securityModule -Force -ErrorAction Stop
+if (-not (Get-Command -Name Get-AuthenticodeSignature -CommandType Cmdlet -ErrorAction SilentlyContinue)) {
+  throw 'Get-AuthenticodeSignature is unavailable after loading Microsoft.PowerShell.Security.'
+}
 
 function Assert-True([bool] $Condition, [string] $Message) { if (-not $Condition) { throw "Assertion failed: $Message" } }
 function Assert-Equal([object] $Expected, [object] $Actual, [string] $Message) { if ($Expected -ne $Actual) { throw "Assertion failed: $Message. Expected '$Expected', got '$Actual'." } }
+function Get-Sha256([string] $Path) {
+  $stream = [System.IO.File]::OpenRead($Path)
+  $sha256 = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    return ([System.BitConverter]::ToString($sha256.ComputeHash($stream))).Replace('-', '').ToLowerInvariant()
+  } finally {
+    $sha256.Dispose()
+    $stream.Dispose()
+  }
+}
 function Get-ProductionFile([string] $Url, [string] $Path) {
   $curl = Get-Command 'curl.exe' -ErrorAction Stop
   $download = Start-Process -FilePath $curl.Source -ArgumentList @(
@@ -29,8 +56,13 @@ function Get-ProductionFile([string] $Url, [string] $Path) {
   ) -Wait -PassThru -NoNewWindow
   Assert-Equal 0 $download.ExitCode "download must succeed: $Url"
 }
-function Assert-Signed([string] $Path) {
+function Assert-Signature([string] $Path, [string] $Policy) {
   $signature = Get-AuthenticodeSignature -LiteralPath $Path
+  if ($Policy -eq 'unsigned') {
+    Assert-Equal 'NotSigned' ([string] $signature.Status) "$Path must remain an authentic unsigned historical artifact"
+    return
+  }
+  if ($Policy -ne 'signed') { throw "Unknown signature policy: $Policy" }
   Assert-Equal 'Valid' ([string] $signature.Status) "$Path must have a valid Authenticode signature"
   Assert-True (-not [string]::IsNullOrWhiteSpace([string] $signature.TimeStamperCertificate.Subject)) "$Path must be timestamped"
   Assert-True ([string] $signature.SignerCertificate.Subject -like "*$ExpectedSignerSubject*") "$Path must be signed by $ExpectedSignerSubject"
@@ -54,13 +86,13 @@ try {
   }
   $previousManifest = Get-Content -Raw -LiteralPath $previousManifestPath | ConvertFrom-Json
   Assert-Equal $PreviousVersion $previousManifest.version 'previous manifest version must match'
-  Assert-Equal ((Get-FileHash -LiteralPath $previousZip -Algorithm SHA256).Hash.ToLowerInvariant()) ([string] $previousManifest.package.sha256).ToLowerInvariant() 'previous package hash must match'
+  Assert-Equal (Get-Sha256 $previousZip) ([string] $previousManifest.package.sha256).ToLowerInvariant() 'previous package hash must match'
 
   $previousExpanded = Join-Path $testRoot 'previous-expanded'
   Expand-Archive -LiteralPath $previousZip -DestinationPath $previousExpanded -Force
   $installPath = Join-Path $previousExpanded ([string] $previousManifest.package.payloadPath)
-  Assert-Signed (Join-Path $installPath 'Vast.exe')
-  Assert-Signed $currentUpdater
+  Assert-Signature (Join-Path $installPath 'Vast.exe') $PreviousSignaturePolicy
+  Assert-Signature $currentUpdater $CurrentSignaturePolicy
 
   $userData = Join-Path $testRoot 'user-data'
   New-Item -ItemType Directory -Path (Join-Path $userData 'Network'), (Join-Path $userData 'Partitions\vast-default\Network') -Force | Out-Null
@@ -79,7 +111,7 @@ try {
     Set-Content -LiteralPath $target -Value $entry.Value -NoNewline -Encoding UTF8
   }
   $before = @{}
-  foreach ($entry in $sentinels.GetEnumerator()) { $before[$entry.Key] = (Get-FileHash -LiteralPath (Join-Path $userData $entry.Key) -Algorithm SHA256).Hash }
+  foreach ($entry in $sentinels.GetEnumerator()) { $before[$entry.Key] = Get-Sha256 (Join-Path $userData $entry.Key) }
 
   $downloadDir = Join-Path $testRoot 'current-download'
   $bootstrapLog = Join-Path $testRoot 'bootstrapper.log'
@@ -94,18 +126,18 @@ try {
   $process = Start-Process -FilePath $currentUpdater -ArgumentList $updaterArguments -Wait -PassThru -WindowStyle Hidden
   if ($process.ExitCode -ne 0) {
     $diagnostic = if (Test-Path -LiteralPath $bootstrapLog -PathType Leaf) { (Get-Content -Raw -LiteralPath $bootstrapLog).Trim() } else { 'bootstrapper log was not created' }
-    throw "Assertion failed: signed public updater must complete successfully. Exit code $($process.ExitCode).`n$diagnostic"
+    throw "Assertion failed: public candidate updater must complete successfully. Exit code $($process.ExitCode).`n$diagnostic"
   }
-  Assert-Signed (Join-Path $installPath 'Vast.exe')
+  Assert-Signature (Join-Path $installPath 'Vast.exe') $CurrentSignaturePolicy
   $installedVersion = (Get-Content -Raw -LiteralPath (Join-Path $installPath 'version.json') | ConvertFrom-Json).version
-  Assert-Equal $CurrentVersion $installedVersion 'runtime must advance to the next signed beta/release'
+  Assert-Equal $CurrentVersion $installedVersion 'runtime must advance to the current public candidate'
   foreach ($entry in $sentinels.GetEnumerator()) {
-    Assert-Equal $before[$entry.Key] (Get-FileHash -LiteralPath (Join-Path $userData $entry.Key) -Algorithm SHA256).Hash "$($entry.Key) must be preserved byte-for-byte"
+    Assert-Equal $before[$entry.Key] (Get-Sha256 (Join-Path $userData $entry.Key)) "$($entry.Key) must be preserved byte-for-byte"
   }
   $relay = Get-Content -Raw -LiteralPath (Join-Path $userData 'vast-relay-state.json') | ConvertFrom-Json
   Assert-Equal $installId $relay.install_id 'Relay install ID must survive the upgrade'
   Assert-Equal 17 $relay.launch_count 'updater must not mutate the Relay launch count'
-  Write-Host "Verified signed $PreviousVersion -> $CurrentVersion upgrade with user data preservation."
+  Write-Host "Verified public $PreviousVersion -> $CurrentVersion upgrade with user data preservation."
 } finally {
   Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

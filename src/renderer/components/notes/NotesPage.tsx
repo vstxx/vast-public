@@ -192,7 +192,7 @@ export function NotesPage(): JSX.Element {
       <div className="mx-auto grid max-w-7xl gap-5 xl:grid-cols-[370px_minmax(0,1fr)]">
         <section className="vast-glass-panel rounded-[30px] p-5">
           <div className="mb-5 flex items-start justify-between gap-3">
-            <h1 className="text-3xl font-semibold">Local notebook</h1>
+            <h1 className="text-3xl font-semibold">Notes</h1>
             <button type="button" onClick={() => createNote(false)} className="grid h-11 w-11 place-items-center rounded-2xl bg-vast-cyan text-black" title="Create note">
               <Plus className="h-5 w-5" />
             </button>
@@ -257,8 +257,8 @@ export function NotesPage(): JSX.Element {
                   <div className="mb-2 flex items-center gap-2 text-sm font-semibold"><Link2 className="h-4 w-4 text-vast-cyan" />Linked page</div>
                   <input value={selected.url ?? ''} onChange={(event) => updateAdvancedNote({ url: event.target.value || undefined })} placeholder="https://..." className="h-10 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-white outline-none" />
                   <button type="button" onClick={createLinkedNote} className="mt-3 w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm hover:bg-white/[0.09]">New note for active page</button>
-                  <label className="mt-3 block text-[13px] text-vast-soft">
-                    Workspace
+                  <div className="mt-3 block text-[13px] text-vast-soft">
+                    <span>Workspace</span>
                     <VastSelect
                       value={selected.workspaceId ?? ''}
                       options={[
@@ -271,7 +271,7 @@ export function NotesPage(): JSX.Element {
                       buttonClassName="h-10 min-h-10"
                       align="start"
                     />
-                  </label>
+                  </div>
                 </div>
                 <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-4">
                   <div className="mb-3 flex items-center gap-2 text-sm font-semibold"><FileText className="h-4 w-4 text-vast-cyan" />Preview</div>

@@ -12,6 +12,11 @@ test('temporary sessions do not force ad blocking when the ad blocker is disable
   assert.doesNotMatch(sessionsSource, /const adBlocking = isTemporarySession \|\| settings\.privacy\.adBlockerEnabled/)
 })
 
+test('strict ad blocking does not implicitly raise fingerprinting protection', () => {
+  assert.match(sessionsSource, /buildFingerprintingProtectionScript\(settings\.privacy\.fingerprintingProtection,/)
+  assert.doesNotMatch(sessionsSource, /adBlockerMode === 'strict' && settings\.privacy\.fingerprintingProtection/)
+})
+
 test('renderer has no duplicate legacy new-window routing path', () => {
   assert.doesNotMatch(stageSource, /addEventListener\(['"]new-window['"]/)
   assert.doesNotMatch(stageSource, /routeWebviewWindowOpen/)

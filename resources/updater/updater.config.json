@@ -1,7 +1,7 @@
 ﻿{
     "productName":  "Vast",
-    "targetVersion":  "0.2.5",
-    "payloadPath":  "..\\Vast-0.2.5\\win-unpacked",
+    "targetVersion":  "0.2.7",
+    "payloadPath":  "..\\Vast-0.2.7\\win-unpacked",
     "processNames":  [
                          "Vast"
                      ],

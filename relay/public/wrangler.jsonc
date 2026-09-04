@@ -113,7 +113,12 @@
             "period": 60
           }
         }
-      ]
+      ],
+      "observability": {
+        "enabled": true,
+        "logs": { "invocation_logs": false, "head_sampling_rate": 0.2 },
+        "traces": { "enabled": true, "head_sampling_rate": 0.05 }
+      }
     },
     "production": {
       "name": "vast-relay-public-production",
@@ -167,7 +172,12 @@
             "period": 60
           }
         }
-      ]
+      ],
+      "observability": {
+        "enabled": true,
+        "logs": { "invocation_logs": false, "head_sampling_rate": 0.05 },
+        "traces": { "enabled": true, "head_sampling_rate": 0.01 }
+      }
     }
   }
 }

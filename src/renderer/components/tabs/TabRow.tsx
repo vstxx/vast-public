@@ -5,7 +5,6 @@ import { openTabContextMenu } from '../../lib/context-menu'
 import { useTabMotion } from '../../lib/tab-motion'
 import { useBrowserStore } from '../../store/browser-store'
 import { Favicon, getInternalTabMeta } from '../ui/Favicon'
-import { notifyCatTabClosing } from '../../lib/cat-addon-events'
 import { VastSelect } from '../ui/VastSelect'
 
 const TAB_TEAR_OUT_MARGIN = 18
@@ -146,13 +145,11 @@ function TabRowComponent({ tab, active, compact, groups = [] }: TabRowProps): JS
             title="Close tab"
             onClick={(event) => {
               event.stopPropagation()
-              notifyCatTabClosing()
               closeTab(tab.id)
             }}
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
                 event.stopPropagation()
-                notifyCatTabClosing()
                 closeTab(tab.id)
               }
             }}

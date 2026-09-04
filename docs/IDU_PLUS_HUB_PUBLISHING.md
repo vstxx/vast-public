@@ -129,17 +129,22 @@ Wartości podawaj dopiero w interaktywnym promptcie Wranglera. Nie wpisuj ich do
 ```powershell
 npx wrangler secret put GITHUB_CLIENT_ID --config extensions-hub/wrangler.jsonc
 npx wrangler secret put GITHUB_CLIENT_SECRET --config extensions-hub/wrangler.jsonc
-npx wrangler secret put HUB_SIGNING_PRIVATE_KEY_PKCS8 --config extensions-hub/wrangler.jsonc
-node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('base64url'))" | npx wrangler secret put HUB_RATE_LIMIT_SECRET --config extensions-hub/wrangler.jsonc
+npx wrangler deploy --env='' --config extensions-hub/signer/wrangler.jsonc
+npx wrangler secret put HUB_SIGNING_PRIVATE_KEY_PKCS8 --env='' --config extensions-hub/signer/wrangler.jsonc
 npx wrangler secret list --config extensions-hub/wrangler.jsonc
+npx wrangler secret list --config extensions-hub/signer/wrangler.jsonc
 ```
 
 `HUB_SIGNING_PRIVATE_KEY_PKCS8` musi być wartością base64 prywatnego klucza
-Ed25519 odpowiadającego publicznemu kluczowi `vast-hub-2026-01` przypiętemu w
-`src/main/extensions/trusted-hub-keys.ts`. Jeżeli produkcyjny sekret już istnieje,
-nie zastępuj go. Utrata tego klucza wymaga kontrolowanej rotacji, dodania nowego
-klucza publicznego do Vast i wydania nowej wersji przeglądarki przed podpisaniem
-nowych paczek.
+Ed25519 odpowiadającego bieżącemu publicznemu kluczowi `vast-hub-2026-02`
+przypiętemu w `src/main/extensions/trusted-hub-keys.ts`. Sekret należy wyłącznie
+do prywatnego Workera `vast-extensions-hub-signer`; publiczny Hub nie może go
+posiadać. Utrata klucza wymaga kontrolowanej rotacji, dodania nowego klucza
+publicznego do Vast i wydania nowej wersji przeglądarki przed podpisaniem nowych
+paczek. Zachowaj zaszyfrowaną kopię klucza poza komputerem wdrożeniowym.
+
+Limity zapytań korzystają z natywnych Cloudflare Rate Limiting bindings. Nie
+twórz `HUB_RATE_LIMIT_SECRET`.
 
 ### 5. Migracje, kontrola i wdrożenie
 
@@ -148,8 +153,11 @@ npm run hub:types
 npm run hub:typecheck
 npm run hub:test
 npm run hub:build
+npm run build:signer --prefix extensions-hub
 npx wrangler d1 migrations apply vast-extensions-hub --remote --config extensions-hub/wrangler.jsonc
-npx wrangler deploy --config extensions-hub/wrangler.jsonc
+npx wrangler deploy --env='' --config extensions-hub/signer/wrangler.jsonc
+npx wrangler deploy --env='' --config extensions-hub/wrangler.jsonc
+npm run hub:verify:production
 ```
 
 Sprawdź `https://extensions.vastbrowser.com/`. Jeżeli potrzebujesz logów:
@@ -301,7 +309,7 @@ Hub odrzuci wersję równą lub niższą od obecnie opublikowanej. Nie podawaj
   scentralizowany katalog i ponownie otwórz Explore. Stan katalogu nie jest już
   dostarczany z lokalnych resources.
 - Podpis nie przechodzi w Vast: nie zmieniaj sekretu podpisującego bez rotacji
-  publicznego klucza `vast-hub-2026-01` i wydania nowej wersji przeglądarki.
+  bieżącego publicznego klucza i wydania nowej wersji przeglądarki.
 
 Dokumentacja referencyjna:
 

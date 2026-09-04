@@ -11,6 +11,8 @@ test('windows default browser registration advertises Vast for HTTP and HTTPS', 
   assert.match(defaultBrowserSource, /HKCU\\\\Software\\\\RegisteredApplications/)
   assert.match(defaultBrowserSource, /StartMenuInternet\\\\Vast/)
   assert.match(defaultBrowserSource, /Capabilities\\\\URLAssociations/)
+  assert.match(defaultBrowserSource, /Capabilities\\\\FileAssociations/)
+  assert.match(defaultBrowserSource, /VastPDF/)
   assert.match(defaultBrowserSource, /VastHTML/)
   assert.match(defaultBrowserSource, /shell\\\\open\\\\command/)
 })

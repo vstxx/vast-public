@@ -129,14 +129,14 @@ Maximum body: 2 KiB. No client secret is required or accepted.
 {
   "protocol": 1,
   "install_id": "b2b65f31-4c31-4da3-9c2c-e5d28f8ca130",
-  "current_version": "0.2.5",
+  "current_version": "0.2.7",
   "launch_count": 152,
   "instance_kind": "packaged"
 }
 ```
 
 UUIDs must use an RFC variant and version 1-8. Version strings are strict
-SemVer 2.0.0, matching Vast's current `0.2.5` format; `v` prefixes, partial
+SemVer 2.0.0, matching Vast's current `0.2.7` format; `v` prefixes, partial
 versions, whitespace, leading zeroes, and invalid prerelease identifiers fail.
 `launch_count` is an integer from 0 through 2,147,483,647. `instance_kind`
 classifies the runtime without exposing user or device data. Clients using the

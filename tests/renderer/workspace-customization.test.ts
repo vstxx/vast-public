@@ -17,6 +17,7 @@ test('each workspace exposes its own icon and color editor', () => {
   assert.match(pickerSource, /WORKSPACE_ICON_OPTIONS\.map/)
   assert.match(pickerSource, /WORKSPACE_COLOR_OPTIONS\.map/)
   assert.match(pickerSource, /type="color"/)
+  assert.doesNotMatch(pickerSource, /shadow-glass|border-dashed|hover:scale/)
 })
 
 test('opening identity is logo-first without the redundant workspace label', () => {

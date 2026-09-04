@@ -26,9 +26,9 @@ describe('protocol validation', () => {
     })
   })
 
-  it('rejects unsupported protocols, nested/unexpected data and abnormal counts', () => {
+  it('rejects unsupported protocols and abnormal known fields while ignoring additive fields', () => {
     expect(() => validateCheckin({ ...validCheckin, protocol: 2 })).toThrow(/Unsupported/)
-    expect(() => validateCheckin({ ...validCheckin, extra: { prototype: true } })).toThrow(/unexpected/)
+    expect(validateCheckin({ ...validCheckin, future_optional: { ignored: true } })).toEqual(validCheckin)
     expect(() => validateCheckin({ ...validCheckin, launch_count: -1 })).toThrow(/bounded/)
     expect(() => validateCheckin({ ...validCheckin, launch_count: 2_147_483_648 })).toThrow(/bounded/)
     expect(() => validateCheckin({ ...validCheckin, instance_kind: 'automation-ish' })).toThrow(/instance_kind/)

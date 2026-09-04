@@ -9,6 +9,7 @@ import {
   verifySignedReleaseDescriptor
 } from '../../src/shared/extension-marketplace.ts'
 import { canonicalJson, createEd25519Signer, type VextTrustedKey } from '../../src/shared/vext-format.ts'
+import { createHubSignerProofPayload, parseHubSignerProof, verifyHubSignerProof } from '../../src/shared/hub-signer-proof.ts'
 
 const id = 'abcdefghijklmnopabcdefghijklmnop'
 const publisher = 'publisher_0123456789abcdef'
@@ -47,6 +48,18 @@ test('validates and verifies a fixed-origin signed release descriptor', async ()
   await verifySignedReleaseDescriptor(signed, [trusted])
   await assert.rejects(verifySignedReleaseDescriptor({ ...signed, descriptor: { ...signed.descriptor, version: '2.0.1' } }, [trusted]), /Could not verify/)
   assert.throws(() => parseSignedReleaseDescriptor({ ...signed, descriptor: { ...descriptor, package_url: 'https://evil.test/package.vext' } }, 'https://extensions.vastbrowser.com'), /unsafe package URL/)
+})
+
+test('verifies a deployment-bound Hub signer readiness proof', async () => {
+  const pair = await crypto.subtle.generateKey('Ed25519', true, ['sign', 'verify'])
+  const [privateKey, publicKey] = await Promise.all([crypto.subtle.exportKey('pkcs8', pair.privateKey), crypto.subtle.exportKey('spki', pair.publicKey)])
+  const signer = await createEd25519Signer('vast-readiness-test', Buffer.from(privateKey).toString('base64'))
+  const trusted: VextTrustedKey = { keyId: signer.keyId, algorithm: 'Ed25519', publicKeySpkiBase64: Buffer.from(publicKey).toString('base64'), status: 'current' }
+  const payload = createHubSignerProofPayload(signer.keyId, 'https://extensions.vastbrowser.com')
+  const signature = Buffer.from(await signer.sign(new TextEncoder().encode(payload))).toString('base64')
+  const proof = parseHubSignerProof({ keyId: signer.keyId, payload, signature }, signer.keyId, 'https://extensions.vastbrowser.com')
+  await verifyHubSignerProof(proof, signer.keyId, 'https://extensions.vastbrowser.com', [trusted])
+  await assert.rejects(verifyHubSignerProof(proof, signer.keyId, 'https://extensions-staging.vastbrowser.com', [trusted]), /does not match/)
 })
 
 test('rejects malformed catalog payloads and unknown Vast permissions', () => {

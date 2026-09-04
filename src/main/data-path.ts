@@ -7,6 +7,7 @@ import type { DataPathInfo, MigrationReport } from '../shared/types'
 import {
   copyDataRootForMigration,
   dataPathConfigFile,
+  portableDataRootFromEnv,
   readConfiguredDataRoot,
   stableConfigRootFromEnv,
   validateDataRootCandidate,
@@ -32,11 +33,13 @@ export function defaultVastDataRoot(): string {
   if (!app.isPackaged) {
     return process.env.VAST_TEST_USER_DATA_DIR || process.env.VAST_DEV_USER_DATA_DIR || join(app.getPath('appData'), devDataDirName)
   }
+  const portableRoot = portableDataRootFromEnv()
+  if (portableRoot) return portableRoot
   return join(app.getPath('appData'), productDataDirName)
 }
 
 export function stableDataPathConfigRoot(): string {
-  return stableConfigRootFromEnv()
+  return portableDataRootFromEnv() ?? stableConfigRootFromEnv()
 }
 
 function setVastProfileRoot(root: string): void {
@@ -55,6 +58,11 @@ export function configureVastUserDataPath(): void {
   }
   if (!app.isPackaged) {
     setVastProfileRoot(defaultVastDataRoot())
+    return
+  }
+  const portableRoot = portableDataRootFromEnv()
+  if (portableRoot) {
+    setVastProfileRoot(portableRoot)
     return
   }
   const customRoot = configuredRootSync(stableDataPathConfigRoot())

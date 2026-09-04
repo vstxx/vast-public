@@ -51,8 +51,11 @@ test('opening animation uses a compact primary-window presentation without a sec
 test('main-renderer opening remains CSS and image based with shared visual and audio timing', () => {
   assert.match(appSource, /import vastLogo from/)
   assert.match(stylesSource, /animation:\s*vast-opening-logo var\(--vast-opening-duration/)
-  assert.match(stylesSource, /\.vast-opening-overlay\s*\{[^}]*border-radius:\s*28px/s)
-  assert.match(stylesSource, /\.vast-opening-logo\s*\{[^}]*transform:\s*translateX\(-1\.5%\)/s)
+  assert.match(appSource, /vast-opening-overlay platform-\$\{window\.vast\.app\.platform\}/)
+  assert.match(stylesSource, /\.vast-opening-overlay\s*\{[^}]*border-radius:\s*0/s)
+  assert.match(stylesSource, /\.vast-opening-overlay\.platform-darwin\s*\{[^}]*border-radius:\s*28px/s)
+  assert.match(stylesSource, /\.vast-opening-logo-frame\s*\{[^}]*overflow:\s*hidden/s)
+  assert.match(stylesSource, /\.vast-opening-logo\s*\{[^}]*transform:\s*translate\(-50%,\s*-50%\)/s)
   assert.match(stylesSource, /animation-delay:\s*var\(--vast-opening-delay/)
   assert.match(appSource, /playOpeningSerenitySound\(openingSoundVolume\)/)
   assert.match(appSource, /openingVolumeToGain\(volume\)/)

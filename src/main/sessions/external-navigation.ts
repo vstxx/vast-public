@@ -1,5 +1,5 @@
-import { clipboard, shell } from 'electron/common'
-import type { BrowserWindow } from 'electron/main'
+import { shell } from 'electron/common'
+import { clipboard, type BrowserWindow } from 'electron/main'
 import type { BrowserSettings } from '../../shared/types'
 import { requestRendererPrompt } from '../ui-bridge'
 
@@ -58,7 +58,7 @@ export async function requestOAuthFallback(
     })
 
     if (result === 'copy-link') {
-      clipboard.writeText(url)
+      await clipboard.writeText(url)
       dependencies.logOAuthPopupFlow(`fallback copied reason=${logReason} url=${dependencies.redactUrl(url)}`)
       return
     }

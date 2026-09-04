@@ -1,4 +1,5 @@
 import type { BrowserTabOpenRequest, ID, Tab } from '../../shared/types'
+import { setPendingInitialNavigation } from './pending-initial-navigation.ts'
 
 interface BrowserTabModel {
   tabs: Tab[]
@@ -32,11 +33,15 @@ export function handleBrowserTabOpenRequest(
     : undefined
   const sourceTab = sourceTabId ? model.tabs.find((tab) => tab.id === sourceTabId) : undefined
 
-  return model.createTab({
+  const tab = model.createTab({
     url: routedUrl,
     title: context.titleForUrl(routedUrl),
     workspaceId: sourceTab?.workspaceId,
     groupId: sourceTab?.groupId,
     activate: request.activate
   })
+  // Referrer and POST metadata replay the navigation Chromium would have made;
+  // it lives only until the new tab's first webview load commits.
+  setPendingInitialNavigation(tab.id, request.navigation)
+  return tab
 }

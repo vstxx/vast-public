@@ -24,3 +24,16 @@ test('same-site subdomains are distinguished from third-party requests', () => {
   assert.equal(isThirdPartyUrl('https://cdn.example.co.uk/app.js', 'https://www.example.co.uk/'), false)
   assert.equal(isThirdPartyUrl('https://tracker.invalid/pixel', 'https://www.example.co.uk/'), true)
 })
+
+test('private and wildcard public suffixes use the complete PSL', () => {
+  assert.equal(siteDomain('https://one.blogspot.com/'), 'one.blogspot.com')
+  assert.equal(isThirdPartyUrl('https://two.blogspot.com/a.js', 'https://one.blogspot.com/'), true)
+  assert.equal(siteDomain('https://a.b.ide.kyoto.jp/'), 'b.ide.kyoto.jp')
+})
+
+test('functional auth and download parameters survive default URL cleaning', () => {
+  const signedUrl = 'https://cdn.example.com/files/map.zip?state=abc123&token=eyJhbGci&ref=xyz&clickid=test&redirect=https%3A%2F%2Fexample.com%2Fcallback'
+  const result = cleanTrackingUrl(signedUrl)
+  assert.equal(result.changed, false)
+  assert.equal(result.url, signedUrl)
+})

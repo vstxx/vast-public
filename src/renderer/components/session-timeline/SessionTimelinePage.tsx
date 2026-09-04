@@ -5,7 +5,7 @@ import { useBrowserRuntime } from '../../app/browser-runtime'
 import { formatDateTime, formatRelativeTime } from '../../lib/format'
 import { displayUrl } from '../../lib/url'
 import { selectActiveWorkspace, useBrowserStore } from '../../store/browser-store'
-import { InternalEmptyState, InternalMetricCard, InternalPageHero, InternalPageSection, InternalPageShell } from '../internal/InternalPage'
+import { InternalEmptyState, InternalFilterButton, InternalMetricCard, InternalPageHero, InternalPageSection, InternalPageShell } from '../internal/InternalPage'
 import { Favicon } from '../ui/Favicon'
 
 const triggerLabels: Record<SessionSnapshotTrigger, string> = {
@@ -14,7 +14,6 @@ const triggerLabels: Record<SessionSnapshotTrigger, string> = {
   startup: 'Restored on launch',
   restore: 'Safety snapshot before restore'
 }
-
 const triggerBadgeTone: Record<SessionSnapshotTrigger, string> = {
   manual: 'border-vast-cyan/20 bg-vast-cyan/10 text-vast-cyan',
   'workspace-switch': 'border-[#8fa1ff]/25 bg-[#8fa1ff]/10 text-[#d5dcff]',
@@ -71,8 +70,7 @@ export function SessionTimelinePage(): JSX.Element {
       <div className="mx-auto max-w-7xl space-y-5">
         <InternalPageHero
           icon={History}
-          title="Chronological workspace memory"
-          description="Vast now keeps a local timeline of manual snapshots, session restores, and workspace switches so you can rewind context without losing the current workspace."
+          title="Session Timeline"
           actions={
             <div className="grid w-full grid-cols-2 gap-2 sm:w-[25rem]" data-testid="timeline-primary-actions">
               <button type="button" onClick={() => addSessionSnapshot(undefined, { trigger: 'manual' })} className="vault-action-button min-w-0 justify-center px-2">
@@ -114,7 +112,6 @@ export function SessionTimelinePage(): JSX.Element {
         <InternalPageSection
           icon={Search}
           title="Browse snapshots"
-          description="Filter by workspace, trigger, or page title. Restoring a snapshot replaces the target workspace tabs and creates a safety snapshot first."
         >
           <div className="grid gap-3 border-b border-white/[0.06] pb-4">
             <div className="relative min-w-0">
@@ -123,32 +120,32 @@ export function SessionTimelinePage(): JSX.Element {
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search snapshots, pages, workspace names"
-                className="h-11 w-full rounded-2xl border border-transparent bg-white/[0.035] pl-10 pr-3 text-sm text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)] outline-none transition focus:shadow-[inset_0_0_0_1px_rgba(116,231,255,0.32),0_0_28px_rgba(116,231,255,0.07)]"
+                className="h-11 w-full rounded-xl border border-white/[0.07] bg-white/[0.03] pl-10 pr-3 text-sm text-white outline-none transition-colors focus:border-white/[0.16] focus:bg-white/[0.045]"
               />
             </div>
-            <div className="grid gap-2 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-start">
-              <div className="pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-vast-soft">Workspace</div>
-              <div className="flex flex-wrap gap-2">
-                <TimelineFilter active={workspaceFilter === 'all'} onClick={() => setWorkspaceFilter('all')}>
+            <div className="grid gap-2 lg:grid-cols-[5.5rem_minmax(0,1fr)] lg:items-center">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-vast-soft">Workspace</div>
+              <div className="flex flex-wrap gap-1">
+                <InternalFilterButton active={workspaceFilter === 'all'} onClick={() => setWorkspaceFilter('all')}>
                   All workspaces
-                </TimelineFilter>
+                </InternalFilterButton>
                 {workspaces.map((workspace) => (
-                  <TimelineFilter key={workspace.id} active={workspaceFilter === workspace.id} onClick={() => setWorkspaceFilter(workspace.id)}>
+                  <InternalFilterButton key={workspace.id} active={workspaceFilter === workspace.id} onClick={() => setWorkspaceFilter(workspace.id)}>
                     {workspace.name}
-                  </TimelineFilter>
+                  </InternalFilterButton>
                 ))}
               </div>
             </div>
-            <div className="grid gap-2 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-start">
-              <div className="pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-vast-soft">Trigger</div>
-              <div className="flex flex-wrap gap-2">
-                <TimelineFilter active={triggerFilter === 'all'} onClick={() => setTriggerFilter('all')}>
+            <div className="grid gap-2 lg:grid-cols-[5.5rem_minmax(0,1fr)] lg:items-center">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-vast-soft">Trigger</div>
+              <div className="flex flex-wrap gap-1">
+                <InternalFilterButton active={triggerFilter === 'all'} onClick={() => setTriggerFilter('all')}>
                   Everything
-                </TimelineFilter>
+                </InternalFilterButton>
                 {(Object.keys(triggerLabels) as SessionSnapshotTrigger[]).map((trigger) => (
-                  <TimelineFilter key={trigger} active={triggerFilter === trigger} onClick={() => setTriggerFilter(trigger)}>
+                  <InternalFilterButton key={trigger} active={triggerFilter === trigger} onClick={() => setTriggerFilter(trigger)}>
                     {triggerLabels[trigger]}
-                  </TimelineFilter>
+                  </InternalFilterButton>
                 ))}
               </div>
             </div>
@@ -269,29 +266,5 @@ function SnapshotCard({
         </div>
       </div>
     </article>
-  )
-}
-
-function TimelineFilter({
-  active,
-  onClick,
-  children
-}: {
-  active: boolean
-  onClick: () => void
-  children: string
-}): JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-        active
-          ? 'border-transparent bg-vast-cyan/[0.12] text-vast-cyan shadow-[0_0_0_1px_rgba(116,231,255,0.28),0_0_20px_rgba(116,231,255,0.08)]'
-          : 'border-transparent bg-white/[0.035] text-vast-soft shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)] hover:bg-white/[0.07] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.12)]'
-      }`}
-    >
-      {children}
-    </button>
   )
 }

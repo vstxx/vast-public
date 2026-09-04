@@ -1,4 +1,5 @@
 import type { BrowserWindow } from 'electron/main'
+import { extname, isAbsolute, resolve } from 'node:path'
 import type { BrowserTabOpenRequest } from '../../shared/types'
 import type { WindowRegistry } from './WindowRegistry'
 import { parseExtensionInstallDeepLink } from '../../shared/extension-marketplace.ts'
@@ -7,6 +8,10 @@ const MAX_EXTERNAL_URL_LENGTH = 128 * 1024
 const MAX_QUEUED_URLS = 100
 const DUPLICATE_WINDOW_MS = 1_500
 const SAFE_EXTERNAL_NEW_TAB_URL = 'vast://newtab'
+
+type ExternalTarget =
+  | { kind: 'url'; value: string }
+  | { kind: 'local-pdf'; value: string }
 
 function unquoteArgument(input: string): string {
   const trimmed = input.trim()
@@ -61,8 +66,15 @@ export function externalNavigationTargets(argv: readonly string[]): string[] {
   return targets
 }
 
+export function localPdfArgument(input: string): string | undefined {
+  const candidate = unquoteArgument(input)
+  if (!candidate || candidate.length > 32_768 || candidate.includes('\0') || /^[a-z][a-z\d+.-]*:\/\//i.test(candidate)) return undefined
+  if (extname(candidate).toLowerCase() !== '.pdf') return undefined
+  return isAbsolute(candidate) ? candidate : resolve(candidate)
+}
+
 export class ExternalNavigationRouter {
-  private readonly queue: string[] = []
+  private readonly queue: ExternalTarget[] = []
   private readonly recentlyAccepted = new Map<string, number>()
   private readonly registry: WindowRegistry
   private readonly createWindow: () => BrowserWindow
@@ -73,12 +85,24 @@ export class ExternalNavigationRouter {
   }
 
   acceptArguments(argv: readonly string[]): void {
-    for (const target of externalNavigationTargets(argv)) this.acceptTarget(target)
+    for (const argument of argv) {
+      const url = externalNavigationTarget(argument)
+      if (url) this.acceptTarget({ kind: 'url', value: url })
+      else {
+        const path = localPdfArgument(argument)
+        if (path) this.acceptTarget({ kind: 'local-pdf', value: path })
+      }
+    }
   }
 
   acceptUrl(rawUrl: string): void {
     const target = externalNavigationTarget(rawUrl)
-    if (target) this.acceptTarget(target)
+    if (target) this.acceptTarget({ kind: 'url', value: target })
+  }
+
+  acceptFile(path: string): void {
+    const target = localPdfArgument(path)
+    if (target) this.acceptTarget({ kind: 'local-pdf', value: target })
   }
 
   rendererReady(window: BrowserWindow): void {
@@ -86,11 +110,12 @@ export class ExternalNavigationRouter {
     this.flush(window)
   }
 
-  private acceptTarget(target: string): void {
+  private acceptTarget(target: ExternalTarget): void {
     const now = Date.now()
-    const lastAccepted = this.recentlyAccepted.get(target)
+    const targetKey = `${target.kind}:${target.value.toLowerCase()}`
+    const lastAccepted = this.recentlyAccepted.get(targetKey)
     if (lastAccepted !== undefined && now - lastAccepted < DUPLICATE_WINDOW_MS) return
-    this.recentlyAccepted.set(target, now)
+    this.recentlyAccepted.set(targetKey, now)
     for (const [url, acceptedAt] of this.recentlyAccepted) {
       if (now - acceptedAt > DUPLICATE_WINDOW_MS) this.recentlyAccepted.delete(url)
     }
@@ -111,20 +136,41 @@ export class ExternalNavigationRouter {
     while (this.queue.length > 0) this.deliver(preferredWindow, this.queue.shift()!)
   }
 
-  private deliver(window: BrowserWindow, url: string): void {
+  private deliver(window: BrowserWindow, target: ExternalTarget): void {
     if (window.isDestroyed() || window.webContents.isDestroyed()) {
       if (this.queue.length >= MAX_QUEUED_URLS) this.queue.shift()
-      this.queue.push(url)
+      this.queue.push(target)
       return
     }
     if (window.isMinimized()) window.restore()
     window.show()
     window.focus()
-    const request: BrowserTabOpenRequest = {
-      url,
-      disposition: 'external',
-      activate: true
+    const deliverUrl = (url: string): void => {
+      if (window.isDestroyed() || window.webContents.isDestroyed()) return
+      const request: BrowserTabOpenRequest = {
+        url,
+        disposition: 'external',
+        activate: true
+      }
+      window.webContents.send('vast:browser:open-tab', request)
     }
-    window.webContents.send('vast:browser:open-tab', request)
+    if (target.kind === 'url') {
+      deliverUrl(target.value)
+      return
+    }
+    void import('../pdf-resources')
+      .then(({ pdfViewerUrlForResource, registerLocalPdfResource }) =>
+        registerLocalPdfResource(window.webContents.id, target.value)
+          .then((resource) => deliverUrl(pdfViewerUrlForResource(resource)))
+      )
+      .catch((error: unknown) => {
+        if (window.isDestroyed() || window.webContents.isDestroyed()) return
+        window.webContents.send('vast:ui:notification', {
+          tone: 'error',
+          title: 'PDF could not be opened',
+          message: 'Vast could not open this local PDF.',
+          detail: error instanceof Error ? error.message : 'The local file is unavailable.'
+        })
+      })
   }
 }

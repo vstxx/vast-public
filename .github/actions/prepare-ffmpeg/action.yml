@@ -1,0 +1,53 @@
+name: Prepare verified Vast FFmpeg
+description: Restore the exact audited FFmpeg output or rebuild it from pinned source on a verified cache miss.
+
+inputs:
+  github-token:
+    description: Read-only token used to download the private pinned cache seed.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Restore verified Actions cache
+      id: ffmpeg-actions-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: .vast-build/ffmpeg
+        key: vast-ffmpeg-win64-v3-${{ hashFiles('third_party/ffmpeg/ffmpeg-build.lock.json', 'third_party/ffmpeg/scripts/**', 'scripts/build-vast-ffmpeg.ps1', 'scripts/avidae-ffmpeg-capabilities.cjs', 'scripts/generate-vast-ffmpeg-provenance.cjs', 'scripts/check-ffmpeg-release-compliance.cjs') }}
+
+    - name: Restore hash-pinned private cache seed
+      id: ffmpeg-private-seed
+      if: steps.ffmpeg-actions-cache.outputs.cache-hit != 'true'
+      continue-on-error: true
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        $descriptor = Get-Content -Raw 'third_party/ffmpeg/ffmpeg-ci-cache.json' | ConvertFrom-Json
+        $archive = Join-Path $env:RUNNER_TEMP $descriptor.assetName
+        gh release download $descriptor.releaseTag --repo $descriptor.repository --pattern $descriptor.assetName --dir $env:RUNNER_TEMP --clobber
+        if ($LASTEXITCODE -ne 0) { throw 'Could not download the pinned private FFmpeg cache seed.' }
+        node scripts/restore-vast-ffmpeg-cache.cjs --archive $archive
+
+    - name: Build from pinned source on a verified cache miss
+      if: steps.ffmpeg-actions-cache.outputs.cache-hit != 'true' && steps.ffmpeg-private-seed.outcome != 'success'
+      shell: pwsh
+      run: npm run ffmpeg:build
+
+    - name: Reverify runtime, capabilities, provenance and corresponding source
+      shell: pwsh
+      run: |
+        node scripts/verify-vast-ffmpeg-recipe.cjs
+        npm run ffmpeg:release:check
+        $root = (Resolve-Path '.vast-build/ffmpeg').Path
+        "VAST_AVIDAE_FFMPEG=$(Join-Path $root 'runtime/bin/ffmpeg.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        "VAST_AVIDAE_FFPROBE=$(Join-Path $root 'runtime/bin/ffprobe.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        "VAST_FFMPEG_BUILD_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+    - name: Save newly verified Actions cache
+      if: steps.ffmpeg-actions-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: .vast-build/ffmpeg
+        key: vast-ffmpeg-win64-v3-${{ hashFiles('third_party/ffmpeg/ffmpeg-build.lock.json', 'third_party/ffmpeg/scripts/**', 'scripts/build-vast-ffmpeg.ps1', 'scripts/avidae-ffmpeg-capabilities.cjs', 'scripts/generate-vast-ffmpeg-provenance.cjs', 'scripts/check-ffmpeg-release-compliance.cjs') }}

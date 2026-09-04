@@ -169,26 +169,21 @@ export async function requireCsrf(request: Request, session: HubSession): Promis
   if (!provided || provided.length > 256 || !await timingEqual(await sha256(provided), session.csrfHash)) throw new HttpError(403, 'CSRF validation failed.')
 }
 
-async function rateSubject(request: Request, env: Env): Promise<string> {
+async function rateSubject(request: Request): Promise<string> {
   const ip = request.headers.get('cf-connecting-ip') ?? 'local'
-  const key = await crypto.subtle.importKey('raw', encoder.encode(env.HUB_RATE_LIMIT_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
-  return base64Url(new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(ip))))
+  return sha256(ip)
 }
 
-export async function enforceRateLimit(request: Request, env: Env, bucket: string, maximum: number, windowMs: number): Promise<void> {
-  const windowStart = Math.floor(Date.now() / windowMs) * windowMs
-  const subject = await rateSubject(request, env)
-  const row = await env.DB.prepare(`INSERT INTO rate_limits(bucket,subject_hash,window_start,count) VALUES(?1,?2,?3,1) ON CONFLICT(bucket,subject_hash,window_start) DO UPDATE SET count=count+1 RETURNING count`).bind(bucket, subject, windowStart).first<{ count: number }>()
-  if (!row || row.count > maximum) throw new HttpError(429, 'Too many requests. Try again later.')
+export async function enforceRateLimit(request: Request, limiter: RateLimit, bucket: string): Promise<void> {
+  const result = await limiter.limit({ key: `${bucket}:${await rateSubject(request)}` })
+  if (!result.success) throw new HttpError(429, 'Too many requests. Try again later.')
 }
 
 export async function cleanupExpiredState(env: Env): Promise<void> {
   const now = new Date().toISOString()
-  const oldWindow = Date.now() - 2 * 24 * 60 * 60_000
   await env.DB.batch([
     env.DB.prepare('DELETE FROM oauth_states WHERE expires_at<?1').bind(now),
     env.DB.prepare('DELETE FROM publisher_sessions WHERE expires_at<?1').bind(now),
-    env.DB.prepare('DELETE FROM rate_limits WHERE window_start<?1').bind(oldWindow),
     env.DB.prepare(`UPDATE extension_reports SET reporter_name=NULL,reporter_email=NULL WHERE created_at<?1 AND legal_hold=0`).bind(new Date(Date.now() - 365 * 24 * 60 * 60_000).toISOString()),
     env.DB.prepare(`DELETE FROM extension_reports WHERE status IN ('actioned','dismissed') AND updated_at<?1 AND legal_hold=0`).bind(new Date(Date.now() - 3 * 365 * 24 * 60 * 60_000).toISOString()),
     env.DB.prepare(`UPDATE submissions SET status='pending',resolved_at=NULL WHERE status='reviewing' AND resolved_at<?1`).bind(new Date(Date.now() - 60 * 60_000).toISOString()),

@@ -100,7 +100,7 @@ export async function handleCheckin(request: Request, env: PublicEnv, now = Date
   }
 
   try {
-    await env.DB.prepare(`
+    const persisted = await env.DB.prepare(`
       INSERT INTO installations (install_id, current_version, first_seen, last_seen, launch_count, instance_kind)
       VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(install_id) DO UPDATE SET
@@ -112,10 +112,19 @@ export async function handleCheckin(request: Request, env: PublicEnv, now = Date
           ELSE excluded.instance_kind
         END
     `).bind(input.install_id, input.current_version, now, now, input.launch_count, input.instance_kind).run()
+    if (!persisted.success || Number(persisted.meta.changes) < 1) throw new Error('D1 did not confirm installation persistence.')
   } catch (error) {
     logFailure('checkin_d1_upsert_failed', error)
-    const headers = new Headers({ 'X-Vast-Relay-Degraded': 'database' })
-    return jsonResponse(response, { headers })
+    return jsonResponse(
+      { error: 'Relay persistence is temporarily unavailable.' },
+      {
+        status: 503,
+        headers: {
+          'Retry-After': '300',
+          'X-Vast-Relay-Degraded': 'database'
+        }
+      }
+    )
   }
 
   try {

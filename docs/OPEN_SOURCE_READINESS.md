@@ -3,10 +3,10 @@
 Audit date: 2026-08-18
 Audited revision: working tree based on `e37fbfa45ecffb6cf95eee61b660449bad7894a6`
 
-This is the retained historical open-source audit from 2026-08-18. The current
-0.2.5 release-candidate decision and verification evidence live in
-`docs/RELEASE_0.2.5_READINESS.md`; where the records differ, that newer report
-is authoritative.
+This is the retained historical open-source audit from 2026-08-18. Its 0.2.5
+evidence remains historical. The current release decision lives in
+`docs/RELEASE_0.2.7_READINESS.md`; where the records differ, that report is
+authoritative.
 
 This report is intentionally strict. A PASS means the checked condition is satisfied in the current working tree; it is not a warranty or legal opinion.
 
@@ -18,7 +18,7 @@ This report is intentionally strict. A PASS means the checked condition is satis
 | Private email history | PENDING HISTORY REWRITE | 70 commits contain `jas.nowacki@gmail.com` as author and/or committer email. The verified replacement and rewrite procedure are in `docs/GIT_HISTORY_PRIVACY_REWRITE.md`. |
 | Local machine paths | FAIL | The current tracked tree contains zero occurrences of the audited private Windows user-profile path and no private absolute repository path, but 74 historical commits still contain it in 48 generated benchmark/.NET files. The authorized email-only rewrite must not change tree contents. |
 | Generated artifacts | PASS | Tracked benchmark output, screenshots, release ZIP/checksums and .NET `obj`/generated constants were removed; `.gitignore` now covers their regeneration. |
-| Third-party licenses | BLOCKED | The Cat Addon art archive has no established license, and release automation does not yet guarantee delivery of FFmpeg's exact corresponding GPL source. |
+| Third-party licenses | BLOCKED | Release automation does not yet guarantee delivery of FFmpeg's exact corresponding GPL source. |
 | Cloudflare Relay exposure | ACCEPTABLE | Worker names, domains, D1/R2/Access/rate-limit IDs and public key IDs are public deployment identifiers. Private signing material remains a Cloudflare Secret. |
 | README/public docs | PASS | Root documentation now covers purpose, privacy, support, development, architecture, experimental features and project policies without stale version-specific build steps. |
 | CONTRIBUTING | PASS | `CONTRIBUTING.md` contains the practical public contribution workflow. |
@@ -29,7 +29,6 @@ This report is intentionally strict. A PASS means the checked condition is satis
 
 ## Publication blockers
 
-1. Establish and document a redistributable license/grant for `assets/cat-addon/Cat_85_Animations.zip` and its derived sprites, replace those assets with clearly licensed originals, or exclude that component from the public source distribution without changing the shipping product unintentionally.
 2. Make every FFmpeg-containing binary release deliver the complete corresponding source set for the exact Gyan build (including covered linked components and build scripts/configuration as applicable), or implement another reviewed GPLv3-compliant source-delivery mechanism. Retain the GPL license and build/source identification already staged with the runtime.
 3. Commit the reviewed cleanup, then perform the documented `git filter-repo` rewrite in a clean clone. Resolve the old public **unsigned** 0.1.5 provenance before changing public history, because its manifests refer to a pre-rewrite commit SHA.
 4. Run `gitleaks git .` and/or a current equivalent full-history TruffleHog scan, review every result, and record the scanner versions and output.

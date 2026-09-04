@@ -27,7 +27,7 @@ import {
   Wifi,
   X
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
+import { useEffect, useMemo, useRef, useState, type ComponentType, type DragEvent as ReactDragEvent } from 'react'
 import {
   INTERNAL_AUTOMATION_URL,
   INTERNAL_AVIDAE_URL,
@@ -50,7 +50,6 @@ import { VideoAudioMark } from '../avidae/VideoAudioBrand'
 import { Favicon } from '../ui/Favicon'
 import { IconButton } from '../ui/IconButton'
 import { ExtensionsToolbarMenu } from './ExtensionsToolbarMenu'
-import { notifyCatOmniboxBlur, notifyCatOmniboxFocus, notifyCatOmniboxInput } from '../../lib/cat-addon-events'
 
 interface AddressSuggestion {
   type: 'Bookmark' | 'History' | 'Search'
@@ -83,7 +82,6 @@ export function AddressBar({
   const bookmarks = useBrowserStore((state) => state.bookmarks)
   const defaultSearchEngine = useBrowserStore((state) => state.settings.defaultSearchEngine)
   const labs = useBrowserStore((state) => state.settings.labs)
-  const labsEnabled = labs.enabled
   const featureContextSettings = useMemo(() => ({ labs }) as BrowserSettings, [labs])
   const privacySettings = useBrowserStore((state) => state.settings.privacy)
   const updateSettings = useBrowserStore((state) => state.updateSettings)
@@ -101,6 +99,7 @@ export function AddressBar({
   const [siteInfoError, setSiteInfoError] = useState<string | null>(null)
   const [overflowOpen, setOverflowOpen] = useState(false)
   const [extensionsOpen, setExtensionsOpen] = useState(false)
+  const [pdfDropActive, setPdfDropActive] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
@@ -224,6 +223,29 @@ export function AddressBar({
     action()
   }
 
+  const dragContainsFiles = (event: ReactDragEvent<HTMLFormElement>): boolean =>
+    Array.from(event.dataTransfer.types).includes('Files')
+
+  const handleFileDragOver = (event: ReactDragEvent<HTMLFormElement>): void => {
+    if (!dragContainsFiles(event)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+    setPdfDropActive(true)
+  }
+
+  const handleFileDrop = (event: ReactDragEvent<HTMLFormElement>): void => {
+    if (!dragContainsFiles(event)) return
+    event.preventDefault()
+    setPdfDropActive(false)
+    const file = event.dataTransfer.files.item(0)
+    if (!file || event.dataTransfer.files.length !== 1 || !file.name.toLowerCase().endsWith('.pdf')) return
+    void window.vast.pdf.openLocalFile(file).then((result) => {
+      if (!result.ok || !result.viewerUrl) return
+      runtime.navigateActive(result.viewerUrl)
+      inputRef.current?.blur()
+    })
+  }
+
   return (
     <div className={`address-bar-row drag relative z-30 flex shrink-0 items-center px-4 ${variant === 'purist' ? 'address-bar-purist' : ''} ${compact ? 'h-[46px] gap-2' : 'h-[68px] gap-3'}`}>
       <div className={`address-bar-controls no-drag flex items-center gap-1 ${compact ? 'is-compact' : ''}`}>
@@ -244,7 +266,14 @@ export function AddressBar({
       </div>
 
       <form
-        className="address-bar-form no-drag relative min-w-0 flex-1"
+        className={`address-bar-form no-drag relative min-w-0 flex-1 ${pdfDropActive ? 'is-pdf-drop-target' : ''}`}
+        onDragEnter={handleFileDragOver}
+        onDragOver={handleFileDragOver}
+        onDragLeave={(event) => {
+          const nextTarget = event.relatedTarget
+          if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) setPdfDropActive(false)
+        }}
+        onDrop={handleFileDrop}
         onSubmit={(event) => {
           event.preventDefault()
           const suggestion = selectedSuggestion >= 0 ? suggestions[selectedSuggestion] : undefined
@@ -252,7 +281,7 @@ export function AddressBar({
           inputRef.current?.blur()
         }}
       >
-        <div className={`vast-top-address group relative flex items-center gap-3 rounded-2xl px-4 backdrop-blur-xl transition duration-150 ${variant === 'purist' ? 'vast-top-address-purist' : ''} ${compact ? 'h-9' : 'h-12'}`}>
+        <div className={`vast-top-address group relative flex items-center gap-3 rounded-2xl px-4 backdrop-blur-xl transition duration-150 ${variant === 'purist' ? 'vast-top-address-purist' : ''} ${pdfDropActive ? 'ring-2 ring-vast-cyan/55 bg-vast-cyan/[0.08]' : ''} ${compact ? 'h-9' : 'h-12'}`}>
           {activeTab && <Favicon url={activeTab.url} favicon={activeTab.favicon} title={activeTab.title} />}
           <button
             type="button"
@@ -278,10 +307,8 @@ export function AddressBar({
               setSelectedSuggestion(-1)
               setFocused(true)
               onFocusChange?.(true)
-              notifyCatOmniboxFocus()
             }}
             onBlur={() => {
-              notifyCatOmniboxBlur()
               window.setTimeout(() => {
                 setFocused(false)
                 onFocusChange?.(false)
@@ -289,9 +316,7 @@ export function AddressBar({
             }}
             onChange={(event) => {
               setValue(event.target.value)
-              if (!(event.nativeEvent as InputEvent).isComposing) notifyCatOmniboxInput(event.target.value)
             }}
-            onCompositionEnd={(event) => notifyCatOmniboxInput(event.currentTarget.value)}
             onKeyDown={(event) => {
               if (event.key === 'ArrowDown' && suggestions.length > 0) {
                 event.preventDefault()
@@ -306,7 +331,7 @@ export function AddressBar({
                 inputRef.current?.blur()
               }
             }}
-            placeholder="Search or enter address"
+            placeholder={pdfDropActive ? 'Drop PDF to open' : 'Search or enter address'}
             className={`address-bar-input min-w-0 flex-1 bg-transparent text-[14px] font-medium outline-none transition-colors duration-150 placeholder:text-vast-soft ${
               focused ? 'text-white' : 'text-white/45'
             }`}
@@ -422,7 +447,7 @@ export function AddressBar({
       </form>
 
       <div className={`address-bar-controls no-drag flex items-center gap-1 ${compact ? 'is-compact' : ''}`}>
-        {labsEnabled && activeTab?.loginFormDetected && (
+        {activeTab?.loginFormDetected && (
           <IconButton
             tooltip={featureStates.passwordManager.available ? 'Fill login' : 'Enable Password Manager in Labs'}
             onClick={() => activateFeatureAction(featureStates.passwordManager, () => void runtime.fillLoginForActive())}
@@ -466,21 +491,21 @@ export function AddressBar({
             <div className="browser-tools-menu absolute right-0 top-11 z-40 max-h-[72vh] w-64 overflow-y-auto rounded-2xl border border-white/10 bg-[#0c0d12]/[0.98] p-2 shadow-glass backdrop-blur-xl">
               {extensionToolbar.slice(3).map((action) => <OverflowAction key={action.key} label={`${action.title} · ${action.extensionName}`} icon={Puzzle} disabled={action.enabled === false} onClick={() => { void window.vast.extensions.dispatchContribution(action.key) }} onClose={() => setOverflowOpen(false)} />)}
               <OverflowAction label="Incognito window" icon={EyeOff} onClick={runtime.openIncognitoWindow} onClose={() => setOverflowOpen(false)} />
-              {labsEnabled && <>
+              <>
                 <OverflowAction label="Video & Audio" icon={VideoAudioMark} badge={featureBadge(featureStates.avidae)} unavailable={!featureStates.avidae.available} onClick={() => runtime.openUrlInNewTab(INTERNAL_AVIDAE_URL)} onClose={() => setOverflowOpen(false)} />
                 <OverflowAction label="Automation" icon={Sparkles} badge={featureBadge(featureStates.automation)} unavailable={!featureStates.automation.available} onClick={() => runtime.openUrlInNewTab(INTERNAL_AUTOMATION_URL)} onClose={() => setOverflowOpen(false)} />
                 <OverflowAction label="Network Devices" icon={Wifi} badge={featureBadge(featureStates.networkDevices)} unavailable={!featureStates.networkDevices.available} onClick={() => runtime.openUrlInNewTab(INTERNAL_NETWORK_URL)} onClose={() => setOverflowOpen(false)} />
-              </>}
+              </>
               <OverflowAction label="Notes" icon={FileText} onClick={() => runtime.openUrlInNewTab(INTERNAL_NOTES_URL)} onClose={() => setOverflowOpen(false)} />
-              {labsEnabled && <>
+              <>
                 <OverflowAction label="Password Manager" icon={KeyRound} badge={featureBadge(featureStates.passwordManager)} unavailable={!featureStates.passwordManager.available} onClick={() => runtime.openUrlInNewTab(INTERNAL_PASSWORDS_URL)} onClose={() => setOverflowOpen(false)} />
                 <OverflowAction label="Diagnostics & Site Data" icon={Database} badge={featureBadge(featureStates.advancedDiagnostics)} unavailable={!featureStates.advancedDiagnostics.available} onClick={() => runtime.openUrlInNewTab(INTERNAL_DIAGNOSTICS_URL)} onClose={() => setOverflowOpen(false)} />
-              </>}
+              </>
               <OverflowAction label="Session Timeline" icon={History} badge={featureBadge(featureStates.sessionTimeline)} unavailable={!featureStates.sessionTimeline.available} onClick={() => runtime.openUrlInNewTab(INTERNAL_SESSION_TIMELINE_URL)} onClose={() => setOverflowOpen(false)} />
-              {labsEnabled && <>
+              <>
                 <OverflowAction label="Fill login" icon={KeyRound} badge={featureBadge(featureStates.passwordManager)} unavailable={!featureStates.passwordManager.available} disabled={!activeTab?.loginFormDetected} onClick={() => activateFeatureAction(featureStates.passwordManager, () => void runtime.fillLoginForActive())} onClose={() => setOverflowOpen(false)} />
                 <OverflowAction label="Save password" icon={Lock} badge={featureBadge(featureStates.passwordManager)} unavailable={!featureStates.passwordManager.available} disabled={!activeTab?.loginFormDetected} onClick={() => activateFeatureAction(featureStates.passwordManager, () => void runtime.saveLoginForActive())} onClose={() => setOverflowOpen(false)} />
-              </>}
+              </>
               <OverflowAction label="Find in page" icon={Search} onClick={runtime.openFindUi} onClose={() => setOverflowOpen(false)} />
               <OverflowAction label="Print page" icon={Printer} onClick={() => void runtime.printActive()} onClose={() => setOverflowOpen(false)} />
               <OverflowAction label="Smart unload" icon={Gauge} onClick={() => setSmartUnloadOpen(true)} onClose={() => setOverflowOpen(false)} />

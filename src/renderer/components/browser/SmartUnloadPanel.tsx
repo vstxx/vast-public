@@ -73,7 +73,6 @@ export function SmartUnloadPanel(): JSX.Element | null {
               <Gauge className="h-4 w-4 text-vast-cyan" />
               Smart unload
             </div>
-            <p className="mt-1 text-xs leading-5 text-vast-soft">Controls tab memory pressure without touching the active page.</p>
           </div>
           <button type="button" onClick={() => setOpen(false)} className="smart-unload-close grid h-9 w-9 place-items-center rounded-xl text-vast-soft hover:text-white">
             <X className="h-4 w-4" />

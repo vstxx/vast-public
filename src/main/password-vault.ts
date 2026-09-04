@@ -1,5 +1,4 @@
-import { clipboard } from 'electron/common'
-import { app, BrowserWindow, dialog, safeStorage, webContents } from 'electron/main'
+import { app, BrowserWindow, clipboard, dialog, safeStorage, webContents } from 'electron/main'
 import { copyFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
@@ -11,12 +10,12 @@ import type {
   PasswordVaultItem,
   PasswordVaultUpdate
 } from '../shared/types'
-import type { PasswordLoginCandidate } from '../shared/password-capture-policy'
-import { automaticPasswordCaptureOrigin, classifyPasswordCapture, normalizedCredentialUsername, sanitizePasswordLoginCandidate } from '../shared/password-capture-policy'
+import type { CredentialSubmissionCandidate } from '../shared/password-capture-policy'
+import { automaticPasswordCaptureOrigin } from '../shared/password-capture-policy'
+import { canonicalCredentialUsername, resolveCredentialMatch, type CredentialMatchPlan, type CredentialMatchRecord } from '../shared/credential-matching'
 import { parsePasswordImportCsv, passwordCsvCell } from '../shared/password-csv'
 import { autofillRequestMatchesWebContents } from './autofill-binding'
 import { dataFilePath } from './data-path'
-import { requestRendererPrompt, showRendererNotification } from './ui-bridge'
 import { vaultStorageBackendIsSecure } from './password-vault-crypto-policy'
 
 interface EncryptedPasswordRecord extends Omit<PasswordVaultItem, 'username' | 'notes'> {
@@ -36,7 +35,7 @@ const maxPasswordCsvBytes = 2 * 1024 * 1024
 const maxPasswordCsvRows = 1000
 let cachedVault: VaultFile | null = null
 let saveChain: Promise<void> = Promise.resolve()
-const pendingCaptureKeys = new Set<string>()
+let credentialMutationChain: Promise<void> = Promise.resolve()
 
 function vaultPath(): string {
   return dataFilePath(vaultFileName)
@@ -292,7 +291,7 @@ export async function auditPasswordVault(): Promise<PasswordVaultAudit> {
     if (password.length < 12 || classes < 3) weakIds.push(record.id)
     const hash = createHash('sha256').update(password, 'utf8').digest('hex')
     hashGroups.set(hash, [...(hashGroups.get(hash) ?? []), record.id])
-    const duplicateKey = `${record.origin}\u0000${decryptUsername(record).toLocaleLowerCase()}`
+    const duplicateKey = `${record.origin}\u0000${canonicalCredentialUsername(decryptUsername(record))}`
     duplicateGroups.set(duplicateKey, [...(duplicateGroups.get(duplicateKey) ?? []), record.id])
   }
   return {
@@ -321,70 +320,84 @@ export async function confirmVaultUnlock(mainWindow: BrowserWindow): Promise<voi
 
 export async function createPasswordVaultItem(input: PasswordVaultInput): Promise<PasswordVaultItem> {
   const normalized = validateInput(input)
-  const vault = await loadVault()
-  const now = Date.now()
-  const record: EncryptedPasswordRecord = {
-    id: randomUUID(),
-    origin: normalized.origin,
-    hostname: normalized.hostname,
-    encryptedUsername: encryptVaultField(normalized.username),
-    encryptedPassword: encryptVaultField(normalized.password),
-    title: normalized.title,
-    createdAt: now,
-    updatedAt: now,
-    encryptedNotes: normalized.notes === undefined ? undefined : encryptVaultField(normalized.notes),
-    favicon: normalized.favicon,
-    autofillPolicy: normalized.autofillPolicy
-  }
-  await saveVault({ ...vault, records: [record, ...vault.records] })
-  return publicItem(record)
+  return runCredentialMutation(async () => {
+    const vault = await loadVault()
+    const plan = resolveCredentialMatch({
+      origin: normalized.origin,
+      username: normalized.username,
+      password: normalized.password,
+      kind: 'login'
+    }, credentialMatchRecords(vault))
+    if (plan.action === 'unchanged') {
+      const existing = vault.records.find((record) => record.id === plan.recordId)
+      if (existing) return publicItem(existing)
+    }
+    if (plan.action !== 'save') {
+      throw new Error('A login for this site and username already exists. Edit the existing login instead.')
+    }
+    const record = createCapturedRecord(normalized)
+    await saveVault({ ...vault, records: [record, ...vault.records] })
+    return publicItem(record)
+  })
 }
 
 export async function updatePasswordVaultItem(id: ID, input: PasswordVaultUpdate): Promise<PasswordVaultItem> {
   if (typeof id !== 'string' || !id) throw new Error('Invalid password id.')
-  const vault = await loadVault()
-  const index = vault.records.findIndex((record) => record.id === id)
-  if (index < 0) throw new Error('Password record not found.')
-  const current = vault.records[index]
-  const next: EncryptedPasswordRecord = { ...current, updatedAt: Date.now() }
+  return runCredentialMutation(async () => {
+    const vault = await loadVault()
+    const index = vault.records.findIndex((record) => record.id === id)
+    if (index < 0) throw new Error('Password record not found.')
+    const current = vault.records[index]
+    const next: EncryptedPasswordRecord = { ...current, updatedAt: Date.now() }
 
-  if (input.origin !== undefined) {
-    const normalized = normalizeOrigin(input.origin)
-    next.origin = normalized.origin
-    next.hostname = normalized.hostname
-  }
-  if (input.username !== undefined) next.encryptedUsername = encryptVaultField(validText(input.username, 512) ?? '')
-  if (input.title !== undefined) next.title = validText(input.title, 256) || next.hostname
-  if (input.notes !== undefined) next.encryptedNotes = encryptVaultField(validText(input.notes, 2000) ?? '')
-  if (input.favicon !== undefined) next.favicon = validText(input.favicon, 2048)
-  if (input.autofillPolicy !== undefined) {
-    if (input.autofillPolicy !== 'ask' && input.autofillPolicy !== 'never') throw new Error('Invalid autofill policy.')
-    next.autofillPolicy = input.autofillPolicy
-  }
-  if (input.password !== undefined) {
-    if (typeof input.password !== 'string' || input.password.length < 1 || input.password.length > 4096) {
-      throw new Error('Password must be between 1 and 4096 characters.')
+    if (input.origin !== undefined) {
+      const normalized = normalizeOrigin(input.origin)
+      next.origin = normalized.origin
+      next.hostname = normalized.hostname
     }
-    next.encryptedPassword = encryptVaultField(input.password)
-  }
+    if (input.username !== undefined) next.encryptedUsername = encryptVaultField(validText(input.username, 512) ?? '')
+    if (input.title !== undefined) next.title = validText(input.title, 256) || next.hostname
+    if (input.notes !== undefined) next.encryptedNotes = encryptVaultField(validText(input.notes, 2000) ?? '')
+    if (input.favicon !== undefined) next.favicon = validText(input.favicon, 2048)
+    if (input.autofillPolicy !== undefined) {
+      if (input.autofillPolicy !== 'ask' && input.autofillPolicy !== 'never') throw new Error('Invalid autofill policy.')
+      next.autofillPolicy = input.autofillPolicy
+    }
+    if (input.password !== undefined) {
+      if (typeof input.password !== 'string' || input.password.length < 1 || input.password.length > 4096) {
+        throw new Error('Password must be between 1 and 4096 characters.')
+      }
+      next.encryptedPassword = encryptVaultField(input.password)
+    }
 
-  const records = [...vault.records]
-  records[index] = next
-  await saveVault({ ...vault, records })
-  return publicItem(next)
+    const canonicalUsername = canonicalCredentialUsername(decryptUsername(next))
+    const duplicate = vault.records.some((record) =>
+      record.id !== id &&
+      record.origin === next.origin &&
+      canonicalCredentialUsername(decryptUsername(record)) === canonicalUsername
+    )
+    if (duplicate) throw new Error('Another login for this site already uses this username.')
+
+    const records = [...vault.records]
+    records[index] = next
+    await saveVault({ ...vault, records })
+    return publicItem(next)
+  })
 }
 
 export async function deletePasswordVaultItem(id: ID): Promise<void> {
   if (typeof id !== 'string' || !id) throw new Error('Invalid password id.')
-  const vault = await loadVault()
-  await saveVault({ ...vault, records: vault.records.filter((record) => record.id !== id) })
+  await runCredentialMutation(async () => {
+    const vault = await loadVault()
+    await saveVault({ ...vault, records: vault.records.filter((record) => record.id !== id) })
+  })
 }
 
 export async function copyPasswordUsername(id: ID): Promise<void> {
   const vault = await loadVault()
   const record = vault.records.find((item) => item.id === id)
   if (!record) throw new Error('Password record not found.')
-  clipboard.writeText(decryptUsername(record))
+  await clipboard.writeText(decryptUsername(record))
 }
 
 export async function copyPasswordSecretWithConfirmation(mainWindow: BrowserWindow, id: ID): Promise<void> {
@@ -403,13 +416,15 @@ export async function copyPasswordSecretWithConfirmation(mainWindow: BrowserWind
   })
   if (result.response !== 0) throw new Error('Password copy cancelled.')
   const secret = decryptPassword(record)
-  clipboard.writeText(secret)
+  await clipboard.writeText(secret)
   setTimeout(() => {
+    void (async () => {
     try {
-      if (clipboard.readText() === secret) clipboard.clear()
+      if (await clipboard.readText() === secret) clipboard.clear()
     } catch {
       // Clipboard may be unavailable during shutdown.
     }
+    })()
   }, 30_000)
 }
 
@@ -434,32 +449,22 @@ function originIsBoundToWebContents(mainWindow: BrowserWindow, webContentsId: nu
   return Boolean(boundAutofillWebContents(mainWindow, webContentsId, origin))
 }
 
-function directAutofillScript(username: string, password: string): string {
-  const safeUsername = JSON.stringify(username)
-  const safePassword = JSON.stringify(password)
-  return `
-(() => {
-  const setValue = (input, value) => {
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
-    if (setter) setter.call(input, value); else input.value = value;
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-  };
-  const passwordInput = document.querySelector('input[type="password"]:not([disabled]):not([readonly])');
-  const active = document.activeElement?.tagName === 'INPUT' ? document.activeElement : null;
-  const form = passwordInput?.closest('form') || active?.closest?.('form') || document;
-  const inputs = Array.from(form.querySelectorAll('input:not([disabled]):not([readonly])'));
-  const usernameInput = inputs.find((input) => {
-    const type = (input.getAttribute('type') || 'text').toLowerCase();
-    if (input === passwordInput || !['email', 'text', 'tel'].includes(type)) return false;
-    const metadata = ['autocomplete', 'name', 'id', 'aria-label', 'placeholder'].map((key) => input.getAttribute(key) || '').join(' ').toLowerCase();
-    return type === 'email' || /email|e-mail|username|login|user|account|phone/.test(metadata);
-  }) || (active && active !== passwordInput ? active : null);
-  if (usernameInput) setValue(usernameInput, ${safeUsername});
-  if (passwordInput) setValue(passwordInput, ${safePassword});
-  return Boolean(usernameInput || passwordInput);
-})()
-`
+function deliverAutofillCredential(
+  target: Electron.WebContents,
+  input: {
+    id: string
+    origin: string
+    username: string
+    password: string
+    requestId?: string
+    trustedSurfaceAction?: boolean
+  }
+): boolean {
+  if (target.isDestroyed()) return false
+  // The browser renderer never handles plaintext secrets. Main sends the
+  // credential directly to the isolated guest preload, which has no page API.
+  target.send('vast:password-autofill-fill', input)
+  return true
 }
 
 /**
@@ -495,9 +500,12 @@ export async function fillAutofillCredentialById(
   id: string,
   webContentsId: number,
   originInput: string,
-  requireConfirmation = true
+  requestId: string,
+  requireConfirmation = true,
+  onAuthorized?: () => unknown
 ): Promise<boolean> {
   if (typeof id !== 'string' || !id) throw new Error('Invalid credential id.')
+  if (!/^[a-f0-9]{32}$/i.test(requestId)) throw new Error('Invalid autofill request id.')
   const { origin } = normalizeOrigin(originInput)
   if (!boundAutofillWebContents(mainWindow, webContentsId, origin)) {
     throw new Error('Autofill is only available for origins currently open in Vast.')
@@ -521,18 +529,25 @@ export async function fillAutofillCredentialById(
   }
   const target = boundAutofillWebContents(mainWindow, webContentsId, origin)
   if (!target) throw new Error('The target page navigated before autofill completed.')
+  onAuthorized?.()
   const password = decryptPassword(record)
-  const filled = Boolean(await target.executeJavaScript(directAutofillScript(username, password), true))
+  const filled = deliverAutofillCredential(target, { id: record.id, origin, username, password, requestId })
   const usedAt = Date.now()
-  const nextRecord: EncryptedPasswordRecord = { ...record, lastUsedAt: usedAt, updatedAt: record.updatedAt || usedAt }
-  await saveVault({ ...vault, records: vault.records.map((item) => (item.id === record.id ? nextRecord : item)) })
+  await runCredentialMutation(async () => {
+    const latest = await loadVault()
+    const current = latest.records.find((item) => item.id === record.id)
+    if (!current) return
+    const nextRecord: EncryptedPasswordRecord = { ...current, lastUsedAt: usedAt, updatedAt: current.updatedAt || usedAt }
+    await saveVault({ ...latest, records: latest.records.map((item) => (item.id === current.id ? nextRecord : item)) })
+  })
   return filled
 }
 
 export async function fillBestAutofillCredential(
   mainWindow: BrowserWindow,
   webContentsId: number,
-  originInput: string
+  originInput: string,
+  onAuthorized?: () => unknown
 ): Promise<boolean> {
   const { origin } = normalizeOrigin(originInput)
   if (!boundAutofillWebContents(mainWindow, webContentsId, origin)) {
@@ -558,43 +573,47 @@ export async function fillBestAutofillCredential(
   if (result.response !== 0) throw new Error('Autofill cancelled.')
   const target = boundAutofillWebContents(mainWindow, webContentsId, origin)
   if (!target) throw new Error('The target page navigated before autofill completed.')
+  onAuthorized?.()
   const password = decryptPassword(record)
-  const filled = Boolean(await target.executeJavaScript(directAutofillScript(username, password), true))
+  const filled = deliverAutofillCredential(target, {
+    id: record.id,
+    origin,
+    username,
+    password,
+    trustedSurfaceAction: true
+  })
   const usedAt = Date.now()
-  const nextRecord: EncryptedPasswordRecord = {
-    ...record,
-    lastUsedAt: usedAt,
-    updatedAt: record.updatedAt || usedAt
-  }
-  await saveVault({
-    ...vault,
-    records: vault.records.map((item) => (item.id === record.id ? nextRecord : item))
+  await runCredentialMutation(async () => {
+    const latest = await loadVault()
+    const current = latest.records.find((item) => item.id === record.id)
+    if (!current) return
+    const nextRecord: EncryptedPasswordRecord = {
+      ...current,
+      lastUsedAt: usedAt,
+      updatedAt: current.updatedAt || usedAt
+    }
+    await saveVault({
+      ...latest,
+      records: latest.records.map((item) => (item.id === current.id ? nextRecord : item))
+    })
   })
   return filled
 }
 
 export async function saveCapturedLogin(input: PasswordVaultInput): Promise<PasswordVaultItem> {
   const normalized = validateInput(input)
-  const vault = await loadVault()
-  const existing = vault.records.find((record) => record.origin === normalized.origin && decryptUsername(record) === normalized.username)
-  if (existing) {
-    return updatePasswordVaultItem(existing.id, {
+  return runCredentialMutation(async () => {
+    const vault = await loadVault()
+    const plan = resolveCredentialMatch({
       origin: normalized.origin,
       username: normalized.username,
       password: normalized.password,
-      title: normalized.title,
-      notes: normalized.notes,
-      favicon: normalized.favicon
-    })
-  }
-  return createPasswordVaultItem(input)
-}
-
-function matchingCapturedCredential(vault: VaultFile, origin: string, username: string): EncryptedPasswordRecord | undefined {
-  const normalizedUsername = normalizedCredentialUsername(username)
-  return vault.records.find((record) =>
-    record.origin === origin && normalizedCredentialUsername(decryptUsername(record)) === normalizedUsername
-  )
+      kind: 'login'
+    }, credentialMatchRecords(vault))
+    const result = await applyCredentialPlan(vault, normalized, plan)
+    if (!result.item) throw new Error('The captured credential could not be matched safely.')
+    return result.item
+  })
 }
 
 function validatedAutomaticOrigin(originInput: string): string {
@@ -616,96 +635,179 @@ export async function passwordCaptureEnabledForOrigin(
 
 export async function allowPasswordSavePrompts(originInput: string): Promise<void> {
   const origin = validatedAutomaticOrigin(originInput)
-  const vault = await loadVault()
-  if (!vault.savePromptNeverOrigins.includes(origin)) return
-  await saveVault({
-    ...vault,
-    savePromptNeverOrigins: vault.savePromptNeverOrigins.filter((item) => item !== origin)
+  await runCredentialMutation(async () => {
+    const vault = await loadVault()
+    if (!vault.savePromptNeverOrigins.includes(origin)) return
+    await saveVault({
+      ...vault,
+      savePromptNeverOrigins: vault.savePromptNeverOrigins.filter((item) => item !== origin)
+    })
   })
 }
 
-export async function promptToSaveCapturedLogin(
-  mainWindow: BrowserWindow,
-  webContentsId: number,
-  input: PasswordLoginCandidate
+export interface PreparedCapturedCredential {
+  action: 'save' | 'update' | 'unchanged' | 'suppressed' | 'ignore'
+  recordId?: string
+  hostname: string
+  username: string
+  reason?: string
+  item?: PasswordVaultItem
+}
+
+function credentialMatchRecords(vault: VaultFile): CredentialMatchRecord[] {
+  return vault.records.map((record) => ({
+    id: record.id,
+    origin: record.origin,
+    username: decryptUsername(record),
+    password: decryptPassword(record),
+    updatedAt: record.updatedAt,
+    lastUsedAt: record.lastUsedAt
+  }))
+}
+
+function runCredentialMutation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = credentialMutationChain.then(operation, operation)
+  credentialMutationChain = result.then(() => undefined, () => undefined)
+  return result
+}
+
+function createCapturedRecord(
+  normalized: ReturnType<typeof validateInput>,
+  now = Date.now()
+): EncryptedPasswordRecord {
+  return {
+    id: randomUUID(),
+    origin: normalized.origin,
+    hostname: normalized.hostname,
+    encryptedUsername: encryptVaultField(normalized.username),
+    encryptedPassword: encryptVaultField(normalized.password),
+    title: normalized.title,
+    createdAt: now,
+    updatedAt: now,
+    encryptedNotes: normalized.notes === undefined ? undefined : encryptVaultField(normalized.notes),
+    favicon: normalized.favicon,
+    autofillPolicy: normalized.autofillPolicy
+  }
+}
+
+async function applyCredentialPlan(
+  vault: VaultFile,
+  normalized: ReturnType<typeof validateInput>,
+  plan: CredentialMatchPlan
 ): Promise<{ outcome: PasswordCaptureOutcome; item?: PasswordVaultItem }> {
-  const candidate = sanitizePasswordLoginCandidate(input)
-  if (!originIsBoundToWebContents(mainWindow, webContentsId, candidate.origin)) {
-    throw new Error('Captured login origin does not match the active page.')
+  if (plan.action === 'ignore') return { outcome: 'dismissed' }
+  if (plan.action === 'save') {
+    const record = createCapturedRecord(normalized)
+    await saveVault({ ...vault, records: [record, ...vault.records] })
+    return { outcome: 'saved', item: publicItem(record) }
   }
+  const index = vault.records.findIndex((record) => record.id === plan.recordId)
+  if (index < 0) return { outcome: 'dismissed' }
+  const current = vault.records[index]
+  const now = Date.now()
+  if (plan.action === 'unchanged') {
+    const next = { ...current, lastUsedAt: now }
+    const records = [...vault.records]
+    records[index] = next
+    await saveVault({ ...vault, records })
+    return { outcome: 'unchanged', item: publicItem(next) }
+  }
+  const preserveUsername = !normalized.username && decryptUsername(current)
+  const next: EncryptedPasswordRecord = {
+    ...current,
+    hostname: normalized.hostname,
+    title: normalized.title || current.title,
+    encryptedUsername: encryptVaultField(preserveUsername || normalized.username),
+    encryptedPassword: encryptVaultField(normalized.password),
+    favicon: normalized.favicon ?? current.favicon,
+    updatedAt: now,
+    lastUsedAt: now
+  }
+  const records = [...vault.records]
+  records[index] = next
+  await saveVault({ ...vault, records })
+  return { outcome: 'updated', item: publicItem(next) }
+}
 
+function matchPlanForCandidate(vault: VaultFile, candidate: CredentialSubmissionCandidate): {
+  normalized: ReturnType<typeof validateInput>
+  plan: CredentialMatchPlan
+} {
   const normalized = validateInput(candidate)
+  const plan = resolveCredentialMatch({
+    origin: normalized.origin,
+    username: normalized.username,
+    password: normalized.password,
+    kind: candidate.kind,
+    currentPassword: candidate.currentPassword
+  }, credentialMatchRecords(vault))
+  return { normalized, plan }
+}
+
+export async function prepareCapturedCredential(candidate: CredentialSubmissionCandidate): Promise<PreparedCapturedCredential> {
   const vault = await loadVault()
-  const existing = matchingCapturedCredential(vault, normalized.origin, normalized.username)
-  const action = classifyPasswordCapture({
-    suppressed: vault.savePromptNeverOrigins.includes(normalized.origin),
-    hasExistingCredential: Boolean(existing),
-    passwordMatches: existing ? decryptPassword(existing) === normalized.password : false
-  })
-
-  if (action === 'suppressed') return { outcome: 'suppressed' }
-  if (action === 'unchanged' && existing) {
-    const usedAt = Date.now()
-    await saveVault({
-      ...vault,
-      records: vault.records.map((record) => record.id === existing.id ? { ...record, lastUsedAt: usedAt } : record)
-    })
-    return { outcome: 'unchanged', item: publicItem(existing) }
+  const { normalized, plan } = matchPlanForCandidate(vault, candidate)
+  if (vault.savePromptNeverOrigins.includes(normalized.origin)) {
+    return { action: 'suppressed', hostname: normalized.hostname, username: normalized.username }
   }
-
-  const captureKey = createHash('sha256')
-    .update(`${mainWindow.id}\u0000${webContentsId}\u0000${normalized.origin}\u0000${normalized.username}\u0000${normalized.password}`)
-    .digest('hex')
-  if (pendingCaptureKeys.has(captureKey)) return { outcome: 'duplicate' }
-  pendingCaptureKeys.add(captureKey)
-
-  try {
-    const promptAction = await requestRendererPrompt(mainWindow, {
-      tone: 'question',
-      title: action === 'update' ? 'Update saved password?' : 'Save this password?',
-      message: action === 'update'
-        ? `Vast detected a changed password for ${normalized.hostname}.`
-        : `Vast detected a completed sign-in on ${normalized.hostname}.`,
-      detail: `Username: ${normalized.username || '(empty username)'}\nSite: ${normalized.origin}\nStored locally with OS-backed encryption.`,
-      actions: [
-        { id: action, label: action === 'update' ? 'Update password' : 'Save password', tone: 'primary' },
-        { id: 'never', label: 'Never for this site' },
-        { id: 'dismiss', label: 'Not now' }
-      ]
-    }, 90_000)
-
-    if (promptAction === 'never') {
+  if (plan.action === 'ignore') {
+    return { action: 'ignore', hostname: normalized.hostname, username: normalized.username, reason: plan.reason }
+  }
+  if (plan.action === 'unchanged') {
+    const result = await runCredentialMutation(async () => {
       const latest = await loadVault()
-      if (!latest.savePromptNeverOrigins.includes(normalized.origin)) {
-        await saveVault({ ...latest, savePromptNeverOrigins: [...latest.savePromptNeverOrigins, normalized.origin].slice(-500) })
+      const latestMatch = matchPlanForCandidate(latest, candidate)
+      if (latestMatch.plan.action !== 'unchanged' || latestMatch.plan.recordId !== plan.recordId) {
+        return { outcome: 'dismissed' as const }
       }
-      showRendererNotification(mainWindow, {
-        tone: 'info',
-        title: 'Password prompts disabled',
-        message: `Vast will not suggest saving passwords on ${normalized.hostname}.`,
-        detail: 'You can enable prompts again from Password Manager.'
-      })
-      return { outcome: 'suppressed' }
-    }
-    if (promptAction !== action) return { outcome: 'dismissed' }
-
-    const item = await saveCapturedLogin({
-      origin: normalized.origin,
+      return applyCredentialPlan(latest, latestMatch.normalized, latestMatch.plan)
+    })
+    return {
+      action: result.outcome === 'unchanged' ? 'unchanged' : 'ignore',
+      recordId: plan.recordId,
+      hostname: normalized.hostname,
       username: normalized.username,
-      password: normalized.password,
-      title: normalized.title,
-      favicon: normalized.favicon
-    })
-    showRendererNotification(mainWindow, {
-      tone: 'success',
-      title: action === 'update' ? 'Password updated' : 'Password saved',
-      message: `${normalized.hostname} is ready for Vast autofill.`,
-      detail: normalized.username || 'Saved without a username.'
-    })
-    return { outcome: action === 'update' ? 'updated' : 'saved', item }
-  } finally {
-    pendingCaptureKeys.delete(captureKey)
+      item: result.item
+    }
   }
+  return {
+    action: plan.action,
+    recordId: plan.action === 'update' ? plan.recordId : undefined,
+    hostname: normalized.hostname,
+    username: normalized.username
+  }
+}
+
+export async function commitCapturedCredential(
+  candidate: CredentialSubmissionCandidate,
+  expectedAction: 'save' | 'update',
+  expectedRecordId?: string
+): Promise<{ outcome: PasswordCaptureOutcome; item?: PasswordVaultItem }> {
+  return runCredentialMutation(async () => {
+    const vault = await loadVault()
+    const { normalized, plan } = matchPlanForCandidate(vault, candidate)
+    if (vault.savePromptNeverOrigins.includes(normalized.origin)) return { outcome: 'suppressed' }
+    if (expectedAction === 'update') {
+      if ((plan.action !== 'update' && plan.action !== 'unchanged') || plan.recordId !== expectedRecordId) {
+        return { outcome: 'dismissed' }
+      }
+    } else if (plan.action === 'update') {
+      // A Save prompt must never become an implicit update if the vault
+      // changes while the user is deciding. Exact concurrent duplicates may
+      // safely resolve as unchanged; changed credentials require a new prompt.
+      return { outcome: 'dismissed' }
+    }
+    return applyCredentialPlan(vault, normalized, plan)
+  })
+}
+
+export async function suppressPasswordSavePrompts(originInput: string): Promise<void> {
+  const origin = validatedAutomaticOrigin(originInput)
+  await runCredentialMutation(async () => {
+    const vault = await loadVault()
+    if (vault.savePromptNeverOrigins.includes(origin)) return
+    await saveVault({ ...vault, savePromptNeverOrigins: [...vault.savePromptNeverOrigins, origin].slice(-500) })
+  })
 }
 
 export async function importPasswordsCsv(mainWindow: BrowserWindow): Promise<{ imported: number; skipped: number }> {

@@ -2,6 +2,11 @@
 
 Use this checklist before publishing a Vast build.
 
+> Before preparing version 0.2.7, complete every item in
+> [`RELEASE_0.2.6_PREREQUISITES.md`](./RELEASE_0.2.6_PREREQUISITES.md). These
+> one-time infrastructure and provenance actions are release blockers, not
+> optional cleanup.
+
 ## Required
 
 - `npm run lint` passes.
@@ -9,7 +14,7 @@ Use this checklist before publishing a Vast build.
 - `npm run release:audit` passes.
 - `npm audit` reports zero known dependency vulnerabilities.
 - `npm run test:fuses:integration` flips and verifies the profile on a disposable copy of the pinned Electron binary.
-- `npm run release:check` passes for the selected signed release or explicitly acknowledged public unsigned beta environment.
+- `npm run release:check` passes for the selected signed release or explicitly acknowledged public unsigned release environment.
 - `npm run release:windows` is used for the public Windows release package.
 - `node scripts/verify-release-package.cjs` passes after packaging.
 - `npm run test:updater` verifies default-session and partition cookie data are migrated and backed up.
@@ -17,7 +22,7 @@ Use this checklist before publishing a Vast build.
 - The combined hardening hook runs through `build.afterPack`, applies the icon and Electron Fuses, reads the fuse wire back from the packaged binary, and completes before electron-builder signs the runtime.
 - Packaged Fuse state has `RunAsNode`, `EnableNodeOptionsEnvironmentVariable`, and `EnableNodeCliInspectArguments` disabled, with `EnableEmbeddedAsarIntegrityValidation` and `OnlyLoadAppFromAsar` enabled.
 - Signed route: `Vast.exe`, installer, portable executable, and standalone updater all report Authenticode `Valid` and carry an RFC 3161 timestamp.
-- Unsigned beta route: all four executables report exactly `NotSigned`; `PUBLIC-UNSIGNED-BETA.md` is present; `signaturePolicy` is `unsigned-public-beta`; the exact risk acknowledgement is set; the release is a prerelease.
+- Unsigned direct route: all four Vast executables report exactly `NotSigned`; `PUBLIC-UNSIGNED-RELEASE.md` is present; `signaturePolicy` is `unsigned-public-release`; the exact risk acknowledgement is set. Beta stays a prerelease; stable is a normal GitHub Release.
 - Signing secrets, when used, are present in CI env and never in git.
 - `VAST_UPDATE_ENABLED=1` is set only for builds that should use the auto-updater.
 - `VAST_OBFUSCATE=1` is set for every public beta/stable build.
@@ -32,11 +37,12 @@ Use this checklist before publishing a Vast build.
 - `vast:browser:download-url` accepts only HTTP(S) URLs.
 - PDF loading enforces the 100 MB byte limit and validates `%PDF`.
 - `release/` is regenerated with the matching version script.
-- `release/Installer/Vast-Setup-0.2.5.exe` exists.
-- `release/Updater/VastUpdater-0.2.5.exe` exists.
-- `release/Downloads/update-manifest.json` and `release/Downloads/Vast-0.2.5-update.zip` exist.
+- `release/Installer/Vast-Setup-0.2.7.exe` exists.
+- `release/Updater/VastUpdater-0.2.7.exe` exists.
+- `release/Downloads/update-manifest.json` and `release/Downloads/Vast-0.2.7-update.zip` exist.
+- Store route: `release/store/Vast-0.2.7-Store-x64.msix` passes package inspection and WACK, uses the exact Partner Center identity, and has no direct updater files.
 - Checksums are generated for distributed binaries and update packages.
-- Public unsigned beta checksums include `PUBLIC-UNSIGNED-BETA.md`, and production downloads match the locally verified bytes.
+- Public unsigned release checksums include `PUBLIC-UNSIGNED-RELEASE.md`, and production downloads match the locally verified bytes.
 - `out/obfuscation-report.json` is present and records protected main/password-manager bundles.
 - NSIS allows changing the app install directory.
 - Settings -> Data can export `.vastbackup`, import `.vastbackup`, open the data folder, and change the Vast data directory.

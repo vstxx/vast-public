@@ -41,6 +41,11 @@ export function stableConfigRootFromEnv(env: NodeJS.ProcessEnv = process.env): s
   return join(appData, 'Vast')
 }
 
+export function portableDataRootFromEnv(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const portableDirectory = String(env.PORTABLE_EXECUTABLE_DIR ?? '').trim()
+  return portableDirectory ? resolve(portableDirectory, 'Vast Data') : undefined
+}
+
 export function dataPathConfigFile(configRoot: string): string {
   return join(configRoot, configFileName)
 }

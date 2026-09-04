@@ -41,14 +41,14 @@ test('settings navigation and the New Tab search focus stay clean and shadow-fre
   assert.match(stylesSource, /\.new-tab-flat-search \.new-tab-search-input:focus\s*{[^}]*border-color:\s*rgba\(255, 255, 255, 0\.18\);/s)
 })
 
-test('Labs settings remain local and visually grouped', () => {
+test('Labs settings remain compact and free of redundant explanatory copy', () => {
   const labsStart = settingsSource.indexOf('<section id="Labs"')
   const labsEnd = settingsSource.indexOf('<section id="Network"', labsStart)
 
   assert.ok(labsStart >= 0)
   assert.ok(labsEnd > labsStart)
   const labsSource = settingsSource.slice(labsStart, labsEnd)
-  assert.match(labsSource, /local, experimental feature flags/)
+  assert.doesNotMatch(labsSource, /local, experimental programs/)
   assert.doesNotMatch(labsSource, /license|upgrade|subscription/i)
 })
 

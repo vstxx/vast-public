@@ -9,11 +9,13 @@ interface EffectiveRamSettings {
   ramLimitMb: number
   maxAwakeWebviews: number
   hibernateAfterMs: number
+  discardAfterMs: number
 }
 
 function effectiveRamSettings(settings: BrowserSettings['advanced'], visibleCount: number): EffectiveRamSettings {
   const hardLimitMb = Math.min(32_768, Math.max(1_024, settings.ramLimitMb ?? 3_072))
   const configuredHibernate = Math.max(1, settings.hibernateAfterMinutes ?? 30)
+  const configuredDiscard = Math.max(1, settings.discardAfterMinutes ?? 240)
   const estimatedShellCostMb = 896
   const estimatedAwakeWebviewCostMb = 384
   const budgetForWebviewsMb = Math.max(estimatedAwakeWebviewCostMb, hardLimitMb - estimatedShellCostMb)
@@ -21,7 +23,8 @@ function effectiveRamSettings(settings: BrowserSettings['advanced'], visibleCoun
   return {
     ramLimitMb: hardLimitMb,
     maxAwakeWebviews: Math.max(visibleCount, Math.min(16, Math.max(1, computedMaxAwake))),
-    hibernateAfterMs: configuredHibernate * 60_000
+    hibernateAfterMs: configuredHibernate * 60_000,
+    discardAfterMs: configuredDiscard * 60_000
   }
 }
 
@@ -149,19 +152,27 @@ export function useTabRetentionController({
       ? webCandidates.filter((tab) => tab.pinned && tab.status !== 'error').map((tab) => tab.id)
       : []
     const retained = new Set<ID>([...visibleIds, ...callRetainedIds, ...pinnedRetainedIds])
-    const recentCandidates = webCandidates
+    const restCandidates = webCandidates
       .filter((tab) => !retained.has(tab.id) && isInactiveTabEligibleForRetention(tab))
       .sort((a, b) => b.lastAccessedAt - a.lastAccessedAt)
-    const prioritizedCandidates = ramSettings.keepPinnedTabsAwake
-      ? [...recentCandidates.filter((tab) => tab.pinned), ...recentCandidates.filter((tab) => !tab.pinned)]
-      : recentCandidates
+    const pinnedFirst = (candidates: Tab[]): Tab[] => ramSettings.keepPinnedTabsAwake
+      ? [...candidates.filter((tab) => tab.pinned), ...candidates.filter((tab) => !tab.pinned)]
+      : candidates
+    // Within the hibernate window a hidden tab keeps its webview mounted. Past
+    // the discard deadline it is always unloaded; between the two it only
+    // stays mounted while awake slots remain.
+    const hibernatingCandidates = pinnedFirst(restCandidates.filter((tab) => ramClock - tab.lastAccessedAt <= effectiveRam.hibernateAfterMs))
+    const idleFillCandidates = pinnedFirst(restCandidates.filter((tab) => {
+      const idleMs = ramClock - tab.lastAccessedAt
+      return idleMs > effectiveRam.hibernateAfterMs && idleMs <= effectiveRam.discardAfterMs
+    }))
     const memoryPressureSlots = actualWorkingSetMb > effectiveRam.ramLimitMb
       ? Math.ceil((actualWorkingSetMb - effectiveRam.ramLimitMb) / 384)
       : 0
     const actualMetricLimit = Math.max(retained.size, effectiveRam.maxAwakeWebviews - memoryPressureSlots)
-    for (const tab of prioritizedCandidates) {
+    for (const tab of [...hibernatingCandidates, ...idleFillCandidates]) {
       if (retained.size >= actualMetricLimit) break
-      if (ramClock - tab.lastAccessedAt <= effectiveRam.hibernateAfterMs) retained.add(tab.id)
+      retained.add(tab.id)
     }
     return retained
   }, [actualWorkingSetMb, callProtectedTabIds, effectiveRam, hibernateInactiveTabs, ramClock, ramSettings.keepPinnedTabsAwake, tabs, visibleIds])

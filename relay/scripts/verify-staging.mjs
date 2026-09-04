@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
-import { createPublicKey, randomUUID, verify } from 'node:crypto'
+import { createHash, createPublicKey, randomUUID, verify } from 'node:crypto'
 import { lookup as systemLookup } from 'node:dns'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { isIP } from 'node:net'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,6 +9,9 @@ import { Agent } from 'undici'
 import { canonicalize } from '../src/shared/canonical.ts'
 
 const relayRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
+const repositoryRoot = join(relayRoot, '..')
+const packageVersion = JSON.parse(readFileSync(join(repositoryRoot, 'package.json'), 'utf8')).version
+const protocolVersion = 1
 const publicUrl = 'https://relay-staging.vastbrowser.com'
 const adminUrl = 'https://controlpanel-staging.vastbrowser.com'
 const adminHostname = new URL(adminUrl).hostname
@@ -33,6 +36,8 @@ const adminDispatcher = adminConnectAddress ? new Agent({
   }
 }) : undefined
 const keyId = 'relay-staging-2026-01'
+const databaseName = 'vast-relay-staging'
+const databaseId = '786cd3fa-013f-43fe-bdc4-1ac610e98c87'
 const keyPath = join(relayRoot, 'keys', `${keyId}.json`)
 const accessClientId = process.env.VAST_RELAY_ACCESS_CLIENT_ID || ''
 const accessClientSecret = process.env.VAST_RELAY_ACCESS_CLIENT_SECRET || ''
@@ -46,6 +51,22 @@ const publicKey = createPublicKey({
   format: 'der',
   type: 'spki'
 })
+
+function sourceCommit() {
+  const result = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryRoot, encoding: 'utf8' })
+  const commit = String(result.stdout || '').trim().toLowerCase()
+  if (result.status !== 0 || !/^[a-f0-9]{40}$/.test(commit)) throw new Error('Unable to resolve the Relay source commit.')
+  return commit
+}
+
+function migrationHash() {
+  const directory = join(relayRoot, 'migrations')
+  const hash = createHash('sha256')
+  for (const name of readdirSync(directory).filter((entry) => /^\d+.*\.sql$/.test(entry)).sort()) {
+    hash.update(name).update('\0').update(readFileSync(join(directory, name))).update('\0')
+  }
+  return hash.digest('hex')
+}
 
 const wranglerCli = join(relayRoot, 'node_modules', 'wrangler', 'bin', 'wrangler.js')
 function wranglerJson(args, allowFailure = false) {
@@ -168,7 +189,7 @@ await waitForAdminDeployment()
 const firstResponse = await fetch(`${publicUrl}/v1/checkin`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ protocol: 1, install_id: installId, current_version: '0.1.4', launch_count: 1, instance_kind: 'test' })
+  body: JSON.stringify({ protocol: protocolVersion, install_id: installId, current_version: packageVersion, launch_count: 1, instance_kind: 'test' })
 })
 if (!firstResponse.ok) throw new Error(`First staging check-in failed with HTTP ${firstResponse.status}.`)
 const first = await firstResponse.json()
@@ -177,7 +198,7 @@ await new Promise((resolve) => setTimeout(resolve, 50))
 const repeatResponse = await fetch(`${publicUrl}/v1/checkin`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ protocol: 1, install_id: installId, current_version: '0.1.4', launch_count: 2, instance_kind: 'test' })
+  body: JSON.stringify({ protocol: protocolVersion, install_id: installId, current_version: packageVersion, launch_count: 2, instance_kind: 'test' })
 })
 if (!repeatResponse.ok) throw new Error(`Repeat staging check-in failed with HTTP ${repeatResponse.status}.`)
 
@@ -247,7 +268,7 @@ if (!verifyEnvelope(enabled)) throw new Error('Admin-created staging broadcast s
 const deliveredResponse = await fetch(`${publicUrl}/v1/checkin`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ protocol: 1, install_id: installId, current_version: '0.1.4', launch_count: 3, instance_kind: 'test' })
+  body: JSON.stringify({ protocol: protocolVersion, install_id: installId, current_version: packageVersion, launch_count: 3, instance_kind: 'test' })
 })
 const delivered = await deliveredResponse.json()
 const message = delivered.messages.find((candidate) => candidate.payload?.id === enabledId)
@@ -266,12 +287,48 @@ const cleanupErrors = []
 async function cleanup(label, operation) {
   try { await operation() } catch (error) { cleanupErrors.push(new Error(`${label}: ${error instanceof Error ? error.message : String(error)}`)) }
 }
-if (enabledId && enabledRevision) await cleanup('enabled broadcast cleanup failed', () => admin(`/v1/admin/broadcasts/${encodeURIComponent(enabledId)}`, {
-  method: 'DELETE', headers: { 'If-Match': `"${enabledRevision}"` }
-}))
-if (disabledId && disabledRevision) await cleanup('disabled broadcast cleanup failed', () => admin(`/v1/admin/broadcasts/${encodeURIComponent(disabledId)}`, {
-  method: 'DELETE', headers: { 'If-Match': `"${disabledRevision}"` }
-}))
+
+async function removeBroadcastFixture(id, fallbackRevision) {
+  const path = `/v1/admin/broadcasts/${encodeURIComponent(id)}`
+  const currentResponse = await accessFetch(path)
+  if (currentResponse.status === 404) return
+  const current = await currentResponse.json().catch(() => null)
+  if (!currentResponse.ok || !current || typeof current !== 'object') {
+    throw new Error(`Admin GET ${path} failed with ${currentResponse.status}: ${JSON.stringify(current)}`)
+  }
+  let revision = String(current.revision || fallbackRevision || '')
+  if (!/^\d+$/.test(revision)) throw new Error('Fixture broadcast did not expose a valid revision.')
+  if (current.state === 'active' || current.state === 'scheduled') {
+    const payload = current.payload
+    if (!payload || payload.id !== id) throw new Error('Fixture broadcast payload is missing or mismatched.')
+    const disabled = await admin(path, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'If-Match': `"${revision}"` },
+      body: JSON.stringify({
+        id,
+        draft: false,
+        type: payload.type,
+        title: payload.title,
+        body: payload.body,
+        media_id: payload.media?.id ?? null,
+        action_label: payload.action?.label ?? null,
+        action_url: payload.action?.url ?? null,
+        min_version: payload.min_version,
+        max_version: payload.max_version,
+        active_from: payload.active_from,
+        active_until: payload.active_until,
+        priority: payload.priority,
+        enabled: false
+      })
+    })
+    revision = String(disabled.revision || '')
+    if (!/^\d+$/.test(revision)) throw new Error('Disabled fixture broadcast did not expose a valid revision.')
+  }
+  await admin(path, { method: 'DELETE', headers: { 'If-Match': `"${revision}"` } })
+}
+
+if (enabledId) await cleanup('enabled broadcast cleanup failed', () => removeBroadcastFixture(enabledId, enabledRevision))
+if (disabledId) await cleanup('disabled broadcast cleanup failed', () => removeBroadcastFixture(disabledId, disabledRevision))
 if (assetId) await cleanup('asset cleanup failed', () => admin(`/v1/admin/assets/${encodeURIComponent(assetId)}`, { method: 'DELETE' }))
 await cleanup('test installation cleanup failed', () => {
   stagingQuery(`DELETE FROM installations WHERE install_id = '${installId}' AND instance_kind = 'test'`)
@@ -287,6 +344,12 @@ const verificationPath = join(relayRoot, 'keys', 'staging-verification.json')
 mkdirSync(dirname(verificationPath), { recursive: true })
 writeFileSync(verificationPath, `${JSON.stringify({
   verified_at: new Date().toISOString(),
+  source_commit: sourceCommit(),
+  protocol: protocolVersion,
+  migration_schema_sha256: migrationHash(),
+  environment: 'staging',
+  database_name: databaseName,
+  database_id: databaseId,
   public_url: publicUrl,
   control_panel_url: adminUrl,
   install_id: installId,

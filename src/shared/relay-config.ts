@@ -21,10 +21,11 @@ export const RELAY_TRUST_KEYS: Readonly<Record<RelayEnvironment, readonly RelayT
 
 export function relayBuildConfigFromEnv(env: Record<string, string | undefined>): RelayBuildConfig {
   const channel = normalizeReleaseChannel(env.VAST_RELEASE_CHANNEL)
-  const environment: RelayEnvironment = channel === 'stable' ? 'production' : 'staging'
-  const enabled = channel === 'stable'
-    ? envFlag(env, 'VAST_RELAY_PRODUCTION_ENABLED', false)
-    : envFlag(env, 'VAST_RELAY_ENABLED', true)
+  const requestedEnvironment = String(env.VAST_RELAY_ENVIRONMENT ?? '').trim().toLowerCase()
+  const environment: RelayEnvironment = requestedEnvironment === 'staging' || requestedEnvironment === 'production'
+    ? requestedEnvironment
+    : (channel === 'beta' || channel === 'stable' ? 'production' : 'staging')
+  const enabled = envFlag(env, 'VAST_RELAY_ENABLED', true)
   return {
     enabled,
     environment,
@@ -42,12 +43,14 @@ export function getRelayBuildConfig(): RelayBuildConfig {
       }
     }
   } catch {
-    // Unbundled tests deliberately have no active Relay endpoint.
+    // Unbundled callers deliberately have no active Relay endpoint. Keep the
+    // development/staging trust root out of public bundles unless the build
+    // explicitly embeds a staging configuration for internal QA.
   }
   return {
     enabled: false,
     environment: 'staging',
-    endpoint: RELAY_ENDPOINTS.staging,
-    keys: RELAY_TRUST_KEYS.staging.map((key) => ({ ...key }))
+    endpoint: '',
+    keys: []
   }
 }

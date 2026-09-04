@@ -107,13 +107,12 @@ const STRICT_AD_NAVIGATION_SNIPPETS = [
   '/ad-click',
   '/ads-click',
   '/adserver/',
-  '/interstitial',
+  // Generic path words ("/popup", "/interstitial", "/preroll", "/vast/") are
+  // deliberately absent: they appear in legitimate user-initiated download
+  // and navigation paths, and this list gates whole main-frame navigations.
   '/popads',
-  '/popup',
   '/popunder',
-  '/preroll',
   '/push-subscribe',
-  '/vast/',
   '?ad=',
   '&ad=',
   'ad_id=',
@@ -186,10 +185,7 @@ export function isAdRequestUrl(rawUrl: string, resourceType?: string, mode: AdBl
 }
 
 const SOFT_COSMETIC_SELECTORS = [
-  '.ad',
-  '.ads',
   '.adsbox',
-  '.advert',
   '.advertisement',
   '.ad-container',
   '.ad-wrapper',
@@ -230,13 +226,11 @@ const BRUTAL_COSMETIC_SELECTORS = [
   '[class^="ad_"]',
   '[class*=" ad-"]',
   '[class*=" ad_"]',
-  '[class*="advert"]',
-  '[class*="sponsor"]',
-  '[id^="ads"]',
-  '[id*="advert"]',
-  '[id*="sponsor"]',
-  'iframe[src*="ad"]',
-  'iframe[src*="pop"]'
+  '[data-ad-client]',
+  '[data-ad-format]',
+  '[data-ad-unit]',
+  'iframe[src*="popads.net"]',
+  'iframe[src*="popcash.net"]'
 ]
 
 export function buildCosmeticAdBlockScript(enabled: boolean, mode: AdBlockerMode = 'standard'): string {

@@ -71,11 +71,12 @@ test('packaged Video & Audio runtime verifies every executable before use', asyn
   }
 })
 
-test('packaged Video & Audio rejects a redundant Playwright headless shell', async () => {
+test('packaged Video & Audio ignores an unreferenced headless shell left by an older installer', async () => {
   const item = await fixture()
   try {
     await mkdir(join(item.root, 'ms-playwright', 'chromium_headless_shell-1234'), { recursive: true })
-    await assert.rejects(() => verifyBundledAvidaeRuntime(item.resources), /redundant headless shell/)
+    const runtime = await verifyBundledAvidaeRuntime(item.resources)
+    assert.equal(runtime.chromiumExecutable, join(item.root, 'ms-playwright', 'chromium', 'chrome.exe'))
   } finally {
     await rm(item.resources, { recursive: true, force: true })
   }

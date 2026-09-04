@@ -78,7 +78,21 @@ describe('installation check-ins', () => {
     })
   })
 
-  it('fails safely with an empty normal response when D1 is unavailable', async () => {
+  it('accepts additive fields from newer clients and still persists the installation', async () => {
+    const id = '2ea72f60-ea2e-49c9-8989-f3abc221da85'
+    const response = await handleCheckin(jsonRequest('https://relay.test/v1/checkin', {
+      protocol: 1,
+      install_id: id,
+      current_version: '0.2.5',
+      launch_count: 1,
+      instance_kind: 'test',
+      future_optional_capability: 'ignored-by-protocol-1'
+    }), publicBindings())
+    expect(response.status).toBe(200)
+    expect(await publicBindings().DB.prepare('SELECT install_id FROM installations WHERE install_id=?1').bind(id).first()).toEqual({ install_id: id })
+  })
+
+  it('returns a retryable failure when the installation cannot be persisted', async () => {
     const base = publicBindings()
     const failingDatabase = new Proxy(base.DB, {
       get(target, property, receiver) {
@@ -91,9 +105,10 @@ describe('installation check-ins', () => {
       publicBindings({ DB: failingDatabase }),
       Date.parse('2026-08-10T10:00:00.000Z')
     )
-    expect(response.status).toBe(200)
+    expect(response.status).toBe(503)
+    expect(response.headers.get('retry-after')).toBe('300')
     expect(response.headers.get('x-vast-relay-degraded')).toBe('database')
-    expect(await response.json()).toMatchObject({ protocol: 1, messages: [], update: null })
+    expect(await response.json()).toMatchObject({ error: expect.any(String) })
   })
 
   it('returns 429 before parsing or database work when the source limiter denies', async () => {

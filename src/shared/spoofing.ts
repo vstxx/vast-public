@@ -109,8 +109,21 @@ function clampNumber(value: unknown, fallback: number, min: number, max: number)
 
 function normalizeLanguages(value: unknown): string[] {
   const raw = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : DEFAULT_SPOOFING.languages
-  const clean = raw.map((item) => String(item).trim()).filter(Boolean).slice(0, 5)
+  const clean = raw
+    .map((item) => String(item).trim())
+    .filter((item) => /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/.test(item))
+    .slice(0, 5)
   return clean.length > 0 ? clean : DEFAULT_SPOOFING.languages
+}
+
+function normalizeTimezone(value: unknown): string {
+  const timezone = String(value || DEFAULT_SPOOFING.timezone).trim().slice(0, 128)
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: timezone }).format(0)
+    return timezone
+  } catch {
+    return DEFAULT_SPOOFING.timezone
+  }
 }
 
 export function normalizeSpoofingSettings(input?: Partial<BrowserSpoofingSettings> | null): BrowserSpoofingSettings {
@@ -128,9 +141,9 @@ export function normalizeSpoofingSettings(input?: Partial<BrowserSpoofingSetting
     ...input,
     enabled: Boolean(input?.enabled),
     browserProfile: profile,
-    customUserAgent: String(input?.customUserAgent ?? '').trim(),
+    customUserAgent: String(input?.customUserAgent ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 512),
     languages: normalizeLanguages(input?.languages),
-    timezone: String(input?.timezone || DEFAULT_SPOOFING.timezone).trim(),
+    timezone: normalizeTimezone(input?.timezone),
     doNotTrack: input?.doNotTrack !== false,
     hardwareConcurrency: Math.round(clampNumber(input?.hardwareConcurrency, DEFAULT_SPOOFING.hardwareConcurrency, 2, 32)),
     deviceMemory: Math.round(clampNumber(input?.deviceMemory, DEFAULT_SPOOFING.deviceMemory, 1, 32)),
@@ -203,116 +216,169 @@ export function buildSpoofingHeaders(
   return headers
 }
 
-export function buildSpoofingInjectionScript(settings: BrowserSpoofingSettings, runtimeChromeVersion?: string): string {
-  if (!settings.enabled) return ''
+export interface DocumentSpoofingConfig {
+  profile: ResolvedSpoofingProfile
+  fullVersion: string
+  fullVersionList: Array<{ brand: string; version: string }>
+  languages: string[]
+  timezone: string
+  doNotTrack: boolean
+  hardwareConcurrency: number
+  deviceMemory: number
+  maxTouchPoints: number
+  webglVendor: string
+  webglRenderer: string
+  location: BrowserSpoofingSettings['location']
+}
+
+export function documentSpoofingConfig(settings: BrowserSpoofingSettings, runtimeChromeVersion?: string): DocumentSpoofingConfig | null {
+  if (!settings.enabled) return null
   const profile = resolveSpoofingProfile(settings, runtimeChromeVersion)
   const fullVersion = fullVersionFromProfile(profile)
   const fullVersionList = profile.brands.map((brand) => ({
     ...brand,
     version: brand.brand === 'Not.A/Brand' ? '24.0.0.0' : fullVersion
   }))
-  const location = settings.location
-  const signature = JSON.stringify({
+  return {
     profile,
+    fullVersion,
+    fullVersionList,
     languages: settings.languages,
     timezone: settings.timezone,
+    doNotTrack: settings.doNotTrack,
     hardwareConcurrency: settings.hardwareConcurrency,
     deviceMemory: settings.deviceMemory,
     maxTouchPoints: settings.maxTouchPoints,
-    doNotTrack: settings.doNotTrack,
     webglVendor: settings.webglVendor,
     webglRenderer: settings.webglRenderer,
-    location
-  })
-  return `
-;(() => {
-  const signature = ${JSON.stringify(signature)}
-  if (window.__vastSpoofingSignature === signature) return
-  Object.defineProperty(window, '__vastSpoofingSignature', { value: signature, configurable: true })
-  const define = (target, key, value) => {
-    try { Object.defineProperty(target, key, { get: () => value, configurable: true }) } catch {}
+    location: { ...settings.location }
   }
-  const profile = ${JSON.stringify(profile)}
-  const fullVersion = ${JSON.stringify(fullVersion)}
-  const fullVersionList = ${JSON.stringify(fullVersionList)}
-  const languages = ${JSON.stringify(settings.languages)}
-  define(Navigator.prototype, 'userAgent', profile.userAgent)
-  define(Navigator.prototype, 'appVersion', profile.appVersion)
-  define(Navigator.prototype, 'platform', profile.platform)
-  define(Navigator.prototype, 'vendor', profile.vendor)
-  define(Navigator.prototype, 'language', languages[0])
-  define(Navigator.prototype, 'languages', Object.freeze(languages.slice()))
-  define(Navigator.prototype, 'hardwareConcurrency', ${settings.hardwareConcurrency})
-  define(Navigator.prototype, 'deviceMemory', ${settings.deviceMemory})
-  define(Navigator.prototype, 'maxTouchPoints', ${settings.maxTouchPoints})
-  define(Navigator.prototype, 'webdriver', false)
-  define(Navigator.prototype, 'doNotTrack', ${JSON.stringify(settings.doNotTrack ? '1' : '0')})
-  define(Navigator.prototype, 'userAgentData', Object.freeze({
-    brands: Object.freeze(profile.brands.map((item) => Object.freeze({ brand: item.brand, version: item.version }))),
-    mobile: profile.mobile,
-    platform: profile.secChUaPlatform,
-    getHighEntropyValues: async (hints) => {
-      const result = { brands: profile.brands, mobile: profile.mobile, platform: profile.secChUaPlatform }
-      for (const hint of hints || []) {
-        if (hint === 'architecture') result.architecture = 'x86'
-        if (hint === 'bitness') result.bitness = '64'
-        if (hint === 'model') result.model = ''
-        if (hint === 'platformVersion') result.platformVersion = '10.0.0'
-        if (hint === 'uaFullVersion') result.uaFullVersion = fullVersion
-        if (hint === 'fullVersionList') result.fullVersionList = fullVersionList
-      }
-      return result
-    },
-    toJSON: () => ({ brands: profile.brands, mobile: profile.mobile, platform: profile.secChUaPlatform })
-  }))
+}
 
-  const spoofedTimeZone = ${JSON.stringify(settings.timezone)}
-  const NativeDateTimeFormat = Intl.DateTimeFormat
-  Intl.DateTimeFormat = function(locales, options) {
-    const nextOptions = Object.assign({}, options || {})
-    if (!nextOptions.timeZone) nextOptions.timeZone = spoofedTimeZone
-    return new NativeDateTimeFormat(locales, nextOptions)
-  }
-  Intl.DateTimeFormat.prototype = NativeDateTimeFormat.prototype
-  Intl.DateTimeFormat.supportedLocalesOf = NativeDateTimeFormat.supportedLocalesOf.bind(NativeDateTimeFormat)
-
-  const patchWebGl = (proto) => {
-    if (!proto || !proto.getParameter) return
-    const original = proto.__vastOriginalGetParameter || proto.getParameter
-    try { Object.defineProperty(proto, '__vastOriginalGetParameter', { value: original, configurable: true }) } catch {}
-    proto.getParameter = function(parameter) {
-      if (parameter === 37445) return ${JSON.stringify(settings.webglVendor)}
-      if (parameter === 37446) return ${JSON.stringify(settings.webglRenderer)}
-      if (parameter === 7936) return ${JSON.stringify(settings.webglVendor)}
-      if (parameter === 7937) return ${JSON.stringify(settings.webglRenderer)}
-      return original.call(this, parameter)
+/** Runs in the page's main world at document start. Keep this function self-contained. */
+export function installDocumentSpoofing(config: DocumentSpoofingConfig): void {
+  const define = (target: object | undefined, key: PropertyKey, value: unknown): void => {
+    if (!target) return
+    try {
+      const descriptor = Object.getOwnPropertyDescriptor(target, key)
+      Object.defineProperty(target, key, { get: () => value, configurable: true, enumerable: descriptor?.enumerable ?? true })
+    } catch {
+      // A single non-configurable surface must not abort the remaining profile.
     }
   }
-  patchWebGl(window.WebGLRenderingContext && WebGLRenderingContext.prototype)
-  patchWebGl(window.WebGL2RenderingContext && WebGL2RenderingContext.prototype)
+  const profile = config.profile
+  const languages = Object.freeze(config.languages.slice())
+  const navigatorPrototype = typeof Navigator === 'undefined' ? undefined : Navigator.prototype
+  define(navigatorPrototype, 'userAgent', profile.userAgent)
+  define(navigatorPrototype, 'appVersion', profile.appVersion)
+  define(navigatorPrototype, 'platform', profile.platform)
+  define(navigatorPrototype, 'vendor', profile.vendor)
+  define(navigatorPrototype, 'language', languages[0])
+  define(navigatorPrototype, 'languages', languages)
+  define(navigatorPrototype, 'hardwareConcurrency', config.hardwareConcurrency)
+  define(navigatorPrototype, 'deviceMemory', config.deviceMemory)
+  define(navigatorPrototype, 'maxTouchPoints', config.maxTouchPoints)
+  define(navigatorPrototype, 'webdriver', false)
+  define(navigatorPrototype, 'doNotTrack', config.doNotTrack ? '1' : null)
 
-  const locationMode = ${JSON.stringify(location.mode)}
-  if (locationMode === 'fixed' && navigator.geolocation) {
+  if (profile.brands.length === 0) {
+    define(navigatorPrototype, 'userAgentData', undefined)
+  } else {
+    const frozenBrands = Object.freeze(profile.brands.map((item) => Object.freeze({ ...item })))
+    const frozenFullVersions = Object.freeze(config.fullVersionList.map((item) => Object.freeze({ ...item })))
+    const userAgentData = Object.freeze({
+      brands: frozenBrands,
+      mobile: profile.mobile,
+      platform: profile.secChUaPlatform,
+      getHighEntropyValues: async (hints: string[] = []) => {
+        const result: Record<string, unknown> = { brands: frozenBrands, mobile: profile.mobile, platform: profile.secChUaPlatform }
+        for (const hint of hints) {
+          if (hint === 'architecture') result.architecture = 'x86'
+          if (hint === 'bitness') result.bitness = '64'
+          if (hint === 'model') result.model = ''
+          if (hint === 'platformVersion') result.platformVersion = profile.secChUaPlatform === 'Windows' ? '15.0.0' : '14.0.0'
+          if (hint === 'uaFullVersion') result.uaFullVersion = config.fullVersion
+          if (hint === 'fullVersionList') result.fullVersionList = frozenFullVersions
+        }
+        return result
+      },
+      toJSON: () => ({ brands: frozenBrands, mobile: profile.mobile, platform: profile.secChUaPlatform })
+    })
+    define(navigatorPrototype, 'userAgentData', userAgentData)
+  }
+
+  try {
+    const NativeDateTimeFormat = Intl.DateTimeFormat
+    const spoofedTimeZone = config.timezone
+    const PatchedDateTimeFormat = function(locales?: Intl.LocalesArgument, options?: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+      const nextOptions = { ...(options ?? {}) }
+      if (!nextOptions.timeZone) nextOptions.timeZone = spoofedTimeZone
+      return new NativeDateTimeFormat(locales, nextOptions)
+    }
+    PatchedDateTimeFormat.prototype = NativeDateTimeFormat.prototype
+    Object.setPrototypeOf(PatchedDateTimeFormat, NativeDateTimeFormat)
+    Intl.DateTimeFormat = PatchedDateTimeFormat as typeof Intl.DateTimeFormat
+  } catch {
+    // Keep the rest of the profile active if this engine locks Intl down.
+  }
+
+  const patchWebGl = (prototype: { getParameter?: (parameter: number) => unknown } | undefined): void => {
+    if (!prototype || typeof prototype.getParameter !== 'function') return
+    const original = prototype.getParameter
+    try {
+      Object.defineProperty(prototype, 'getParameter', {
+        configurable: true,
+        value: function(this: unknown, parameter: number): unknown {
+          if (parameter === 37445 || parameter === 7936) return config.webglVendor
+          if (parameter === 37446 || parameter === 7937) return config.webglRenderer
+          return original.call(this, parameter)
+        }
+      })
+    } catch {
+      // WebGL1 and WebGL2 are independent; one failure must not block the other.
+    }
+  }
+  patchWebGl(typeof WebGLRenderingContext === 'undefined' ? undefined : WebGLRenderingContext.prototype)
+  patchWebGl(typeof WebGL2RenderingContext === 'undefined' ? undefined : WebGL2RenderingContext.prototype)
+
+  if (config.location.mode === 'fixed' && navigator.geolocation) {
     const coords = Object.freeze({
-      latitude: ${location.latitude},
-      longitude: ${location.longitude},
-      accuracy: ${location.accuracy},
+      latitude: config.location.latitude,
+      longitude: config.location.longitude,
+      accuracy: config.location.accuracy,
       altitude: null,
       altitudeAccuracy: null,
       heading: null,
       speed: null
     })
     const position = () => Object.freeze({ coords, timestamp: Date.now() })
-    navigator.geolocation.getCurrentPosition = (success) => setTimeout(() => success(position()), 0)
-    navigator.geolocation.watchPosition = (success) => {
-      const id = setInterval(() => success(position()), 1000)
-      setTimeout(() => success(position()), 0)
-      return id
+    try {
+      Object.defineProperty(navigator.geolocation, 'getCurrentPosition', {
+        configurable: true,
+        value: (success: PositionCallback) => setTimeout(() => success(position() as GeolocationPosition), 0)
+      })
+      Object.defineProperty(navigator.geolocation, 'watchPosition', {
+        configurable: true,
+        value: (success: PositionCallback) => {
+          const id = setInterval(() => success(position() as GeolocationPosition), 1000)
+          setTimeout(() => success(position() as GeolocationPosition), 0)
+          return id
+        }
+      })
+      Object.defineProperty(navigator.geolocation, 'clearWatch', {
+        configurable: true,
+        value: (id: number) => clearInterval(id)
+      })
+    } catch {
+      // Main also applies the Chromium geolocation override via CDP.
     }
-    navigator.geolocation.clearWatch = (id) => clearInterval(id)
   }
-})()
-`
+}
+
+export function buildSpoofingInjectionScript(settings: BrowserSpoofingSettings, runtimeChromeVersion?: string): string {
+  const config = documentSpoofingConfig(settings, runtimeChromeVersion)
+  if (!config) return ''
+  return `;(${installDocumentSpoofing.toString()})(${JSON.stringify(config)})`
 }
 
 export function spoofingFromSettings(settings: BrowserSettings): BrowserSpoofingSettings {

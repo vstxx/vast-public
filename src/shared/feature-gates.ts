@@ -95,14 +95,14 @@ export const FEATURE_REGISTRY: Record<FeatureId, FeatureGate> = {
   },
   [VastFeatures.AdvancedDiagnostics]: {
     id: VastFeatures.AdvancedDiagnostics,
-    label: 'Advanced diagnostics',
+    label: 'Diagnostics',
     description: 'Deeper local diagnostics and site data views.',
     lab: 'advancedDiagnostics',
     internalUrl: INTERNAL_DIAGNOSTICS_URL
   },
   [VastFeatures.Spoofing]: {
     id: VastFeatures.Spoofing,
-    label: 'Best-effort spoofing tools',
+    label: 'Spoofing',
     description: 'Best-effort user-agent, locale, timezone, hardware, and location privacy controls.',
     lab: 'spoofing'
   },
@@ -143,7 +143,7 @@ export function featureGateForInternalUrl(url: string): FeatureGate | null {
 
 export function labsFeatureEnabled(settings: BrowserSettings, gate: FeatureGate): boolean {
   if (!gate.lab) return true
-  return Boolean(settings.labs?.enabled && settings.labs[gate.lab])
+  return settings.labs?.[gate.lab] === true
 }
 
 export function getFeatureState(featureId: FeatureId, context: FeatureGateContext): FeatureState {
@@ -151,7 +151,6 @@ export function getFeatureState(featureId: FeatureId, context: FeatureGateContex
   const state = resolveLocalFeatureState({
     comingSoon: gate.comingSoon === true,
     labRequired: Boolean(gate.lab),
-    labsEnabled: context.settings.labs?.enabled === true,
     featureEnabled: gate.lab ? context.settings.labs[gate.lab] === true : true
   })
   if (state === 'ComingSoon') {

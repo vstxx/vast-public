@@ -52,9 +52,6 @@ def _runtime_self_test():
         raise RuntimeError("Verified bundled Playwright Chromium is missing")
     if os.path.commonpath([os.path.realpath(browsers), os.path.realpath(chromium)]) != os.path.realpath(browsers):
         raise RuntimeError("Verified bundled Chromium is outside the browser runtime")
-    if any(name.startswith("chromium_headless_shell-") for name in os.listdir(browsers)):
-        raise RuntimeError("Redundant Playwright headless shell is present")
-
     with YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
         extractor_names = ("Youtube", "Generic", "Vimeo", "TikTok")
         loaded_extractors = {

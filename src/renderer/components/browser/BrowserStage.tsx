@@ -16,14 +16,13 @@ import {
   INTERNAL_NEW_TAB_URL,
   INTERNAL_NOTES_URL,
   INTERNAL_NETWORK_URL,
-  INTERNAL_PDF_VIEWER_URL,
   INTERNAL_PASSWORDS_URL,
   INTERNAL_SESSION_TIMELINE_URL,
   INTERNAL_SITE_DATA_URL
 } from '../../../shared/constants'
 import type { ID, Tab } from '../../../shared/types'
 import { useBrowserStore, selectActiveTab, selectActiveWorkspace } from '../../store/browser-store'
-import { isInternalUrl, matchesInternalUrl } from '../../lib/url'
+import { isInternalUrl } from '../../lib/url'
 import { useBrowserRuntime } from '../../app/browser-runtime'
 import { ErrorPage } from './ErrorPage'
 import { WebviewSurface } from './WebviewSurface'
@@ -318,10 +317,20 @@ export const BrowserStage = forwardRef<BrowserStageHandle, BrowserStageProps>(fu
               />
             )}
             <div
-              className={`relative min-h-0 flex-1 ${tab.url === INTERNAL_AVIDAE_URL || tab.url === INTERNAL_NOTES_URL || matchesInternalUrl(tab.url, INTERNAL_PDF_VIEWER_URL) ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden'}`}
+              className="relative min-h-0 flex-1 overflow-hidden"
               onPointerDown={() => focusPane(tab.id)}
             >
-              <InternalPageRouter tab={tab} />
+              <div
+                className="internal-page-zoom-surface"
+                style={{
+                  width: `${100 / tab.zoom}%`,
+                  height: `${100 / tab.zoom}%`,
+                  transform: `scale(${tab.zoom})`,
+                  transformOrigin: 'top left'
+                }}
+              >
+                <InternalPageRouter tab={tab} />
+              </div>
             </div>
           </section>
         ) : null

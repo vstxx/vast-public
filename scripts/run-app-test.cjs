@@ -16,16 +16,21 @@ function run(command, args, env) {
 
 if (!npmCli) throw new Error('npm_execpath is required to run the app test build.')
 
-run(process.execPath, [npmCli, 'run', 'build'], {
+const isolatedTestEnvironment = {
   ...process.env,
+  VAST_RELEASE_CHANNEL: 'dev',
+  VAST_DISTRIBUTION_CHANNEL: 'direct',
+  VAST_PRIVATE_BUILD: '1',
+  VAST_PUBLIC_UNSIGNED_RELEASE: '0',
+  VAST_UNSIGNED_RELEASE_ACK: '',
+  VAST_UPDATE_ENABLED: '0',
+  VAST_OBFUSCATE: '0',
+  VAST_RELEASE_COMMIT: '',
   VAST_RELAY_ENABLED: '0',
-  VAST_RELAY_PRODUCTION_ENABLED: '0',
+  VAST_RELAY_ENVIRONMENT: 'staging',
   VAST_INCLUDE_INTERNAL_TEST_HARNESS: '1',
   VAST_RELAY_TEST_OFFLINE: '1',
-})
-run(process.execPath, ['scripts/smoke-e2e.cjs', ...process.argv.slice(2)], {
-  ...process.env,
-  VAST_RELAY_ENABLED: '0',
-  VAST_RELAY_PRODUCTION_ENABLED: '0',
-  VAST_RELAY_TEST_OFFLINE: '1',
-})
+}
+
+run(process.execPath, [npmCli, 'run', 'build'], isolatedTestEnvironment)
+run(process.execPath, ['scripts/smoke-e2e.cjs', ...process.argv.slice(2)], isolatedTestEnvironment)

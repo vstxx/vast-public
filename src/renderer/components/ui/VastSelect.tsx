@@ -105,9 +105,11 @@ export function VastSelect<T extends string | number>({
     const preferredLeft = align === 'end' ? rect.right - renderedWidth : rect.left
     const left = Math.min(Math.max(viewportPadding, preferredLeft), viewportWidth - renderedWidth - viewportPadding)
     const renderedHeight = Math.min(renderedMenu?.height ?? estimatedHeight, maxHeight)
-    const top = placement === 'bottom'
-      ? Math.min(rect.bottom + menuGap, viewportHeight - renderedHeight - viewportPadding)
-      : Math.max(viewportPadding, rect.top - menuGap - renderedHeight)
+    const preferredTop = placement === 'bottom'
+      ? rect.bottom + menuGap
+      : rect.top - menuGap - renderedHeight
+    const maximumTop = Math.max(viewportPadding, viewportHeight - renderedHeight - viewportPadding)
+    const top = Math.min(Math.max(viewportPadding, preferredTop), maximumTop)
     setPosition({ left, top, minWidth, maxWidth, maxHeight, placement })
   }, [align, options.length])
 
@@ -243,7 +245,10 @@ export function VastSelect<T extends string | number>({
     maxHeight: position.maxHeight,
     transformOrigin: position.placement === 'bottom' ? 'top' : 'bottom'
   } : undefined
-  const portalHost = buttonRef.current?.closest('.app-shell') ?? document.body
+  const shell = buttonRef.current?.closest('.app-shell')
+  const portalThemeClass = shell?.classList.contains('light-theme')
+    ? 'light-theme'
+    : shell?.classList.contains('dim-theme') ? 'dim-theme' : 'dark-theme'
 
   return (
     <div
@@ -276,49 +281,51 @@ export function VastSelect<T extends string | number>({
         </span>
       </button>
       {open && position && createPortal(
-        <div
-          ref={menuRef}
-          id={`${controlId}-listbox`}
-          role="listbox"
-          tabIndex={-1}
-          aria-label={ariaLabel}
-          aria-activedescendant={`${controlId}-option-${highlightedIndex}`}
-          className={`vast-select-menu ${menuClassName}`.trim()}
-          style={menuStyle}
-          data-placement={position.placement}
-          onKeyDown={onMenuKeyDown}
-        >
-          {options.map((option, index) => {
-            const selected = option.value === value
-            const highlighted = index === highlightedIndex
-            return (
-              <button
-                key={option.value}
-                id={`${controlId}-option-${index}`}
-                type="button"
-                role="option"
-                aria-selected={selected}
-                aria-disabled={option.disabled || undefined}
-                disabled={option.disabled}
-                data-value={option.value}
-                data-option-index={index}
-                className={`vast-select-option ${selected ? 'is-active' : ''} ${highlighted ? 'is-highlighted' : ''}`.trim()}
-                onMouseEnter={() => !option.disabled && setHighlightedIndex(index)}
-                onClick={() => choose(index)}
-              >
-                <span className="flex min-w-0 flex-1 items-center gap-2">
-                  {option.icon && <span className="vast-select-leading-icon">{option.icon}</span>}
-                  <span className="vast-select-option-copy">
-                    <span className="vast-select-option-label" title={option.label}>{option.label}</span>
-                    {option.description && <span className="vast-select-description">{option.description}</span>}
+        <div className={portalThemeClass} data-vast-select-portal-theme style={{ display: 'contents' }}>
+          <div
+            ref={menuRef}
+            id={`${controlId}-listbox`}
+            role="listbox"
+            tabIndex={-1}
+            aria-label={ariaLabel}
+            aria-activedescendant={`${controlId}-option-${highlightedIndex}`}
+            className={`vast-select-menu ${menuClassName}`.trim()}
+            style={menuStyle}
+            data-placement={position.placement}
+            onKeyDown={onMenuKeyDown}
+          >
+            {options.map((option, index) => {
+              const selected = option.value === value
+              const highlighted = index === highlightedIndex
+              return (
+                <button
+                  key={option.value}
+                  id={`${controlId}-option-${index}`}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  aria-disabled={option.disabled || undefined}
+                  disabled={option.disabled}
+                  data-value={option.value}
+                  data-option-index={index}
+                  className={`vast-select-option ${selected ? 'is-active' : ''} ${highlighted ? 'is-highlighted' : ''}`.trim()}
+                  onMouseEnter={() => !option.disabled && setHighlightedIndex(index)}
+                  onClick={() => choose(index)}
+                >
+                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                    {option.icon && <span className="vast-select-leading-icon">{option.icon}</span>}
+                    <span className="vast-select-option-copy">
+                      <span className="vast-select-option-label" title={option.label}>{option.label}</span>
+                      {option.description && <span className="vast-select-description">{option.description}</span>}
+                    </span>
                   </span>
-                </span>
-                <span className="vast-select-check" aria-hidden="true">{selected && <Check className="h-4 w-4" />}</span>
-              </button>
-            )
-          })}
+                  <span className="vast-select-check" aria-hidden="true">{selected && <Check className="h-4 w-4" />}</span>
+                </button>
+              )
+            })}
+          </div>
         </div>,
-        portalHost
+        document.body
       )}
     </div>
   )

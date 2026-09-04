@@ -12,7 +12,7 @@ The only request body is:
 {
   "protocol": 1,
   "install_id": "random UUIDv4",
-  "current_version": "0.2.5",
+  "current_version": "0.2.7",
   "launch_count": 1,
   "instance_kind": "packaged"
 }
@@ -104,8 +104,8 @@ bytes to the renderer. Its memory-only cache is capped at eight entries and
 
 | Build channel | Endpoint | Default |
 |---|---|---|
-| dev / alpha / beta | `https://relay-staging.vastbrowser.com` | enabled; `VAST_RELAY_ENABLED=0` disables |
-| stable | `https://relay.vastbrowser.com` | disabled until built with `VAST_RELAY_PRODUCTION_ENABLED=1` |
+| public beta / stable | `https://relay.vastbrowser.com` | enabled; release gate requires `VAST_RELAY_ENVIRONMENT=production` |
+| development / internal QA | `https://relay-staging.vastbrowser.com` | enabled by default; may explicitly select production for production smoke tests |
 
 Pinned SPKI DER public keys (Base64):
 

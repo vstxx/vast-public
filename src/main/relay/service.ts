@@ -275,7 +275,16 @@ export class VastRelayService {
           relayRetryAfterDelay(response.headers.get('retry-after'), this.options.now())
         )
       }
-      if (!response.ok) throw new RelayAttemptError(`Relay HTTP ${response.status}.`, relayHttpFailureIsTransient(response.status))
+      if (!response.ok) {
+        const transient = relayHttpFailureIsTransient(response.status)
+        throw new RelayAttemptError(
+          `Relay HTTP ${response.status}.`,
+          transient,
+          transient && response.headers.has('retry-after')
+            ? relayRetryAfterDelay(response.headers.get('retry-after'), this.options.now())
+            : undefined
+        )
+      }
       const contentType = response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase()
       if (contentType !== 'application/json') throw new RelayAttemptError('Relay response MIME is invalid.', false)
       responseText = await readBoundedResponseText(response)

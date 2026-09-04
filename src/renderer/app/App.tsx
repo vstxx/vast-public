@@ -13,6 +13,8 @@ import type {
   DownloadItem,
   ID,
   MacroAction,
+  PasswordSavePromptAction,
+  PasswordSavePromptPayload,
   PersistedData,
   UiNotificationPayload,
   UiPromptPayload
@@ -29,6 +31,7 @@ import { ContextMenu } from '../components/ui/ContextMenu'
 import { ActionPromptModal, NotificationsOverlay } from '../components/ui/NotificationsOverlay'
 import { LocalErrorBoundary } from '../components/ui/LocalErrorBoundary'
 import { PromptDialog } from '../components/ui/PromptDialog'
+import { PasswordSavePrompt } from '../components/passwords/PasswordSavePrompt'
 import { WindowControls } from '../components/window/WindowControls'
 import { BrowserRuntimeContext, type BrowserRuntime } from './browser-runtime'
 import { clamp } from '../lib/format'
@@ -42,7 +45,7 @@ import {
   isInternalUrl,
   isPdfViewerUrl,
   isSafeLoadUrl,
-  looksLikePdfUrl,
+  getPdfViewerResourceId,
   resolveAddressInput,
   titleFromUrl,
   webOriginFor
@@ -52,14 +55,9 @@ import { persistedStateChangeToken } from '../store/persisted-change'
 import { isInactiveTabUnloadCandidate } from '../store/tab-lifecycle'
 import { ExtensionRuntimeController, useExtensionContributions } from '../extensions/extension-runtime'
 
-declare const __VAST_CAT_ADDON_AVAILABLE__: boolean
-
 const CommandPalette = lazy(() => import('../components/command-palette/CommandPalette').then((module) => ({ default: module.CommandPalette })))
 const loadPuristChrome = () => import('../components/purist/PuristChrome').then((module) => ({ default: module.PuristChrome }))
 const PuristChrome = lazy(loadPuristChrome)
-const CatAddonController = __VAST_CAT_ADDON_AVAILABLE__
-  ? lazy(() => import('../components/cat-addon/CatAddonController').then((module) => ({ default: module.CatAddonController })))
-  : null
 const BrowserStage = lazy(() => import('../components/browser/BrowserStage').then((module) => ({ default: module.BrowserStage })))
 const SettingsModal = lazy(() => import('../components/settings/SettingsModal').then((module) => ({ default: module.SettingsModal })))
 const SidePanel = lazy(() => import('../components/side-panel/SidePanel').then((module) => ({ default: module.SidePanel })))
@@ -325,7 +323,7 @@ function VastOpeningAnimation({ visible }: { visible: boolean }): JSX.Element | 
   if (!visible) return null
   return (
     <div
-      className="vast-opening-overlay pointer-events-none fixed inset-0 z-[80] grid place-items-center overflow-hidden bg-vast-black"
+      className={`vast-opening-overlay platform-${window.vast.app.platform} pointer-events-none fixed inset-0 z-[80] grid place-items-center overflow-hidden bg-vast-black`}
       style={{
         ...OPENING_OVERLAY_STYLE,
         '--vast-opening-delay': '0ms'
@@ -334,8 +332,8 @@ function VastOpeningAnimation({ visible }: { visible: boolean }): JSX.Element | 
       <div className="vast-opening-backdrop" />
       <div className="vast-opening-core relative grid place-items-center">
         <div className="vast-opening-logo-halo" aria-hidden="true" />
-        <span className="vast-opening-logo-frame relative">
-          <img src={vastLogo} alt="Vast" draggable={false} decoding="async" className="vast-opening-logo select-none" />
+        <span className="vast-opening-logo-frame relative" role="img" aria-label="Vast">
+          <img src={vastLogo} alt="" aria-hidden="true" draggable={false} decoding="async" className="vast-opening-logo select-none" />
         </span>
       </div>
     </div>
@@ -467,13 +465,13 @@ export function App(): JSX.Element {
   const animations = useBrowserStore((state) => state.settings.animations)
   const appearance = useBrowserStore((state) => state.settings.appearance)
   const extensionContributions = useExtensionContributions()
-  const catAddonEnabled = useBrowserStore((state) => state.settings.catAddon.enabled)
   const experimentalFeatures = useBrowserStore((state) => state.settings.advanced.experimentalFeatures)
   const requestedSettingLayoutMode = useBrowserStore((state) => state.settings.layoutMode)
   const sidePanelMode = useBrowserStore((state) => state.settings.sidePanel.mode)
   const tabLayout = useBrowserStore((state) => state.settings.tabLayout)
   const theme = useBrowserStore((state) => state.settings.theme)
   const activeTabUrl = useBrowserStore((state) => selectActiveTab(state)?.url ?? '')
+  const activeTabId = useBrowserStore((state) => selectActiveTab(state)?.id)
   const downloads = useBrowserStore((state) => state.downloads)
   const sidePanelOpen = useBrowserStore((state) => state.sidePanelOpen)
   const commandPaletteOpen = useBrowserStore((state) => state.commandPaletteOpen)
@@ -502,6 +500,7 @@ export function App(): JSX.Element {
   }, [accentColor, appearance, extensionContributions.theme])
   const [toasts, setToasts] = useState<Array<UiNotificationPayload & { createdAt: number }>>([])
   const [uiPromptQueue, setUiPromptQueue] = useState<UiPromptPayload[]>([])
+  const [passwordPrompts, setPasswordPrompts] = useState<Array<{ prompt: PasswordSavePromptPayload; tabId: ID; collapsed: boolean; busy: boolean }>>([])
   const toastTimersRef = useRef<Record<string, number>>({})
   const downloadStateRef = useRef(new Map<string, DownloadItem['state']>())
   const autosaveTimerRef = useRef<number | undefined>(undefined)
@@ -674,6 +673,53 @@ export function App(): JSX.Element {
 
   const activeUiPrompt = uiPromptQueue[0] ?? null
 
+  useEffect(() => {
+    const removePrompt = (attemptId: string): void => {
+      startTransition(() => setPasswordPrompts((current) => current.filter((entry) => entry.prompt.attemptId !== attemptId)))
+    }
+    const unsubscribePrompt = window.vast.passwords.onSavePrompt((prompt) => {
+      if (!prompt || prompt.expiresAt <= Date.now()) return
+      const add = (remainingRetries: number): void => {
+        const tabId = stageRef.current?.getTabIdForWebContents(prompt.webContentsId)
+        if (!tabId) {
+          if (remainingRetries > 0) window.setTimeout(() => add(remainingRetries - 1), 50)
+          return
+        }
+        startTransition(() => setPasswordPrompts((current) => [
+          ...current.filter((entry) => entry.prompt.attemptId !== prompt.attemptId),
+          { prompt, tabId, collapsed: false, busy: false }
+        ]))
+      }
+      add(4)
+    })
+    const unsubscribeCleared = window.vast.passwords.onSavePromptCleared(removePrompt)
+    const expiryTimer = window.setInterval(() => {
+      const now = Date.now()
+      setPasswordPrompts((current) => current.filter((entry) => entry.prompt.expiresAt > now))
+    }, 5_000)
+    return () => {
+      unsubscribePrompt()
+      unsubscribeCleared()
+      window.clearInterval(expiryTimer)
+    }
+  }, [])
+
+  const visiblePasswordPrompt = passwordPrompts.find((entry) => entry.tabId === activeTabId)
+  const resolvePasswordPrompt = (action: PasswordSavePromptAction): void => {
+    if (!visiblePasswordPrompt || visiblePasswordPrompt.busy) return
+    const attemptId = visiblePasswordPrompt.prompt.attemptId
+    setPasswordPrompts((current) => current.map((entry) => entry.prompt.attemptId === attemptId ? { ...entry, busy: true } : entry))
+    void window.vast.passwords.resolveSavePrompt(attemptId, action).then((result) => {
+      if (result.ok) return
+      setPasswordPrompts((current) => current.map((entry) => entry.prompt.attemptId === attemptId ? { ...entry, busy: false } : entry))
+      pushToastRef.current({
+        tone: 'error',
+        title: 'Password decision could not be applied',
+        message: result.error ?? 'The password prompt may have expired.'
+      })
+    })
+  }
+
   useEffect(
     () => () => {
       for (const timer of Object.values(toastTimersRef.current)) {
@@ -697,7 +743,7 @@ export function App(): JSX.Element {
         const groupId = payload.sourceGroupId && state.tabGroups.some((group) => group.id === payload.sourceGroupId && group.workspaceId === workspaceId)
           ? payload.sourceGroupId
           : undefined
-        const routedUrl = looksLikePdfUrl(payload.url) ? createPdfViewerUrl(payload.url) : payload.url
+        const routedUrl = payload.url
         const tab = state.createTab({
           url: routedUrl,
           title: payload.title || titleFromUrl(routedUrl),
@@ -1026,7 +1072,7 @@ export function App(): JSX.Element {
           getTabIdForWebContents: (webContentsId) => stageRef.current?.getTabIdForWebContents(webContentsId),
           getTabModel: () => useBrowserStore.getState(),
           isSafeUrl: isSafeLoadUrl,
-          routeUrl: (url) => looksLikePdfUrl(url) ? createPdfViewerUrl(url) : url,
+          routeUrl: (url) => url,
           titleForUrl: titleFromUrl
         })
       }),
@@ -1052,27 +1098,14 @@ export function App(): JSX.Element {
       return active ? webOriginFor(active.url)?.origin : undefined
     }
 
-    const routePdfUrl = (url: string, options?: { returnTo?: string; reloadKey?: string }): string =>
-      looksLikePdfUrl(url) ? createPdfViewerUrl(url, options) : url
-
     const effectiveActiveUrl = (tab: { url: string }): string => getEffectiveTabUrl(tab.url)
 
     const navigateTabTo = (tabId: ID, input: string): void => {
       const state = useBrowserStore.getState()
       const resolvedUrl = resolveAddressInput(input, state.settings.defaultSearchEngine)
       if (!isSafeLoadUrl(resolvedUrl)) return
-      const currentTab = state.tabs.find((item) => item.id === tabId)
-      const url = routePdfUrl(resolvedUrl, {
-        returnTo: currentTab?.url && currentTab.url !== resolvedUrl ? currentTab.url : undefined
-      })
-      state.navigateTab(tabId, url)
+      state.navigateTab(tabId, resolvedUrl)
       window.dispatchEvent(new Event('vast:persist-navigation'))
-      if (url !== resolvedUrl) {
-        state.updateTab(tabId, {
-          canGoBack: Boolean(currentTab?.url && currentTab.url !== url),
-          canGoForward: false
-        })
-      }
     }
 
     const openUrlInNewTab = (input: string, activate = true): void => {
@@ -1080,10 +1113,9 @@ export function App(): JSX.Element {
       const workspace = selectActiveWorkspace(state)
       const resolvedUrl = resolveAddressInput(input, state.settings.defaultSearchEngine)
       if (!isSafeLoadUrl(resolvedUrl)) return
-      const url = routePdfUrl(resolvedUrl)
       state.createTab({
-        url,
-        title: isInternalUrl(url) ? titleFromUrl(url) : resolvedUrl,
+        url: resolvedUrl,
+        title: isInternalUrl(resolvedUrl) ? titleFromUrl(resolvedUrl) : resolvedUrl,
         workspaceId: workspace?.id,
         activate
       })
@@ -1249,7 +1281,8 @@ export function App(): JSX.Element {
             active.id,
             createPdfViewerUrl(sourceUrl, {
               returnTo: getPdfViewerReturnTo(active.url),
-              reloadKey: String(Date.now())
+              reloadKey: String(Date.now()),
+              resourceId: getPdfViewerResourceId(active.url)
             })
           )
           return
@@ -1727,16 +1760,25 @@ export function App(): JSX.Element {
   useEffect(() => {
     const onWheel = (event: WheelEvent): void => {
       if (!event.ctrlKey && !event.metaKey) return
+      const eventPath = event.composedPath()
+      if (eventPath.some((item) => item instanceof HTMLElement && item.tagName === 'WEBVIEW')) return
       event.preventDefault()
       event.stopPropagation()
 
       const now = performance.now()
-      wheelZoomAccumulatorRef.current += event.deltaY
-      if (Math.abs(wheelZoomAccumulatorRef.current) < 35 && now - lastWheelZoomRef.current < 120) return
-
-      runtime.adjustZoom(wheelZoomAccumulatorRef.current < 0 ? 1 : -1)
-      wheelZoomAccumulatorRef.current = 0
+      const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1
+      const deltaY = event.deltaY * scale
+      if (!Number.isFinite(deltaY) || deltaY === 0) return
+      if (now - lastWheelZoomRef.current > 180 || Math.sign(wheelZoomAccumulatorRef.current) !== Math.sign(deltaY)) {
+        wheelZoomAccumulatorRef.current = 0
+      }
+      wheelZoomAccumulatorRef.current += Math.max(-120, Math.min(120, deltaY))
       lastWheelZoomRef.current = now
+      if (Math.abs(wheelZoomAccumulatorRef.current) < 35) return
+
+      const pane = eventPath.find((item) => item instanceof HTMLElement && item.dataset.tabId) as HTMLElement | undefined
+      runtime.adjustZoom(wheelZoomAccumulatorRef.current < 0 ? 1 : -1, pane?.dataset.tabId)
+      wheelZoomAccumulatorRef.current = 0
     }
 
     window.addEventListener('wheel', onWheel, { capture: true, passive: false })
@@ -1813,11 +1855,6 @@ export function App(): JSX.Element {
             </LocalErrorBoundary>
           </div>
         </section>
-        {CatAddonController && window.vast.app.startup.catAddonAvailable && catAddonEnabled && (
-          <Suspense fallback={null}>
-            <CatAddonController htmlFullscreen={Boolean(htmlFullscreenSession) || focusMode} />
-          </Suspense>
-        )}
         <Suspense fallback={null}>
           {!focusMode && !htmlFullscreenSession && sidePanelOpen && (
             <LocalErrorBoundary name="Sidebar" overlay onDismiss={() => useBrowserStore.getState().setSidePanelOpen(false)}>
@@ -1843,6 +1880,15 @@ export function App(): JSX.Element {
         {!htmlFullscreenSession && <PromptDialog />}
         {!htmlFullscreenSession && <ContextMenu />}
         {!htmlFullscreenSession && <NotificationsOverlay toasts={toasts} downloads={downloads} onDismiss={dismissToast} />}
+        {!htmlFullscreenSession && visiblePasswordPrompt && (
+          <PasswordSavePrompt
+            prompt={visiblePasswordPrompt.prompt}
+            collapsed={visiblePasswordPrompt.collapsed}
+            busy={visiblePasswordPrompt.busy}
+            onCollapse={(collapsed) => setPasswordPrompts((current) => current.map((entry) => entry.prompt.attemptId === visiblePasswordPrompt.prompt.attemptId ? { ...entry, collapsed } : entry))}
+            onAction={resolvePasswordPrompt}
+          />
+        )}
         {!htmlFullscreenSession && <ActionPromptModal prompt={activeUiPrompt} onResolve={(actionId) => activeUiPrompt && resolveUiPrompt(activeUiPrompt, actionId)} />}
         {!htmlFullscreenSession && <Suspense fallback={null}><RelayNoticeOverlay /></Suspense>}
       </div>

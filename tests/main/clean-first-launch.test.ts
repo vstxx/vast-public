@@ -25,9 +25,12 @@ test('a fresh profile is a clean, silent, single-workspace launch', () => {
   assert.equal(DEFAULT_DATA.sidePanelOpen, false)
   assert.equal(DEFAULT_DATA.sidebarCollapsed, true)
   assert.equal(DEFAULT_SETTINGS.openingAnimationSoundVolume, 0)
+  assert.equal(DEFAULT_SETTINGS.openingAnimation, false)
+  assert.equal(DEFAULT_SETTINGS.bookmarksBarVisible, true)
+  assert.equal(DEFAULT_SETTINGS.bookmarksBarOnlyOnNewTab, false)
   assert.equal(DEFAULT_SETTINGS.labs.enabled, false)
   assert.equal(DEFAULT_SETTINGS.newTabBehavior, 'search')
-  assert.equal(DEFAULT_DATA.quickLinks.length <= 3, true)
+  assert.deepEqual(DEFAULT_DATA.quickLinks, [])
   assert.deepEqual(
     Object.entries(DEFAULT_SETTINGS.newTab)
       .filter(([key, value]) => key.startsWith('show') && key !== 'showQuickLinks' && value)

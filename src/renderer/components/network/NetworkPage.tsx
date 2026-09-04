@@ -1,12 +1,12 @@
 import {
   Activity,
   Cast,
+  ChevronDown,
   Copy,
   Download,
   ExternalLink,
   Globe2,
   Heart,
-  Info,
   Monitor,
   Printer,
   RefreshCw,
@@ -20,13 +20,12 @@ import {
   Volume2,
   Wifi
 } from 'lucide-react'
-import type { ReactNode } from 'react'
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import type { NetworkDevice, NetworkDeviceCategory, NetworkDeviceSource } from '../../../shared/types'
 import { useBrowserRuntime } from '../../app/browser-runtime'
 import { formatRelativeTime } from '../../lib/format'
 import { useBrowserStore } from '../../store/browser-store'
-import { InternalLoadingSkeleton } from '../internal/InternalPage'
+import { InternalFilterButton, InternalLoadingSkeleton } from '../internal/InternalPage'
 import { useVastConfirm } from '../ui/useVastConfirm'
 
 const categories: Array<NetworkDeviceCategory | 'all'> = ['all', 'cast', 'audio', 'tv', 'router', 'printer', 'nas', 'smart-home', 'computer', 'unknown']
@@ -224,12 +223,13 @@ export function NetworkPage(): JSX.Element {
 
   return (
     <div className="labs-page-surface h-full overflow-y-auto overflow-x-hidden bg-[#06070a] p-5 text-white lg:p-6" data-testid="network-page">
-      <div className="mx-auto grid max-w-[1480px] gap-5 xl:grid-cols-[minmax(0,1fr)_410px]">
-        <section className="space-y-5">
+      <div className="mx-auto max-w-[1480px] space-y-5">
+        <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_410px]">
+          <section className="space-y-5">
           <header className="vast-glass-panel rounded-[32px] p-6">
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
               <div>
-                <h1 className="text-4xl font-semibold tracking-tight">Local network map</h1>
+                <h1 className="text-4xl font-semibold tracking-tight">Network Devices</h1>
                 <p className="mt-3 max-w-2xl text-sm leading-6 text-vast-soft">
                   Vast scans only your local network and does not send device data anywhere. Scans run only when you trigger them.
                 </p>
@@ -270,26 +270,26 @@ export function NetworkPage(): JSX.Element {
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Search devices, IPs, models, services"
-                  className="h-11 w-full rounded-2xl border border-transparent bg-white/[0.035] pl-10 pr-3 text-sm text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)] outline-none transition focus:shadow-[inset_0_0_0_1px_rgba(116,231,255,0.32),0_0_28px_rgba(116,231,255,0.07)]"
+                  className="h-11 w-full rounded-xl border border-white/[0.07] bg-white/[0.03] pl-10 pr-3 text-sm text-white outline-none transition-colors focus:border-white/[0.16] focus:bg-white/[0.045]"
                 />
               </div>
-              <div className="grid gap-2 border-t border-white/[0.06] pt-3 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-start">
-                <div className="pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-vast-soft">Category</div>
-                <div className="flex flex-wrap gap-2">
+              <div className="grid gap-2 border-t border-white/[0.06] pt-3 lg:grid-cols-[5.5rem_minmax(0,1fr)] lg:items-center">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-vast-soft">Category</div>
+                <div className="flex flex-wrap gap-1">
                   {categories.map((item) => (
-                    <FilterButton key={item} active={category === item} onClick={() => setCategory(item)}>
+                    <InternalFilterButton key={item} active={category === item} onClick={() => setCategory(item)}>
                       {item === 'all' ? 'All' : categoryLabel(item)}
-                    </FilterButton>
+                    </InternalFilterButton>
                   ))}
                 </div>
               </div>
-              <div className="grid gap-2 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-start">
-                <div className="pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-vast-soft">Source</div>
-                <div className="flex flex-wrap gap-2">
+              <div className="grid gap-2 lg:grid-cols-[5.5rem_minmax(0,1fr)] lg:items-center">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-vast-soft">Source</div>
+                <div className="flex flex-wrap gap-1">
                   {sources.map((item) => (
-                    <FilterButton key={item} active={source === item} onClick={() => setSource(item)}>
+                    <InternalFilterButton key={item} active={source === item} onClick={() => setSource(item)}>
                       {item === 'all' ? 'All sources' : item.toUpperCase()}
-                    </FilterButton>
+                    </InternalFilterButton>
                   ))}
                 </div>
               </div>
@@ -354,9 +354,9 @@ export function NetworkPage(): JSX.Element {
               </div>
             )}
           </section>
-        </section>
+          </section>
 
-        <aside className="vast-glass-panel sticky top-6 min-w-0 max-h-[calc(100vh-3rem)] overflow-y-auto rounded-[30px] p-5">
+          <aside className="network-detail-scroll vast-glass-panel sticky top-0 min-w-0 max-h-[calc(100vh-3rem)] self-start overflow-y-auto rounded-[30px] p-5">
           {loading && devices.length === 0 ? (
             <InternalLoadingSkeleton title="Preparing device detail" lines={6} className="min-h-[320px]" />
           ) : selected ? (
@@ -444,19 +444,25 @@ export function NetworkPage(): JSX.Element {
               Select a device to inspect metadata, services, and local notes.
             </div>
           )}
-        </aside>
+          </aside>
+        </div>
 
-        <section className="vast-glass-panel rounded-[28px] p-5 xl:col-span-2">
-          <button type="button" onClick={() => setShowAdvanced((value) => !value)} className="flex w-full items-center justify-between text-left">
-            <span>
+        <section className="vast-glass-panel overflow-hidden rounded-[28px] p-4">
+          <button
+            type="button"
+            aria-expanded={showAdvanced}
+            onClick={() => setShowAdvanced((value) => !value)}
+            className="flex w-full items-center justify-between gap-4 rounded-xl px-1 py-1 text-left transition-colors hover:bg-white/[0.025]"
+          >
+            <span className="min-w-0">
               <span className="block text-sm font-semibold">Advanced scan log</span>
               <span className="mt-1 block text-xs text-vast-soft">Raw source hints stay local and are useful for debugging mDNS, SSDP, probes, and ARP.</span>
             </span>
-            <Info className="h-4 w-4 text-vast-cyan" />
+            <ChevronDown className={`h-4 w-4 shrink-0 text-vast-soft transition-transform duration-150 ${showAdvanced ? 'rotate-180' : ''}`} />
           </button>
           {showAdvanced && (
-            <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
-              <div className="max-h-72 overflow-y-auto rounded-2xl bg-white/[0.032] p-3 font-mono text-xs leading-6 text-vast-soft shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)]">
+            <div className="mt-4 grid items-start gap-4 border-t border-white/[0.06] pt-4 lg:grid-cols-[minmax(0,1fr)_240px]">
+              <div className="network-detail-scroll max-h-72 overflow-y-auto rounded-xl border border-white/[0.06] bg-black/20 p-3 font-mono text-xs leading-6 text-vast-soft">
                 {logs.length ? logs.map((log) => <div key={log}>{log}</div>) : 'No scan log yet.'}
               </div>
               <div className="space-y-2">
@@ -499,22 +505,6 @@ function SummaryCard({ icon: Icon, label, value }: { icon: typeof Wifi; label: s
       </div>
       <div className="mt-3 text-3xl font-semibold">{value}</div>
     </div>
-  )
-}
-
-function FilterButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }): JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-        active
-          ? 'border-transparent bg-vast-cyan/[0.12] text-vast-cyan shadow-[0_0_0_1px_rgba(116,231,255,0.28),0_0_20px_rgba(116,231,255,0.08)]'
-          : 'border-transparent bg-white/[0.035] text-vast-soft shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)] hover:bg-white/[0.07] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.12)]'
-      }`}
-    >
-      {children}
-    </button>
   )
 }
 

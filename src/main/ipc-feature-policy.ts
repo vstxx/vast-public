@@ -48,7 +48,7 @@ export function assertIpcFeatureAllowed(channel: string, settings: BrowserSettin
   if (!featureId) return
   const labKey = featureLabKeys[featureId]
   if (!labKey) throw new Error(`Sensitive IPC policy references a feature without a Labs gate: ${featureId}`)
-  if (!settings.labs?.enabled || settings.labs[labKey] !== true) {
+  if (settings.labs?.[labKey] !== true) {
     throw new Error(`${featureId} is disabled in Vast Labs settings.`)
   }
 }

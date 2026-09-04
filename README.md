@@ -35,7 +35,7 @@ Prerequisites:
 
 - Node.js compatible with the version used by CI
 - npm
-- Python 3 for Cat Addon asset verification and Video & Audio development
+- Python 3 for Video & Audio development
 - Windows and .NET 8 when running updater integration tests or producing Windows packages
 
 Install exactly the locked JavaScript dependencies:
@@ -88,7 +88,6 @@ src/
   shared/      types, constants, policy, and trust metadata
 resources/
   avidae/      Video & Audio service source
-  cat-addon/   packaged Cat Addon resource
 relay/         Cloudflare Workers, migrations, control panel, and tests
 scripts/       build, audit, release, updater, and test tooling
 tests/         unit, contract, Electron, Relay, and updater coverage

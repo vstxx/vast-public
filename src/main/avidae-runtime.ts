@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { createReadStream, existsSync } from 'node:fs'
-import { readFile, readdir, stat } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/
@@ -129,10 +129,6 @@ export async function verifyBundledAvidaeRuntime(resourcesPath: string): Promise
   const playwrightBrowsersPath = resolveRuntimePath(root, manifest.playwrightBrowsersPath)
   if (!existsSync(playwrightBrowsersPath) || !(await stat(playwrightBrowsersPath)).isDirectory()) throw new Error('Bundled Playwright browser directory is missing.')
   if (!chromiumExecutable.startsWith(`${playwrightBrowsersPath}${path.sep}`)) throw new Error('Bundled Chromium is outside the Playwright browser directory.')
-  if ((await readdir(playwrightBrowsersPath, { withFileTypes: true })).some((entry) => entry.isDirectory() && /^chromium_headless_shell-\d+$/i.test(entry.name))) {
-    throw new Error('Bundled Playwright runtime contains a redundant headless shell.')
-  }
-
   return {
     executable,
     ffmpeg,

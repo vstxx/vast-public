@@ -55,6 +55,18 @@ function requestsPopupGeometry(features: string | undefined): boolean {
   return /(?:^|,)\s*(?:width|height|left|top|screenx|screeny)\s*=\s*\d+/i.test(features)
 }
 
+const NON_WINDOW_FRAME_NAMES = new Set(['', '_blank', '_self', '_parent', '_top'])
+
+/**
+ * A named target (window.open(url, 'name')) opts into named browsing-context
+ * semantics: Chromium reuses an existing window of that name and keeps the
+ * opener relationship. A Vast tab can provide neither, so these stay real
+ * popup windows like in a stock browser.
+ */
+function isNamedWindowTarget(frameName: string | undefined): boolean {
+  return typeof frameName === 'string' && frameName !== '' && !NON_WINDOW_FRAME_NAMES.has(frameName)
+}
+
 export function shouldOpenWebviewPopupAsWindow(request: WebviewPopupRequest): boolean {
   return routeWebviewWindowOpen(request) === 'popup-window'
 }
@@ -72,12 +84,20 @@ export function routeWebviewWindowOpen(request: WebviewPopupRequest): WebviewWin
     return 'deny'
   }
 
-  if (isIdentityProviderPopupUrl(url) || isOAuthLikeFirstPartyAuthUrl(url) || isPaymentPopupUrl(url) || requestsPopupGeometry(request.features)) {
+  if (
+    isNamedWindowTarget(request.frameName) ||
+    request.disposition === 'new-window' ||
+    isIdentityProviderPopupUrl(url) ||
+    isOAuthLikeFirstPartyAuthUrl(url) ||
+    isPaymentPopupUrl(url) ||
+    requestsPopupGeometry(request.features)
+  ) {
     return 'popup-window'
   }
 
-  // Chromium reports ordinary target=_blank links and window.open(url) calls
-  // with several different dispositions. Safe page navigation belongs in the
-  // browser's tab model regardless of that implementation detail.
+  // Anonymous target=_blank links and window.open(url) calls arrive with a
+  // tab disposition. Safe page navigation belongs in the browser's tab model
+  // regardless of that implementation detail; referrer and POST metadata for
+  // the initial request travel with the Vast tab request.
   return 'vast-tab'
 }

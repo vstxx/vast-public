@@ -39,6 +39,10 @@ FFprobe. Generate it with \`npm run avidae:runtime:prepare\`; verify it with
 \`npm run avidae:runtime:check\`. Generated binaries are release artifacts and
 are intentionally not committed.
 `
+const runtimeReadmePath = join(runtimeRoot, 'README.md')
+const preservedRuntimeReadme = existsSync(runtimeReadmePath)
+  ? readFileSync(runtimeReadmePath)
+  : Buffer.from(runtimeReadme, 'utf8')
 
 function fail(message) {
   throw new Error(message)
@@ -250,7 +254,7 @@ function prepareRuntime() {
     rmSync(buildRoot, { recursive: true, force: true })
     mkdirSync(runtimeRoot, { recursive: true })
     mkdirSync(buildRoot, { recursive: true })
-    writeFileSync(join(runtimeRoot, 'README.md'), runtimeReadme, 'utf8')
+    writeFileSync(runtimeReadmePath, preservedRuntimeReadme)
 
     const dataSeparator = process.platform === 'win32' ? ';' : ':'
     console.log('Building the bundled Video & Audio service...')

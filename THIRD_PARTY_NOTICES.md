@@ -14,6 +14,7 @@ The locked npm dependency tree contains permissive licenses including MIT, ISC, 
 | React / React DOM / Zustand / Electron Toolkit / electron-updater | MIT | Retain copyright and license notices. |
 | Lucide React / semver | ISC | Retain copyright and license notices. |
 | `fflate` | MIT | Retain its copyright and MIT license notice; used for bounded ZIP deflate/inflate after Vast's own strict ZIP validation. |
+| `tldts` / `tldts-core` | MIT | Retain copyright and license notices; used with the Public Suffix List for site-boundary classification. |
 
 The authoritative versions are pinned in `package-lock.json`. `node_modules` is not committed.
 
@@ -39,9 +40,5 @@ FFmpeg's GPL terms apply to the self-built FFmpeg executables; they do not chang
 ## Chromium-port overlay
 
 `chromium-port/` contains Vast-authored patches and tooling for an experimental open Chromium build. Applying those patches creates a combined Chromium source/build tree governed by Chromium's BSD-style license and the many third-party licenses recorded by Chromium, in addition to the MIT terms for Vast-owned additions. A staged Chromium package must include `LICENSE.chromium.txt` and Chromium's generated credits.
-
-## Cat Addon asset blocker
-
-`assets/cat-addon/Cat_85_Animations.zip` and derived Cat Addon pixel assets currently have no recorded author, source URL, license, or redistribution grant. The repository must not be made public, and those assets must not be distributed, until VastProductions obtains and records a compatible grant or replaces/removes them with assets whose provenance permits publication. The root MIT License does not cover or cure this missing grant.
 
 See [docs/OPEN_SOURCE_LICENSE_AUDIT.md](docs/OPEN_SOURCE_LICENSE_AUDIT.md) for the decision record and current blockers.

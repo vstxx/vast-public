@@ -53,7 +53,7 @@ export interface VextTrustedKey {
   keyId: string
   algorithm: 'Ed25519'
   publicKeySpkiBase64: string
-  status: 'current' | 'next' | 'test'
+  status: 'current' | 'next' | 'legacy' | 'test'
 }
 
 export interface ParsedVextPackage {

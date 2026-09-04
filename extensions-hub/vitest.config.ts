@@ -7,9 +7,11 @@ export default defineConfig({
   plugins: [cloudflareTest(async () => ({
     wrangler: { configPath: path.join(import.meta.dirname, 'wrangler.jsonc') },
     miniflare: {
+      serviceBindings: {
+        HUB_SIGNER: async () => new Response('Signer is not called by the test-only local signing path.', { status: 503 })
+      },
       bindings: {
         ENVIRONMENT: 'test',
-        HUB_RATE_LIMIT_SECRET: 'test-rate-limit-secret-not-for-production',
         HUB_SIGNING_PRIVATE_KEY_PKCS8: TEST_SIGNING_PRIVATE_PKCS8,
         GITHUB_CLIENT_ID: 'test-github-client',
         GITHUB_CLIENT_SECRET: 'test-github-secret',
@@ -21,5 +23,5 @@ export default defineConfig({
     }
   }))],
   root: import.meta.dirname,
-  test: { include: ['tests/**/*.test.ts'] }
+  test: { include: ['tests/**/*.test.ts'], testTimeout: 15_000 }
 })

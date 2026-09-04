@@ -1,6 +1,5 @@
 const { spawnSync } = require('node:child_process')
 const { join } = require('node:path')
-const { catAddonEnabled } = require('./build-capabilities.cjs')
 
 const root = join(__dirname, '..')
 
@@ -10,7 +9,6 @@ function run(command, args) {
   if (result.status !== 0) process.exit(result.status ?? 1)
 }
 
-if (catAddonEnabled(process.env)) run('npm', ['run', 'cat-addon:check'])
 run('npx', ['tsc', '--noEmit'])
 run('npx', ['electron-vite', 'build'])
 run('node', ['scripts/write-release-build-metadata.cjs'])

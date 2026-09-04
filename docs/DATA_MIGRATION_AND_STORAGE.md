@@ -1,14 +1,16 @@
 # Vast Data Migration And Storage
 
-This note documents the current 0.2.5 storage model, export/import behavior, and custom data directory support.
+This note documents the current 0.2.7 storage model, export/import behavior, and custom data directory support.
 
 ## Authoritative Data Root
 
 Vast uses one authoritative user data root.
 
-- Default installed app root: Electron `userData`, normally `%APPDATA%\Vast`.
+- Default installed direct and Microsoft Store root: `%APPDATA%\Vast`.
+- Portable root: `Vast Data` beside the portable executable.
 - Dev/test root: `VAST_TEST_USER_DATA_DIR`, `VAST_DEV_USER_DATA_DIR`, or `%APPDATA%\Vast Dev`.
-- Custom root: stored in `%APPDATA%\Vast\data-root.json` as `customDataRoot`.
+- Custom root: stored in `%APPDATA%\Vast\data-root.json` as `customDataRoot` for
+  installed builds, or in the portable `Vast Data` root for portable builds.
 
 The custom root is read before the app is ready and applied with `app.setPath('userData', ...)`, so Chromium profile state and Vast-owned files stay under the selected directory. The renderer cannot write arbitrary paths directly; export, import, folder open, and data directory changes go through validated main-process IPC.
 
@@ -82,8 +84,8 @@ Website session continuity is handled explicitly:
 - Website sessions/cookies: Chromium profile state is included where present, but website login sessions are not guaranteed to transfer across computers or OS accounts.
 - `integrations.json`: can contain local provider credentials. If present, keep backups private.
 
-## Known 0.2.5 Limits
+## Known 0.2.7 Limits
 
 - Import currently uses the safe "import into a new data directory and restart" path. In-place replacement and merge modes are not exposed yet.
-- A first-launch data directory wizard is not implemented in 0.2.5; users can choose the app install path in the installer and choose/migrate the data path in Settings.
+- A first-launch data directory wizard is not implemented in 0.2.7; users can choose the app install path in the installer and choose/migrate the data path in Settings.
 - Password and website session portability depends on OS/browser encryption behavior and should not be presented as guaranteed.

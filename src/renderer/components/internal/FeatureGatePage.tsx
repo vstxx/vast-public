@@ -5,24 +5,20 @@ import { InternalPageHero, InternalPageShell } from './InternalPage'
 
 export function FeatureGatePage({
   gate,
-  featureState,
-  labsEnabled
+  featureState
 }: {
   gate: FeatureGate
   featureState: FeatureState
-  labsEnabled: boolean
 }): JSX.Element {
   const setSettingsOpen = useBrowserStore((state) => state.setSettingsOpen)
   const disabledByFlag = featureState.state === 'DisabledByFlag'
   const comingSoon = featureState.state === 'ComingSoon'
-  const labsHidden = Boolean(gate.lab && !labsEnabled)
-  const eyebrow = comingSoon ? 'Coming soon' : labsHidden ? 'Optional feature' : 'Vast Labs'
-  const description = labsHidden ? `${gate.label} is not enabled.` : featureState.message
+  const eyebrow = comingSoon ? 'Coming soon' : 'Vast Labs'
+  const description = featureState.message
 
   const openFeatureSettings = (): void => {
     setSettingsOpen(true)
-    const section = labsHidden ? 'Advanced' : 'Labs'
-    window.setTimeout(() => window.dispatchEvent(new CustomEvent('vast-open-settings-section', { detail: { section } })), 0)
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent('vast-open-settings-section', { detail: { section: 'Labs' } })), 0)
   }
 
   return (
@@ -43,9 +39,7 @@ export function FeatureGatePage({
       >
         {disabledByFlag && (
           <div className="rounded-2xl border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-vast-soft">
-            {labsHidden
-              ? <>Optional features can be enabled from <span className="font-semibold text-white">Advanced settings</span>.</>
-              : <>Enable <span className="font-semibold text-white">{gate.label}</span> in Labs settings to use this page.</>}
+            Enable <span className="font-semibold text-white">{gate.label}</span> in Labs settings to use this page.
           </div>
         )}
       </InternalPageHero>

@@ -22,11 +22,11 @@ for (const path of [executable, appAsar]) {
   if (!existsSync(path)) fail(`missing packaged path: ${relative(root, path).replace(/\\/g, '/')}`)
 }
 
-if (existsSync(join(resources, 'cat-addon'))) fail('CI package contains Cat Addon resources while the capability is disabled')
+if (existsSync(join(resources, 'cat-addon'))) fail('CI package contains removed Cat Addon resources')
 
 if (existsSync(appAsar)) {
-  const forbidden = /(?:^|\/)(?:cat-addon|first-party-extensions\/idu-plus)(?:[-.\/]|$)|Cat_85|IDU-Plus-by-Vast|IDU-Plus-screenshot|idu-plus-logo|Otfits Grotesk|Audex-Regular|Aligra\.woff2|\.vext$/i
-  const forbiddenSource = /cat-addon|Cat Addon|Cat_85|IDU-Plus-by-Vast|IDU-Plus-screenshot|idu-plus-logo|first-party-extensions[\\/]idu-plus/i
+  const forbidden = /(?:^|\/)first-party-extensions\/idu-plus(?:[-.\/]|$)|IDU-Plus-by-Vast|IDU-Plus-screenshot|idu-plus-logo|Otfits Grotesk|Audex-Regular|Aligra\.woff2|\.vext$/i
+  const forbiddenSource = /IDU-Plus-by-Vast|IDU-Plus-screenshot|idu-plus-logo|first-party-extensions[\\/]idu-plus/i
   for (const entry of asar.listPackage(appAsar)) {
     const portable = String(entry).replace(/\\/g, '/')
     if (forbidden.test(portable)) fail(`app.asar contains excluded asset: ${portable}`)
@@ -38,7 +38,6 @@ if (existsSync(appAsar)) {
   try {
     const metadata = JSON.parse(asar.extractFile(appAsar, 'out\\release-build-metadata.json').toString('utf8'))
     if (metadata.version !== pkg.version) fail(`packaged version ${metadata.version} does not match ${pkg.version}`)
-    if (metadata.catAddonIncluded !== false) fail('packaged metadata does not record Cat Addon as excluded')
   } catch (error) {
     fail(`could not validate packaged release metadata: ${error instanceof Error ? error.message : String(error)}`)
   }

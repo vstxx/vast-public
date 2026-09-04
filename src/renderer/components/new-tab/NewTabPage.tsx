@@ -202,7 +202,7 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
             <ClockWidget compact />
           </div>
 
-          <label className="relative mt-3 flex items-center gap-2 text-[13px] text-vast-soft">
+          <div className="relative mt-3 flex items-center gap-2 text-[13px] text-vast-soft">
             <span>Workspace</span>
             <VastSelect
               value={workspace?.id ?? ''}
@@ -213,7 +213,7 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
               buttonClassName="h-9 min-h-9"
               align="start"
             />
-          </label>
+          </div>
 
           <div className="relative mt-3 w-full max-w-2xl">
             <SearchForm query={query} setQuery={setQuery} onSubmit={(value) => runtime.navigateActive(value)} />

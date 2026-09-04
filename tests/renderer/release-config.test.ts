@@ -8,8 +8,8 @@ const brandMarkSource = readFileSync(new URL('../../src/renderer/components/ui/B
 const indexHtml = readFileSync(new URL('../../index.html', import.meta.url), 'utf8')
 const prepareReleaseSource = readFileSync(new URL('../../scripts/prepare-release.ps1', import.meta.url), 'utf8')
 
-test('public beta is packaged as one Vast 0.2.5 product', () => {
-  assert.equal(packageJson.version, '0.2.5')
+test('public beta is packaged as one Vast 0.2.7 product', () => {
+  assert.equal(packageJson.version, '0.2.7')
   assert.equal(packageJson.build.productName, 'Vast')
   assert.match(packageJson.scripts['dist:upgrader'], /build-release\.cjs upgrader/)
   assert.match(packageJson.scripts['dist:public'], /dist:upgrader/)

@@ -1,3 +1,5 @@
+import { getDomain } from 'tldts'
+
 export interface CleanUrlResult {
   url: string
   changed: boolean
@@ -58,11 +60,6 @@ export function hostMatchesList(rawUrlOrHost: string, entries: readonly string[]
   }))
 }
 
-const TWO_LEVEL_PUBLIC_SUFFIXES = new Set([
-  'co.uk', 'org.uk', 'ac.uk', 'com.au', 'net.au', 'org.au', 'co.jp', 'co.nz',
-  'com.br', 'com.mx', 'com.pl', 'net.pl', 'org.pl', 'edu.pl', 'gov.pl'
-])
-
 export function siteDomain(rawUrlOrHost: string): string {
   let hostname = rawUrlOrHost.toLowerCase()
   try {
@@ -71,10 +68,7 @@ export function siteDomain(rawUrlOrHost: string): string {
     hostname = hostname.replace(/^\.+|\.+$/g, '')
   }
   if (!hostname || hostname === 'localhost' || /^\d+(?:\.\d+){3}$/.test(hostname) || hostname.includes(':')) return hostname
-  const labels = hostname.split('.').filter(Boolean)
-  if (labels.length <= 2) return hostname
-  const suffix = labels.slice(-2).join('.')
-  return TWO_LEVEL_PUBLIC_SUFFIXES.has(suffix) ? labels.slice(-3).join('.') : suffix
+  return getDomain(hostname, { allowPrivateDomains: true }) ?? hostname
 }
 
 export function isThirdPartyUrl(requestUrl: string, topLevelUrl: string | undefined): boolean {

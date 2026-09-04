@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron/renderer'
+import { contextBridge, ipcRenderer, webUtils } from 'electron/renderer'
 import {
   parseOpeningHandledStartupFlag,
   parseOpeningHandledStartupSearch,
@@ -11,8 +11,6 @@ import { DEFAULT_SETTINGS } from '../shared/constants'
 import { OPENING_COMPLETE_IPC_CHANNEL, OPENING_COMPLETE_MESSAGE } from '../shared/opening-sequence'
 import type { BrowserTabOpenRequest, DetachedTabPayload, DownloadItem, PersistedData, VastApi } from '../shared/types'
 import { TabOpenRequestBuffer } from './tab-open-request-buffer'
-
-declare const __VAST_CAT_ADDON_AVAILABLE__: boolean
 
 const openingAnimationEnabled = parseOpeningStartupSearch(window.location.search) || parseOpeningStartupFlag(process.argv)
 const openingAnimationSoundVolume = parseOpeningStartupVolumeSearch(
@@ -64,26 +62,6 @@ ipcRenderer.on('vast:browser:open-tab', (_event, request: BrowserTabOpenRequest)
   tabOpenRequests.receive(request)
 })
 
-const catAddonApi = __VAST_CAT_ADDON_AVAILABLE__ ? {
-  catAddon: {
-    status: () => ipcRenderer.invoke('vast:cat-addon:status'),
-    runtime: () => ipcRenderer.invoke('vast:cat-addon:runtime'),
-    windowState: () => ipcRenderer.invoke('vast:cat-addon:window-state'),
-    enable: () => ipcRenderer.invoke('vast:cat-addon:enable'),
-    disable: () => ipcRenderer.invoke('vast:cat-addon:disable'),
-    onStateChanged: (callback: VastApi['catAddon']['onStateChanged'] extends (callback: infer T) => unknown ? T : never) => {
-      const listener = (_event: Electron.IpcRendererEvent, state: Parameters<typeof callback>[0]): void => callback(state)
-      ipcRenderer.on('vast:cat-addon:state', listener)
-      return () => ipcRenderer.removeListener('vast:cat-addon:state', listener)
-    },
-    onWindowStateChanged: (callback: VastApi['catAddon']['onWindowStateChanged'] extends (callback: infer T) => unknown ? T : never) => {
-      const listener = (_event: Electron.IpcRendererEvent, state: Parameters<typeof callback>[0]): void => callback(state)
-      ipcRenderer.on('vast:cat-addon:window-state-changed', listener)
-      return () => ipcRenderer.removeListener('vast:cat-addon:window-state-changed', listener)
-    }
-  }
-} : {}
-
 const api = {
   storage: {
     load: () => ipcRenderer.invoke('vast:storage:load') as Promise<PersistedData>,
@@ -99,9 +77,6 @@ const api = {
       }>,
     exportFullBackup: () => ipcRenderer.invoke('vast:storage:export-full'),
     importFullBackup: () => ipcRenderer.invoke('vast:storage:import-full'),
-    listBackups: () => ipcRenderer.invoke('vast:storage:list-backups'),
-    restoreBackup: (id) => ipcRenderer.invoke('vast:storage:restore-backup', id),
-    createBackup: () => ipcRenderer.invoke('vast:storage:create-backup'),
     onSitePermissionsChanged: (callback) => {
       const listener = (_event: Electron.IpcRendererEvent, permissions: Parameters<typeof callback>[0]): void => callback(permissions)
       ipcRenderer.on('vast:site-permissions-changed', listener)
@@ -152,7 +127,6 @@ const api = {
       return () => ipcRenderer.removeListener('vast:extensions:ui-request', listener)
     }
   },
-  ...catAddonApi,
   privacy: {
     clearSiteData: (origin, webContentsId) =>
       ipcRenderer.invoke('vast:privacy:clear-site-data', origin, webContentsId) as Promise<{ ok: boolean; error?: string }>,
@@ -186,10 +160,9 @@ const api = {
     copyPassword: (id) => ipcRenderer.invoke('vast:passwords:copy-password', id),
     fillAutofill: (webContentsId, origin) => ipcRenderer.invoke('vast:passwords:autofill', webContentsId, origin),
     getAutofillSuggestions: (webContentsId, origin) => ipcRenderer.invoke('vast:passwords:autofill-suggestions', webContentsId, origin),
-    fillById: (id, webContentsId, origin) => ipcRenderer.invoke('vast:passwords:fill-by-id', id, webContentsId, origin),
+    fillById: (id, webContentsId, origin, requestId) => ipcRenderer.invoke('vast:passwords:fill-by-id', id, webContentsId, origin, requestId),
     saveCapturedLogin: (input) => ipcRenderer.invoke('vast:passwords:save-captured', input),
     captureStatus: (webContentsId, origin) => ipcRenderer.invoke('vast:passwords:capture-status', webContentsId, origin),
-    captureLogin: (webContentsId, input) => ipcRenderer.invoke('vast:passwords:capture-login', webContentsId, input),
     allowSavePrompts: (origin) => ipcRenderer.invoke('vast:passwords:allow-save-prompts', origin),
     importCsv: () => ipcRenderer.invoke('vast:passwords:import-csv'),
     exportCsv: () => ipcRenderer.invoke('vast:passwords:export-csv'),
@@ -199,7 +172,18 @@ const api = {
       const listener = (_event: Electron.IpcRendererEvent, state: Parameters<typeof callback>[0]): void => callback(state)
       ipcRenderer.on('vast:passwords:session-state', listener)
       return () => ipcRenderer.removeListener('vast:passwords:session-state', listener)
-    }
+    },
+    onSavePrompt: (callback) => {
+      const listener = (_event: Electron.IpcRendererEvent, prompt: Parameters<typeof callback>[0]): void => callback(prompt)
+      ipcRenderer.on('vast:passwords:save-prompt', listener)
+      return () => ipcRenderer.removeListener('vast:passwords:save-prompt', listener)
+    },
+    onSavePromptCleared: (callback) => {
+      const listener = (_event: Electron.IpcRendererEvent, attemptId: string): void => callback(attemptId)
+      ipcRenderer.on('vast:passwords:save-prompt-cleared', listener)
+      return () => ipcRenderer.removeListener('vast:passwords:save-prompt-cleared', listener)
+    },
+    resolveSavePrompt: (attemptId, action) => ipcRenderer.invoke('vast:passwords:resolve-save-prompt', attemptId, action)
   },
   notes: {
     exportMarkdown: (title, body) => ipcRenderer.invoke('vast:notes:export-markdown', title, body)
@@ -307,16 +291,26 @@ const api = {
       ipcRenderer.invoke('vast:browser:print-web-contents', webContentsId) as Promise<{ ok: boolean; error?: string }>
   },
   pdf: {
-    load: (url) =>
-      ipcRenderer.invoke('vast:pdf:load', url) as Promise<{
-        ok: boolean
-        data?: Uint8Array
-        mimeType?: string
-        filename?: string
-        error?: string
-      }>,
-    print: (data, filename) =>
-      ipcRenderer.invoke('vast:pdf:print', data, filename) as Promise<{ ok: boolean; error?: string }>
+    onCapture: (callback) => {
+      const listener = (_event: Electron.IpcRendererEvent, capture: Parameters<typeof callback>[0]): void => callback(capture)
+      ipcRenderer.on('vast:pdf:capture', listener)
+      return () => ipcRenderer.removeListener('vast:pdf:capture', listener)
+    },
+    captures: (guestWebContentsId) => ipcRenderer.invoke('vast:pdf:captures', guestWebContentsId),
+    openLocalFile: (file) => {
+      try {
+        const path = webUtils.getPathForFile(file)
+        if (!path) return Promise.resolve({ ok: false, error: 'The dropped item is not backed by a local file.' })
+        return ipcRenderer.invoke('vast:pdf:open-local-file', path)
+      } catch {
+        return Promise.resolve({ ok: false, error: 'The dropped item is not a valid local file.' })
+      }
+    },
+    info: (id) => ipcRenderer.invoke('vast:pdf:info', id),
+    readRange: (id, begin, end) => ipcRenderer.invoke('vast:pdf:read-range', id, begin, end),
+    save: (id, filename) => ipcRenderer.invoke('vast:pdf:save', id, filename),
+    openExternal: (id) => ipcRenderer.invoke('vast:pdf:open-external-fallback', id),
+    print: (id) => ipcRenderer.invoke('vast:pdf:print', id)
   },
   app: {
     platform: process.platform,
@@ -335,8 +329,7 @@ const api = {
     startup: {
       openingAnimationEnabled,
       openingAnimationHandledBySplash,
-      openingAnimationSoundVolume,
-      catAddonAvailable: __VAST_CAT_ADDON_AVAILABLE__
+      openingAnimationSoundVolume
     },
     versions: {
       electron: process.versions.electron ?? '',

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "recipeRevision": "5ac6e49c868e80c5374a8521f4f3ce209f9cce14befc2fee49e8f8343b45dd45",
+  "repository": "vstxx/vast",
+  "releaseTag": "ci-cache-ffmpeg-5ac6e49c868e80c5374a8521f4f3ce209f9cce14befc2fee49e8f8343b45dd45",
+  "assetName": "vast-ffmpeg-ci-cache-5ac6e49c868e80c5374a8521f4f3ce209f9cce14befc2fee49e8f8343b45dd45.tar",
+  "size": 314824704,
+  "sha256": "b1e313d03c3a74196f2448cdb575b0bf7ff621c0e349aa20b3807c8a0a7ac6ed"
+}

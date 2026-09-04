@@ -109,8 +109,8 @@ export const DEFAULT_SETTINGS: BrowserSettings = {
     positionX: -1,
     positionY: 60
   },
-  bookmarksBarVisible: false,
-  bookmarksBarOnlyOnNewTab: true,
+  bookmarksBarVisible: true,
+  bookmarksBarOnlyOnNewTab: false,
   hibernateInactiveTabs: true,
   defaultSearchEngine: 'google',
   startupBehavior: 'restore',
@@ -131,11 +131,8 @@ export const DEFAULT_SETTINGS: BrowserSettings = {
   },
   restorePreviousSession: true,
   animations: true,
-  openingAnimation: true,
+  openingAnimation: false,
   openingAnimationSoundVolume: 0,
-  catAddon: {
-    enabled: false
-  },
   privacy: {
     blockTrackers: true,
     adBlockerEnabled: true,
@@ -288,11 +285,7 @@ export const DEFAULT_DATA: PersistedData = {
   downloads: [],
   notes: [],
   readingList: [],
-  quickLinks: [
-    { id: 'ql-google', title: 'Google', url: 'https://google.com', color: '#f3f5f8' },
-    { id: 'ql-wikipedia', title: 'Wikipedia', url: 'https://wikipedia.org', color: '#d7dae2' },
-    { id: 'ql-github', title: 'GitHub', url: 'https://github.com', color: '#b7a7ff' }
-  ],
+  quickLinks: [],
   siteMemory: [],
   todos: [],
   macros: [],

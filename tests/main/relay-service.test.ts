@@ -142,6 +142,7 @@ test('Relay outage, HTTP 500 and 429 retry conservatively while 4xx schema failu
   const cases = [
     { response: () => Promise.reject(new Error('offline')), expected: 60_000 },
     { response: () => Promise.resolve(jsonResponse({}, 500)), expected: 60_000 },
+    { response: () => Promise.resolve(jsonResponse({}, 503, { 'Retry-After': '600' })), expected: 600_000 },
     { response: () => Promise.resolve(jsonResponse({}, 429, { 'Retry-After': '600' })), expected: 600_000 },
     { response: () => Promise.resolve(jsonResponse({}, 400)), expected: 6 * 60 * 60 * 1_000 },
     { response: () => Promise.resolve(jsonResponse({ ...emptyResponse(), unexpected: true })), expected: 6 * 60 * 60 * 1_000 },

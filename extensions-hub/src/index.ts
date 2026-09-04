@@ -1,5 +1,6 @@
 import semver from 'semver'
 import { canonicalJson, createEd25519Signer, createVextPackage, sha256Hex, VEXT_LIMITS, VEXT_VERSION } from '../../src/shared/vext-format.ts'
+import { createHubSignerProofPayload, parseHubSignerProof, type HubSignerProof } from '../../src/shared/hub-signer-proof.ts'
 import { permissionEscalation, type ExtensionPermissionSnapshot, type SignedVastHubReleaseDescriptor, type VastHubReleaseDescriptor } from '../../src/shared/extension-marketplace.ts'
 import { dashboardPage, detailPage, homePage, legalPage, messagePage, publisherHomePage, reportPage, reportReviewPage, reviewPage, type CatalogViewItem, type DashboardExtension, type ExtensionReportReviewItem, type ReviewItem } from './html.ts'
 import {
@@ -203,7 +204,7 @@ async function categories(env: Env): Promise<string[]> {
 }
 
 async function publicCatalog(request: Request, env: Env): Promise<Response> {
-  await enforceRateLimit(request, env, 'catalog', 120, 60_000)
+  await enforceRateLimit(request, env.HUB_PUBLIC_RATE_LIMIT, 'catalog')
   const url = new URL(request.url)
   const page = Math.max(1, Math.min(1_000, Number.parseInt(url.searchParams.get('page') ?? '1', 10) || 1))
   const [{ rows, total }, featured, categoryList] = await Promise.all([
@@ -222,7 +223,7 @@ async function extensionDetails(env: Env, id: string): Promise<Response> {
 }
 
 async function releaseDescriptor(request: Request, env: Env, extension: string, version?: string): Promise<Response> {
-  await enforceRateLimit(request, env, 'install-metadata', 180, 60_000)
+  await enforceRateLimit(request, env.HUB_PUBLIC_RATE_LIMIT, 'install-metadata')
   assertExtensionId(extension)
   if (version && !VEXT_VERSION.test(version)) throw new HttpError(404, 'Release was not found.')
   const row = await env.DB.prepare(`SELECT r.descriptor_json,r.descriptor_signature,r.signature_key_id FROM releases r JOIN extensions e ON e.id=r.extension_id WHERE r.extension_id=?1 AND r.status='published' AND e.status='published' AND ${version ? 'r.version=?2' : 'r.id=e.current_release_id'}`).bind(...(version ? [extension, version] : [extension])).first<{ descriptor_json: string; descriptor_signature: string; signature_key_id: string }>()
@@ -237,7 +238,7 @@ function safeReturnPath(value: string | null): string {
 }
 
 async function oauthStart(request: Request, env: Env): Promise<Response> {
-  await enforceRateLimit(request, env, 'oauth-start', 20, 10 * 60_000)
+  await enforceRateLimit(request, env.HUB_AUTH_RATE_LIMIT, 'oauth-start')
   const state = randomToken()
   const verifier = randomToken()
   const created = now()
@@ -264,7 +265,7 @@ async function boundedExternalJson(response: Response): Promise<Record<string, u
 }
 
 async function oauthCallback(request: Request, env: Env): Promise<Response> {
-  await enforceRateLimit(request, env, 'oauth-callback', 30, 10 * 60_000)
+  await enforceRateLimit(request, env.HUB_AUTH_RATE_LIMIT, 'oauth-callback')
   const url = new URL(request.url)
   const state = url.searchParams.get('state') ?? ''
   const code = url.searchParams.get('code') ?? ''
@@ -346,7 +347,7 @@ async function createExtension(request: Request, env: Env): Promise<Response> {
   const session = await requireMutation(request, env)
   requireLegalConfig(env)
   await requirePublisherTerms(env, session.publisher.id)
-  await enforceRateLimit(request, env, `create-${session.publisher.id}`, 12, 60 * 60_000)
+  await enforceRateLimit(request, env.HUB_PUBLISH_RATE_LIMIT, `create-${session.publisher.id}`)
   const input = parseCreateExtension(await readJson(request, API_JSON_LIMIT))
   const category = await env.DB.prepare('SELECT slug FROM categories WHERE slug=?1').bind(input.category).first<{ slug: string }>()
   if (!category) throw new HttpError(400, 'Category is invalid.')
@@ -366,7 +367,7 @@ async function updateExtensionDataPractice(request: Request, env: Env, extension
   const session = await requireMutation(request, env)
   requireLegalConfig(env)
   await requirePublisherTerms(env, session.publisher.id)
-  await enforceRateLimit(request, env, `listing-disclosure-${session.publisher.id}`, 30, 60 * 60_000)
+  await enforceRateLimit(request, env.HUB_PUBLISH_RATE_LIMIT, `listing-disclosure-${session.publisher.id}`)
   await ownedExtension(env, extension, session.publisher.id)
   const input = parseExtensionDataPractice(await readJson(request, API_JSON_LIMIT))
   const timestamp = now()
@@ -381,7 +382,7 @@ async function uploadRelease(request: Request, env: Env, extension: string): Pro
   const session = await requireMutation(request, env)
   requireLegalConfig(env)
   await requirePublisherTerms(env, session.publisher.id)
-  await enforceRateLimit(request, env, `upload-${session.publisher.id}`, 30, 60 * 60_000)
+  await enforceRateLimit(request, env.HUB_PUBLISH_RATE_LIMIT, `upload-${session.publisher.id}`)
   await ownedExtension(env, extension, session.publisher.id)
   const type = request.headers.get('content-type')?.split(';')[0].toLowerCase()
   if (type !== 'application/vnd.vast.extension+zip' && type !== 'application/octet-stream') throw new HttpError(415, 'Expected a .vext package.')
@@ -420,7 +421,7 @@ async function submitRelease(request: Request, env: Env, releaseId: string): Pro
   const session = await requireMutation(request, env)
   requireLegalConfig(env)
   await requirePublisherTerms(env, session.publisher.id)
-  await enforceRateLimit(request, env, `submit-${session.publisher.id}`, 30, 60 * 60_000)
+  await enforceRateLimit(request, env.HUB_PUBLISH_RATE_LIMIT, `submit-${session.publisher.id}`)
   if (!/^release_[a-f0-9]{32}$/.test(releaseId)) throw new HttpError(404, 'Release was not found.')
   const release = await env.DB.prepare(`SELECT r.id,r.status,r.staging_key,e.id extension_id,e.data_practice,e.privacy_policy_url,e.remote_services FROM releases r JOIN extensions e ON e.id=r.extension_id JOIN extension_owners o ON o.extension_id=e.id WHERE r.id=?1 AND o.publisher_id=?2`).bind(releaseId, session.publisher.id).first<{ id: string; status: string; staging_key: string | null; extension_id: string; data_practice: 'undisclosed' | 'local-only' | 'external-processing'; privacy_policy_url: string | null; remote_services: string }>()
   if (!release || !release.staging_key) throw new HttpError(404, 'Release was not found.')
@@ -456,8 +457,33 @@ async function approveRelease(env: Env, session: HubSession, submissionId: strin
   const bytes = new Uint8Array(await object.arrayBuffer())
   const summary = await validatePublisherPackage(bytes, row.extension_id, row.publisher_id)
   if (summary.version !== row.version) throw new HttpError(409, 'Staged release metadata changed unexpectedly.')
-  const signer = await createEd25519Signer(env.SIGNING_KEY_ID, env.HUB_SIGNING_PRIVATE_KEY_PKCS8)
-  const official = await createVextPackage({ extensionId: row.extension_id, version: row.version, publisherId: row.publisher_id, files: summary.parsed.files, signer })
+  let official: Uint8Array
+  let descriptorSigner: (canonical: string) => Promise<string>
+  if (String(env.ENVIRONMENT) === 'test' && env.HUB_SIGNING_PRIVATE_KEY_PKCS8) {
+    const signer = await createEd25519Signer(env.SIGNING_KEY_ID, env.HUB_SIGNING_PRIVATE_KEY_PKCS8)
+    official = await createVextPackage({ extensionId: row.extension_id, version: row.version, publisherId: row.publisher_id, files: summary.parsed.files, signer })
+    descriptorSigner = async (canonical) => bytesToBase64(await signer.sign(encoder.encode(canonical)))
+  } else {
+    const signedPackage = await env.HUB_SIGNER.fetch('https://signer.internal/v1/package', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/vnd.vast.extension+zip',
+        'X-Vast-Extension-Id': row.extension_id,
+        'X-Vast-Publisher-Id': row.publisher_id,
+        'X-Vast-Version': row.version
+      },
+      body: bytes
+    })
+    if (!signedPackage.ok || signedPackage.headers.get('x-vast-signing-key-id') !== env.SIGNING_KEY_ID) throw new HttpError(503, 'The signing service is temporarily unavailable.')
+    official = new Uint8Array(await signedPackage.arrayBuffer())
+    descriptorSigner = async (canonical) => {
+      const response = await env.HUB_SIGNER.fetch('https://signer.internal/v1/descriptor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: canonical })
+      if (!response.ok) throw new HttpError(503, 'The signing service is temporarily unavailable.')
+      const result = await response.json<{ keyId?: string; signature?: string }>()
+      if (result.keyId !== env.SIGNING_KEY_ID || typeof result.signature !== 'string') throw new HttpError(503, 'The signing service returned an invalid response.')
+      return result.signature
+    }
+  }
   const packageHash = await sha256Hex(official)
   const packageKey = `packages/${row.extension_id}/${row.version}/${packageHash}.vext`
   const publishedAt = now()
@@ -472,7 +498,7 @@ async function approveRelease(env: Env, session: HubSession, submissionId: strin
     permissions: summary.permissions,
     published_at: publishedAt
   }
-  const descriptorSignature = bytesToBase64(await signer.sign(encoder.encode(canonicalJson(descriptor))))
+  const descriptorSignature = await descriptorSigner(canonicalJson(descriptor))
   const signed: SignedVastHubReleaseDescriptor = { descriptor, signature: { signature_version: 1, algorithm: 'Ed25519', key_id: env.SIGNING_KEY_ID, signature: descriptorSignature } }
   await env.PACKAGES.put(packageKey, official, { httpMetadata: { contentType: 'application/vnd.vast.extension+zip', cacheControl: 'public, max-age=31536000, immutable' }, customMetadata: { extensionId: row.extension_id, version: row.version, sha256: packageHash } })
   try {
@@ -482,7 +508,7 @@ async function approveRelease(env: Env, session: HubSession, submissionId: strin
       env.DB.prepare(`INSERT INTO submission_reviews(id,submission_id,reviewer_id,decision,note,created_at) VALUES(?1,?2,?3,'approve',?4,?5)`).bind(`review_${randomHex(12)}`, submissionId, session.publisher.id, note, publishedAt),
       env.DB.prepare(`UPDATE extensions SET current_release_id=?1,status='published',kind=?2,updated_at=?3 WHERE id=?4`).bind(row.id, summary.kind, publishedAt, row.extension_id),
       env.DB.prepare(`INSERT INTO download_counters(extension_id,count,updated_at) VALUES(?1,0,?2) ON CONFLICT(extension_id) DO NOTHING`).bind(row.extension_id, publishedAt),
-      env.DB.prepare('INSERT INTO audit_log(id,actor_id,target_type,target_id,action,note,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7)').bind(`audit_${randomHex(12)}`, session.publisher.id, 'release', row.id, row.publisher_id === session.publisher.id ? 'admin-self-approve-and-sign' : 'approve-and-sign', note, publishedAt)
+      env.DB.prepare('INSERT INTO audit_log(id,actor_id,target_type,target_id,action,note,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7)').bind(`audit_${randomHex(12)}`, session.publisher.id, 'release', row.id, 'approve-and-sign', note, publishedAt)
     ])
   } catch (error) {
     await deleteR2ObjectBestEffort(env, packageKey, 'hub_package_rollback_cleanup_failed')
@@ -495,7 +521,7 @@ async function approveRelease(env: Env, session: HubSession, submissionId: strin
 async function reviewDecision(request: Request, env: Env, submissionId: string): Promise<Response> {
   const session = await requireMutation(request, env)
   requireRole(session, ['reviewer', 'admin'])
-  await enforceRateLimit(request, env, `review-${session.publisher.id}`, 120, 60 * 60_000)
+  await enforceRateLimit(request, env.HUB_REVIEW_RATE_LIMIT, `review-${session.publisher.id}`)
   if (!/^submission_[a-f0-9]{32}$/.test(submissionId)) throw new HttpError(404, 'Submission was not found.')
   const body = await readJson(request, API_JSON_LIMIT)
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, 'Review decision is invalid.')
@@ -504,9 +530,8 @@ async function reviewDecision(request: Request, env: Env, submissionId: string):
   if (!['approve', 'reject', 'changes'].includes(action) || (action !== 'approve' && note.length < 10)) throw new HttpError(400, 'A valid decision and reviewer note are required.')
   const row = await env.DB.prepare(`SELECT r.*,e.publisher_id,e.current_release_id,e.name extension_name,p.publisher_name FROM submissions s JOIN releases r ON r.id=s.release_id JOIN extensions e ON e.id=r.extension_id JOIN publishers p ON p.id=e.publisher_id WHERE s.id=?1 AND s.status='pending' AND r.status='pending'`).bind(submissionId).first<ReleaseRow>()
   if (!row) throw new HttpError(404, 'Submission was not found.')
-  const adminSelfReview = row.publisher_id === session.publisher.id && session.publisher.role === 'admin'
-  if (row.publisher_id === session.publisher.id && !adminSelfReview) throw new HttpError(403, 'Only a trusted administrator can review their own release.')
-  const reviewNote = adminSelfReview && !note ? 'Trusted administrator self-approved this release.' : note
+  if (row.publisher_id === session.publisher.id) throw new HttpError(403, 'Publisher and reviewer must be different identities.')
+  const reviewNote = note
   const claimedAt = now()
   const claim = await env.DB.prepare(`UPDATE submissions SET status='reviewing',resolved_at=?1 WHERE id=?2 AND status='pending' RETURNING id`).bind(claimedAt, submissionId).first<{ id: string }>()
   if (!claim) throw new HttpError(409, 'This submission is already being reviewed.')
@@ -566,7 +591,7 @@ async function uploadMedia(request: Request, env: Env, extension: string): Promi
   const session = await requireMutation(request, env)
   requireLegalConfig(env)
   await requirePublisherTerms(env, session.publisher.id)
-  await enforceRateLimit(request, env, `media-${session.publisher.id}`, 40, 60 * 60_000)
+  await enforceRateLimit(request, env.HUB_PUBLISH_RATE_LIMIT, `media-${session.publisher.id}`)
   await ownedExtension(env, extension, session.publisher.id)
   const kind = new URL(request.url).searchParams.get('kind')
   if (kind !== 'icon' && kind !== 'screenshot') throw new HttpError(400, 'Media kind is invalid.')
@@ -616,7 +641,7 @@ async function serveMedia(env: Env, encoded: string): Promise<Response> {
 
 async function servePackage(request: Request, env: Env, key: string): Promise<Response> {
   if (!/^packages\/[a-p]{32}\/[0-9A-Za-z.+-]{1,64}\/[a-f0-9]{64}\.vext$/.test(key)) throw new HttpError(404, 'Package was not found.')
-  await enforceRateLimit(request, env, 'package-download', 180, 60_000)
+  await enforceRateLimit(request, env.HUB_PUBLIC_RATE_LIMIT, 'package-download')
   const release = await env.DB.prepare(`SELECT r.extension_id,r.package_sha256 FROM releases r JOIN extensions e ON e.id=r.extension_id WHERE r.package_key=?1 AND r.status='published' AND e.status='published'`).bind(key).first<{ extension_id: string; package_sha256: string }>()
   if (!release) throw new HttpError(404, 'Package was not found.')
   const responseHeaders = (object: R2Object): Headers => {
@@ -698,7 +723,7 @@ async function reportForm(request: Request, env: Env, extension: string): Promis
 
 async function createReport(request: Request, env: Env, extension: string): Promise<Response> {
   if (request.headers.get('origin') !== publicOrigin(env)) throw new HttpError(403, 'Origin validation failed.')
-  await enforceRateLimit(request, env, 'extension-report', 5, 60 * 60_000)
+  await enforceRateLimit(request, env.HUB_REPORT_RATE_LIMIT, 'extension-report')
   const listing = await getCatalogRow(env, extension)
   if (!listing) throw new HttpError(404, 'Extension was not found.')
   const value = await readJson(request, API_JSON_LIMIT)
@@ -850,6 +875,26 @@ async function suspendExtension(request: Request, env: Env, id: string): Promise
 async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url)
   const path = url.pathname
+  if (request.method === 'GET' && path === '/health') {
+    let signerKeyId: string = env.SIGNING_KEY_ID
+    let signerProof: HubSignerProof
+    if (String(env.ENVIRONMENT) === 'test' && env.HUB_SIGNING_PRIVATE_KEY_PKCS8) {
+      const payload = createHubSignerProofPayload(env.SIGNING_KEY_ID, publicOrigin(env))
+      const signer = await createEd25519Signer(env.SIGNING_KEY_ID, env.HUB_SIGNING_PRIVATE_KEY_PKCS8)
+      signerProof = parseHubSignerProof({ keyId: env.SIGNING_KEY_ID, payload, signature: bytesToBase64(await signer.sign(encoder.encode(payload))) }, env.SIGNING_KEY_ID, publicOrigin(env))
+    } else {
+      const signerHealth = await env.HUB_SIGNER.fetch('https://signer.internal/v1/proof')
+      if (!signerHealth.ok) throw new HttpError(503, 'The signing service is unavailable.')
+      try {
+        signerProof = parseHubSignerProof(await signerHealth.json(), env.SIGNING_KEY_ID, publicOrigin(env))
+      } catch {
+        throw new HttpError(503, 'The signing service returned an invalid readiness proof.')
+      }
+      signerKeyId = signerProof.keyId
+    }
+    if (signerKeyId !== env.SIGNING_KEY_ID) throw new HttpError(503, 'The signing service key does not match Hub configuration.')
+    return json({ ok: true, environment: env.ENVIRONMENT, signingKeyId: signerKeyId, signerProof })
+  }
   if (request.method === 'GET' && path === '/') return publisherHome(request, env)
   if (request.method === 'GET' && path === '/explore') return explore(request, env)
   if (request.method === 'GET' && path === '/v1/catalog') return publicCatalog(request, env)

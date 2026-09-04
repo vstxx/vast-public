@@ -75,6 +75,7 @@ test('verifies Ed25519 package signatures and rejects unknown keys and tampering
   const { signer, trusted } = await keys()
   const signed = await createVextPackage({ extensionId, version: '1.0.0', publisherId, files: files(), signer })
   assert.equal((await verifyVextPackage(signed, [trusted], true)).verifiedKeyId, trusted.keyId)
+  assert.equal((await verifyVextPackage(signed, [{ ...trusted, status: 'legacy' }], true)).verifiedKeyId, trusted.keyId)
   await assert.rejects(verifyVextPackage(signed, [], true), /unknown signing key/)
 
   const archive = unzipSync(signed)
