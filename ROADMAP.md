@@ -1,41 +1,28 @@
 # Vast Roadmap
 
-This file tracks high-value features that should be implemented only when they can be made real.
+This roadmap describes engineering direction, not promised release dates. Items move when they are implemented, rejected, or superseded.
 
-## Near Term
+## Current priorities
 
-- SQLite storage adapter behind the existing storage boundary
-- UI for listing, creating, and restoring storage backups
-- CI release pipeline with signed public stable artifacts and update publication
-- Better tab hibernation with explicit unload/reload indicators
-- Workspace templates and per-workspace default search engines
-- Import bookmarks from browser exports
-- Session snapshots and restore points
-- More complete download controls: pause, resume, cancel
-- Improved split-view picker
+- Keep tab lifecycle, smart unloading, scrolling, startup, and memory behavior predictable under large sessions.
+- Keep public source snapshots, Windows releases, updater metadata, checksums, and third-party source obligations reproducible and easy to audit.
+- Continue hardening extensions, password-vault, IPC, navigation, and Labs trust boundaries without adding unnecessary backend complexity.
+- Keep Windows direct and Microsoft Store distribution behavior consistent, including profile migration and update boundaries.
+- Reduce default distribution/runtime weight where it can be done without weakening offline behavior, compatibility, or verification.
 
-## Browser Power Features
+## Next
 
-- First-class `WebContentsView` backend as an alternative to webviews
-- Page screenshot capture
-- Per-site permissions view
-- Site data inspector by origin
-- Private window lifecycle separate from regular workspaces
-- Picture-in-picture/floating mini panel
-- Smart tab cleanup suggestions based on local metadata
+- Continue evaluating `WebContentsView` as a future browser-content backend where it provides measurable benefits over webviews without losing required browser behavior.
+- Improve storage scalability, recovery, and migration while preserving straightforward export/import and rollback paths.
+- Expand per-site controls and visibility into permissions, data, interventions, and resource state.
+- Refine fresh-profile onboarding and workspace setup without seeding unwanted personal content.
+- Continue improving extension compatibility and first-party extension integration.
 
-## Integrations
+## Exploring
 
-- Local plugin architecture with command registry contributions
-- User-configured content blocking lists
-- Optional local LLM provider profile
-- Optional packaged Python runtime for Video & Audio so end users do not need a system Python install
-- Import/export for bookmarks, history, settings, notes, and sessions as separate files
+- Release-quality macOS and Linux support once those platforms can be continuously verified.
+- A local plugin/command contribution model with explicit capabilities.
+- Optional local-model integrations that do not require a Vast account or remote entitlement service.
+- The experimental upstream-Chromium port under `chromium-port/` as a separate long-term architecture track.
 
-## Polish
-
-- Custom window controls for every platform
-- More complete light-theme pass across every nested web surface
-- Command palette aliases, macros, and user-defined actions
-- Richer empty states and onboarding for a fresh profile
-- App icon and packaged installer branding
+Completed work should be removed from this file rather than kept as a historical checklist; Git history already records it.

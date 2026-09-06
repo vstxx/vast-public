@@ -2,7 +2,7 @@
   "name": "vast-browser",
   "productName": "Vast",
   "version": "0.2.7",
-  "description": "Vast - a local-first, power-user desktop browser shell built with Electron, React, TypeScript, Vite, and TailwindCSS.",
+  "description": "A local-first desktop browser for power users, built with Electron, React, TypeScript, Vite, and Tailwind CSS.",
   "author": "VastProductions",
   "main": "out/main/main.js",
   "private": true,
@@ -11,7 +11,7 @@
     "type": "git",
     "url": "git+https://github.com/vstxx/vast-public.git"
   },
-  "homepage": "https://github.com/vstxx/vast-public#readme",
+  "homepage": "https://vastbrowser.com",
   "bugs": {
     "url": "https://github.com/vstxx/vast-public/issues"
   },

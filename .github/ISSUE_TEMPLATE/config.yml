@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security issue
+    url: https://github.com/vstxx/vast-public/security/policy
+    about: Read the security reporting policy before sharing vulnerability details.
+  - name: Vast Browser support
+    url: https://vastbrowser.com/support
+    about: Product support and non-development questions.

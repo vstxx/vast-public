@@ -1,40 +1,50 @@
-# Feature Status
+# Feature status
 
-Vast is local-first and does not collect browsing telemetry. When Vast Relay is
-enabled for a build, its only operational telemetry is a random installation
-UUID, the running Vast version, and a cumulative launch count. Relay records
-server-generated first-seen and last-seen timestamps to deliver signed service
-messages, update notices, and simple anonymous aggregate install counts. It
-does not send browsing history, URLs, searches, tabs, accounts, hardware IDs,
-or message interaction data. See [VAST_RELAY_CLIENT.md](VAST_RELAY_CLIENT.md).
+This document describes the current product boundaries at a high level. Detailed behavior is defined by the implementation and focused documentation rather than by old release worklogs.
 
-## Default Stable Surface
+## Default browser surface
 
-- Chromium web navigation in sandboxed webviews
-- Workspaces, tabs, bookmarks, history, downloads, reading list
-- Settings, shortcuts, privacy controls, basic/focus reader mode, site data review, basic local notes
-- JSON export/import and storage backup/restore
+- Chromium web navigation in sandboxed Electron webviews
+- Vertical and horizontal tab layouts, groups, pinned tabs, split view, session restore, and smart tab unloading
+- Workspaces, bookmarks, history, downloads, reading list, quick links, and site memory
+- Settings, editable shortcuts, privacy controls, site-data review, Focus Reader, PDF viewing, and local notes
+- Command palette and browser/search shortcuts
+- Chromium-compatible extensions, local `.vext` packages, and Vast Extensions Hub packages
+- Export/import, storage backups, diagnostics, and updater/release verification support
 
-## Local Labs Surface
+## Optional Labs surface
+
+Labs is disabled on fresh profiles and requires explicit local opt-in. Individual Labs surfaces remain separately gated.
 
 - Video & Audio
 - Network Devices
 - Automation
-- Password Manager runtime use
+- Password Manager
 - Advanced Diagnostics
 - Spoofing tools
 
-Labs defaults to off for fresh profiles. The Labs section and experimental commands remain hidden until the user enables optional features in Advanced settings. Each item then requires the global Labs flag and its own local flag. Turning a Labs feature off hides and blocks that feature but does not delete local data.
+Disabling a Labs feature hides and blocks its active surface but does not silently delete the user's local data.
 
-## Clean First Launch
+## Data and privacy
 
-A new profile starts with one empty workspace and one `vast://newtab` tab. The sidebar and side panel are closed, startup audio is muted, and New Tab shows only search plus at most three neutral quick links. Notes, todos, macros, timeline entries, folders, bookmarks, tab groups, and additional workspaces are not seeded. Schema 8 adds these clean defaults without replacing collections or preferences in an existing profile.
+Normal Vast product data is local to the selected profile/data root. Vast does not collect browsing telemetry.
 
-Advanced Notes, Session Timeline, advanced import/export, and multiple workspaces are part of the normal product surface. Experimental Themes is a neutral coming-soon entry.
+When Relay is enabled, its operational check-in is limited to a random installation UUID, running Vast version, and cumulative launch count. Relay derives first-seen and last-seen timestamps and does not receive browsing history, URLs, searches, tabs, bookmarks, account identity, hardware fingerprints, or message-interaction events.
 
-## Known Limits
+See [PRIVACY.md](PRIVACY.md) and [DATA_MIGRATION_AND_STORAGE.md](DATA_MIGRATION_AND_STORAGE.md).
 
-- SQLite storage is planned but not enabled in 1.0.9. JSON storage remains the compatible runtime format.
-- Reader mode is a reversible focus stylesheet, not full article extraction.
-- Vast has no product licensing backend, remote entitlement check, or plan-dependent feature state.
-- Code signing requires CI secrets and is not reproducible from this repository alone.
+## Distribution support
+
+Windows x64 is the current release-supported and continuously exercised target. Direct installer/portable packages and Microsoft Store packaging use different update/signing boundaries but share the same product data model for installed builds.
+
+macOS and Linux build targets exist in configuration but are not currently release-supported or continuously verified.
+
+The `chromium-port/` tree is experimental engineering work and is not the current distributed desktop implementation.
+
+## Known limits
+
+- JSON remains part of the current product-storage model; storage changes must preserve recovery and export/import compatibility.
+- Focus Reader is a browser reading/focus treatment, not a claim of perfect article extraction or offline archiving.
+- Electron `safeStorage` is OS-backed encryption, not an independent cross-platform master-password or biometric system.
+- Experimental Labs features carry narrower support guarantees than the default browser surface.
+- Code-signature status depends on the specific release route; users should follow the signature and verification note attached to the release they download.

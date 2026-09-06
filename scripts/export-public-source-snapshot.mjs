@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -21,7 +21,21 @@ const excluded = [
   /^artifacts\//,
   /^resources\/first-party-extensions\/idu-plus\//,
   /^docs\/GIT_HISTORY_PRIVACY_REWRITE\.md$/,
-  /^relay\/keys\/staging-verification\.json$/
+  /^relay\/keys\/staging-verification\.json$/,
+  /^docs\/FINAL_POLISH_REPORT\.md$/,
+  /^docs\/OPEN_SOURCE_READINESS\.md$/,
+  /^docs\/PERFORMANCE_AUDIT\.md$/,
+  /^docs\/DISTRIBUTION_SIZE_OPTIMIZATION\.md$/,
+  /^docs\/IDU_PLUS_HUB_PUBLISHING\.md$/,
+  /^docs\/MICROSOFT_STORE_SUBMISSION\.md$/,
+  /^docs\/SIGNED_RELEASE_TUTORIAL\.md$/,
+  /^docs\/VAST_RELAY_OPERATIONS\.md$/,
+  /^docs\/SQLITE_MIGRATION_PLAN\.md$/,
+  /^docs\/DEFAULT_WORKSPACE_ONBOARDING_SPEC\.md$/,
+  /^docs\/RELEASE_\d+\.\d+\.\d+_(?:READINESS|PREREQUISITES)\.md$/,
+  /^docs\/google-auth\//,
+  /^docs\/releases\//,
+  /^docs\/chromium-migration\/(?:CHECKPOINT|progress)\.md$/
 ]
 
 if (existsSync(output)) rmSync(output, { recursive: true, force: true })
@@ -35,8 +49,24 @@ for (const path of tracked.stdout.split('\0').filter(Boolean)) {
   if (contents.status !== 0) throw new Error(`Could not export tracked source file: ${normalized}`)
   writeFileSync(target, contents.stdout)
 }
+
+const publicCiPath = join(output, '.github', 'workflows', 'windows-ci.yml')
+if (existsSync(publicCiPath)) {
+  const publicCi = readFileSync(publicCiPath, 'utf8')
+  const normalizedCi = publicCi.replace('branches: [master]', 'branches: [main]')
+  if (normalizedCi === publicCi) throw new Error('Public Windows CI branch normalization did not find the expected private branch trigger.')
+  writeFileSync(publicCiPath, normalizedCi)
+}
+
 const packageResult = spawnSync('git', ['show', `${sourceCommit}:package.json`], { cwd: root, encoding: 'utf8' })
 if (packageResult.status !== 0) throw new Error('Release source does not contain package.json.')
 const pkg = JSON.parse(packageResult.stdout)
-writeFileSync(join(output, '.vast-source-provenance.json'), `${JSON.stringify({ schema: 1, version: pkg.version, sourceCommit, exportedAt: new Date().toISOString(), exclusions: excluded.map(String) }, null, 2)}\n`)
+writeFileSync(join(output, '.vast-source-provenance.json'), `${JSON.stringify({
+  schema: 2,
+  version: pkg.version,
+  sourceCommit,
+  exportedAt: new Date().toISOString(),
+  exclusions: excluded.map(String),
+  transformations: ['.github/workflows/windows-ci.yml: private master push trigger normalized to public main']
+}, null, 2)}\n`)
 console.log(JSON.stringify({ ok: true, output, version: pkg.version, sourceCommit }))

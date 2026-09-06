@@ -1,68 +1,65 @@
-# Release Checklist
+# Release checklist
 
-Use this checklist before publishing a Vast build.
+Use this checklist for each public Vast release. Route-specific checks that do not apply should be explicitly treated as not applicable rather than silently skipped.
 
-> Before preparing version 0.2.7, complete every item in
-> [`RELEASE_0.2.6_PREREQUISITES.md`](./RELEASE_0.2.6_PREREQUISITES.md). These
-> one-time infrastructure and provenance actions are release blockers, not
-> optional cleanup.
+## Source and dependencies
 
-## Required
+- [ ] Release starts from the intended clean source commit.
+- [ ] `package.json` and lockfile versions are consistent.
+- [ ] Locked JavaScript, Relay, and Python build dependencies install successfully.
+- [ ] Dependency vulnerability gates pass.
+- [ ] Full-history secret scanning has no unreviewed finding.
+- [ ] No private key, certificate, password, token, local profile, generated release package, or personal absolute path is introduced into the source snapshot.
 
-- `npm run lint` passes.
-- `npm run test` passes.
-- `npm run release:audit` passes.
-- `npm audit` reports zero known dependency vulnerabilities.
-- `npm run test:fuses:integration` flips and verifies the profile on a disposable copy of the pinned Electron binary.
-- `npm run release:check` passes for the selected signed release or explicitly acknowledged public unsigned release environment.
-- `npm run release:windows` is used for the public Windows release package.
-- `node scripts/verify-release-package.cjs` passes after packaging.
-- `npm run test:updater` verifies default-session and partition cookie data are migrated and backed up.
-- Windows executable signing is enabled in `package.json`.
-- The combined hardening hook runs through `build.afterPack`, applies the icon and Electron Fuses, reads the fuse wire back from the packaged binary, and completes before electron-builder signs the runtime.
-- Packaged Fuse state has `RunAsNode`, `EnableNodeOptionsEnvironmentVariable`, and `EnableNodeCliInspectArguments` disabled, with `EnableEmbeddedAsarIntegrityValidation` and `OnlyLoadAppFromAsar` enabled.
-- Signed route: `Vast.exe`, installer, portable executable, and standalone updater all report Authenticode `Valid` and carry an RFC 3161 timestamp.
-- Unsigned direct route: all four Vast executables report exactly `NotSigned`; `PUBLIC-UNSIGNED-RELEASE.md` is present; `signaturePolicy` is `unsigned-public-release`; the exact risk acknowledgement is set. Beta stays a prerelease; stable is a normal GitHub Release.
-- Signing secrets, when used, are present in CI env and never in git.
-- `VAST_UPDATE_ENABLED=1` is set only for builds that should use the auto-updater.
-- `VAST_OBFUSCATE=1` is set for every public beta/stable build.
-- `VAST_RELEASE_COMMIT` equals the exact clean source `HEAD` and is present in packaged metadata, `version.json`, and both update/release manifests.
-- `VAST_RELEASE_REPO=vstxx/vast-public` and `package.json` publish config points to `vstxx/vast-public`.
-- One Vast installer and one updater payload are produced; manifests contain no edition or target-edition fields.
-- `package.json` `build.protocols` registers only the custom `vast` scheme, never `http` or `https`.
-- App chrome CSP is present and does not allow `unsafe-eval` or object embedding.
-- The sensitive IPC policy exactly matches the AST-enumerated Password Manager, Network Devices, Video & Audio, and advanced-diagnostics handlers.
-- Password Manager starts locked and its main-process session tests cover absolute timeout, vault inactivity, fresh unlock, screen lock, and suspend behavior.
-- If Vast Notices is enabled, release metadata records a dedicated non-GitHub HTTPS origin and pinned Ed25519 key id. The feed tests reject active fields and signature tampering.
-- `vast:browser:download-url` accepts only HTTP(S) URLs.
-- PDF loading enforces the 100 MB byte limit and validates `%PDF`.
-- `release/` is regenerated with the matching version script.
-- `release/Installer/Vast-Setup-0.2.7.exe` exists.
-- `release/Updater/VastUpdater-0.2.7.exe` exists.
-- `release/Downloads/update-manifest.json` and `release/Downloads/Vast-0.2.7-update.zip` exist.
-- Store route: `release/store/Vast-0.2.7-Store-x64.msix` passes package inspection and WACK, uses the exact Partner Center identity, and has no direct updater files.
-- Checksums are generated for distributed binaries and update packages.
-- Public unsigned release checksums include `PUBLIC-UNSIGNED-RELEASE.md`, and production downloads match the locally verified bytes.
-- `out/obfuscation-report.json` is present and records protected main/password-manager bundles.
-- NSIS allows changing the app install directory.
-- Settings -> Data can export `.vastbackup`, import `.vastbackup`, open the data folder, and change the Vast data directory.
-- The updater detects `%APPDATA%\Vast\data-root.json` and preserves a configured custom data directory.
+## Build and tests
 
-## Manual QA
+- [ ] TypeScript/lint validation passes.
+- [ ] Desktop and Relay test suites pass.
+- [ ] Extensions typecheck/tests and relevant E2E coverage pass.
+- [ ] Electron application E2E passes for affected browser behavior.
+- [ ] Updater staging and upgrade tests pass where the route uses the direct updater.
+- [ ] Electron version/browser-policy checks pass.
+- [ ] Real packaged Electron Fuses are applied and read back successfully.
+- [ ] Package/runtime verification passes on the actual built artifact.
 
-- Fresh install launches and shows the expected runtime version.
-- Fresh install contains one workspace, one New Tab, no sample content, a closed sidebar/side panel, muted startup audio, and no visible Labs surface until optional features are enabled.
-- Installer install-directory selection works on a disposable machine/profile.
-- Change Vast data directory from Settings, restart, and verify `vast-data.json`, notes, bookmarks, password vault, and Chromium profile files are read from the new directory.
-- Export `.vastbackup`, import it into a clean profile, and verify tabs/workspaces/bookmarks/notes/settings/Labs state match where technically portable.
-- Update from the previous version preserves `userData`, cookies, sessions, bookmarks, notes, settings, and password vault files.
-- Update from the previous version with a custom data directory preserves that directory.
-- Storage backup list shows rolling/manual backups after normal saves.
-- Restore from a storage backup succeeds on a disposable profile.
-- Labs defaults are off on a fresh profile.
-- Labs features require only the global Labs flag and their own local flag.
-- Advanced Notes and Session Timeline work without Labs flags.
-- Importing an older backup verifies but ignores deprecated product-entitlement metadata files.
-- A legacy updater manifest with an edition marker is accepted and the marker is ignored.
-- Auto-updater reports a clear disabled reason in private/dev builds.
-- Auto-updater install fails unless the update state is `ready`.
+## Privacy and security boundaries
+
+- [ ] Web content remains isolated from Node and generic privileged filesystem/shell APIs.
+- [ ] Sensitive IPC surfaces remain bound to their local feature/security policy.
+- [ ] Password-vault and autofill origin/sender binding tests pass if touched.
+- [ ] Relay production configuration carries only the documented bounded operational data.
+- [ ] Labs or extension changes do not silently widen permissions or remote-control capabilities.
+- [ ] Diagnostics and release metadata contain no credentials or private user content.
+
+## Direct Windows route
+
+- [ ] Installer, portable executable, updater/bootstrapper, update payload, and manifests are produced once for the authorized version.
+- [ ] Signed route: required Vast executables have the expected Authenticode signer and trusted timestamp.
+- [ ] Public-unsigned route: required Vast executables verify as unsigned and the release warning/marker is present.
+- [ ] Previous-public-version upgrade preserves the supported data/profile state.
+- [ ] Clean install, launch, registration, and uninstall behavior is verified on an isolated Windows environment.
+- [ ] Published hashes match locally verified files after re-download.
+
+## Microsoft Store route
+
+- [ ] MSIX uses the exact Partner Center identity and monotonic Store version.
+- [ ] Direct updater payloads are absent and Store update ownership is reflected in packaged metadata.
+- [ ] Manifest, architecture, assets, runtime hardening, and recursive PE inventory pass verification.
+- [ ] Installed launch/upgrade/profile/default-browser/uninstall checks pass on an isolated Windows account or runner.
+- [ ] WACK/certification checks required for submission pass.
+
+## Third-party compliance
+
+- [ ] Runtime license/notice inventory is complete.
+- [ ] FFmpeg provenance and exact corresponding-source archive pass the maintained compliance gate.
+- [ ] Corresponding-source and provenance assets are uploaded beside every release that ships the covered binaries.
+- [ ] Release checksums include the required verification/compliance assets.
+
+## Publication
+
+- [ ] `.vast-source-provenance.json` matches the release version and originating canonical source commit.
+- [ ] Public source tag and release version agree.
+- [ ] Release notes accurately state signature status and material limitations.
+- [ ] Draft/repository assets are re-downloaded and verified before publication.
+- [ ] Published production URLs are verified once more after release.
+- [ ] The version/tag is never reused for different bytes.

@@ -2,9 +2,19 @@ name: Windows CI
 
 on:
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
   push:
-    branches: [master]
+    branches: [main]
     tags: ['v*']
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+
+concurrency:
+  group: windows-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -80,20 +90,25 @@ jobs:
       - run: npm run test:electron-version
       - run: npm run test:store
       - name: Package unsigned CI application
+        if: github.event_name != 'pull_request'
         env:
           VAST_ALLOW_UNSIGNED_PRIVATE_BUILD: '1'
         run: npx electron-builder --dir --win --x64 --config scripts/electron-builder-private-unsigned.cjs
       - name: Smoke packaged application
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
           $exe = Resolve-Path 'release/win-unpacked/Vast.exe'
           $profile = Join-Path $env:RUNNER_TEMP 'vast-packaged-smoke'
           powershell -NoProfile -ExecutionPolicy Bypass -File tests/store/packaged-launch-health.test.ps1 -ExecutablePath $exe -ProfileRoot $profile
       - name: Verify packaged application resources and fuses
+        if: github.event_name != 'pull_request'
         run: npm run test:package:ci
       - name: Build and verify native development Store MSIX
+        if: github.event_name != 'pull_request'
         run: npm run dist:store:dev
       - name: Verify Store install, launch, upgrade and clean uninstall
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
           $package = Resolve-Path 'release/store/Vast-0.2.7-Store-x64-Development.msix'

@@ -1,0 +1,64 @@
+name: Bug report
+description: Report a reproducible problem in Vast Browser
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. **Do not put vulnerability details, credentials, or private user data here.** Security issues should follow `SECURITY.md`.
+  - type: input
+    id: version
+    attributes:
+      label: Vast version
+      description: The version shown in Vast or the release you installed.
+      placeholder: "0.x.x"
+    validations:
+      required: true
+  - type: dropdown
+    id: distribution
+    attributes:
+      label: Distribution
+      options:
+        - Direct installer
+        - Portable
+        - Microsoft Store
+        - Development build
+        - Other / unsure
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "Windows 11 24H2 x64"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the problem and when it occurs.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Give the shortest reliable sequence that reproduces the issue.
+      placeholder: |
+        1. Open ...
+        2. Enable ...
+        3. Click ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Additional context
+      description: Screenshots, logs, or diagnostics are useful if they contain no credentials, private browsing data, tokens, or other sensitive information.
