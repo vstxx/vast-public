@@ -42,6 +42,10 @@ const required = [
 
 for (const path of required) assert(existsSync(join(root, path)), `required public file is missing: ${path}`)
 
+for (const path of ['scripts/release-audit.cjs', 'tests/renderer/release-hardening-scripts.test.ts']) {
+  assert(!existsSync(join(root, path)), `canonical-only release internals leaked into public source: ${path}`)
+}
+
 const docs = walk('docs')
 const forbidden = [
   /^docs\/FINAL_POLISH_REPORT\.md$/,
