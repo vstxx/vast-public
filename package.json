@@ -69,7 +69,7 @@
     "release:store:check": "node scripts/release-store-check.cjs",
     "release:0.2.7": "npm run release:version-check && npm run test:electron-version && npm run test:store",
     "store:wack": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-windows-app-certification.ps1",
-    "release:audit": "node scripts/release-audit.cjs",
+    "release:audit": "node scripts/public-release-audit.cjs",
     "release:local": "node scripts/local-release-from-env.cjs",
     "release:internal": "node scripts/local-release-from-env.cjs --internal-unsigned",
     "release:public-unsigned": "node scripts/local-release-from-env.cjs --public-unsigned-release",
