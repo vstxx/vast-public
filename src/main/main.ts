@@ -1,3 +1,4 @@
+import { initializeDownloads, configureDownloadsForSession } from './downloads'
 import { BrowserWindow, app, nativeTheme, protocol, session, webContents } from 'electron/main'
 import { join } from 'node:path'
 import { createMainWindow } from './window'
@@ -15,7 +16,6 @@ import { windowRegistry } from './windows/WindowRegistry'
 import { recordDiagnosticsEvent } from './diagnostics-events'
 import { flushPerformanceReport, markPerformance, registerPerformanceProbeIpc } from './performance-probe'
 import { completeLegacyDefaultSessionMigration, prepareLegacyDefaultSessionMigration, type LegacySessionMigrationPlan } from './session-continuity'
-import { isUpdateRestartInProgress } from './update-lifecycle'
 import { initializePasswordVaultSessionLifecycle, lockPasswordVaultSession } from './password-vault-session'
 import { settingsAllowedByRuntimeFeaturePolicy } from './runtime-feature-policy'
 import { createVastRelayService } from './relay/runtime'
@@ -150,6 +150,11 @@ function syncTitleBarOverlay(): void {
 }
 
 if (hasSingleInstanceLock) void app.whenReady().then(async () => {
+  initializeDownloads(() => currentSettings)
+  if (process.platform === 'win32' && app.isPackaged) {
+    const { applyPendingUpdateAtStartup } = await import('./updater-startup')
+    if (await applyPendingUpdateAtStartup()) { app.exit(0); return }
+  }
   markPerformance('app-ready')
   if (getBuildMetadata().distributionChannel === 'direct') setAppUserModelId('app.vast.browser')
   app.on('browser-window-created', (_, window) => {
@@ -186,10 +191,16 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
     import('./extensions/extension-manager'),
     import('../shared/extension-match-pattern')
   ])
+  const { setupExtensionNetworkBridge } = await import('./extensions/extension-network-bridge')
+  setupExtensionNetworkBridge()
   extensionManager = new ExtensionManager({
     userDataRoot: app.getPath('userData'),
     hubOrigin: extensionHubOrigin(app.isPackaged),
-    sessionProvider: (partition) => session.fromPartition(partition),
+    sessionProvider: (partition) => {
+      const target = session.fromPartition(partition)
+      configureDownloadsForSession(target, partition)
+      return target
+    },
     nativeSurfacePreloadPath: join(app.getAppPath(), 'out', 'preload', 'extension-host.js'),
     reloadMatchingTabs: (patterns) => {
       for (const contents of webContents.getAllWebContents()) {
@@ -281,11 +292,12 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
     // Keep updater module parsing and update-service initialization outside the
     // critical path to the first usable browser shell.
     const updaterTimer = setTimeout(() => {
-      void import('./updater').then(({ setupAutoUpdater }) => setupAutoUpdater(mainWindow)).catch((error) => {
+      void import('./updater').then(({ setupAutoUpdater }) => setupAutoUpdater()).catch((error) => {
         console.warn('[main] Failed to initialize updater:', error)
       })
     }, 2_000)
-    mainWindow.once('closed', () => clearTimeout(updaterTimer))
+    updaterTimer.unref()
+    app.once('quit', () => clearTimeout(updaterTimer))
     extensionUpdateStartupTimer = setTimeout(() => {
       void extensionManager?.checkForUpdates().catch((error) => console.warn('[extensions:update] Background update check failed:', error))
       extensionUpdateInterval = setInterval(() => {
@@ -299,7 +311,7 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
   nativeTheme.on('updated', syncTitleBarOverlay)
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (windowRegistry.vastWindows().length === 0) {
       watchExternalNavigation(createMainWindow(onDataSaved, () => currentSettings, { kind: 'normal', extensionManager, onDetachTab: openDetachedTabWindow }))
     }
   })
@@ -314,7 +326,7 @@ app.on('before-quit', (event) => {
   if (extensionUpdateInterval) clearInterval(extensionUpdateInterval)
   relayService?.stop()
   lockPasswordVaultSession('system-lock')
-  if (isUpdateRestartInProgress() || shutdownCleanupComplete) return
+  if (shutdownCleanupComplete) return
   event.preventDefault()
   if (shutdownCleanupStarted) return
   shutdownCleanupStarted = true

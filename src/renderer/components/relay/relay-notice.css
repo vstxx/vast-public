@@ -3,7 +3,7 @@
   min-height: min(26rem, 72vh);
   max-height: min(88vh, 860px) !important;
   border-color: color-mix(in srgb, var(--relay-tone) 24%, var(--vast-border)) !important;
-  border-radius: clamp(24px, 3vw, 32px) !important;
+  border-radius: var(--vast-radius-modal) !important;
   background:
     radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--relay-tone) 12%, transparent), transparent 48%),
     linear-gradient(155deg, color-mix(in srgb, var(--vast-surface-elevated) 98%, transparent), color-mix(in srgb, var(--vast-bg) 97%, black)) !important;
@@ -82,7 +82,7 @@
   flex: none;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--relay-tone) 24%, transparent);
-  border-radius: 15px;
+  border-radius: var(--vast-radius-control);
   background: color-mix(in srgb, var(--relay-tone) 10%, var(--vast-surface));
   color: color-mix(in srgb, var(--relay-tone) 80%, white);
 }
@@ -113,7 +113,7 @@
   flex: none;
   place-items: center;
   border: 0;
-  border-radius: 11px;
+  border-radius: var(--vast-radius-control);
   background: transparent;
   color: var(--vast-soft);
   cursor: pointer;
@@ -145,7 +145,7 @@
 .relay-notice-scroll::-webkit-scrollbar { width: 7px; }
 .relay-notice-scroll::-webkit-scrollbar-track { background: transparent; }
 .relay-notice-scroll::-webkit-scrollbar-thumb {
-  border-radius: 999px;
+  border-radius: var(--vast-radius-control);
   background: color-mix(in srgb, var(--relay-tone) 28%, transparent);
 }
 
@@ -184,7 +184,7 @@
 }
 .relay-rich-text code {
   border: 1px solid color-mix(in srgb, var(--relay-tone) 15%, var(--vast-border));
-  border-radius: 6px;
+  border-radius: var(--vast-radius-checkbox);
   padding: 0.12rem 0.34rem;
   background: color-mix(in srgb, var(--relay-tone) 7%, rgba(0, 0, 0, 0.35));
   color: color-mix(in srgb, var(--vast-text) 90%, var(--relay-tone));
@@ -195,7 +195,7 @@
   margin: 1rem 0;
   overflow-x: auto;
   border: 1px solid var(--vast-border);
-  border-radius: 12px;
+  border-radius: var(--vast-radius-control);
   padding: 0.85rem 1rem;
   background: rgba(0, 0, 0, 0.28);
 }
@@ -232,7 +232,7 @@
   align-items: center;
   gap: 7px;
   border: 1px solid color-mix(in srgb, var(--relay-tone) 28%, transparent);
-  border-radius: 12px;
+  border-radius: var(--vast-radius-control);
   padding: 0 15px;
   background: color-mix(in srgb, var(--relay-tone) 12%, var(--vast-surface));
   color: color-mix(in srgb, var(--relay-tone) 74%, white);

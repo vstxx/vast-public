@@ -1,3 +1,4 @@
+import { copyText } from '../../lib/clipboard'
 import {
   Bookmark,
   Check,
@@ -232,7 +233,7 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
     >
     <aside
       className={`side-panel no-drag z-[60] flex min-h-0 shrink-0 flex-col overflow-hidden border border-white/[0.1] bg-[#08090d]/[0.96] backdrop-blur-2xl ${
-        pinned ? 'rounded-3xl shadow-[0_18px_54px_rgba(0,0,0,0.34)]' : 'rounded-none border-b-0 border-r-0 border-t-0 shadow-none'
+        pinned ? 'rounded-panel shadow-[0_18px_54px_rgba(0,0,0,0.34)]' : 'border-b-0 border-r-0 border-t-0 shadow-none'
       }`}
       style={panelStyle}
     >
@@ -240,7 +241,7 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
         role="separator"
         aria-orientation="vertical"
         onMouseDown={startResize}
-        className="absolute bottom-4 left-0 top-4 w-1 cursor-col-resize rounded-full bg-transparent hover:bg-vast-cyan/40"
+        className="absolute bottom-4 left-0 top-4 w-1 cursor-col-resize rounded-control bg-transparent hover:bg-vast-cyan/40"
       />
       <div
         className={`side-panel-header flex h-[72px] select-none items-center gap-3 border-b border-white/[0.08] px-4 ${pinned ? 'cursor-move' : 'cursor-default'}`}
@@ -272,7 +273,7 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
               role="tab"
               aria-selected={activeView === view.id}
               onClick={() => { setActiveExtensionKey(null); setExtensionSurface(null); setActiveView(view.id) }}
-              className={`flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl px-1 transition ${
+              className={`flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-control px-1 transition ${
                 activeView === view.id ? 'bg-white/[0.11] text-vast-cyan' : 'text-vast-soft hover:bg-white/[0.06] hover:text-white'
               }`}
             >
@@ -282,14 +283,14 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
           )
         })}
         {extensionPanels.map((panel) => (
-          <button key={panel.key} type="button" title={`${panel.title} — ${panel.extensionName}`} role="tab" aria-selected={activeExtensionKey === panel.key} onClick={() => openExtensionPanel(panel.key)} className={`flex min-h-10 min-w-10 flex-1 items-center justify-center gap-1.5 rounded-xl px-1 transition ${activeExtensionKey === panel.key ? 'bg-white/[0.11] text-vast-cyan' : 'text-vast-soft hover:bg-white/[0.06] hover:text-white'}`}>
+          <button key={panel.key} type="button" title={`${panel.title} — ${panel.extensionName}`} role="tab" aria-selected={activeExtensionKey === panel.key} onClick={() => openExtensionPanel(panel.key)} className={`flex min-h-10 min-w-10 flex-1 items-center justify-center gap-1.5 rounded-control px-1 transition ${activeExtensionKey === panel.key ? 'bg-white/[0.11] text-vast-cyan' : 'text-vast-soft hover:bg-white/[0.06] hover:text-white'}`}>
             <Puzzle className="h-4 w-4" />
             {sidePanelSettings.showLabels && width >= 440 && <span className="truncate text-[11px] font-medium">{panel.title}</span>}
           </button>
         ))}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain p-4 pb-6">
-        {activeExtensionKey ? (extensionSurface ? <webview key={`${activeExtensionKey}-${extensionSurface.src}`} src={extensionSurface.src} partition={extensionSurface.partition} className="h-full min-h-[360px] w-full rounded-xl bg-transparent" /> : <div className="grid h-full min-h-[240px] place-items-center text-sm text-vast-soft">Loading extension panel…</div>) : <>
+        {activeExtensionKey ? (extensionSurface ? <webview key={`${activeExtensionKey}-${extensionSurface.src}`} src={extensionSurface.src} partition={extensionSurface.partition} className="h-full min-h-[360px] w-full rounded-control bg-transparent" /> : <div className="grid h-full min-h-[240px] place-items-center text-sm text-vast-soft">Loading extension panel…</div>) : <>
           {activeView === 'notes' && <NotesPanel />}
           {activeView === 'bookmarks' && <BookmarksPanel />}
           {activeView === 'history' && <HistoryPanel />}
@@ -310,7 +311,7 @@ function PanelSearch({ value, onChange, placeholder }: { value: string; onChange
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="h-10 w-full rounded-xl border border-white/10 bg-black/20 pl-9 pr-3 text-sm text-white outline-none placeholder:text-vast-soft focus:border-vast-cyan/[0.35]"
+        className="h-10 w-full rounded-control border border-white/10 bg-black/20 pl-9 pr-3 text-sm text-white outline-none placeholder:text-vast-soft focus:border-vast-cyan/[0.35]"
       />
     </div>
   )
@@ -342,13 +343,13 @@ function NotesPanel(): JSX.Element {
             workspaceId: workspace?.id
           })
         }
-        className="flex w-full items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-medium text-white hover:bg-white/[0.09]"
+        className="flex w-full items-center gap-2 rounded-card border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-medium text-white hover:bg-white/[0.09]"
       >
         <Plus className="h-4 w-4 text-vast-cyan" />
         New URL/workspace note
       </button>
       {workspaceNotes.map((note) => (
-        <div key={note.id} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
+        <div key={note.id} className="rounded-card border border-white/10 bg-white/[0.045] p-3">
           <input
             value={note.title}
             onChange={(event) => updateNote(note.id, { title: event.target.value })}
@@ -359,7 +360,7 @@ function NotesPanel(): JSX.Element {
             onChange={(event) => updateNote(note.id, { body: event.target.value })}
             placeholder="Write locally..."
             rows={5}
-            className="mt-2 w-full resize-none rounded-xl border border-white/[0.08] bg-black/20 p-3 text-sm leading-6 text-vast-soft outline-none placeholder:text-vast-soft/60 focus:border-vast-cyan/30"
+            className="mt-2 w-full resize-none rounded-control border border-white/[0.08] bg-black/20 p-3 text-sm leading-6 text-vast-soft outline-none placeholder:text-vast-soft/60 focus:border-vast-cyan/30"
           />
           <div className="mt-2 flex items-center justify-between text-[11px] text-vast-soft">
             <span>{note.url ? 'URL note' : 'Workspace note'}</span>
@@ -411,7 +412,7 @@ function BookmarksPanel(): JSX.Element {
             onConfirm: (name) => createFolder(name)
           })
         }
-        className="flex w-full items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-medium text-white hover:bg-white/[0.09]"
+        className="flex w-full items-center gap-2 rounded-card border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-medium text-white hover:bg-white/[0.09]"
       >
         <Plus className="h-4 w-4 text-vast-cyan" />
         New folder
@@ -420,7 +421,7 @@ function BookmarksPanel(): JSX.Element {
         const items = bookmarks.filter((bookmark) => bookmark.folderId === folder.id && matchesBookmark(bookmark))
         if (queryText && items.length === 0 && !folder.name.toLowerCase().includes(queryText)) return null
         return (
-          <section key={folder.id} className="min-w-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.025] p-2">
+          <section key={folder.id} className="min-w-0 overflow-hidden rounded-card border border-white/[0.08] bg-white/[0.025] p-2">
             <div className="mb-2 flex items-center gap-2 px-1">
               <Folder className="h-3.5 w-3.5 text-vast-cyan" />
               {editingFolderId === folder.id ? (
@@ -442,7 +443,7 @@ function BookmarksPanel(): JSX.Element {
                 type="button"
                 title="Rename folder"
                 onClick={() => setEditingFolderId(folder.id)}
-                className="grid h-7 w-7 place-items-center rounded-lg text-vast-soft hover:bg-white/10 hover:text-white"
+                className="grid h-7 w-7 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white"
               >
                 <Edit3 className="h-3.5 w-3.5" />
               </button>
@@ -450,14 +451,14 @@ function BookmarksPanel(): JSX.Element {
                 type="button"
                 title="Delete folder"
                 onClick={() => deleteFolder(folder.id)}
-                className="grid h-7 w-7 place-items-center rounded-lg text-vast-soft hover:bg-white/10 hover:text-white"
+                className="grid h-7 w-7 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
             </div>
             <div className="space-y-1">
               {items.map((bookmarkItem) => (
-                <div key={bookmarkItem.id} className="group rounded-xl px-2 py-2 hover:bg-white/[0.06]">
+                <div key={bookmarkItem.id} className="group rounded-control px-2 py-2 hover:bg-white/[0.06]">
                   <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -470,14 +471,14 @@ function BookmarksPanel(): JSX.Element {
                   <button
                     type="button"
                     onClick={() => setEditingBookmarkId((id) => (id === bookmarkItem.id ? null : bookmarkItem.id))}
-                    className="grid h-7 w-7 place-items-center rounded-lg text-vast-soft opacity-0 hover:bg-white/10 hover:text-white group-hover:opacity-100"
+                    className="grid h-7 w-7 place-items-center rounded-control text-vast-soft opacity-0 hover:bg-white/10 hover:text-white group-hover:opacity-100"
                   >
                     <Edit3 className="h-3.5 w-3.5" />
                   </button>
                   <button
                     type="button"
                     onClick={() => removeBookmark(bookmarkItem.id)}
-                    className="grid h-7 w-7 place-items-center rounded-lg text-vast-soft opacity-0 hover:bg-white/10 hover:text-white group-hover:opacity-100"
+                    className="grid h-7 w-7 place-items-center rounded-control text-vast-soft opacity-0 hover:bg-white/10 hover:text-white group-hover:opacity-100"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -486,13 +487,13 @@ function BookmarksPanel(): JSX.Element {
                     <input
                       value={bookmarkItem.title}
                       onChange={(event) => updateBookmark(bookmarkItem.id, { title: event.target.value })}
-                      className="h-8 w-full min-w-0 max-w-full rounded-lg border border-white/[0.08] bg-black/20 px-2 text-xs text-white outline-none focus:border-vast-cyan/30"
+                      className="h-8 w-full min-w-0 max-w-full rounded-control border border-white/[0.08] bg-black/20 px-2 text-xs text-white outline-none focus:border-vast-cyan/30"
                     />
                     <div className="grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)_minmax(5.5rem,7.5rem)] gap-2">
                       <input
                         value={bookmarkItem.url}
                         onChange={(event) => updateBookmark(bookmarkItem.id, { url: event.target.value })}
-                        className="h-8 min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-black/20 px-2 text-xs text-vast-soft outline-none focus:border-vast-cyan/30"
+                        className="h-8 min-w-0 flex-1 rounded-control border border-white/[0.08] bg-black/20 px-2 text-xs text-vast-soft outline-none focus:border-vast-cyan/30"
                       />
                       <VastSelect
                         value={bookmarkItem.folderId ?? ''}
@@ -503,7 +504,7 @@ function BookmarksPanel(): JSX.Element {
                         onChange={(folderId) => updateBookmark(bookmarkItem.id, { folderId: folderId || undefined })}
                         ariaLabel={`Folder for ${bookmarkItem.title || 'bookmark'}`}
                         className="w-full min-w-0 max-w-[7.5rem]"
-                        buttonClassName="h-8 min-h-8 rounded-lg px-2 text-xs"
+                        buttonClassName="h-8 min-h-8 rounded-control px-2 text-xs"
                       />
                     </div>
                   </div>}
@@ -514,7 +515,7 @@ function BookmarksPanel(): JSX.Element {
         )
       })}
       {looseBookmarks.map((bookmarkItem) => (
-        <div key={bookmarkItem.id} className="rounded-xl px-2 py-2 hover:bg-white/[0.06]">
+        <div key={bookmarkItem.id} className="rounded-control px-2 py-2 hover:bg-white/[0.06]">
           <div className="group flex items-center gap-2">
             <button
               type="button"
@@ -527,14 +528,14 @@ function BookmarksPanel(): JSX.Element {
             <button
               type="button"
               onClick={() => setEditingBookmarkId((id) => (id === bookmarkItem.id ? null : bookmarkItem.id))}
-              className="grid h-7 w-7 place-items-center rounded-lg text-vast-soft opacity-0 hover:bg-white/10 hover:text-white group-hover:opacity-100"
+              className="grid h-7 w-7 place-items-center rounded-control text-vast-soft opacity-0 hover:bg-white/10 hover:text-white group-hover:opacity-100"
             >
               <Edit3 className="h-3.5 w-3.5" />
             </button>
             <button
               type="button"
               onClick={() => removeBookmark(bookmarkItem.id)}
-              className="grid h-7 w-7 place-items-center rounded-lg text-vast-soft opacity-0 hover:bg-white/10 hover:text-white group-hover:opacity-100"
+              className="grid h-7 w-7 place-items-center rounded-control text-vast-soft opacity-0 hover:bg-white/10 hover:text-white group-hover:opacity-100"
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -543,13 +544,13 @@ function BookmarksPanel(): JSX.Element {
             <input
               value={bookmarkItem.title}
               onChange={(event) => updateBookmark(bookmarkItem.id, { title: event.target.value })}
-              className="h-8 w-full min-w-0 max-w-full rounded-lg border border-white/[0.08] bg-black/20 px-2 text-xs text-white outline-none focus:border-vast-cyan/30"
+              className="h-8 w-full min-w-0 max-w-full rounded-control border border-white/[0.08] bg-black/20 px-2 text-xs text-white outline-none focus:border-vast-cyan/30"
             />
             <div className="grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)_minmax(5.5rem,7.5rem)] gap-2">
               <input
                 value={bookmarkItem.url}
                 onChange={(event) => updateBookmark(bookmarkItem.id, { url: event.target.value })}
-                className="h-8 min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-black/20 px-2 text-xs text-vast-soft outline-none focus:border-vast-cyan/30"
+                className="h-8 min-w-0 flex-1 rounded-control border border-white/[0.08] bg-black/20 px-2 text-xs text-vast-soft outline-none focus:border-vast-cyan/30"
               />
               <VastSelect
                 value={bookmarkItem.folderId ?? ''}
@@ -560,7 +561,7 @@ function BookmarksPanel(): JSX.Element {
                 onChange={(folderId) => updateBookmark(bookmarkItem.id, { folderId: folderId || undefined })}
                 ariaLabel={`Folder for ${bookmarkItem.title || 'bookmark'}`}
                 className="w-full min-w-0 max-w-[7.5rem]"
-                buttonClassName="h-8 min-h-8 rounded-lg px-2 text-xs"
+                buttonClassName="h-8 min-h-8 rounded-control px-2 text-xs"
               />
             </div>
           </div>}
@@ -605,7 +606,7 @@ function FolderNameEditor({
           onDone()
         }
       }}
-      className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/20 px-2 py-1 text-xs font-semibold text-white outline-none focus:border-vast-cyan/30"
+      className="min-w-0 flex-1 rounded-control border border-white/10 bg-black/20 px-2 py-1 text-xs font-semibold text-white outline-none focus:border-vast-cyan/30"
     />
   )
 }
@@ -624,7 +625,7 @@ function HistoryPanel(): JSX.Element {
       <button
         type="button"
         onClick={clearHistory}
-        className="flex w-full items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-medium text-white hover:bg-white/[0.09]"
+        className="flex w-full items-center gap-2 rounded-card border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-medium text-white hover:bg-white/[0.09]"
       >
         <Trash2 className="h-4 w-4 text-vast-amber" />
         Clear history
@@ -634,7 +635,7 @@ function HistoryPanel(): JSX.Element {
           key={entry.id}
           type="button"
           onClick={() => runtime.openUrlInNewTab(entry.url)}
-          className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-white/[0.06]"
+          className="flex w-full items-center gap-3 rounded-control px-2 py-2 text-left hover:bg-white/[0.06]"
         >
           <Favicon url={entry.url} favicon={entry.favicon} title={entry.title} />
           <div className="min-w-0 flex-1">
@@ -664,12 +665,12 @@ function DownloadsPanel(): JSX.Element {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-1.5">
         {(['all', 'active', 'finished'] as const).map((value) => (
-          <button key={value} type="button" onClick={() => setFilter(value)} className={`rounded-lg px-2.5 py-1.5 text-[13px] capitalize ${filter === value ? 'bg-white/10 text-white' : 'text-vast-soft hover:bg-white/[0.06] hover:text-white'}`}>
+          <button key={value} type="button" onClick={() => setFilter(value)} className={`rounded-control px-2.5 py-1.5 text-[13px] capitalize ${filter === value ? 'bg-white/10 text-white' : 'text-vast-soft hover:bg-white/[0.06] hover:text-white'}`}>
             {value}
           </button>
         ))}
         {downloads.some((item) => item.state === 'completed' || item.state === 'cancelled') && (
-          <button type="button" onClick={() => void clearCompleted()} className="ml-auto rounded-lg px-2.5 py-1.5 text-[13px] text-vast-soft hover:bg-white/[0.06] hover:text-white">Clear completed</button>
+          <button type="button" onClick={() => void clearCompleted()} className="ml-auto rounded-control px-2.5 py-1.5 text-[13px] text-vast-soft hover:bg-white/[0.06] hover:text-white">Clear completed</button>
         )}
       </div>
       {visibleDownloads.length === 0 && <EmptyPanel icon={Download} text={downloads.length === 0 ? 'Downloads will appear here.' : 'No downloads match this filter.'} />}
@@ -680,7 +681,7 @@ function DownloadsPanel(): JSX.Element {
         const scanReady = item.scanStatus && !['pending', 'scanning'].includes(item.scanStatus)
         const ScanIcon = item.scanStatus === 'clean' ? ShieldCheck : item.scanStatus === 'dangerous' || item.scanStatus === 'suspicious' ? ShieldAlert : ShieldQuestion
         return (
-          <div key={item.id} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
+          <div key={item.id} className="rounded-card border border-white/10 bg-white/[0.045] p-3">
             <div className="flex items-center gap-3">
               <Download className="h-4 w-4 text-vast-cyan" />
               <div className="min-w-0 flex-1">
@@ -698,8 +699,8 @@ function DownloadsPanel(): JSX.Element {
             </div>
             {item.state === 'progressing' && (
               <>
-                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
-                  <div className="h-full rounded-full bg-vast-cyan" style={{ width: `${Math.round(progress * 100)}%` }} />
+                <div className="mt-3 h-1.5 overflow-hidden rounded-control bg-white/[0.08]">
+                  <div className="h-full rounded-control bg-vast-cyan" style={{ width: `${Math.round(progress * 100)}%` }} />
                 </div>
                 <div className="mt-3 flex gap-2">
                   <button type="button" onClick={() => void (item.paused ? window.vast.downloads.resume(item.id) : window.vast.downloads.pause(item.id))} className="vault-action-button h-8 px-2.5">
@@ -713,7 +714,7 @@ function DownloadsPanel(): JSX.Element {
               <button type="button" onClick={() => void window.vast.downloads.retry(item.id)} className="vault-action-button mt-3 h-8 px-2.5"><RotateCcw className="h-3.5 w-3.5" />Retry</button>
             )}
             {item.state === 'completed' && (
-              <div className="mt-3 rounded-xl border border-white/[0.07] bg-black/15 p-2.5">
+              <div className="mt-3 rounded-control border border-white/[0.07] bg-black/15 p-2.5">
                 <div className="flex items-center gap-2 text-[13px] text-vast-soft"><ScanIcon className="h-4 w-4" /><span>{downloadScanLabel(item.scanStatus)}</span></div>
                 {item.scanFindings?.slice(0, 3).map((finding) => <div key={finding} className="mt-1 text-[12px] leading-5 text-vast-soft">{finding}</div>)}
               </div>
@@ -724,18 +725,18 @@ function DownloadsPanel(): JSX.Element {
                   type="button"
                   disabled={!scanReady}
                   onClick={() => void window.vast.downloads.openFile(item.savePath!)}
-                  className="rounded-lg bg-white/[0.08] px-2 py-1 text-xs text-white hover:bg-white/[0.12]"
+                  className="rounded-control bg-white/[0.08] px-2 py-1 text-xs text-white hover:bg-white/[0.12]"
                 >
                   Open
                 </button>
                 <button
                   type="button"
                   onClick={() => void window.vast.downloads.showInFolder(item.savePath!)}
-                  className="rounded-lg bg-white/[0.08] px-2 py-1 text-xs text-white hover:bg-white/[0.12]"
+                  className="rounded-control bg-white/[0.08] px-2 py-1 text-xs text-white hover:bg-white/[0.12]"
                 >
                   Show
                 </button>
-                <button type="button" onClick={() => void navigator.clipboard.writeText(item.url)} className="rounded-lg bg-white/[0.08] px-2 py-1 text-xs text-white hover:bg-white/[0.12]"><Copy className="mr-1 inline h-3.5 w-3.5" />Copy link</button>
+                <button type="button" onClick={() => void copyText(item.url)} className="rounded-control bg-white/[0.08] px-2 py-1 text-xs text-white hover:bg-white/[0.12]"><Copy className="mr-1 inline h-3.5 w-3.5" />Copy link</button>
               </div>
             )}
           </div>
@@ -771,7 +772,7 @@ function ReadingListPanel(): JSX.Element {
     <div className="space-y-2">
       {readingList.length === 0 && <EmptyPanel icon={ListChecks} text="Saved pages will appear here." />}
       {readingList.map((item) => (
-        <div key={item.id} className="group flex items-center gap-2 rounded-xl px-2 py-2 hover:bg-white/[0.06]">
+        <div key={item.id} className="group flex items-center gap-2 rounded-control px-2 py-2 hover:bg-white/[0.06]">
           <button type="button" onClick={() => runtime.openUrlInNewTab(item.url)} className="min-w-0 flex-1 text-left">
             <div className={`truncate text-sm ${item.read ? 'text-vast-soft line-through' : 'text-white'}`}>{item.title}</div>
             <div className="truncate text-xs text-vast-soft">{item.url}</div>
@@ -779,14 +780,14 @@ function ReadingListPanel(): JSX.Element {
           <button
             type="button"
             onClick={() => update(item.id, { read: !item.read })}
-            className="grid h-7 w-7 place-items-center rounded-lg text-vast-soft hover:bg-white/10 hover:text-white"
+            className="grid h-7 w-7 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white"
           >
             <Check className="h-3.5 w-3.5" />
           </button>
           <button
             type="button"
             onClick={() => remove(item.id)}
-            className="grid h-7 w-7 place-items-center rounded-lg text-vast-soft hover:bg-white/10 hover:text-white"
+            className="grid h-7 w-7 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -798,7 +799,7 @@ function ReadingListPanel(): JSX.Element {
 
 function EmptyPanel({ icon: Icon, text }: { icon: typeof Clock3; text: string }): JSX.Element {
   return (
-    <div className="grid place-items-center rounded-2xl border border-dashed border-white/10 p-8 text-center text-sm text-vast-soft">
+    <div className="grid place-items-center rounded-card border border-dashed border-white/10 p-8 text-center text-sm text-vast-soft">
       <Icon className="mb-3 h-5 w-5 text-white/[0.35]" />
       {text}
     </div>

@@ -49,4 +49,8 @@ The pack command is deterministic:
 npm run extension:pack -- .\extension --out .\release\extension.vext
 ```
 
+It accepts `--extension-id <32-char id>` and `--publisher-id <id>` to set those identity fields in `vast-package.json` when the local manifest does not carry them.
+
+First-party extensions under `resources/first-party-extensions/` are built in place before packing. `npm run extension:adblock:build` bundles Adblocker for Vast and generates the RSA `key` entry that pins its Chrome extension ID; `npm run extension:adblock:typecheck` and `npm run test:adblock:extension-e2e` validate it. The resulting `.vext` is an ordinary unsigned publisher upload — the Hub re-assigns publisher identity and signs it on approval, exactly as for third-party extensions. See [ADBLOCKER_FOR_VAST.md](../ADBLOCKER_FOR_VAST.md).
+
 Local packages are intentionally labeled **Local** and may be unsigned. Hub packages must verify under a public key pinned in the Vast executable.

@@ -174,6 +174,7 @@ try {
   $install = New-TestInstall -Root $root
   $userData = New-TestUserData -Root $root
   $logPath = Join-Path $root 'updater.log'
+  $backupRoot = Join-Path $userData 'Backups'
 
   Assert-Equal '1.0.3' (Get-VastInstalledVersion -InstallPath $install) 'installed version should be read from version.json'
 
@@ -181,6 +182,7 @@ try {
     -InstallPath $install `
     -PayloadPath $payload `
     -UserDataRoot $userData `
+    -BackupRoot $backupRoot `
     -LogPath $logPath `
     -TargetVersion '1.0.4' `
     -TargetEdition 'free' `
@@ -198,7 +200,7 @@ try {
   Assert-Equal '{"encrypted":true}' ((Get-Content -Raw -Path (Join-Path $userData 'Local Vault\vault.json')).Trim()) 'vault data should be preserved'
   Assert-True (Test-Path -LiteralPath $logPath) 'updater should write a readable log'
   Assert-True ((Get-Content -Raw -Path $logPath) -match 'Update completed successfully') 'log should record success'
-  Assert-True (@(Get-ChildItem -Directory -Path (Join-Path $userData 'Backups')).Count -ge 1) 'critical user data backup should be created'
+  Assert-True (@(Get-ChildItem -Directory -Path $backupRoot).Count -ge 1) 'critical user data backup should be created'
   Assert-Equal 'default-cookie-db' ((Get-Content -Raw -Path (Join-Path $result.BackupPath 'user-data-1\Network\Cookies')).Trim()) 'default-session cookies should be backed up'
   Assert-Equal 'partition-cookie-db' ((Get-Content -Raw -Path (Join-Path $result.BackupPath 'user-data-1\Partitions\vast-default\Network\Cookies')).Trim()) 'partition cookies should be backed up'
   Assert-Equal 'preserve-service-worker-registration' ((Get-Content -Raw -Path (Join-Path $result.BackupPath 'user-data-1\Partitions\vast-default\Service Worker\Database\service-worker-db')).Trim()) 'service worker registration data should be backed up'
@@ -211,6 +213,7 @@ try {
     -InstallPath $install `
     -PayloadPath $payload `
     -UserDataRoot $userData `
+    -BackupRoot $backupRoot `
     -LogPath $logPath `
     -TargetVersion '1.0.4' `
     -NonInteractive
@@ -255,6 +258,7 @@ try {
     payloadPath = $payload
     installPaths = @($install)
     userDataPaths = @($newUserData, $legacyUserData)
+    backupRoot = (Join-Path $migrationRoot 'updater-backups')
     processNames = @('DefinitelyNotVast')
     criticalUserDataItems = @('vast-data.json', 'password-vault.json', 'vast-network-devices.json', 'Local State', 'Network', 'Partitions')
   } | ConvertTo-Json -Depth 5 | Set-Content -Path $configPath -Encoding UTF8
@@ -360,7 +364,7 @@ try {
 
   $rollbackFailed = $false
   try {
-    Invoke-VastUpdate -InstallPath $install -PayloadPath $payload -UserDataRoot $userData -LogPath $logPath -TargetVersion '1.0.4' -NonInteractive | Out-Null
+    Invoke-VastUpdate -InstallPath $install -PayloadPath $payload -UserDataRoot $userData -BackupRoot (Join-Path $rollbackRoot 'updater-backups') -LogPath $logPath -TargetVersion '1.0.4' -NonInteractive | Out-Null
   } catch { $rollbackFailed = $true }
   Assert-True $rollbackFailed 'mid-copy failure should fail the update'
   Assert-Equal 'vast-runtime-1.0.3' ((Get-Content -Raw -LiteralPath (Join-Path $install 'Vast.exe')).Trim()) 'rollback should restore an already replaced executable'
@@ -383,7 +387,7 @@ try {
   try {
     $backupFailed = $false
     try {
-      Invoke-VastUpdate -InstallPath $install -PayloadPath $payload -UserDataRoot $userData -LogPath $logPath -TargetVersion '1.0.4' -NonInteractive | Out-Null
+      Invoke-VastUpdate -InstallPath $install -PayloadPath $payload -UserDataRoot $userData -BackupRoot (Join-Path $backupFailureRoot 'updater-backups') -LogPath $logPath -TargetVersion '1.0.4' -NonInteractive | Out-Null
     } catch { $backupFailed = $true }
     Assert-True $backupFailed 'failure to back up critical user data should abort the update'
     Assert-Equal 'vast-runtime-1.0.3' ((Get-Content -Raw -LiteralPath (Join-Path $install 'Vast.exe')).Trim()) 'backup failure should abort before runtime replacement'
@@ -392,6 +396,40 @@ try {
   }
 } finally {
   Remove-Item -LiteralPath $backupFailureRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+$longPathRoot = New-TestRoot
+$previousLongPathLocalAppData = $env:LOCALAPPDATA
+try {
+  $env:LOCALAPPDATA = Join-Path $longPathRoot 'local-app-data'
+  $longUserData = Join-Path $longPathRoot 'custom-user-data'
+  $longRelativePath = 'Partitions\vast-workspace-workspace-personal\IndexedDB\https_test-pages.privacytests2.org_0.indexeddb.leveldb\MANIFEST-000001'
+  $longSource = Join-Path $longUserData $longRelativePath
+  New-VastBackupDirectory -Path (Split-Path -Parent $longSource)
+  [System.IO.File]::WriteAllText((ConvertTo-VastExtendedPath -Path $longSource), 'long-path-critical-data')
+  $longConfig = [pscustomobject]@{
+    criticalUserDataItems = @('Partitions')
+    optionalUserDataItems = @()
+  }
+
+  $longBackup = Backup-VastUserData `
+    -InstallPath (Join-Path $longPathRoot 'install') `
+    -UserDataRoots @($longUserData) `
+    -Config $longConfig `
+    -TargetVersion '0.2.7'
+  $longDestination = Join-Path (Join-Path $longBackup 'user-data-1') $longRelativePath
+
+  Assert-True ($longBackup.StartsWith((Join-Path $env:LOCALAPPDATA 'Vast\UpdaterBackups'), [System.StringComparison]::OrdinalIgnoreCase)) 'default updater backups should stay outside a potentially deep custom profile root'
+  Assert-True ($longDestination.Length -gt 260) 'long-path regression fixture should exceed the legacy Windows MAX_PATH limit'
+  Assert-True (Test-VastBackupFileExists -Path $longDestination) 'critical user data should be backed up beyond the legacy Windows MAX_PATH limit'
+  Assert-Equal 'long-path-critical-data' ([System.IO.File]::ReadAllText((ConvertTo-VastExtendedPath -Path $longDestination))) 'long-path backup should preserve file contents'
+} finally {
+  if ($null -eq $previousLongPathLocalAppData) {
+    Remove-Item Env:\LOCALAPPDATA -ErrorAction SilentlyContinue
+  } else {
+    $env:LOCALAPPDATA = $previousLongPathLocalAppData
+  }
+  Remove-Item -LiteralPath $longPathRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Write-Host 'Vast updater tests passed.'

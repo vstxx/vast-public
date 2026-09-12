@@ -202,6 +202,8 @@ export interface HistoryEntry {
 }
 
 export interface DownloadItem {
+  /** Original Chromium partition; absent on legacy history. Never persisted for private sessions. */
+  sourcePartition?: string
   id: ID
   filename: string
   url: string
@@ -248,21 +250,12 @@ export interface SiteInformation {
     serviceWorkers: number
   }
   permissions: SitePermissionOverride[]
-  blocked: { trackers: number; ads: number; malware: number }
+  blocked: { trackers: number }
   interventionsDisabled: boolean
 }
-export type AdBlockerMode = 'standard' | 'strict' | 'custom'
 export type FingerprintingProtectionMode = 'standard' | 'strict' | 'maximum'
 export type WebRtcPolicy = 'public-interface-only' | 'default' | 'disabled'
 
-export interface PrivacyFilterStatus {
-  updating: boolean
-  lastUpdatedAt?: number
-  nextUpdateAt?: number
-  ruleCounts: Record<string, number>
-  lastError?: string
-  blockedSinceStart: { ads: number; trackers: number; malware: number }
-}
 export type SpoofingBrowserProfile = 'chrome-windows' | 'chrome-macos' | 'firefox-windows' | 'safari-macos' | 'custom'
 export type SpoofingLocationMode = 'off' | 'fixed'
 
@@ -342,20 +335,6 @@ export interface BrowserSettings {
   openingAnimationSoundVolume: number
   privacy: {
     blockTrackers: boolean
-    adBlockerEnabled: boolean
-    adBlockerMode: AdBlockerMode
-    filterEasyList: boolean
-    filterEasyPrivacy: boolean
-    filterPeterLowe: boolean
-    filterMalware: boolean
-    filterPolishAnnoyances: boolean
-    filterAutoUpdate: boolean
-    customFilterRules: string
-    adBlockAllowlist: string[]
-    customBlockAds: boolean
-    customBlockTrackers: boolean
-    customBlockMalware: boolean
-    customBlockThirdPartyCookies: boolean
     stripTrackingParameters: boolean
     stripAffiliateParameters: boolean
     blockThirdPartyCookies: boolean
@@ -1060,8 +1039,6 @@ export interface VastApi {
   privacy: {
     clearSiteData: (origin?: string, webContentsId?: number) => Promise<{ ok: boolean; error?: string }>
     getSiteInformation: (webContentsId: number, url: string) => Promise<{ ok: boolean; info?: SiteInformation; error?: string }>
-    filterStatus: () => Promise<{ ok: boolean; status?: PrivacyFilterStatus; error?: string }>
-    updateFilters: () => Promise<{ ok: boolean; status?: PrivacyFilterStatus; error?: string }>
     configureIdentity: (webContentsId: number, identity: WorkspaceIdentitySettings, url: string, identityId: ID) => Promise<{ ok: boolean; error?: string }>
   }
   avidae: {
@@ -1107,6 +1084,7 @@ export interface VastApi {
     onStateChanged: (callback: (state: RelayClientSnapshot) => void) => () => void
   }
   downloads: {
+    listCurrent: () => Promise<DownloadItem[]>
     onChanged: (callback: (item: DownloadItem) => void) => () => void
     showInFolder: (path: string) => Promise<{ ok: boolean; error?: string }>
     openFile: (path: string) => Promise<{ ok: boolean; error?: string }>
@@ -1132,6 +1110,7 @@ export interface VastApi {
     }) => Promise<{ ok: boolean; error?: string }>
   }
   browser: {
+    writeClipboardText: (text: string) => Promise<{ ok: boolean; error?: string }>
     onOpenTabRequest: (callback: (request: BrowserTabOpenRequest) => void) => () => void
     onExternalProtocolRequest: (callback: (request: ExternalProtocolRequest) => void) => () => void
     resolveExternalProtocolRequest: (id: ID, allow: boolean) => Promise<{ ok: boolean; error?: string }>
@@ -1252,15 +1231,19 @@ export interface UpdaterEvent {
   version?: string
   percent?: number
   message?: string
+  autoDownload?: boolean
+  autoInstallOnQuit?: boolean
+  autoInstallOnNextStart?: boolean
 }
 
 export interface UpdaterDiagnostics {
   enabled: boolean
   reason: string
-  state: 'disabled' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'
+  state: 'disabled' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'up-to-date'
   channel: string
   autoDownload: boolean
   autoInstallOnQuit: boolean
+  autoInstallOnNextStart?: boolean
   lastEvent?: UpdaterEvent
   lastCheckedAt?: number
   lastError?: string

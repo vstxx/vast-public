@@ -67,6 +67,11 @@ for(const form of document.querySelectorAll('.report-review-form'))form.addEvent
   }catch(error){alert(error.message)}finally{button.disabled=false}
 })
 
+for(const input of document.querySelectorAll('.file-picker input[type="file"]'))input.addEventListener('change',()=>{
+  const name=input.closest('.file-picker')?.querySelector('[data-file-name]')
+  if(name)name.textContent=input.files?.[0]?.name||name.dataset.empty||'No file selected'
+})
+
 for(const form of document.querySelectorAll('.upload-form:not(.media-upload-form)'))form.addEventListener('submit',async(event)=>{
   event.preventDefault()
   const input=form.querySelector('input[type="file"]')

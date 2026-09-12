@@ -142,12 +142,11 @@ test('popup geometry and payment flows retain real popup semantics', () => {
   )
 })
 
-test('ad-blocker mode never changes popup routing classification', () => {
+test('ordinary tab requests stay in the tab model', () => {
   assert.equal(
     routeWebviewWindowOpen({
       url: 'https://example.com/listing',
       disposition: 'foreground-tab',
-      adBlockerEnabled: false
     }),
     'vast-tab'
   )
@@ -155,8 +154,6 @@ test('ad-blocker mode never changes popup routing classification', () => {
     routeWebviewWindowOpen({
       url: 'https://example.com/dashboard',
       disposition: 'foreground-tab',
-      adBlockerEnabled: true,
-      adBlockerMode: 'standard'
     }),
     'vast-tab'
   )
@@ -164,8 +161,6 @@ test('ad-blocker mode never changes popup routing classification', () => {
     routeWebviewWindowOpen({
       url: 'https://example.com/pop',
       disposition: 'foreground-tab',
-      adBlockerEnabled: true,
-      adBlockerMode: 'strict'
     }),
     'vast-tab'
   )
@@ -176,12 +171,11 @@ test('webview popup policy still blocks unsafe protocols', () => {
   assert.equal(routeWebviewWindowOpen({ url: 'file:///C:/Windows/System32/calc.exe', disposition: 'new-window' }), 'deny')
 })
 
-test('disabled ad blocker preserves blank popup semantics and routes safe URLs to tabs', () => {
+test('blank popup semantics and safe tab URLs are preserved', () => {
   assert.equal(
     routeWebviewWindowOpen({
       url: 'about:blank',
       disposition: 'background-tab',
-      adBlockerEnabled: false
     }),
     'popup-window'
   )
@@ -189,22 +183,17 @@ test('disabled ad blocker preserves blank popup semantics and routes safe URLs t
     routeWebviewWindowOpen({
       url: 'https://ads.example.test/popup',
       disposition: 'foreground-tab',
-      adBlockerEnabled: false
     }),
     'vast-tab'
   )
 })
 
-test('known ad-network hosts still become real popups only through host classification elsewhere', () => {
-  // Routing itself is host-agnostic; strict blocking happens in the session
-  // policy before routing. A tab-disposition popads URL therefore routes as a
-  // tab here, mirroring how the pipeline composes.
+test('tab popup classification does not contain an advertising denylist', () => {
+  // Network blocking belongs to extensions; window routing preserves Chromium semantics.
   assert.equal(
     routeWebviewWindowOpen({
       url: 'https://popads.net/redirect?zoneid=123',
       disposition: 'foreground-tab',
-      adBlockerEnabled: true,
-      adBlockerMode: 'standard'
     }),
     'vast-tab'
   )

@@ -1,6 +1,8 @@
 node_modules
 out
 release
+!tests/release/
+!tests/release/*.test.cjs
 performance-results/
 preview-screenshots/
 .vast-test-artifacts
@@ -41,6 +43,7 @@ secrets/
 *.p7c
 *.b64.txt
 /release.zip*
+/release-candidate.json
 tools/VastUpdaterBootstrapper/*Generated.cs
 chromium-port/.reports/
 chromium-port/.artifacts/

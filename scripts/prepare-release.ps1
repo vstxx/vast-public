@@ -20,14 +20,7 @@ if ($Version -notmatch $SemVerPattern) {
   throw "Version must be valid SemVer: $Version"
 }
 if ([string]::IsNullOrWhiteSpace($PreviousVersion)) {
-  if ($Version.Contains('-')) {
-    throw 'PreviousVersion is required for a prerelease.'
-  }
-  $parts = @($Version.Split('.') | ForEach-Object { [int] $_ })
-  if ($parts[2] -le 0) {
-    throw 'PreviousVersion is required when the release patch version is zero.'
-  }
-  $PreviousVersion = "$($parts[0]).$($parts[1]).$($parts[2] - 1)"
+  $PreviousVersion = (Get-Content -Raw -Encoding UTF8 (Join-Path $RepoRoot 'scripts/release-config.json') | ConvertFrom-Json).previousPublicVersion
 }
 if ($PreviousVersion -notmatch $SemVerPattern) {
   throw "PreviousVersion must be valid SemVer: $PreviousVersion"

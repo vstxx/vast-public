@@ -1,11 +1,13 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const outputArgument = process.argv[process.argv.indexOf('--output') + 1]
+const outputIndex = process.argv.indexOf('--output')
+const outputArgument = outputIndex >= 0 ? process.argv[outputIndex + 1] : undefined
 const sourceCommit = String(process.env.VAST_RELEASE_COMMIT || '').trim().toLowerCase()
+const worktree = process.argv.includes('--worktree')
 if (!outputArgument || !isAbsolute(outputArgument)) throw new Error('--output must be an absolute path outside the source repository.')
 const output = resolve(outputArgument)
 if (output === root || output.startsWith(`${root}${sep}`)) throw new Error('Public source output must be outside the source repository.')
@@ -17,11 +19,16 @@ const tracked = spawnSync('git', ['ls-tree', '-r', '-z', '--name-only', sourceCo
 if (tracked.status !== 0) throw new Error('Could not enumerate the release source tree.')
 
 const excluded = [
+  /^audit\//,
+  /^docs\/PRODUCTION_CORRECTNESS_AUDIT\.md$/,
+  /^docs\/STORE_ICONS_AND_MENUS_PASS\.md$/,
   /^\.github\/workflows\/hub-staging-edge\.yml$/,
   /^artifacts\//,
   /^resources\/first-party-extensions\/idu-plus\//,
   /^docs\/GIT_HISTORY_PRIVACY_REWRITE\.md$/,
   /^relay\/keys\/staging-verification\.json$/,
+  /^scripts\/release-audit\.cjs$/,
+  /^tests\/renderer\/release-hardening-scripts\.test\.ts$/,
   /^docs\/FINAL_POLISH_REPORT\.md$/,
   /^docs\/OPEN_SOURCE_READINESS\.md$/,
   /^docs\/PERFORMANCE_AUDIT\.md$/,
@@ -38,14 +45,18 @@ const excluded = [
   /^docs\/chromium-migration\/(?:CHECKPOINT|progress)\.md$/
 ]
 
-if (existsSync(output)) rmSync(output, { recursive: true, force: true })
+if (existsSync(output)) throw new Error('Snapshot output must not already exist; choose a new empty destination.')
 mkdirSync(output, { recursive: true })
-for (const path of tracked.stdout.split('\0').filter(Boolean)) {
+const workingFiles = worktree ? spawnSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }) : tracked
+if (workingFiles.status !== 0) throw new Error('Could not enumerate source files.')
+for (const path of new Set(workingFiles.stdout.split('\0').filter(Boolean))) {
   const normalized = path.replaceAll('\\', '/')
   if (excluded.some((pattern) => pattern.test(normalized))) continue
+  if (worktree && !existsSync(join(root, normalized))) continue
+  if (worktree && lstatSync(join(root, normalized)).isSymbolicLink()) throw new Error(`Snapshot input must not be a symlink: ${normalized}`)
   const target = join(output, ...normalized.split('/'))
   mkdirSync(dirname(target), { recursive: true })
-  const contents = spawnSync('git', ['show', `${sourceCommit}:${normalized}`], { cwd: root, encoding: null, maxBuffer: 64 * 1024 * 1024 })
+  const contents = worktree ? { status: 0, stdout: readFileSync(join(root, normalized)) } : spawnSync('git', ['show', `${sourceCommit}:${normalized}`], { cwd: root, encoding: null, maxBuffer: 64 * 1024 * 1024 })
   if (contents.status !== 0) throw new Error(`Could not export tracked source file: ${normalized}`)
   writeFileSync(target, contents.stdout)
 }
@@ -58,15 +69,29 @@ if (existsSync(publicCiPath)) {
   writeFileSync(publicCiPath, normalizedCi)
 }
 
-const packageResult = spawnSync('git', ['show', `${sourceCommit}:package.json`], { cwd: root, encoding: 'utf8' })
-if (packageResult.status !== 0) throw new Error('Release source does not contain package.json.')
-const pkg = JSON.parse(packageResult.stdout)
+const publicPackagePath = join(output, 'package.json')
+if (!existsSync(publicPackagePath)) throw new Error('Exported public source does not contain package.json.')
+const publicPackage = JSON.parse(readFileSync(publicPackagePath, 'utf8'))
+if (publicPackage.scripts?.['release:audit'] !== 'node scripts/release-audit.cjs') {
+  throw new Error('Public release:audit mapping does not match the expected canonical script.')
+}
+publicPackage.scripts['release:audit'] = 'node scripts/public-release-audit.cjs'
+writeFileSync(publicPackagePath, `${JSON.stringify(publicPackage, null, 2)}\n`)
+
 writeFileSync(join(output, '.vast-source-provenance.json'), `${JSON.stringify({
   schema: 2,
-  version: pkg.version,
+  version: publicPackage.version,
   sourceCommit,
+  worktreePreview: worktree,
   exportedAt: new Date().toISOString(),
   exclusions: excluded.map(String),
-  transformations: ['.github/workflows/windows-ci.yml: private master push trigger normalized to public main']
+  transformations: [
+    '.github/workflows/windows-ci.yml: private master push trigger normalized to public main',
+    'package.json: release:audit mapped to the public snapshot audit'
+  ]
 }, null, 2)}\n`)
-console.log(JSON.stringify({ ok: true, output, version: pkg.version, sourceCommit }))
+for (const args of [[join(output, 'scripts/public-release-audit.cjs')], [join(root, 'scripts/secret-scan.cjs'), output]]) {
+  const check = spawnSync(process.execPath, args, { cwd: output, stdio: 'inherit', windowsHide: true })
+  if (check.error || check.status !== 0) throw new Error('Generated public snapshot failed audit/secret scan; publication is forbidden.')
+}
+console.log(JSON.stringify({ ok: true, output, version: publicPackage.version, sourceCommit }))

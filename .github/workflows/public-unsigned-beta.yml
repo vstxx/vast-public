@@ -6,8 +6,16 @@ on:
       expected_version:
         description: Exact package version to publish as an unsigned release
         required: true
-        default: 0.2.7
+        default: 0.3.0
         type: string
+      publish:
+        description: Publish the verified candidate (false only builds and verifies)
+        type: boolean
+        default: false
+      resume_run_id:
+        description: Original private candidate build run ID; use the same source SHA and channel
+        type: string
+        required: false
       channel:
         description: Public distribution channel
         required: true
@@ -20,7 +28,8 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
+  actions: read
 
 concurrency:
   group: public-release
@@ -37,8 +46,8 @@ jobs:
       VAST_PUBLIC_UNSIGNED_RELEASE: '1'
       VAST_UNSIGNED_RELEASE_ACK: ${{ inputs.risk_ack }}
       VAST_RELEASE_REPO: vstxx/vast-public
-      VAST_PREVIOUS_VERSION: 0.2.5
-      VAST_PREVIOUS_RELEASE_BASE_URL: https://github.com/vstxx/vast-public/releases/download/v0.2.5
+      VAST_PREVIOUS_VERSION: 0.2.7
+      VAST_PREVIOUS_RELEASE_BASE_URL: https://github.com/vstxx/vast-public/releases/download/v0.2.7
       VAST_PREVIOUS_SIGNATURE_POLICY: unsigned
       VAST_CURRENT_SIGNATURE_POLICY: unsigned
       VAST_UPDATE_ENABLED: '1'
@@ -52,12 +61,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Require original candidate for publication
+        if: inputs.publish && inputs.resume_run_id == ''
+        run: throw 'Publication requires resume_run_id from a verified candidate build; build first with publish=false.'
       - name: Fail fast when unsigned-release credentials are unavailable
         shell: pwsh
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           $required = @{
             VAST_RELEASE_TOKEN = $env:GH_TOKEN
             CLOUDFLARE_API_TOKEN = $env:CLOUDFLARE_API_TOKEN
@@ -89,6 +103,8 @@ jobs:
       - name: Validate explicit unsigned-release authorization and exact source
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           if ('${{ inputs.risk_ack }}' -ne 'I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK') { throw 'Exact unsigned-release risk acknowledgement is required.' }
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           if ($version -ne '${{ inputs.expected_version }}') { throw "package.json version $version does not match the authorized version." }
@@ -96,22 +112,52 @@ jobs:
           git diff --cached --exit-code
           $head = git rev-parse HEAD
           if ($head -ne '${{ github.sha }}') { throw "Checked out $head instead of workflow SHA ${{ github.sha }}." }
-          if (git tag --list "v$version") { throw "Tag v$version already exists and immutable unsigned artifacts must not be replaced." }
           "VAST_RELEASE_COMMIT=$head" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+      - name: Validate candidate run provenance
+        if: inputs.resume_run_id != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.resume_run_id }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          if ($env:CANDIDATE_RUN_ID -notmatch '^\d+$') { throw 'Candidate run ID must be numeric.' }
+          $run = gh api "repos/${{ github.repository }}/actions/runs/$env:CANDIDATE_RUN_ID" | ConvertFrom-Json
+          if ($run.head_sha -ne '${{ github.sha }}' -or $run.path -ne '.github/workflows/public-unsigned-beta.yml' -or $run.event -ne 'workflow_dispatch' -or $run.status -ne 'completed') { throw 'Candidate must come from a completed manual run of this workflow at the exact same source SHA.' }
+      - name: Restore original candidate from private draft release
+        if: inputs.resume_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.resume_run_id }}
+        run: node scripts/private-release-candidate.cjs restore
+      - name: Verify restored candidate bytes and source SHA
+        if: inputs.resume_run_id != ''
+        run: node scripts/release-candidate.cjs verify
+      - name: Reconstruct verified runtime from the original update ZIP
+        if: inputs.resume_run_id != ''
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-update-archive.ps1 -ArchivePath "release/Downloads/Vast-$version-update.zip" -Version $version -ExtractRuntimeTo "release/Vast-$version/win-unpacked"
       - name: Install exact dependencies
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
           npm ci
           npm ci --prefix relay
-          python -m pip install -r resources/avidae/requirements.txt -r resources/avidae/requirements-build.txt
+          if ('${{ inputs.resume_run_id }}' -eq '') { python -m pip install -r resources/avidae/requirements.txt -r resources/avidae/requirements-build.txt }
       - name: Restore or build pinned Vast FFmpeg with corresponding source
+        if: inputs.resume_run_id == ''
         uses: ./.github/actions/prepare-ffmpeg
         with:
           github-token: ${{ github.token }}
 
       - name: Full quality and dependency gate
+        if: inputs.resume_run_id == ''
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
@@ -133,66 +179,88 @@ jobs:
           npm run test:electron-version
           npm run test:app
       - name: Verify production Relay writes the release check-in
+        if: inputs.resume_run_id == ''
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npm run verify:release-checkin --prefix relay
       - name: Verify production Extensions Hub trust compatibility
+        if: inputs.resume_run_id == ''
         run: npm run hub:verify:production
       - name: Prepare self-contained Video & Audio runtime
+        if: inputs.resume_run_id == ''
         run: npm run avidae:runtime:prepare
       - name: Build explicitly unsigned public release
+        if: inputs.resume_run_id == ''
         run: npm run dist:upgrader
+      - name: Verify background downloads and safe installer deferral
+        if: inputs.resume_run_id == ''
+        run: npm run test:updater:background
       - name: Verify provenance, hashes, fuses, resources, and intentional NotSigned status
         run: node scripts/verify-release-package.cjs
       - name: Verify clean Windows install, registration and uninstall
+        if: inputs.resume_run_id == ''
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           powershell -NoProfile -ExecutionPolicy Bypass -File tests/windows-clean-uninstall.test.ps1 -InstallerPath "release/Installer/Vast-Setup-$version.exe"
-      - name: Verify real public 0.2.5 to local candidate upgrade
+      - name: Verify real public 0.2.7 to local candidate upgrade
+        if: inputs.resume_run_id == ''
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           $env:VAST_CURRENT_RELEASE_ROOT = (Resolve-Path release).Path
           $env:VAST_RELEASE_VERSION = (Get-Content -Raw package.json | ConvertFrom-Json).version
           npm run test:upgrade:public
 
-      - name: Preserve verified release candidate for manual publication resume
-        uses: actions/upload-artifact@v4
-        with:
-          name: vast-public-unsigned-${{ inputs.channel }}-${{ github.sha }}-release-candidate
-          path: |
-            release/Installer/
-            release/Updater/
-            release/Downloads/
-            release/Checksums/
-            release/Docs/
-            release/Source/
-            release/version.json
-            release/PUBLIC-UNSIGNED-RELEASE.md
-            out/release-build-metadata.json
-          if-no-files-found: error
+      - name: Install pinned secret scanner
+        run: node scripts/setup-gitleaks.cjs
+      - name: Scan complete source history
+        run: node scripts/secret-scan.cjs
+      - name: Release safety regression tests
+        run: npm run test:release
+      - name: Release version and architecture gates
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          npm run release:version-check
+          npm run release:audit
+      - name: Audit generated public snapshot before publication
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $snapshot = Join-Path $env:RUNNER_TEMP 'vast-public-source'
+          node scripts/export-public-source-snapshot.mjs --output $snapshot
+
+      - name: Seal verified release candidate
+        if: inputs.resume_run_id == ''
+        run: node scripts/release-candidate.cjs seal
+      - name: Preserve verified release candidate in private draft release
+        if: inputs.resume_run_id == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/private-release-candidate.cjs store
 
       - name: Publish matching public source snapshot and immutable tag
+        if: inputs.publish
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           $snapshot = Join-Path $env:RUNNER_TEMP 'vast-public-source'
-          $publicRepo = Join-Path $env:RUNNER_TEMP 'vast-public-repo'
-          node scripts/export-public-source-snapshot.mjs --output $snapshot
-          gh repo clone vstxx/vast-public $publicRepo
-          git -C $publicRepo rm -r --ignore-unmatch .
-          Get-ChildItem -LiteralPath $snapshot -Force | Copy-Item -Destination $publicRepo -Recurse -Force
-          git -C $publicRepo add -A
-          git -C $publicRepo config user.name 'Vast Release Bot'
-          git -C $publicRepo config user.email 'release@vastbrowser.com'
-          git -C $publicRepo commit -m "Publish Vast $version source snapshot ($env:VAST_RELEASE_COMMIT)"
-          git -C $publicRepo tag -a "v$version" -m "Vast $version from $env:VAST_RELEASE_COMMIT"
-          git -C $publicRepo push origin HEAD:main "refs/tags/v$version"
+          node scripts/publish-source-snapshot.cjs $snapshot
 
       - name: Create draft release and upload immutable assets
+        if: inputs.publish
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           $notes = Join-Path $env:RUNNER_TEMP 'vast-unsigned-release-notes.md'
           @(
@@ -205,53 +273,30 @@ jobs:
             "Verify SHA-256/SHA-512 before running. Download only from the official Vast website or this repository.",
             "A future signed release will use a newer version; these assets are immutable."
           ) | Set-Content -LiteralPath $notes -Encoding utf8
-          $flags = @('--repo', 'vstxx/vast-public', '--title', "Vast $version — Public Unsigned Release", '--notes-file', $notes, '--draft')
-          if ('${{ inputs.channel }}' -eq 'beta') { $flags += '--prerelease' }
-          gh release create "v$version" @flags
-          $assets = @(
-            "release/Installer/Vast-Setup-$version.exe",
-            "release/Installer/Vast-Setup-$version.exe.blockmap",
-            "release/Installer/Vast-$version-Portable.exe",
-            'release/Installer/latest.yml',
-            "release/Updater/VastUpdater-$version.exe",
-            'release/Downloads/update-manifest.json',
-            "release/Downloads/Vast-$version-update.zip",
-            'release/Checksums/checksums.json',
-            'release/Checksums/SHA256SUMS.txt',
-            'release/Checksums/SHA512SUMS.txt',
-            'release/Docs/release-manifest.json',
-            'release/Docs/ffmpeg-build-provenance.json',
-            'release/Docs/avidae-ffmpeg-capabilities.json',
-            'release/Source/ffmpeg-corresponding-source-win64.tar.zst',
-            'release/version.json',
-            'release/PUBLIC-UNSIGNED-RELEASE.md'
-          )
-          gh release upload "v$version" @assets --repo vstxx/vast-public
+          node scripts/publish-release-assets.cjs $notes
       - name: Re-download and verify draft assets
+        if: inputs.publish && env.VAST_RELEASE_ALREADY_PUBLIC != 'true'
         env:
           VAST_GITHUB_DRAFT_RELEASE: '1'
         run: npm run release:verify:published
       - name: Publish verified unsigned release
+        if: inputs.publish && env.VAST_RELEASE_ALREADY_PUBLIC != 'true'
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           $flags = @('--repo', 'vstxx/vast-public', '--draft=false')
           if ('${{ inputs.channel }}' -eq 'beta') { $flags += '--prerelease' }
           gh release edit "v$version" @flags
       - name: Re-download and verify public production URLs
+        if: inputs.publish
         run: npm run release:verify:published
 
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: vast-public-unsigned-${{ inputs.channel }}-${{ github.sha }}-verification
-          path: |
-            release/PUBLIC-UNSIGNED-RELEASE.md
-            release/version.json
-            release/Checksums/
-            release/Docs/release-manifest.json
-            release/Docs/ffmpeg-build-provenance.json
-            release/Docs/avidae-ffmpeg-capabilities.json
-            release/Source/ffmpeg-corresponding-source-win64.tar.zst
-            out/release-build-metadata.json
-          if-no-files-found: warn
+      - name: Remove private candidate only after verified public publication
+        if: inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.resume_run_id }}
+          VAST_CANDIDATE_PUBLICATION_VERIFIED: '1'
+        run: node scripts/private-release-candidate.cjs cleanup

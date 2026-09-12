@@ -38,7 +38,7 @@ export function FeatureGatePage({
         }
       >
         {disabledByFlag && (
-          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-vast-soft">
+          <div className="rounded-card border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-vast-soft">
             Enable <span className="font-semibold text-white">{gate.label}</span> in Labs settings to use this page.
           </div>
         )}

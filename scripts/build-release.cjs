@@ -19,11 +19,7 @@ const defaultReleaseRepo = process.env.VAST_RELEASE_REPO || 'vstxx/vast-public'
 const defaultManifestUrl =
   process.env.VAST_UPDATE_MANIFEST_URL ||
   `https://github.com/${defaultReleaseRepo}/releases/download/v${pkg.version}/update-manifest.json`
-const previousVersion = process.env.VAST_PREVIOUS_VERSION || (() => {
-  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(pkg.version)
-  if (!match || Number(match[3]) <= 0) return ''
-  return `${match[1]}.${match[2]}.${Number(match[3]) - 1}`
-})()
+const previousVersion = process.env.VAST_PREVIOUS_VERSION || require('./release-config.json').previousPublicVersion
 
 const releaseLike = target === 'dist' || target === 'upgrader'
 const env = {
@@ -79,7 +75,7 @@ function buildDist() {
 }
 
 function electronBuilderArgs(windowsTarget) {
-  const args = ['electron-builder']
+  const args = ['electron-builder', '--publish', 'never']
   if (windowsTarget) args.push('--win', windowsTarget)
   const allowUnsignedPrivate = env.VAST_PRIVATE_BUILD === '1' && process.env.VAST_ALLOW_UNSIGNED_PRIVATE_BUILD !== '0'
   const allowPublicUnsignedRelease =

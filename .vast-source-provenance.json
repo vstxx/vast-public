@@ -1,13 +1,37 @@
 {
-  "schema": 1,
-  "version": "0.2.7",
-  "sourceCommit": "daec9faf2edd5b40c122b513a0bfb22d8dae62be",
-  "exportedAt": "2026-09-04T11:10:20.401Z",
+  "schema": 2,
+  "version": "0.3.0",
+  "sourceCommit": "bd23321fd7b1d4e4b9dc0ff1be22f9d4e1bfa190",
+  "worktreePreview": false,
+  "exportedAt": "2026-09-12T11:46:27.825Z",
   "exclusions": [
+    "/^audit\\//",
+    "/^docs\\/PRODUCTION_CORRECTNESS_AUDIT\\.md$/",
+    "/^docs\\/STORE_ICONS_AND_MENUS_PASS\\.md$/",
     "/^\\.github\\/workflows\\/hub-staging-edge\\.yml$/",
     "/^artifacts\\//",
     "/^resources\\/first-party-extensions\\/idu-plus\\//",
     "/^docs\\/GIT_HISTORY_PRIVACY_REWRITE\\.md$/",
-    "/^relay\\/keys\\/staging-verification\\.json$/"
+    "/^relay\\/keys\\/staging-verification\\.json$/",
+    "/^scripts\\/release-audit\\.cjs$/",
+    "/^tests\\/renderer\\/release-hardening-scripts\\.test\\.ts$/",
+    "/^docs\\/FINAL_POLISH_REPORT\\.md$/",
+    "/^docs\\/OPEN_SOURCE_READINESS\\.md$/",
+    "/^docs\\/PERFORMANCE_AUDIT\\.md$/",
+    "/^docs\\/DISTRIBUTION_SIZE_OPTIMIZATION\\.md$/",
+    "/^docs\\/IDU_PLUS_HUB_PUBLISHING\\.md$/",
+    "/^docs\\/MICROSOFT_STORE_SUBMISSION\\.md$/",
+    "/^docs\\/SIGNED_RELEASE_TUTORIAL\\.md$/",
+    "/^docs\\/VAST_RELAY_OPERATIONS\\.md$/",
+    "/^docs\\/SQLITE_MIGRATION_PLAN\\.md$/",
+    "/^docs\\/DEFAULT_WORKSPACE_ONBOARDING_SPEC\\.md$/",
+    "/^docs\\/RELEASE_\\d+\\.\\d+\\.\\d+_(?:READINESS|PREREQUISITES)\\.md$/",
+    "/^docs\\/google-auth\\//",
+    "/^docs\\/releases\\//",
+    "/^docs\\/chromium-migration\\/(?:CHECKPOINT|progress)\\.md$/"
+  ],
+  "transformations": [
+    ".github/workflows/windows-ci.yml: private master push trigger normalized to public main",
+    "package.json: release:audit mapped to the public snapshot audit"
   ]
 }

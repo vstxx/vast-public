@@ -114,7 +114,7 @@ export function AddressBar({
         kind: 'internal', url: activeTab.url, secure: false, certificateStatus: 'not-applicable', cookieCount: 0,
         serviceWorkerCount: 0,
         storage: { cookies: 0, localStorageEntries: 0, indexedDBDatabases: 0, serviceWorkers: 0 },
-        permissions: [], blocked: { trackers: 0, ads: 0, malware: 0 }, interventionsDisabled: false
+        permissions: [], blocked: { trackers: 0 }, interventionsDisabled: false
       })
       setSiteInfoError(null)
       return
@@ -281,7 +281,7 @@ export function AddressBar({
           inputRef.current?.blur()
         }}
       >
-        <div className={`vast-top-address group relative flex items-center gap-3 rounded-2xl px-4 backdrop-blur-xl transition duration-150 ${variant === 'purist' ? 'vast-top-address-purist' : ''} ${pdfDropActive ? 'ring-2 ring-vast-cyan/55 bg-vast-cyan/[0.08]' : ''} ${compact ? 'h-9' : 'h-12'}`}>
+        <div className={`vast-top-address group relative flex items-center gap-3 rounded-card px-4 backdrop-blur-xl transition duration-150 ${variant === 'purist' ? 'vast-top-address-purist' : ''} ${pdfDropActive ? 'ring-2 ring-vast-cyan/55 bg-vast-cyan/[0.08]' : ''} ${compact ? 'h-9' : 'h-12'}`}>
           {activeTab && <Favicon url={activeTab.url} favicon={activeTab.favicon} title={activeTab.title} />}
           <button
             type="button"
@@ -292,7 +292,7 @@ export function AddressBar({
               setOverflowOpen(false)
               setSiteInfoOpen((value) => !value)
             }}
-            className="grid h-6 w-6 place-items-center rounded-lg text-vast-cyan transition hover:bg-white/10"
+            className="grid h-6 w-6 place-items-center rounded-control text-vast-cyan transition hover:bg-white/10"
           >
             {secure ? (
               <Lock className="h-3.5 w-3.5" aria-label="Secure connection" />
@@ -338,7 +338,7 @@ export function AddressBar({
           />
           <div className="flex items-center gap-2">
             {value && isLikelySearch(value) && (
-              <span className="hidden rounded-lg bg-vast-cyan/10 px-2 py-1 text-[11px] font-medium text-vast-cyan md:inline">
+              <span className="hidden rounded-control bg-vast-cyan/10 px-2 py-1 text-[11px] font-medium text-vast-cyan md:inline">
                 {searchShortcutHint(value)?.name ?? SEARCH_ENGINES.find((engine) => engine.id === defaultSearchEngine)?.name ?? 'Search'}
               </span>
             )}
@@ -347,7 +347,7 @@ export function AddressBar({
         </div>
 
         {suggestions.length > 0 && (
-          <div className="absolute left-0 right-0 top-14 overflow-hidden rounded-2xl border border-white/10 bg-[#0c0d12]/[0.98] p-2 shadow-glass backdrop-blur-xl">
+          <div className="absolute left-0 right-0 top-14 overflow-hidden rounded-card border border-white/10 bg-[#0c0d12]/[0.98] p-2 shadow-glass backdrop-blur-xl">
             {suggestions.map((item, index) => (
               <button
                 type="button"
@@ -358,7 +358,7 @@ export function AddressBar({
                   setSelectedSuggestion(-1)
                   setFocused(false)
                 }}
-                className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left ${
+                className={`flex w-full items-center gap-3 rounded-control px-3 py-2 text-left ${
                   index === selectedSuggestion ? 'bg-white/[0.09]' : 'hover:bg-white/[0.07]'
                 }`}
               >
@@ -373,9 +373,9 @@ export function AddressBar({
           </div>
         )}
         {siteInfoOpen && activeTab && (
-          <div className="absolute left-0 top-14 z-40 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-white/10 bg-[#0c0d12]/[0.98] p-3 text-sm text-white shadow-glass backdrop-blur-xl">
+          <div className="absolute left-0 top-14 z-40 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-card border border-white/10 bg-[#0c0d12]/[0.98] p-3 text-sm text-white shadow-glass backdrop-blur-xl">
             <div className="flex items-start gap-3">
-              <div className={`grid h-9 w-9 place-items-center rounded-xl ${siteInfo?.secure ? 'bg-vast-cyan/10 text-vast-cyan' : siteInfo?.kind === 'internal' ? 'bg-white/[0.07] text-vast-soft' : 'bg-vast-amber/10 text-vast-amber'}`}>
+              <div className={`grid h-9 w-9 place-items-center rounded-control ${siteInfo?.secure ? 'bg-vast-cyan/10 text-vast-cyan' : siteInfo?.kind === 'internal' ? 'bg-white/[0.07] text-vast-soft' : 'bg-vast-amber/10 text-vast-amber'}`}>
                 {siteInfo?.secure ? <Lock className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}
               </div>
               <div className="min-w-0 flex-1">
@@ -383,18 +383,18 @@ export function AddressBar({
                 <div className="mt-1 truncate text-[13px] text-vast-soft">{siteInfo?.origin ?? (activeTabUsesExternalSource ? hostnameFor(effectiveActiveUrl ?? '') : isInternalUrl(activeTab.url) ? activeTab.url : hostnameFor(activeTab.url))}</div>
               </div>
             </div>
-            {siteInfoError && <div className="mt-3 rounded-xl border border-vast-amber/20 bg-vast-amber/10 p-3 text-[13px] leading-5 text-vast-amber">{siteInfoError}</div>}
-            {siteInfo && <div className="mt-3 space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.035] p-3 text-[13px] leading-5 text-vast-soft">
+            {siteInfoError && <div className="mt-3 rounded-control border border-vast-amber/20 bg-vast-amber/10 p-3 text-[13px] leading-5 text-vast-amber">{siteInfoError}</div>}
+            {siteInfo && <div className="mt-3 space-y-2 rounded-control border border-white/[0.08] bg-white/[0.035] p-3 text-[13px] leading-5 text-vast-soft">
               <div className="flex items-center justify-between gap-3"><span className="flex items-center gap-2"><ShieldCheck className="h-4 w-4" />Certificate</span><span className="text-right text-white">{siteInfo.certificateStatus === 'validated-by-chromium' ? 'Validated by Chromium' : siteInfo.certificateStatus === 'not-applicable' ? 'Not applicable' : 'Not secure'}</span></div>
               <div className="flex items-center justify-between gap-3"><span className="flex items-center gap-2"><Cookie className="h-4 w-4" />Cookies</span><span className="text-white">{siteInfo.cookieCount}</span></div>
               <div className="flex items-center justify-between gap-3"><span>localStorage entries</span><span className="text-white">{siteInfo.storage.localStorageEntries}</span></div>
               <div className="flex items-center justify-between gap-3"><span>IndexedDB databases</span><span className="text-white">{siteInfo.storage.indexedDBDatabases}</span></div>
               <div className="flex items-center justify-between gap-3"><span>Service workers</span><span className="text-white">{siteInfo.serviceWorkerCount}</span></div>
               <div className="flex items-center justify-between gap-3"><span>Permissions</span><span className="text-white">{siteInfo.permissions.length || 'Default'}</span></div>
-              {siteInfo.kind === 'web' && <div className="flex items-center justify-between gap-3"><span>Blocked requests</span><span className="text-white">{siteInfo.blocked.trackers} trackers · {siteInfo.blocked.ads} ads · {siteInfo.blocked.malware} malware</span></div>}
+              {siteInfo.kind === 'web' && <div className="flex items-center justify-between gap-3"><span>Blocked requests</span><span className="text-white">{siteInfo.blocked.trackers} trackers</span></div>}
               {siteInfo.permissions.map((permission) => <div key={`${permission.origin}-${permission.workspaceId ?? 'shared'}-${permission.permission}`} className="flex items-center justify-between gap-3 pl-6"><span className="capitalize">{permission.permission}</span><span className="capitalize text-white">{permission.setting}</span></div>)}
             </div>}
-            {siteInfo?.kind === 'web' && siteInfo.origin && <label className="mt-2 flex min-h-10 items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.035] px-3 text-[13px] text-vast-soft">
+            {siteInfo?.kind === 'web' && siteInfo.origin && <label className="mt-2 flex min-h-10 items-center justify-between gap-3 rounded-control border border-white/[0.08] bg-white/[0.035] px-3 text-[13px] text-vast-soft">
               <span>Disable Vast interventions for this site</span>
               <input
                 type="checkbox"
@@ -402,15 +402,7 @@ export function AddressBar({
                 onChange={(event) => updateSettings({ privacy: { siteInterventionsDisabled: event.target.checked ? [...privacySettings.siteInterventionsDisabled.filter((origin) => origin !== siteInfo.origin), siteInfo.origin!] : privacySettings.siteInterventionsDisabled.filter((origin) => origin !== siteInfo.origin) } })}
               />
             </label>}
-            {siteInfo?.kind === 'web' && siteInfo.hostname && <label className="mt-2 flex min-h-10 items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.035] px-3 text-[13px] text-vast-soft">
-              <span>Allow ads and trackers on this domain</span>
-              <input
-                type="checkbox"
-                checked={privacySettings.adBlockAllowlist.includes(siteInfo.hostname)}
-                onChange={(event) => updateSettings({ privacy: { adBlockAllowlist: event.target.checked ? [...privacySettings.adBlockAllowlist.filter((host) => host !== siteInfo.hostname), siteInfo.hostname!] : privacySettings.adBlockAllowlist.filter((host) => host !== siteInfo.hostname) } })}
-              />
-            </label>}
-            {siteInfo?.kind === 'web' && siteInfo.hostname && <label className="mt-2 flex min-h-10 items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.035] px-3 text-[13px] text-vast-soft">
+            {siteInfo?.kind === 'web' && siteInfo.hostname && <label className="mt-2 flex min-h-10 items-center justify-between gap-3 rounded-control border border-white/[0.08] bg-white/[0.035] px-3 text-[13px] text-vast-soft">
               <span>Clear data when its last tab closes</span>
               <input
                 type="checkbox"
@@ -425,7 +417,7 @@ export function AddressBar({
                   setSiteInfoOpen(false)
                   void window.vast.privacy.clearSiteData(siteInfo.origin, runtime.getActiveWebContentsId())
                 }}
-                className="mt-2 flex h-10 w-full items-center justify-center rounded-xl border border-white/10 bg-white/[0.045] text-[13px] font-semibold text-white hover:bg-white/[0.08]"
+                className="mt-2 flex h-10 w-full items-center justify-center rounded-control border border-white/10 bg-white/[0.045] text-[13px] font-semibold text-white hover:bg-white/[0.08]"
               >
                 Clear cookies and storage for this site
               </button>
@@ -437,7 +429,7 @@ export function AddressBar({
                   setSiteInfoOpen(false)
                   void window.vast.privacy.clearSiteData(siteInfo.origin, runtime.getActiveWebContentsId()).finally(() => forgetSite(siteInfo.origin!))
                 }}
-                className="mt-2 flex h-10 w-full items-center justify-center rounded-xl border border-red-400/20 bg-red-400/[0.06] text-[13px] font-semibold text-red-200 hover:bg-red-400/[0.1]"
+                className="mt-2 flex h-10 w-full items-center justify-center rounded-control border border-red-400/20 bg-red-400/[0.06] text-[13px] font-semibold text-red-200 hover:bg-red-400/[0.1]"
               >
                 Forget this site
               </button>
@@ -488,7 +480,7 @@ export function AddressBar({
             <MoreHorizontal className="h-4 w-4" />
           </IconButton>
           {overflowOpen && (
-            <div className="browser-tools-menu absolute right-0 top-11 z-40 max-h-[72vh] w-64 overflow-y-auto rounded-2xl border border-white/10 bg-[#0c0d12]/[0.98] p-2 shadow-glass backdrop-blur-xl">
+            <div className="browser-tools-menu absolute right-0 top-11 z-40 max-h-[72vh] w-64 overflow-y-auto rounded-card border border-white/10 bg-[#0c0d12]/[0.98] p-2 shadow-glass backdrop-blur-xl">
               {extensionToolbar.slice(3).map((action) => <OverflowAction key={action.key} label={`${action.title} · ${action.extensionName}`} icon={Puzzle} disabled={action.enabled === false} onClick={() => { void window.vast.extensions.dispatchContribution(action.key) }} onClose={() => setOverflowOpen(false)} />)}
               <OverflowAction label="Incognito window" icon={EyeOff} onClick={runtime.openIncognitoWindow} onClose={() => setOverflowOpen(false)} />
               <>
@@ -556,12 +548,12 @@ function OverflowAction({
         onClick()
         onClose()
       }}
-      className={`browser-tools-action flex h-9 w-full items-center gap-3 rounded-lg px-3 text-left text-sm text-vast-soft transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-vast-soft ${unavailable ? 'opacity-75' : ''}`}
+      className={`browser-tools-action flex h-9 w-full items-center gap-3 rounded-control px-3 text-left text-sm text-vast-soft transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-vast-soft ${unavailable ? 'opacity-75' : ''}`}
     >
       <Icon className="h-4 w-4 text-vast-cyan" />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {badge && (
-        <span className="rounded-md border border-vast-cyan/20 bg-vast-cyan/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-vast-cyan">
+        <span className="rounded-checkbox border border-vast-cyan/20 bg-vast-cyan/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-vast-cyan">
           {badge}
         </span>
       )}

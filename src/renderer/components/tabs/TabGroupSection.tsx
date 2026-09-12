@@ -48,7 +48,7 @@ function TabGroupSectionComponent({
   return (
     <section className="space-y-1" onDragOver={(event) => event.preventDefault()} onDrop={onDrop}>
       <div
-        className="group flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-vast-soft hover:bg-white/[0.05] hover:text-white"
+        className="group flex h-8 w-full items-center gap-2 rounded-control px-2 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-vast-soft hover:bg-white/[0.05] hover:text-white"
         onContextMenu={(event) => {
           event.preventDefault()
           openContextMenu({
@@ -92,10 +92,10 @@ function TabGroupSectionComponent({
           })
         }}
       >
-        <button type="button" onClick={() => toggleGroup(group.id)} className="grid h-5 w-5 place-items-center rounded-md hover:bg-white/10">
+        <button type="button" onClick={() => toggleGroup(group.id)} className="grid h-5 w-5 place-items-center rounded-checkbox hover:bg-white/10">
           {group.collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
         </button>
-        <span className="h-2.5 w-2.5 shrink-0 rounded-full shadow-[0_0_14px_currentColor]" style={{ color: group.color, backgroundColor: group.color }} />
+        <span className="h-2.5 w-2.5 shrink-0 rounded-control shadow-[0_0_14px_currentColor]" style={{ color: group.color, backgroundColor: group.color }} />
         <button
           type="button"
           onClick={() => toggleGroup(group.id)}
@@ -108,12 +108,12 @@ function TabGroupSectionComponent({
             type="button"
             title="Group options"
             onClick={() => setMenuOpen((value) => !value)}
-            className="grid h-6 w-6 place-items-center rounded-md text-white/[0.35] hover:bg-white/10 hover:text-white"
+            className="grid h-6 w-6 place-items-center rounded-checkbox text-white/[0.35] hover:bg-white/10 hover:text-white"
           >
             <MoreHorizontal className="h-3.5 w-3.5" />
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-7 z-30 w-52 rounded-2xl border border-white/10 bg-[#0c0d12]/[0.98] p-2 shadow-glass backdrop-blur-xl">
+            <div className="absolute right-0 top-7 z-30 w-52 rounded-card border border-white/10 bg-[#0c0d12]/[0.98] p-2 shadow-glass backdrop-blur-xl">
               <button
                 type="button"
                 onClick={() => {
@@ -126,7 +126,7 @@ function TabGroupSectionComponent({
                     onConfirm: (name) => updateGroup(group.id, { name })
                   })
                 }}
-                className="flex h-9 w-full items-center gap-2 rounded-xl px-2 text-left text-xs text-vast-soft hover:bg-white/[0.07] hover:text-white"
+                className="flex h-9 w-full items-center gap-2 rounded-control px-2 text-left text-xs text-vast-soft hover:bg-white/[0.07] hover:text-white"
               >
                 <Edit3 className="h-3.5 w-3.5 text-vast-cyan" />
                 Rename
@@ -140,7 +140,7 @@ function TabGroupSectionComponent({
                       type="button"
                       title={color}
                       onClick={() => updateGroup(group.id, { color })}
-                      className={`h-5 w-5 rounded-full border ${group.color === color ? 'border-white' : 'border-white/15'}`}
+                      className={`h-5 w-5 rounded-control border ${group.color === color ? 'border-white' : 'border-white/15'}`}
                       style={{ backgroundColor: color }}
                     />
                   ))}
@@ -152,7 +152,7 @@ function TabGroupSectionComponent({
                   setMenuOpen(false)
                   deleteGroup(group.id)
                 }}
-                className="flex h-9 w-full items-center gap-2 rounded-xl px-2 text-left text-xs text-red-300 hover:bg-red-400/10"
+                className="flex h-9 w-full items-center gap-2 rounded-control px-2 text-left text-xs text-red-300 hover:bg-red-400/10"
               >
                 <Trash2 className="h-3.5 w-3.5" />
                 Delete

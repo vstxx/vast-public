@@ -81,6 +81,7 @@ export interface ValidatedExtensionManifest {
 
 export interface ExtensionSessionLike {
   isPersistent(): boolean
+  clearStorageData?: Session['clearStorageData']
   extensions: Pick<Session['extensions'], 'loadExtension' | 'removeExtension' | 'getExtension'>
 }
 

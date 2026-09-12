@@ -9,9 +9,13 @@ export function ContextMenu(): JSX.Element | null {
   const previewRef = useRef<HTMLDivElement | null>(null)
   const [menuSize, setMenuSize] = useState({ width: 240, height: 240 })
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [actionError, setActionError] = useState('')
+  const [executing, setExecuting] = useState(false)
 
   useEffect(() => {
     setPreviewOpen(false)
+    setActionError('')
+    setExecuting(false)
   }, [menu])
 
   useEffect(() => {
@@ -89,13 +93,13 @@ export function ContextMenu(): JSX.Element | null {
       <button
         type="button"
         aria-label="Close context menu"
-        className="fixed inset-0 z-[2147483645] cursor-default bg-transparent"
+        className="no-drag fixed inset-0 z-[2147483645] cursor-default bg-transparent"
         onMouseDown={close}
       />
       <div
         ref={menuRef}
         role="menu"
-        className="fixed z-[2147483646] max-h-[min(78vh,34rem)] w-[15rem] overflow-y-auto overflow-x-hidden rounded-2xl border border-white/10 bg-[#090a0d]/[0.98] p-1 text-sm text-white shadow-glass backdrop-blur-2xl"
+        className="no-drag fixed z-[2147483646] max-h-[min(78vh,34rem)] w-[15rem] overflow-y-auto overflow-x-hidden rounded-card border border-white/10 bg-[#090a0d] p-1 text-sm text-white shadow-glass"
         style={{ left, top }}
       >
         {menu.title && (
@@ -109,7 +113,7 @@ export function ContextMenu(): JSX.Element | null {
               type="button"
               onMouseDown={(event) => event.stopPropagation()}
               onClick={() => setPreviewOpen((current) => !current)}
-              className="flex min-h-7 w-full items-center justify-between rounded-xl px-2 py-1 text-left text-[12px] font-medium text-vast-soft transition hover:bg-white/[0.075] hover:text-white"
+              className="flex min-h-7 w-full items-center justify-between rounded-control px-2 py-1 text-left text-[12px] font-medium text-vast-soft transition hover:bg-white/[0.075] hover:text-white"
             >
               <span>{previewOpen ? 'Hide preview' : 'Preview'}</span>
               <span className="text-[11px] text-vast-cyan">{menu.preview.host}</span>
@@ -126,14 +130,22 @@ export function ContextMenu(): JSX.Element | null {
                 type="button"
                 role="menuitem"
                 tabIndex={-1}
-                disabled={item.disabled}
+                disabled={item.disabled || executing}
                 onMouseDown={(event) => event.stopPropagation()}
-                onClick={() => {
-                  if (item.disabled) return
-                  close()
-                  void item.action?.()
+                onClick={async () => {
+                  if (item.disabled || executing) return
+                  setExecuting(true)
+                  setActionError('')
+                  try {
+                    await item.action?.()
+                    if (useBrowserStore.getState().contextMenu === menu) close()
+                  } catch (error) {
+                    setActionError(error instanceof Error ? error.message : 'This action could not be completed.')
+                  } finally {
+                    setExecuting(false)
+                  }
                 }}
-                className={`flex min-h-7 w-full items-center gap-1.5 rounded-xl px-2 py-1 text-left transition ${
+                className={`flex min-h-7 w-full items-center gap-1.5 rounded-control px-2 py-1 text-left transition ${
                   item.disabled
                     ? 'cursor-not-allowed text-vast-soft/40'
                     : item.danger
@@ -150,15 +162,16 @@ export function ContextMenu(): JSX.Element | null {
             )
           )}
         </div>
+        {actionError && <p role="alert" className="px-2 py-2 text-xs text-red-300">{actionError}</p>}
       </div>
       {menu.preview && previewOpen && (
         <div
           ref={previewRef}
-          className="link-preview-card fixed z-[2147483646] w-[280px] rounded-2xl border border-white/10 px-3 py-2.5 text-sm shadow-glass backdrop-blur-2xl"
+          className="link-preview-card fixed z-[2147483646] w-[280px] rounded-card border border-white/10 px-3 py-2.5 text-sm shadow-glass backdrop-blur-2xl"
           style={{ left: previewLeft, top: previewTop }}
         >
           <div className="flex items-start gap-3">
-            <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-vast-cyan/10 text-vast-cyan">
+            <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-control bg-vast-cyan/10 text-vast-cyan">
               <span className="text-xs font-black">{menu.preview.host.slice(0, 1).toUpperCase()}</span>
             </div>
             <div className="min-w-0 flex-1">

@@ -315,7 +315,7 @@ export function PasswordsPage(): JSX.Element {
   return (
     <div className="labs-page-surface min-h-full overflow-hidden bg-[#06070a] text-white" data-testid="passwords-page">
       <div className="mx-auto flex h-full min-h-[720px] w-full max-w-7xl flex-col gap-5 p-5 md:p-7">
-        <section className="vast-glass-panel relative overflow-hidden rounded-[32px] p-6">
+        <section className="vast-glass-panel relative overflow-hidden rounded-modal p-6">
           <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h1 className="text-4xl font-semibold tracking-normal md:text-5xl">Password Manager</h1>
@@ -325,7 +325,7 @@ export function PasswordsPage(): JSX.Element {
               </p>
             </div>
             <div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-3 lg:w-[33rem]" data-testid="password-vault-header-actions">
-              <div className={`flex h-11 min-w-0 items-center justify-center gap-2 rounded-2xl border px-2 text-sm font-semibold ${sessionLocked ? 'border-vast-amber/25 bg-vast-amber/[0.08] text-vast-amber' : 'border-vast-mint/25 bg-vast-mint/[0.08] text-vast-mint'}`}>
+              <div className={`flex h-11 min-w-0 items-center justify-center gap-2 rounded-card border px-2 text-sm font-semibold ${sessionLocked ? 'border-vast-amber/25 bg-vast-amber/[0.08] text-vast-amber' : 'border-vast-mint/25 bg-vast-mint/[0.08] text-vast-mint'}`}>
                 {sessionLocked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
                 {sessionLocked ? 'Locked' : 'Unlocked'}
               </div>
@@ -344,15 +344,15 @@ export function PasswordsPage(): JSX.Element {
                 <RefreshCw className={`h-4 w-4 ${auditBusy ? 'animate-spin' : ''}`} />
                 Check health
               </button>
-              <button type="button" onClick={openCreate} disabled={sessionLocked} className="flex h-11 min-w-0 items-center justify-center gap-2 rounded-2xl bg-vast-cyan px-2 text-sm font-semibold text-black hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40" data-testid="password-add-button">
+              <button type="button" onClick={openCreate} disabled={sessionLocked} className="flex h-11 min-w-0 items-center justify-center gap-2 rounded-card bg-vast-cyan px-2 text-sm font-semibold text-black hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40" data-testid="password-add-button">
                 <Plus className="h-4 w-4" />
                 Add login
               </button>
-              <button type="button" onClick={() => void importCsv()} disabled={sessionLocked} className="flex h-11 min-w-0 items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.055] px-2 text-sm font-semibold text-white hover:bg-white/[0.085] disabled:cursor-not-allowed disabled:opacity-40">
+              <button type="button" onClick={() => void importCsv()} disabled={sessionLocked} className="flex h-11 min-w-0 items-center justify-center gap-2 rounded-card border border-white/10 bg-white/[0.055] px-2 text-sm font-semibold text-white hover:bg-white/[0.085] disabled:cursor-not-allowed disabled:opacity-40">
                 <Upload className="h-4 w-4 text-vast-cyan" />
                 Import CSV
               </button>
-              <button type="button" onClick={() => void exportCsv()} disabled={sessionLocked} className="flex h-11 min-w-0 items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.055] px-2 text-sm font-semibold text-white hover:bg-white/[0.085] disabled:cursor-not-allowed disabled:opacity-40">
+              <button type="button" onClick={() => void exportCsv()} disabled={sessionLocked} className="flex h-11 min-w-0 items-center justify-center gap-2 rounded-card border border-white/10 bg-white/[0.055] px-2 text-sm font-semibold text-white hover:bg-white/[0.085] disabled:cursor-not-allowed disabled:opacity-40">
                 <Download className="h-4 w-4 text-vast-amber" />
                 Export CSV
               </button>
@@ -361,17 +361,17 @@ export function PasswordsPage(): JSX.Element {
         </section>
 
         {!encryptionAvailable && (
-          <div className="rounded-2xl border border-vast-amber/25 bg-vast-amber/[0.08] px-4 py-3 text-sm text-vast-soft">
+          <div className="rounded-card border border-vast-amber/25 bg-vast-amber/[0.08] px-4 py-3 text-sm text-vast-soft">
             OS password encryption is not available. Vast will not create or reveal passwords until safeStorage is available.
           </div>
         )}
         {message && (
-          <div className="rounded-2xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm text-vast-soft" data-testid="password-message">
+          <div className="rounded-card border border-white/10 bg-white/[0.055] px-4 py-3 text-sm text-vast-soft" data-testid="password-message">
             {message}
           </div>
         )}
 
-        <section className="vast-glass-panel rounded-[24px] px-4 py-3" data-testid="password-auto-save-status">
+        <section className="vast-glass-panel rounded-card px-4 py-3" data-testid="password-auto-save-status">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="flex items-center gap-2 text-sm font-semibold text-white">
@@ -379,14 +379,14 @@ export function PasswordsPage(): JSX.Element {
                 Automatic save suggestions are on
               </div>
             </div>
-            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-semibold text-vast-soft">
+            <span className="rounded-control border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-semibold text-vast-soft">
               {suppressedOrigins.length === 0 ? 'All eligible sites' : `${suppressedOrigins.length} excluded`}
             </span>
           </div>
           {suppressedOrigins.length > 0 && (
             <div className="mt-3 grid gap-2 border-t border-white/[0.07] pt-3 sm:grid-cols-2">
               {suppressedOrigins.map((origin) => (
-                <div key={origin} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-black/20 px-3 py-2">
+                <div key={origin} className="flex min-w-0 items-center justify-between gap-3 rounded-control border border-white/[0.07] bg-black/20 px-3 py-2">
                   <span className="min-w-0 truncate text-xs text-vast-soft">{origin}</span>
                   <button type="button" onClick={() => void allowSavePrompts(origin)} className="shrink-0 text-xs font-semibold text-vast-cyan hover:text-white">
                     Allow again
@@ -406,12 +406,12 @@ export function PasswordsPage(): JSX.Element {
         )}
 
         {sessionLocked ? (
-          <section className="vast-glass-panel grid min-h-[420px] flex-1 place-items-center rounded-[28px] p-8 text-center">
+          <section className="vast-glass-panel grid min-h-[420px] flex-1 place-items-center rounded-panel p-8 text-center">
             <div className="max-w-lg">
               <LockKeyhole className="mx-auto mb-5 h-12 w-12 text-vast-cyan" />
               <h2 className="text-2xl font-semibold">Password Manager is locked</h2>
               <p className="mt-3 text-sm leading-6 text-vast-soft">This privacy curtain clears decrypted metadata from the renderer. Secret copy and plaintext export always require their own native confirmation.</p>
-              <button type="button" onClick={() => void unlockSession()} className="mt-6 inline-flex h-11 items-center gap-2 rounded-2xl bg-vast-cyan px-5 text-sm font-semibold text-black">
+              <button type="button" onClick={() => void unlockSession()} className="mt-6 inline-flex h-11 items-center gap-2 rounded-card bg-vast-cyan px-5 text-sm font-semibold text-black">
                 <Unlock className="h-4 w-4" />
                 Unlock this window
               </button>
@@ -421,14 +421,14 @@ export function PasswordsPage(): JSX.Element {
         ) : (
 
         <section className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[390px_minmax(0,1fr)]">
-          <div className="vast-glass-panel flex min-h-0 flex-col rounded-[28px] p-4">
+          <div className="vast-glass-panel flex min-h-0 flex-col rounded-panel p-4">
             <div className="relative mb-3">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-vast-soft" />
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search saved logins"
-                className="h-11 w-full rounded-2xl border border-white/10 bg-black/20 pl-10 pr-3 text-sm text-white outline-none transition placeholder:text-vast-soft focus:border-vast-cyan/40"
+                className="h-11 w-full rounded-card border border-white/10 bg-black/20 pl-10 pr-3 text-sm text-white outline-none transition placeholder:text-vast-soft focus:border-vast-cyan/40"
                 data-testid="password-search-input"
               />
             </div>
@@ -439,7 +439,7 @@ export function PasswordsPage(): JSX.Element {
                   <InternalLoadingSkeleton title="Decrypting metadata" lines={3} />
                 </div>
               ) : filtered.length === 0 ? (
-                <div className="grid h-full place-items-center rounded-3xl border border-dashed border-white/10 bg-white/[0.025] p-8 text-center">
+                <div className="grid h-full place-items-center rounded-panel border border-dashed border-white/10 bg-white/[0.025] p-8 text-center">
                   <div>
                     <LockKeyhole className="mx-auto mb-4 h-8 w-8 text-vast-cyan" />
                     <div className="text-sm font-semibold text-white">No saved logins</div>
@@ -452,12 +452,12 @@ export function PasswordsPage(): JSX.Element {
                     type="button"
                     key={item.id}
                     onClick={() => setSelectedId(item.id)}
-                    className={`flex w-full items-center gap-3 rounded-2xl p-3 text-left transition ${
+                    className={`flex w-full items-center gap-3 rounded-card p-3 text-left transition ${
                       selected?.id === item.id ? 'bg-white/[0.09] shadow-[inset_0_1px_0_rgba(255,255,255,0.045)]' : 'hover:bg-white/[0.055]'
                     }`}
                     data-testid="password-row"
                   >
-                    <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-vast-cyan/10 text-vast-cyan">
+                    <div className="grid h-10 w-10 shrink-0 place-items-center rounded-card bg-vast-cyan/10 text-vast-cyan">
                       <KeyRound className="h-4 w-4" />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -472,7 +472,7 @@ export function PasswordsPage(): JSX.Element {
             </div>
           </div>
 
-          <div className="vast-glass-panel min-h-0 rounded-[28px] p-5">
+          <div className="vast-glass-panel min-h-0 rounded-panel p-5">
             {loading && items.length === 0 ? (
               <InternalLoadingSkeleton title="Opening vault entry" lines={6} className="h-full min-h-[320px]" />
             ) : selected ? (
@@ -480,7 +480,7 @@ export function PasswordsPage(): JSX.Element {
                 <div className="flex flex-col gap-4 border-b border-white/10 pb-5">
                   <div className="min-w-0">
                     <div className="mb-3 flex items-center gap-2">
-                      <span className="grid h-11 w-11 place-items-center rounded-2xl bg-[#b7a7ff]/15 text-[#b7a7ff]">
+                      <span className="grid h-11 w-11 place-items-center rounded-card bg-[#b7a7ff]/15 text-[#b7a7ff]">
                         <LockKeyhole className="h-5 w-5" />
                       </span>
                       <div className="min-w-0">
@@ -489,7 +489,7 @@ export function PasswordsPage(): JSX.Element {
                       </div>
                     </div>
                     {insecureOrigin(selected.origin) && (
-                      <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-vast-amber/20 bg-vast-amber/[0.08] px-3 py-1.5 text-xs font-semibold text-vast-amber">
+                      <div className="mt-3 inline-flex items-center gap-2 rounded-control border border-vast-amber/20 bg-vast-amber/[0.08] px-3 py-1.5 text-xs font-semibold text-vast-amber">
                         <AlertTriangle className="h-3.5 w-3.5" />
                         Insecure HTTP origin
                       </div>
@@ -519,7 +519,7 @@ export function PasswordsPage(): JSX.Element {
                   <Detail label="Created" value={formatDate(selected.createdAt)} />
                   <Detail label="Last used" value={formatDate(selected.lastUsedAt)} />
                 </div>
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/[0.075] bg-white/[0.04] p-4">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-card border border-white/[0.075] bg-white/[0.04] p-4">
                   <div>
                     <div className="text-xs font-semibold uppercase tracking-[0.14em] text-vast-soft">Autofill rule</div>
                     <div className="mt-1 text-sm text-white">{selected.autofillPolicy === 'never' ? 'Never offer on this domain' : 'Ask before filling'}</div>
@@ -538,16 +538,16 @@ export function PasswordsPage(): JSX.Element {
                     }}
                     ariaLabel="Autofill rule"
                     className="min-w-[13rem]"
-                    buttonClassName="h-10 min-h-10 rounded-xl"
+                    buttonClassName="h-10 min-h-10 rounded-control"
                   />
                 </div>
                 {auditFlags(selected.id).length > 0 && (
-                  <div className="mb-4 flex items-start gap-3 rounded-2xl border border-vast-amber/25 bg-vast-amber/[0.08] p-4">
+                  <div className="mb-4 flex items-start gap-3 rounded-card border border-vast-amber/25 bg-vast-amber/[0.08] p-4">
                     <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-vast-amber" />
                     <div><div className="text-sm font-semibold text-white">Review: {auditFlags(selected.id).join(', ')}</div><div className="mt-1 text-xs leading-5 text-vast-soft">The check runs locally. Passwords and hashes never leave the Electron main process.</div></div>
                   </div>
                 )}
-                <div className="rounded-3xl border border-white/[0.075] bg-black/20 p-4">
+                <div className="rounded-panel border border-white/[0.075] bg-black/20 p-4">
                   <div className="text-xs font-semibold uppercase tracking-[0.14em] text-vast-soft">Notes</div>
                   <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-white/[0.85]">{selected.notes || 'No notes saved.'}</div>
                 </div>
@@ -569,13 +569,13 @@ export function PasswordsPage(): JSX.Element {
       {formOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-5 backdrop-blur-xl">
           <button type="button" aria-label="Close password form" className="absolute inset-0 cursor-default" onClick={() => setFormOpen(false)} />
-          <div className="relative w-full max-w-2xl rounded-[28px] border border-white/10 bg-[#11131a]/95 p-5 shadow-glass">
+          <div className="relative w-full max-w-2xl rounded-panel border border-white/10 bg-[#11131a]/95 p-5 shadow-glass">
             <div className="mb-5 flex items-center justify-between gap-4">
               <div>
                 <div className="text-xl font-semibold">{editingId ? 'Edit login' : 'Add login'}</div>
                 <div className="mt-1 text-sm text-vast-soft">Passwords are encrypted before they are written to disk.</div>
               </div>
-              <button type="button" onClick={() => setFormOpen(false)} className="grid h-9 w-9 place-items-center rounded-xl text-vast-soft hover:bg-white/10 hover:text-white">
+              <button type="button" onClick={() => setFormOpen(false)} className="grid h-9 w-9 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white">
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -603,7 +603,7 @@ export function PasswordsPage(): JSX.Element {
                   ]}
                   onChange={(autofillPolicy) => setForm((state) => ({ ...state, autofillPolicy }))}
                   ariaLabel="Autofill on this domain"
-                  buttonClassName="h-11 min-h-11 rounded-2xl"
+                  buttonClassName="h-11 min-h-11 rounded-card"
                   align="start"
                 />
               </div>
@@ -613,20 +613,20 @@ export function PasswordsPage(): JSX.Element {
                   value={form.notes}
                   onChange={(event) => setForm((state) => ({ ...state, notes: event.target.value }))}
                   placeholder="Optional notes"
-                  className="min-h-24 resize-none rounded-2xl border border-white/10 bg-black/20 px-3 py-3 text-sm font-medium text-white outline-none placeholder:text-vast-soft focus:border-vast-cyan/40"
+                  className="min-h-24 resize-none rounded-card border border-white/10 bg-black/20 px-3 py-3 text-sm font-medium text-white outline-none placeholder:text-vast-soft focus:border-vast-cyan/40"
                   data-testid="password-notes"
                 />
               </label>
             </div>
             <div className="mt-5 flex justify-end gap-2">
-              <button type="button" onClick={() => setFormOpen(false)} className="h-10 rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm font-semibold text-vast-soft hover:text-white">
+              <button type="button" onClick={() => setFormOpen(false)} className="h-10 rounded-card border border-white/10 bg-white/[0.04] px-4 text-sm font-semibold text-vast-soft hover:text-white">
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={() => void saveForm()}
                 disabled={busy || !form.origin || (!editingId && !form.password)}
-                className="h-10 rounded-2xl bg-vast-cyan px-4 text-sm font-semibold text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                className="h-10 rounded-card bg-vast-cyan px-4 text-sm font-semibold text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
                 data-testid="password-save-button"
               >
                 Save login
@@ -641,7 +641,7 @@ export function PasswordsPage(): JSX.Element {
 
 function Detail({ label, value }: { label: string; value: string }): JSX.Element {
   return (
-    <div className="rounded-2xl border border-white/[0.075] bg-white/[0.04] p-4">
+    <div className="rounded-card border border-white/[0.075] bg-white/[0.04] p-4">
       <div className="text-xs font-semibold uppercase tracking-[0.14em] text-vast-soft">{label}</div>
       <div className="mt-2 truncate text-sm font-semibold text-white">{value}</div>
     </div>
@@ -650,7 +650,7 @@ function Detail({ label, value }: { label: string; value: string }): JSX.Element
 
 function VaultHealth({ label, value, detail }: { label: string; value: number; detail: string }): JSX.Element {
   return (
-    <div className={`flex items-start gap-3 rounded-2xl border p-4 ${value > 0 ? 'border-vast-amber/25 bg-vast-amber/[0.08]' : 'border-vast-mint/20 bg-vast-mint/[0.06]'}`}>
+    <div className={`flex items-start gap-3 rounded-card border p-4 ${value > 0 ? 'border-vast-amber/25 bg-vast-amber/[0.08]' : 'border-vast-mint/20 bg-vast-mint/[0.06]'}`}>
       {value > 0 ? <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-vast-amber" /> : <BadgeCheck className="mt-0.5 h-5 w-5 shrink-0 text-vast-mint" />}
       <div>
         <div className="text-sm font-semibold text-white">{label}: {value}</div>
@@ -683,7 +683,7 @@ function VaultInput({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="h-11 rounded-2xl border border-white/10 bg-black/20 px-3 text-sm font-medium text-white outline-none placeholder:text-vast-soft focus:border-vast-cyan/40"
+        className="h-11 rounded-card border border-white/10 bg-black/20 px-3 text-sm font-medium text-white outline-none placeholder:text-vast-soft focus:border-vast-cyan/40"
         data-testid={testId}
       />
     </label>

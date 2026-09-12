@@ -1,3 +1,4 @@
+import { copyText } from '../../lib/clipboard'
 import { Activity, Code2, Database, Eraser, FileDown, FileUp, Fingerprint, FlaskConical, FolderOpen, History, Keyboard, KeyRound, LockKeyhole, MapPin, MonitorCheck, Palette, Plus, RefreshCw, Search, Shield, Sparkles, Trash2, Wifi, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { DEFAULT_SETTINGS, DEFAULT_SHORTCUTS, INTERNAL_AUTOMATION_URL, INTERNAL_DIAGNOSTICS_URL, INTERNAL_NETWORK_URL, INTERNAL_PASSWORDS_URL, INTERNAL_SESSION_TIMELINE_URL, INTERNAL_SITE_DATA_URL, SEARCH_ENGINES } from '../../../shared/constants'
@@ -5,7 +6,7 @@ import { getFeatureState, VastFeatures, type FeatureId, type FeatureState } from
 import { resolveLayoutMode } from '../../../shared/layout-mode'
 import type { RelayClientSnapshot } from '../../../shared/relay-types'
 import { parseShortcut } from '../../../shared/shortcuts'
-import type { AdBlockerMode, DataPathInfo, DefaultBrowserStatus, FingerprintingProtectionMode, MigrationReport, PermissionSetting, PrivacyFilterStatus, SpoofingBrowserProfile, SpoofingLocationMode, WebRtcPolicy, WorkspaceProxyMode, WorkspaceSessionMode } from '../../../shared/types'
+import type { DataPathInfo, DefaultBrowserStatus, FingerprintingProtectionMode, MigrationReport, PermissionSetting, SpoofingBrowserProfile, SpoofingLocationMode, WebRtcPolicy, WorkspaceProxyMode, WorkspaceSessionMode } from '../../../shared/types'
 import { useBrowserRuntime } from '../../app/browser-runtime'
 import { useBrowserStore, selectActiveTab, selectActiveWorkspace } from '../../store/browser-store'
 import { VastSelect, type VastSelectOption, type VastSelectSize } from '../ui/VastSelect'
@@ -50,11 +51,6 @@ const permissionOptions: Array<{ value: PermissionSetting; label: string }> = [
   { value: 'block', label: 'Block' }
 ]
 
-const adBlockerModeOptions: Array<{ value: AdBlockerMode; label: string }> = [
-  { value: 'standard', label: 'Standard - strong and compatible' },
-  { value: 'strict', label: 'Strict - maximum blocking' },
-  { value: 'custom', label: 'Custom' }
-]
 
 const fingerprintingOptions: Array<{ value: FingerprintingProtectionMode; label: string }> = [
   { value: 'standard', label: 'Standard - aggressive APIs' },
@@ -197,7 +193,7 @@ function FeatureToggleSetting({
         <span className="flex items-center gap-2">
           {label}
           {badge && (
-            <span className="inline-flex items-center gap-1 rounded-md border border-vast-cyan/20 bg-vast-cyan/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-vast-cyan">
+            <span className="inline-flex items-center gap-1 rounded-checkbox border border-vast-cyan/20 bg-vast-cyan/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-vast-cyan">
               {badge}
             </span>
           )}
@@ -249,8 +245,6 @@ export function SettingsModal(): JSX.Element | null {
   const [migrationReport, setMigrationReport] = useState<MigrationReport | null>(null)
   const [dataMessage, setDataMessage] = useState('')
   const [appVersion, setAppVersion] = useState('Loading...')
-  const [filterStatus, setFilterStatus] = useState<PrivacyFilterStatus | null>(null)
-  const [filterUpdateBusy, setFilterUpdateBusy] = useState(false)
   const [relayStatusLabel, setRelayStatusLabel] = useState('status loading')
   const featureStateFor = (featureId: FeatureId): FeatureState => getFeatureState(featureId, { settings })
   const diagnosticsState = featureStateFor(VastFeatures.AdvancedDiagnostics)
@@ -273,12 +267,6 @@ export function SettingsModal(): JSX.Element | null {
     if (searchHighlightTimerRef.current !== null) window.clearTimeout(searchHighlightTimerRef.current)
   }, [])
 
-  useEffect(() => {
-    if (!open) return
-    void window.vast.privacy.filterStatus().then((result) => {
-      if (result.ok && result.status) setFilterStatus(result.status)
-    })
-  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -385,7 +373,7 @@ export function SettingsModal(): JSX.Element | null {
         const text = normalizeSettingsSearchText(element.innerText)
         return text === normalizedTarget || text.startsWith(`${normalizedTarget} `)
       })
-      const target = candidate?.closest<HTMLElement>('label, button, [data-workspace-settings-id], .rounded-xl, .rounded-2xl') ?? candidate ?? section
+      const target = candidate?.closest<HTMLElement>('label, button, [data-workspace-settings-id], .rounded-control, .rounded-card') ?? candidate ?? section
       scrollRef.current?.querySelectorAll('.settings-search-highlight').forEach((element) => element.classList.remove('settings-search-highlight'))
       target.classList.add('settings-search-highlight')
       target.scrollIntoView({ block: 'center', behavior: settings.animations ? 'smooth' : 'auto' })
@@ -555,7 +543,7 @@ export function SettingsModal(): JSX.Element | null {
             type="button"
             title="Close settings"
             onClick={() => setOpen(false)}
-            className="grid h-10 w-10 place-items-center rounded-xl text-vast-soft hover:bg-white/10 hover:text-white"
+            className="grid h-10 w-10 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white"
           >
             <X className="h-4 w-4" />
           </button>
@@ -563,7 +551,7 @@ export function SettingsModal(): JSX.Element | null {
 
         <div className="grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)]">
           <nav className="settings-modal-nav p-4 text-sm text-vast-soft">
-            <div className="settings-search-panel mb-3 flex h-10 items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 text-vast-soft focus-within:border-vast-cyan/40 focus-within:bg-black/30">
+            <div className="settings-search-panel mb-3 flex h-10 items-center gap-2 rounded-control border border-white/10 bg-black/20 px-3 text-vast-soft focus-within:border-vast-cyan/40 focus-within:bg-black/30">
               <Search className="h-4 w-4 shrink-0" />
               <input
                 value={settingsSearchQuery}
@@ -592,7 +580,7 @@ export function SettingsModal(): JSX.Element | null {
                     setSettingsSearchQuery('')
                     event.currentTarget.parentElement?.querySelector('input')?.focus()
                   }}
-                  className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-vast-soft hover:bg-white/10 hover:text-white"
+                  className="grid h-7 w-7 shrink-0 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -613,7 +601,7 @@ export function SettingsModal(): JSX.Element | null {
                         data-settings-search-result={result.label}
                         data-settings-search-section={result.section}
                         onClick={() => openSettingsSearchResult(result)}
-                        className="settings-search-result flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition hover:text-white"
+                        className="settings-search-result flex w-full items-center gap-3 rounded-control px-3 py-2 text-left transition hover:text-white"
                       >
                         <Icon className="h-4 w-4 shrink-0" />
                         <span className="min-w-0">
@@ -625,7 +613,7 @@ export function SettingsModal(): JSX.Element | null {
                   })}
                 </div>
               </> : (
-              <div className="settings-search-empty rounded-xl border border-white/[0.08] bg-white/[0.035] px-3 py-4 text-center">
+              <div className="settings-search-empty rounded-control border border-white/[0.08] bg-white/[0.035] px-3 py-4 text-center">
                 <Search className="mx-auto h-4 w-4 text-vast-soft" />
                 <div className="mt-2 text-sm font-medium text-white">No settings found</div>
                 <div className="mt-1 text-xs leading-5 text-vast-soft">Try a name, synonym, or shorter phrase.</div>
@@ -639,7 +627,7 @@ export function SettingsModal(): JSX.Element | null {
                   setActiveSection(label)
                   scrollRef.current?.querySelector<HTMLElement>(`#${CSS.escape(label)}`)?.scrollIntoView({ block: 'start', behavior: settings.animations ? 'smooth' : 'auto' })
                 }}
-                className={`settings-nav-item flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition ${
+                className={`settings-nav-item flex w-full items-center gap-3 rounded-control px-3 py-2 text-left transition ${
                   activeSection === label ? 'is-active text-white' : 'hover:text-white'
                 }`}
               >
@@ -947,7 +935,7 @@ export function SettingsModal(): JSX.Element | null {
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-semibold">Developer Mode required</div>
                       <div className="vast-notification-message">Enable Developer Mode to access developer tools and runtime diagnostics.</div>
-                      <button type="button" className="mt-3 rounded-xl border border-vast-amber/25 bg-vast-amber/10 px-3 py-1.5 text-xs font-semibold text-vast-amber transition hover:bg-vast-amber/15" onClick={() => updateSettings({ advanced: { developerMode: true } })}>Enable Developer Mode</button>
+                      <button type="button" className="mt-3 rounded-control border border-vast-amber/25 bg-vast-amber/10 px-3 py-1.5 text-xs font-semibold text-vast-amber transition hover:bg-vast-amber/15" onClick={() => updateSettings({ advanced: { developerMode: true } })}>Enable Developer Mode</button>
                     </div>
                   </div>
                 </NotificationCard>
@@ -956,11 +944,11 @@ export function SettingsModal(): JSX.Element | null {
                   <button type="button" onClick={runtime.toggleDevTools} className="settings-action"><Code2 className="h-4 w-4" />Open tab DevTools</button>
                   <button type="button" onClick={runtime.reload} className="settings-action"><Activity className="h-4 w-4" />Reload active webview</button>
                   <button type="button" onClick={() => window.location.reload()} className="settings-action"><Activity className="h-4 w-4" />Reload app chrome</button>
-                  <button type="button" onClick={() => void navigator.clipboard.writeText(JSON.stringify({ appVersion, versions: window.vast.app.versions, platform: window.vast.app.platform, activeTab, activeWorkspace }, null, 2))} className="settings-action"><FileDown className="h-4 w-4" />Copy debug report</button>
+                  <button type="button" onClick={() => void copyText(JSON.stringify({ appVersion, versions: window.vast.app.versions, platform: window.vast.app.platform, activeTab, activeWorkspace }, null, 2))} className="settings-action"><FileDown className="h-4 w-4" />Copy debug report</button>
                   {diagnosticsState.available && <button type="button" onClick={() => { runtime.openUrlInNewTab(INTERNAL_DIAGNOSTICS_URL); setOpen(false) }} className="settings-action"><Activity className="h-4 w-4" />Open Diagnostics</button>}
-                  <button type="button" onClick={() => void navigator.clipboard.writeText(JSON.stringify({ counts: { tabs: tabs.length, bookmarks: bookmarks.length, history: history.length, notes: notes.length, macros: macros.length }, versions: window.vast.app.versions }, null, 2))} className="settings-action"><FileDown className="h-4 w-4" />Copy diagnostics</button>
+                  <button type="button" onClick={() => void copyText(JSON.stringify({ counts: { tabs: tabs.length, bookmarks: bookmarks.length, history: history.length, notes: notes.length, macros: macros.length }, versions: window.vast.app.versions }, null, 2))} className="settings-action"><FileDown className="h-4 w-4" />Copy diagnostics</button>
                 </div>
-                <div className="mt-3 grid gap-2 rounded-2xl border border-white/10 bg-white/[0.035] p-4 text-xs text-vast-soft md:grid-cols-2">
+                <div className="mt-3 grid gap-2 rounded-card border border-white/10 bg-white/[0.035] p-4 text-xs text-vast-soft md:grid-cols-2">
                   <div>Vast: {appVersion}</div>
                   <div>Electron: {window.vast.app.versions.electron}</div>
                   <div>Chromium: {window.vast.app.versions.chrome}</div>
@@ -978,7 +966,7 @@ export function SettingsModal(): JSX.Element | null {
 
             <section id="Privacy" className="settings-section" hidden={!sectionVisible('Privacy')}>
               <h2>Privacy</h2>
-              <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+              <div className="mb-4 rounded-card border border-white/10 bg-white/[0.035] p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="text-sm font-semibold text-white">Vast Services</div>
@@ -986,7 +974,7 @@ export function SettingsModal(): JSX.Element | null {
                       Relay {relayStatusLabel}
                     </div>
                   </div>
-                  <span className="rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-vast-soft">No browsing telemetry</span>
+                  <span className="rounded-control border border-white/10 px-2.5 py-1 text-[11px] text-vast-soft">No browsing telemetry</span>
                 </div>
                 <p className="mt-3 max-w-4xl text-xs leading-5 text-vast-soft">
                   Official public builds use production Vast Relay for signed service and update notices. A check-in sends a random installation ID, the Vast version, cumulative launch count, and instance kind; Relay derives first-seen and last-seen times. It does not receive browsing history, visited URLs, searches, tabs, bookmarks, page content, passwords, cookies, account identity, device fingerprints, session duration, or notice interaction events. Cloudflare may process request IPs ephemerally for transport security and rate limiting; Vast does not store them in the Relay database.
@@ -997,7 +985,7 @@ export function SettingsModal(): JSX.Element | null {
                   <button type="button" className="settings-action settings-action-compact" onClick={() => { runtime.openUrlInNewTab(INTERNAL_SITE_DATA_URL); setOpen(false) }}><Database className="h-4 w-4" />Review site data</button>
                 </div>
               </div>
-              <div className="settings-grid">
+              <div className="settings-grid settings-privacy-grid">
                 <label>
                   <span>Block common trackers</span>
                   <input
@@ -1006,67 +994,12 @@ export function SettingsModal(): JSX.Element | null {
                     onChange={(event) => updateSettings({ privacy: { blockTrackers: event.target.checked } })}
                   />
                 </label>
-                <label>
-                  <span>Ad blocker</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.privacy.adBlockerEnabled}
-                    onChange={(event) => updateSettings({ privacy: { adBlockerEnabled: event.target.checked } })}
-                  />
-                </label>
-                <SettingsSelect
-                  label="Ad blocking"
-                  size="long"
-                  value={settings.privacy.adBlockerMode ?? 'standard'}
-                  options={adBlockerModeOptions}
-                  onChange={(value) => updateSettings({ privacy: { adBlockerMode: value } })}
-                />
-                <label><span>EasyList</span><input type="checkbox" checked={settings.privacy.filterEasyList} onChange={(event) => updateSettings({ privacy: { filterEasyList: event.target.checked } })} /></label>
-                <label><span>EasyPrivacy</span><input type="checkbox" checked={settings.privacy.filterEasyPrivacy} onChange={(event) => updateSettings({ privacy: { filterEasyPrivacy: event.target.checked } })} /></label>
-                <label><span>Peter Lowe's ad/tracker list</span><input type="checkbox" checked={settings.privacy.filterPeterLowe} onChange={(event) => updateSettings({ privacy: { filterPeterLowe: event.target.checked } })} /></label>
-                <label><span>URLhaus malware list</span><input type="checkbox" checked={settings.privacy.filterMalware} onChange={(event) => updateSettings({ privacy: { filterMalware: event.target.checked } })} /></label>
-                <label><span>Polish Annoyance Filters</span><input type="checkbox" checked={settings.privacy.filterPolishAnnoyances} onChange={(event) => updateSettings({ privacy: { filterPolishAnnoyances: event.target.checked } })} /></label>
-                <label><span>Automatically update filter lists</span><input type="checkbox" checked={settings.privacy.filterAutoUpdate} onChange={(event) => updateSettings({ privacy: { filterAutoUpdate: event.target.checked } })} /></label>
-                {settings.privacy.adBlockerMode === 'custom' && <>
-                  <label><span>Custom: block ads</span><input type="checkbox" checked={settings.privacy.customBlockAds} onChange={(event) => updateSettings({ privacy: { customBlockAds: event.target.checked } })} /></label>
-                  <label><span>Custom: block trackers</span><input type="checkbox" checked={settings.privacy.customBlockTrackers} onChange={(event) => updateSettings({ privacy: { customBlockTrackers: event.target.checked } })} /></label>
-                  <label><span>Custom: block malware</span><input type="checkbox" checked={settings.privacy.customBlockMalware} onChange={(event) => updateSettings({ privacy: { customBlockMalware: event.target.checked } })} /></label>
-                  <label><span>Custom: block third-party cookies</span><input type="checkbox" checked={settings.privacy.customBlockThirdPartyCookies} onChange={(event) => updateSettings({ privacy: { customBlockThirdPartyCookies: event.target.checked } })} /></label>
-                </>}
-                <label className="md:col-span-2">
-                  <span>Custom network rules (one per line; use @@||domain^ for exceptions)</span>
-                  <textarea
-                    value={settings.privacy.customFilterRules}
-                    onChange={(event) => updateSettings({ privacy: { customFilterRules: event.target.value.slice(0, 64 * 1024) } })}
-                    rows={5}
-                    className="mt-2 w-full resize-y rounded-xl border border-white/10 bg-black/20 p-3 font-mono text-xs text-white outline-none focus:border-vast-cyan/40"
-                    placeholder={'||example-ad-network.test^\n@@||trusted.example^'}
-                  />
-                </label>
-                <label className="md:col-span-2"><span>Ad-block allowlist (domains, comma-separated)</span><input value={settings.privacy.adBlockAllowlist.join(', ')} onChange={(event) => updateSettings({ privacy: { adBlockAllowlist: event.target.value.split(/[\n,]/).map((value) => value.trim()).filter(Boolean).slice(0, 100) } })} /></label>
                 <label><span>Clean tracking parameters while opening links</span><input type="checkbox" checked={settings.privacy.stripTrackingParameters} onChange={(event) => updateSettings({ privacy: { stripTrackingParameters: event.target.checked } })} /></label>
                 <label><span>Also remove affiliate parameters</span><input type="checkbox" checked={settings.privacy.stripAffiliateParameters} onChange={(event) => updateSettings({ privacy: { stripAffiliateParameters: event.target.checked } })} /></label>
                 <label><span>Block third-party cookies</span><input type="checkbox" checked={settings.privacy.blockThirdPartyCookies} onChange={(event) => updateSettings({ privacy: { blockThirdPartyCookies: event.target.checked } })} /></label>
-                <label className="md:col-span-2"><span>Cookie/login exceptions (domains, comma-separated)</span><input value={settings.privacy.cookieExceptions.join(', ')} onChange={(event) => updateSettings({ privacy: { cookieExceptions: event.target.value.split(/[\n,]/).map((value) => value.trim()).filter(Boolean).slice(0, 100) } })} /></label>
                 <SettingsSelect label="Fingerprinting" size="long" value={settings.privacy.fingerprintingProtection} options={fingerprintingOptions} onChange={(value) => updateSettings({ privacy: { fingerprintingProtection: value } })} />
                 <SettingsSelect label="WebRTC" size="long" value={settings.privacy.webRtcPolicy} options={webRtcOptions} onChange={(value) => updateSettings({ privacy: { webRtcPolicy: value } })} />
-                <label className="md:col-span-2"><span>Fingerprinting exceptions (domains, comma-separated)</span><input value={settings.privacy.fingerprintingExceptions.join(', ')} onChange={(event) => updateSettings({ privacy: { fingerprintingExceptions: event.target.value.split(/[\n,]/).map((value) => value.trim()).filter(Boolean).slice(0, 100) } })} /></label>
-                <label className="md:col-span-2"><span>WebRTC exceptions (domains, comma-separated)</span><input value={settings.privacy.webRtcExceptions.join(', ')} onChange={(event) => updateSettings({ privacy: { webRtcExceptions: event.target.value.split(/[\n,]/).map((value) => value.trim()).filter(Boolean).slice(0, 100) } })} /></label>
                 <button type="button" className="settings-action" onClick={() => runtime.openUrlInNewTab('https://browserleaks.com/webrtc')}><Wifi className="h-4 w-4" />Open WebRTC leak test</button>
-                <button
-                  type="button"
-                  className="settings-action"
-                  disabled={filterUpdateBusy}
-                  onClick={() => {
-                    setFilterUpdateBusy(true)
-                    void window.vast.privacy.updateFilters().then((result) => {
-                      if (result.ok && result.status) setFilterStatus(result.status)
-                    }).finally(() => setFilterUpdateBusy(false))
-                  }}
-                >
-                  <RefreshCw className={`h-4 w-4 ${filterUpdateBusy ? 'animate-spin' : ''}`} />
-                  {filterUpdateBusy ? 'Updating lists…' : 'Update filter lists now'}
-                </button>
                 <label>
                   <span>Fake browsing history</span>
                   <input
@@ -1115,17 +1048,14 @@ export function SettingsModal(): JSX.Element | null {
                   <Eraser className="h-4 w-4" />
                   Clear cookies/site data
                 </button>
+                <label className="settings-privacy-field"><span>Cookie/login exceptions (domains, comma-separated)</span><input value={settings.privacy.cookieExceptions.join(', ')} onChange={(event) => updateSettings({ privacy: { cookieExceptions: event.target.value.split(/[\n,]/).map((value) => value.trim()).filter(Boolean).slice(0, 100) } })} /></label>
+                <label className="settings-privacy-field"><span>Fingerprinting exceptions (domains, comma-separated)</span><input value={settings.privacy.fingerprintingExceptions.join(', ')} onChange={(event) => updateSettings({ privacy: { fingerprintingExceptions: event.target.value.split(/[\n,]/).map((value) => value.trim()).filter(Boolean).slice(0, 100) } })} /></label>
+                <label className="settings-privacy-field"><span>WebRTC exceptions (domains, comma-separated)</span><input value={settings.privacy.webRtcExceptions.join(', ')} onChange={(event) => updateSettings({ privacy: { webRtcExceptions: event.target.value.split(/[\n,]/).map((value) => value.trim()).filter(Boolean).slice(0, 100) } })} /></label>
               </div>
-              {filterStatus && <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.035] p-3 text-xs leading-5 text-vast-soft">
-                <div className="font-semibold text-white">Network filter status</div>
-                <div className="mt-1">Rules: {Object.values(filterStatus.ruleCounts).reduce((total, count) => total + count, 0).toLocaleString()} · updated {filterStatus.lastUpdatedAt ? new Date(filterStatus.lastUpdatedAt).toLocaleString() : 'not yet'}</div>
-                <div>Blocked since Vast started: {filterStatus.blockedSinceStart.ads} ads · {filterStatus.blockedSinceStart.trackers} trackers · {filterStatus.blockedSinceStart.malware} malware. No page URLs are stored in these statistics.</div>
-                {filterStatus.lastError && <div className="mt-1 text-vast-amber">{filterStatus.lastError}</div>}
-              </div>}
               <div className="mt-4 grid gap-3 md:grid-cols-3">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-sm"><div className="text-vast-soft">History</div><div className="mt-1 text-2xl font-semibold">{history.length}</div></div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-sm"><div className="text-vast-soft">Downloads</div><div className="mt-1 text-2xl font-semibold">{downloads.length}</div></div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-sm"><div className="text-vast-soft">Password vault</div><div className="mt-1 text-sm font-semibold">Local encrypted</div></div>
+                <div className="rounded-card border border-white/10 bg-white/[0.04] p-3 text-sm"><div className="text-vast-soft">History</div><div className="mt-1 text-2xl font-semibold">{history.length}</div></div>
+                <div className="rounded-card border border-white/10 bg-white/[0.04] p-3 text-sm"><div className="text-vast-soft">Downloads</div><div className="mt-1 text-2xl font-semibold">{downloads.length}</div></div>
+                <div className="rounded-card border border-white/10 bg-white/[0.04] p-3 text-sm"><div className="text-vast-soft">Password vault</div><div className="mt-1 text-sm font-semibold">Local encrypted</div></div>
               </div>
             </section>
 
@@ -1135,7 +1065,7 @@ export function SettingsModal(): JSX.Element | null {
                   <h2>Spoofing</h2>
                   <p className="text-xs leading-5 text-vast-soft">Best-effort privacy controls for requests, webviews, geolocation, and common fingerprint surfaces.</p>
                 </div>
-                <label className="flex w-fit items-center gap-3 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2">
+                <label className="flex w-fit items-center gap-3 rounded-control border border-white/10 bg-white/[0.035] px-3 py-2">
                   <span>Enabled</span>
                   <input
                     type="checkbox"
@@ -1269,14 +1199,14 @@ export function SettingsModal(): JSX.Element | null {
                 <SettingsSelect label="Clipboard" value={settings.security.permissionClipboard} onChange={(permissionClipboard: PermissionSetting) => updateSettings({ security: { ...settings.security, permissionClipboard } })} options={permissionOptions} />
                 <SettingsSelect label="Fullscreen" value={settings.security.permissionFullscreen} onChange={(permissionFullscreen: PermissionSetting) => updateSettings({ security: { ...settings.security, permissionFullscreen } })} options={permissionOptions} />
               </div>
-              <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+              <div className="mt-4 rounded-card border border-white/10 bg-white/[0.035] p-4">
                 <div className="mb-3 text-sm font-semibold text-white">Per-site permissions</div>
                 {(settings.security.sitePermissions ?? []).length === 0 ? (
                   <div className="text-xs leading-5 text-vast-soft">No per-site permission overrides saved.</div>
                 ) : (
                   <div className="grid gap-2">
                     {(settings.security.sitePermissions ?? []).map((item) => (
-                      <div key={`${item.origin}-${item.workspaceId ?? 'shared'}-${item.permission}`} className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-black/20 px-3 py-2 text-xs text-vast-soft">
+                      <div key={`${item.origin}-${item.workspaceId ?? 'shared'}-${item.permission}`} className="flex items-center justify-between gap-3 rounded-control border border-white/[0.08] bg-black/20 px-3 py-2 text-xs text-vast-soft">
                         <span className="min-w-0 truncate">{item.origin} / {workspaces.find((workspace) => workspace.id === item.workspaceId)?.name ?? 'Shared'} / {item.permission}: <span className="font-semibold text-white">{item.setting}</span></span>
                         <button
                           type="button"
@@ -1363,9 +1293,9 @@ export function SettingsModal(): JSX.Element | null {
                   type="button"
                   onClick={() => void openDefaultBrowserSetup()}
                   disabled={settingDefaultBrowser || defaultBrowserStatus?.supported === false}
-                  className="settings-action settings-default-browser-action"
+                  className="settings-action"
                 >
-                  <MonitorCheck className="h-5 w-5" />
+                  <MonitorCheck className="h-4 w-4" />
                   <span>{settingDefaultBrowser ? 'Opening Windows Default Apps...' : 'set browser as default'}</span>
                 </button>
                 <div className="settings-default-browser-note">
@@ -1408,9 +1338,9 @@ export function SettingsModal(): JSX.Element | null {
               </div>
               <div className="space-y-2">
                 {workspaces.map((workspace) => (
-                  <div key={workspace.id} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3" data-workspace-settings-id={workspace.id}>
+                  <div key={workspace.id} className="rounded-card border border-white/10 bg-white/[0.045] p-3" data-workspace-settings-id={workspace.id}>
                     <div className="flex items-center gap-3">
-                      <span className="grid h-9 w-9 place-items-center rounded-xl" style={{ backgroundColor: `${workspace.color}22`, color: workspace.color }}>
+                      <span className="grid h-9 w-9 place-items-center rounded-control" style={{ backgroundColor: `${workspace.color}22`, color: workspace.color }}>
                         <WorkspaceIcon name={workspace.icon} className="h-4 w-4" />
                       </span>
                       <input
@@ -1424,7 +1354,7 @@ export function SettingsModal(): JSX.Element | null {
                         title={`Customize ${workspace.name} workspace`}
                         aria-expanded={workspaceAppearanceId === workspace.id}
                         onClick={() => setWorkspaceAppearanceId((current) => current === workspace.id ? null : workspace.id)}
-                        className={`grid h-9 w-9 place-items-center rounded-xl transition hover:bg-white/10 hover:text-white ${
+                        className={`grid h-9 w-9 place-items-center rounded-control transition hover:bg-white/10 hover:text-white ${
                           workspaceAppearanceId === workspace.id ? 'bg-white/[0.1] text-white' : 'text-vast-soft'
                         }`}
                       >
@@ -1435,7 +1365,7 @@ export function SettingsModal(): JSX.Element | null {
                         title={`Delete ${workspace.name} workspace`}
                         disabled={workspaces.length <= 1}
                         onClick={() => deleteWorkspace(workspace.id)}
-                        className="grid h-9 w-9 place-items-center rounded-xl text-vast-soft hover:bg-white/10 hover:text-white disabled:opacity-30"
+                        className="grid h-9 w-9 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white disabled:opacity-30"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -1495,7 +1425,7 @@ export function SettingsModal(): JSX.Element | null {
                 {Object.entries(shortcutDrafts).map(([name, shortcut]) => {
                   const error = shortcutErrors[name]
                   return (
-                  <div key={name} className={`rounded-xl border px-3 py-2 ${error ? 'border-vast-amber/[0.35] bg-vast-amber/10' : 'border-white/[0.08] bg-white/[0.035]'}`}>
+                  <div key={name} className={`rounded-control border px-3 py-2 ${error ? 'border-vast-amber/[0.35] bg-vast-amber/10' : 'border-white/[0.08] bg-white/[0.035]'}`}>
                     <div className="flex items-center justify-between gap-3">
                     <span className="min-w-0 truncate text-sm text-vast-soft">{name}</span>
                     <div className="flex items-center gap-2">
@@ -1506,7 +1436,7 @@ export function SettingsModal(): JSX.Element | null {
                         const next = shortcutDrafts[name]?.trim()
                         if (next && !shortcutErrors[name]) updateSettings({ keyboardShortcuts: { [name]: next } })
                       }}
-                      className="w-36 rounded-lg border border-white/10 bg-black/20 px-2 py-1 text-right text-xs text-white outline-none focus:border-vast-cyan/40"
+                      className="w-36 rounded-control border border-white/10 bg-black/20 px-2 py-1 text-right text-xs text-white outline-none focus:border-vast-cyan/40"
                     />
                     <button
                       type="button"
@@ -1516,7 +1446,7 @@ export function SettingsModal(): JSX.Element | null {
                         setShortcutDrafts((drafts) => ({ ...drafts, [name]: next }))
                         updateSettings({ keyboardShortcuts: { [name]: next } })
                       }}
-                      className="grid h-8 w-8 place-items-center rounded-lg text-vast-soft hover:bg-white/10 hover:text-white"
+                      className="grid h-8 w-8 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
@@ -1530,11 +1460,11 @@ export function SettingsModal(): JSX.Element | null {
 
             <section id="Data" className="settings-section" hidden={!sectionVisible('Data')}>
               <h2>Data</h2>
-              <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+              <div className="mb-4 rounded-card border border-white/10 bg-white/[0.04] p-4">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-white">Current Vast data directory</div>
-                    <div className="mt-1 break-all rounded-xl border border-white/[0.08] bg-black/20 px-3 py-2 text-xs text-vast-soft">
+                    <div className="mt-1 break-all rounded-control border border-white/[0.08] bg-black/20 px-3 py-2 text-xs text-vast-soft">
                       {dataPathInfo?.currentDataPath ?? 'Loading...'}
                     </div>
                     <div className="mt-2 text-xs leading-5 text-vast-soft">
@@ -1615,7 +1545,7 @@ export function SettingsModal(): JSX.Element | null {
                 </button>
               </div>
               {(dataMessage || migrationReport) && (
-                <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-xs leading-5 text-vast-soft">
+                <div className="mt-4 rounded-card border border-white/10 bg-white/[0.04] p-4 text-xs leading-5 text-vast-soft">
                   <div className="mb-2 text-sm font-semibold text-white">Backup report</div>
                   {dataMessage && <div>{dataMessage}</div>}
                   {migrationReport?.path && <div className="break-all">Backup path: {migrationReport.path}</div>}

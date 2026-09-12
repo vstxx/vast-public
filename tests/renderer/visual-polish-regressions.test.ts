@@ -71,7 +71,7 @@ test('Sidebar sheen and active-download toast remain visually restrained', () =>
 test('Vast notification surfaces share one geometry contract', () => {
   assert.match(notificationCardSource, /vast-notification-card/)
   assert.match(stylesSource, /\.vast-notification-stack,[\s\S]{0,140}width:\s*min\(25rem, calc\(100vw - 2\.5rem\)\)/)
-  assert.match(stylesSource, /\.vast-notification-card\s*\{[^}]*min-height:\s*104px;[^}]*border-radius:\s*22px;[^}]*padding:\s*16px;/s)
+  assert.match(stylesSource, /\.vast-notification-card\s*\{[^}]*min-height:\s*104px;[^}]*border-radius:\s*var\(--vast-radius-card\);[^}]*padding:\s*16px;/s)
   assert.equal((notificationsSource.match(/<NotificationCard/g) ?? []).length, 2)
   assert.match(notificationsSource, /vast-notification-icon/)
   assert.match(notificationsSource, /vast-notification-message/)

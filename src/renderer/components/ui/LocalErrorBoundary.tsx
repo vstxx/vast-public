@@ -39,14 +39,14 @@ export class LocalErrorBoundary extends Component<LocalErrorBoundaryProps, Local
           <p className="mt-2 break-words text-[13px] leading-5 text-vast-soft">{error.message || 'An unexpected rendering error occurred.'}</p>
           <div className="mt-4 flex flex-wrap gap-2">
             <button
-              className="rounded-xl border border-white/10 bg-white/[0.07] px-3 py-2 text-[13px] font-medium hover:bg-white/[0.11]"
+              className="rounded-control border border-white/10 bg-white/[0.07] px-3 py-2 text-[13px] font-medium hover:bg-white/[0.11]"
               onClick={() => this.setState({ error: undefined })}
             >
               Try again
             </button>
             {this.props.onDismiss && (
               <button
-                className="rounded-xl border border-white/[0.07] px-3 py-2 text-[13px] text-vast-soft hover:bg-white/[0.06] hover:text-white"
+                className="rounded-control border border-white/[0.07] px-3 py-2 text-[13px] text-vast-soft hover:bg-white/[0.06] hover:text-white"
                 onClick={this.props.onDismiss}
               >
                 Dismiss

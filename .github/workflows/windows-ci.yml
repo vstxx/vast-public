@@ -29,9 +29,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node scripts/setup-gitleaks.cjs
+      - run: node scripts/secret-scan.cjs
 
   validate:
     runs-on: windows-latest
@@ -80,20 +82,37 @@ jobs:
       - run: npm run test:extensions:e2e
       - run: npm run test:extensions:native-e2e
       - run: npm run build
+      - name: Verify tab overflow and browser context menu actions
+        run: node scripts/menus-e2e.cjs
       - run: npm run test:app
       - run: npm run updater:stage
       - run: npm run test:updater
+      - name: Exercise real background update downloads and cache recovery
+        run: node scripts/run-updater-download-e2e.cjs
       - run: npm run release:audit
       - run: npm run release:version-check
       - run: npm run release:check
       - run: npm run test:fuses:integration
       - run: npm run test:electron-version
       - run: npm run test:store
-      - name: Package unsigned CI application
-        if: github.event_name != 'pull_request'
+      - name: Build unsigned NSIS installer with the production include
         env:
-          VAST_ALLOW_UNSIGNED_PRIVATE_BUILD: '1'
-        run: npx electron-builder --dir --win --x64 --config scripts/electron-builder-private-unsigned.cjs
+          VAST_RELEASE_CHANNEL: stable
+          VAST_PRIVATE_BUILD: '0'
+          VAST_PUBLIC_UNSIGNED_RELEASE: '1'
+          VAST_UNSIGNED_RELEASE_ACK: I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --publish never --win nsis --x64 --config scripts/electron-builder-public-unsigned-release.cjs
+      - name: Verify real NSIS install, PDF registration and clean uninstall
+        shell: pwsh
+        env:
+          VAST_PUBLIC_UNSIGNED_RELEASE: '1'
+          VAST_UNSIGNED_RELEASE_ACK: I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests/windows-clean-uninstall.test.ps1 -InstallerPath "release/Vast-Setup-$version.exe"
       - name: Smoke packaged application
         if: github.event_name != 'pull_request'
         shell: pwsh
@@ -111,5 +130,7 @@ jobs:
         if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
-          $package = Resolve-Path 'release/store/Vast-0.2.7-Store-x64-Development.msix'
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          $storeVersion = node -p "require('./scripts/store-msix-config.cjs').storePackageVersion()"
+          $package = Resolve-Path "release/store/Vast-$version-Store-$storeVersion-x64-Development.msix"
           powershell -NoProfile -ExecutionPolicy Bypass -File tests/store/store-msix-upgrade.test.ps1 -PackagePath $package

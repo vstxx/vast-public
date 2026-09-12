@@ -1,0 +1,43 @@
+title = "Vast narrow verified public-data exceptions"
+[extend]
+useDefault = true
+
+[[allowlists]]
+targetRules = ["generic-api-key"]
+description = "DER/SPKI public extension identity key (not a private key)"
+condition = "AND"
+paths = ['''^resources/first-party-extensions/adblocker-for-vast/manifest\.json$''']
+regexTarget = "secret"
+regexes = ['''^MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmm/GiKl9MgY4jaM5fSMHQeth3e0sDDJe1cN6AyylHTyylE3d1WIsR2UbUjD2CsQygkMQ32UDl\+tGVVDaaXc/gAMCwBRMs3w8pRazzb/38WyE4UhLe7UtvPUHUHzOk22utiWFvNOoQWrhAy6SwPShJeCLI4LfZpIymCOtB9wMlEuapoNO\+a1OH23PQMrIKG0dsvfCwQ4gp9asRiEtdj2xAjFKVImvbRc44/93/TS9f7MRMG7NgXY6yXkzBuCaZVwbPxtjTLDgnfvpErBjjjxf59HKy0Aa2a/Wy9o5O/skgrcucUxuHppp\+aaoEsvodHu5fYTPW4Plqimwm7urYCgciQIDAQAB$''']
+
+[[allowlists]]
+targetRules = ["generic-api-key"]
+description = "DER/SPKI public extension identity key (not a private key)"
+condition = "AND"
+paths = ['''^resources/first-party-extensions/idu-plus/manifest\.json$''']
+regexTarget = "secret"
+regexes = ['''^MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyRmpyYqIt5BBgj5q7E8XSolfRC/0MQFJWmB\+gVXSGa6hzc0mFp13nHLk53NwtLJGXbJRoFoL3WFUme26PpH25sJXgwiMxskvVdqjfvGfeHSXUXkILoJcM\+mXmFfhRLqpamSf2L0GwBJyL3vU\+DcwMZ1Y5HJnh4dlRg5lZsjm39QNL99FCJK0TxKxhLfpo4Fi31hjbj\+2//fBTh/aKExACox4SugYDNajmwgidig2ZzMhGVoeWcWLRexAWkPOec3ZP8qVY4vzr3kAMhcVQiRXOj3qWy6XHEH82n1nON0ZtbS8xdfKKUTbrzKhLe0fFVmbdiCZyuveoXEaLgLFxxoBVwIDAQAB$''']
+
+[[allowlists]]
+targetRules = ["sourcegraph-access-token"]
+description = "EasyList upstream public commit metadata"
+condition = "AND"
+paths = ['''^resources/first-party-extensions/adblocker-for-vast/assets/easylist\.txt$''']
+regexTarget = "secret"
+regexes = ['''^942ef2bb4bd1752b214d5c903dd46e67e4634f09$''', '''^934912b3e760e068a91cd6cb502096a55ab1ca16$''']
+
+[[allowlists]]
+targetRules = ["generic-api-key"]
+description = "Synthetic fixture produced and asserted by audit/local-proofs.cjs; never exported publicly"
+condition = "AND"
+paths = ['''^audit/fixture-92A6Z9/password-vault\.json$''']
+regexTarget = "secret"
+regexes = ['''^U3ludGhldGljLUF1ZGl0LVBhc3N3b3JkLU9ubHkh$''']
+
+[[allowlists]]
+targetRules = ["generic-api-key"]
+description = "Public Cloudflare Access application audience identifiers; authentication still requires a signed JWT"
+condition = "AND"
+paths = ['''^relay/(?:admin-configuration\.d\.ts|admin/wrangler\.jsonc|tests/helpers\.ts)$''']
+regexTarget = "secret"
+regexes = ['''^d57429a0aa7ef593c1a7eac956cfce93eb284f518625454b55b6a25787ef0866$''', '''^c17baacc642c0b105daaed3561596520d3702e60dac54876d000fc672e9690d3$''']

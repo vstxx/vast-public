@@ -25,7 +25,7 @@ export function FindBar(): JSX.Element | null {
   }
 
   return (
-    <div className="no-drag absolute right-4 top-4 z-40 flex items-center gap-2 rounded-2xl border border-white/10 bg-[#0d0e13]/95 p-2 shadow-glass backdrop-blur-xl">
+    <div className="no-drag absolute right-4 top-4 z-40 flex items-center gap-2 rounded-card border border-white/10 bg-[#0d0e13]/95 p-2 shadow-glass backdrop-blur-xl">
       <input
         ref={inputRef}
         value={query}
@@ -43,7 +43,7 @@ export function FindBar(): JSX.Element | null {
           }
         }}
         placeholder="Find in page"
-        className="h-9 w-64 rounded-xl border border-white/10 bg-white/[0.06] px-3 text-sm text-white outline-none placeholder:text-vast-soft focus:border-vast-cyan/40"
+        className="h-9 w-64 rounded-control border border-white/10 bg-white/[0.06] px-3 text-sm text-white outline-none placeholder:text-vast-soft focus:border-vast-cyan/40"
       />
       <div className="min-w-[4.5rem] text-center text-xs text-vast-soft">
         {findResult.matches > 0 ? `${findResult.activeMatchOrdinal}/${findResult.matches}` : '0/0'}

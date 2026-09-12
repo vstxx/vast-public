@@ -31,6 +31,7 @@ const volatileDirectoryNames = new Set([
   'crashpad',
   'crash reports',
   'updaterdownloads',
+  'updatecache',
   'updaterlogs',
   'temp',
   'tmp'

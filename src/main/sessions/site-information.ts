@@ -2,7 +2,7 @@ import { webContents } from 'electron/main'
 import type { BrowserSettings, SiteInformation } from '../../shared/types'
 
 interface SiteInformationDependencies {
-  blockedCountsFor: (webContentsId: number) => { trackers: number; ads: number; malware: number }
+  blockedCountsFor: (webContentsId: number) => { trackers: number }
   currentSettings: () => BrowserSettings
   identityScopeFor: (targetSession: Electron.Session) => string | undefined
   ownsWebContents: (contents: Electron.WebContents) => boolean
@@ -18,7 +18,7 @@ function internalSiteInformation(url: string): SiteInformation {
     serviceWorkerCount: 0,
     storage: { cookies: 0, localStorageEntries: 0, indexedDBDatabases: 0, serviceWorkers: 0 },
     permissions: [],
-    blocked: { trackers: 0, ads: 0, malware: 0 },
+    blocked: { trackers: 0 },
     interventionsDisabled: false
   }
 }

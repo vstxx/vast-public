@@ -1,3 +1,4 @@
+import { copyText } from '../lib/clipboard'
 import { lazy, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { INTERNAL_AUTOMATION_URL, INTERNAL_NEW_TAB_URL } from '../../shared/constants'
 import { getFeatureState, VastFeatures } from '../../shared/feature-gates'
@@ -111,12 +112,7 @@ function appearanceStyle(settings: Pick<BrowserSettings, 'appearance' | 'accentC
     '--vast-accent-secondary': appearance.secondaryAccentColor,
     '--vast-bg-tint': appearance.backgroundTintColor,
     '--vast-surface-tint': appearance.surfaceTintColor,
-    '--vast-radius-control': `${Math.max(8, Math.round(radius * 0.54))}px`,
-    '--vast-radius-checkbox': `${Math.max(6, Math.round(radius * 0.28))}px`,
-    '--vast-radius-swatch': `${Math.max(7, Math.round(radius * 0.42))}px`,
-    '--vast-radius-card': `${Math.round(radius)}px`,
-    '--vast-radius-panel': `${Math.round(radius + 4)}px`,
-    '--vast-radius-modal': `${Math.round(radius + 8)}px`,
+    '--vast-radius-base': `${radius}px`,
     '--vast-blur': `${Math.round(8 + blur * 0.32)}px`,
     '--vast-saturation': `${(saturation / 100).toFixed(2)}`,
     '--vast-panel-mix': `${Math.round(68 + panel * 0.3)}%`,
@@ -496,8 +492,16 @@ export function App(): JSX.Element {
   const visualStyle = useMemo(() => {
     const tokens = extensionContributions.theme?.tokens
     const { accentColor: extensionAccent, ...appearanceOverlay } = tokens ?? {}
-    return appearanceStyle({ appearance: { ...appearance, ...appearanceOverlay }, accentColor: extensionAccent ?? accentColor })
+    return appearanceStyle({ appearance: { ...appearance, ...appearanceOverlay, cornerRadius: appearance.cornerRadius }, accentColor: extensionAccent ?? accentColor })
   }, [accentColor, appearance, extensionContributions.theme])
+  const visualRadius = String(visualStyle['--vast-radius-base' as keyof CSSProperties])
+  useEffect(() => {
+    if (!hydrated) return
+    document.documentElement.style.setProperty('--vast-radius-base', visualRadius)
+    for (const guest of document.querySelectorAll('webview')) {
+      try { (guest as Electron.WebviewTag).send('vast:password-autofill-radius', Number.parseFloat(visualRadius)) } catch { /* Guest not ready yet; initial config carries the radius. */ }
+    }
+  }, [visualRadius, hydrated])
   const [toasts, setToasts] = useState<Array<UiNotificationPayload & { createdAt: number }>>([])
   const [uiPromptQueue, setUiPromptQueue] = useState<UiPromptPayload[]>([])
   const [passwordPrompts, setPasswordPrompts] = useState<Array<{ prompt: PasswordSavePromptPayload; tabId: ID; collapsed: boolean; busy: boolean }>>([])
@@ -892,6 +896,24 @@ export function App(): JSX.Element {
   }, [detachedWindow, syncDetachedFinalTab])
 
   useEffect(() => {
+    if (!hydrated) return
+    let disposed = false
+    // Subscribe before requesting a snapshot; newer live events win during recovery.
+    const changed = new Set<string>()
+    const unsubscribe = window.vast.downloads.onChanged((item) => changed.add(item.id))
+    void window.vast.downloads.listCurrent().then((items) => {
+      if (disposed) return
+      for (const item of items) {
+        if (changed.has(item.id)) continue
+        downloadStateRef.current.set(item.id, item.state)
+        useBrowserStore.getState().updateDownload(item)
+      }
+    }).catch((error) => console.warn('[downloads] Could not recover downloads:', error))
+      .finally(() => { unsubscribe(); changed.clear() })
+    return () => { disposed = true; unsubscribe() }
+  }, [hydrated])
+
+  useEffect(() => {
     const unsubscribeDownloads = window.vast.downloads.onChanged((item) => {
       useBrowserStore.getState().updateDownload(item)
       const previousState = downloadStateRef.current.get(item.id)
@@ -1018,17 +1040,18 @@ export function App(): JSX.Element {
       window.setTimeout(apply, 0)
     })
 
-    const unsubscribeUpdater = window.vast.updater.onEvent((payload) => {
+    let receivedUpdaterEvent = false
+    const handleUpdaterEvent = (payload: import('../../shared/types').UpdaterEvent): void => {
       if (payload.event === 'ready') {
         pushToastRef.current({
           id: 'vast-update-ready',
           tone: 'success',
           title: `Vast v${payload.version ?? ''} ready to install`,
-          message: 'Restart Vast to apply the update. Your data is preserved.',
+          message: payload.autoInstallOnNextStart ? 'Downloaded and verified. Vast will apply the update before opening on your next launch.' : payload.autoInstallOnQuit ? 'The update has been downloaded and verified. It will install after Vast closes.' : 'Downloaded and verified. Choose Close and update to enable installation on your next launch.',
           durationMs: 0,
           actions: [
             {
-              label: 'Install now',
+              label: 'Close and update',
               action: () => {
                 void window.vast.updater.install().then((result) => {
                   if (result.ok) return
@@ -1043,16 +1066,32 @@ export function App(): JSX.Element {
             }
           ]
         })
+      } else if (payload.event === 'error') {
+        pushToastRef.current({
+          id: 'vast-update-error',
+          tone: 'error',
+          title: 'Update could not finish',
+          message: payload.message ?? 'Vast will retry the background update.',
+          durationMs: 8_000
+        })
       } else if (payload.event === 'update-available') {
         pushToastRef.current({
           id: 'vast-update-available',
           tone: 'info',
           title: `Update available — v${payload.version ?? ''}`,
-          message: 'Vast is downloading the new version in the background.',
+          message: payload.autoDownload ? 'Vast is downloading the new version in the background.' : 'Automatic downloads are disabled for this session.',
           durationMs: 8_000
         })
       }
+    }
+    const unsubscribeUpdater = window.vast.updater.onEvent((payload) => {
+      receivedUpdaterEvent = true
+      handleUpdaterEvent(payload)
     })
+    let updaterMounted = true
+    void window.vast.updater.status().then((status) => {
+      if (updaterMounted && !receivedUpdaterEvent && status.lastEvent) handleUpdaterEvent(status.lastEvent)
+    }).catch(() => undefined)
 
     return () => {
       unsubscribeDownloads()
@@ -1061,6 +1100,7 @@ export function App(): JSX.Element {
       unsubscribeSitePermissions()
       unsubscribeExternalProtocols()
       unsubscribeHtmlFullscreen()
+      updaterMounted = false
       unsubscribeUpdater()
     }
   }, [])
@@ -1080,7 +1120,10 @@ export function App(): JSX.Element {
   )
 
   const runtime = useMemo<BrowserRuntime>(() => {
-    const activeWebview = (): Electron.WebviewTag | undefined => stageRef.current?.getActiveWebview()
+    const activeWebview = (): Electron.WebviewTag | undefined => {
+      const active = getActiveTabSnapshot()
+      return active ? stageRef.current?.getWebview(active.id) : undefined
+    }
 
     const rememberTabSite = (
       tabId: ID,
@@ -1400,11 +1443,11 @@ export function App(): JSX.Element {
       stopFindInPage: () => activeWebview()?.stopFindInPage('clearSelection'),
       copyCurrentUrl: async () => {
         const active = getActiveTabSnapshot()
-        if (active) await navigator.clipboard.writeText(effectiveActiveUrl(active))
+        if (active) await copyText(effectiveActiveUrl(active))
       },
       copyCurrentTitle: async () => {
         const active = getActiveTabSnapshot()
-        if (active) await navigator.clipboard.writeText(active.title)
+        if (active) await copyText(active.title)
       },
       saveCurrentToReadingList: () => {
         const active = getActiveTabSnapshot()
@@ -1416,6 +1459,7 @@ export function App(): JSX.Element {
           favicon: active.favicon,
           workspaceId: active.workspaceId
         })
+        useBrowserStore.getState().setActiveSidePanel('reading-list')
       },
       addCurrentBookmark: () => {
         const state = useBrowserStore.getState()
@@ -1720,9 +1764,7 @@ export function App(): JSX.Element {
       else if (shortcut === 'zoomOut') runtime.zoomOut()
       else if (shortcut === 'resetZoom') runtime.resetZoom()
       else if (shortcut === 'print') void runtime.printActive()
-      else if (shortcut === 'toggleAdBlocker') {
-        store.updateSettings({ privacy: { adBlockerEnabled: !store.settings.privacy.adBlockerEnabled } })
-      }
+
       else if (shortcut.startsWith('tab:')) {
         const workspace = selectActiveWorkspace(store)
         const index = Number(shortcut.slice(4)) - 1
@@ -1813,7 +1855,7 @@ export function App(): JSX.Element {
   if (loadError) {
     return (
       <div className="grid h-screen place-items-center bg-vast-black p-8 text-white">
-        <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-8 shadow-glass">
+        <div className="rounded-panel border border-white/10 bg-white/[0.06] p-8 shadow-glass">
           <div className="text-xl font-semibold">Vast could not load storage.</div>
           <div className="mt-3 text-sm text-vast-soft">{loadError}</div>
         </div>

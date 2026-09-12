@@ -1,6 +1,7 @@
 import { assertNonEmptyString, fail, ok, type IpcHandle } from './registration'
 
 export function registerDownloadsIpc(handle: IpcHandle): void {
+  handle('vast:downloads:list-current', async () => (await import('../downloads')).listCurrentDownloads())
   handle('vast:downloads:show-in-folder', async (_event, path: string) => {
     try {
       assertNonEmptyString(path, 'path', 32_768)
@@ -50,7 +51,7 @@ export function registerDownloadsIpc(handle: IpcHandle): void {
 
   handle('vast:downloads:clear-completed', async () => {
     try {
-      await (await import('../storage')).clearCompletedDownloads()
+      await (await import('../downloads')).clearCompletedDownloadHistory()
       return ok()
     } catch (error) {
       return fail(error)

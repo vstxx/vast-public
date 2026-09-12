@@ -41,7 +41,7 @@ export function Sidebar({ forcedCollapsed = false }: { forcedCollapsed?: boolean
             type="button"
             title="Expand sidebar"
             onClick={() => setSidebarCollapsed(false)}
-            className="grid h-5 w-5 place-items-center rounded-md text-white/20 transition hover:bg-white/[0.07] hover:text-white/50"
+            className="grid h-5 w-5 place-items-center rounded-checkbox text-white/20 transition hover:bg-white/[0.07] hover:text-white/50"
           >
             <ChevronsRight className="h-3 w-3" />
           </button>
@@ -65,11 +65,11 @@ export function Sidebar({ forcedCollapsed = false }: { forcedCollapsed?: boolean
             <button
               type="button"
               onClick={() => setCommandPaletteOpen(true)}
-              className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-full border border-white/[0.06] bg-white/[0.035] px-3 text-left text-[12px] text-vast-soft shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] transition hover:border-white/[0.12] hover:bg-white/[0.065] hover:text-white"
+              className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-control border border-white/[0.06] bg-white/[0.035] px-3 text-left text-[12px] text-vast-soft shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] transition hover:border-white/[0.12] hover:bg-white/[0.065] hover:text-white"
             >
               <Search className="h-3.5 w-3.5" />
               <span className="min-w-0 flex-1 truncate">Command...</span>
-              <kbd className="rounded-full border border-white/[0.06] bg-black/20 px-1.5 py-0.5 text-[10px] text-vast-soft">⌘K</kbd>
+              <kbd className="rounded-control border border-white/[0.06] bg-black/20 px-1.5 py-0.5 text-[10px] text-vast-soft">⌘K</kbd>
             </button>
             <IconButton tooltip="Sidebar" active={sidePanelOpen} onClick={() => setSidePanelOpen(!sidePanelOpen)}>
               <PanelRight className="h-4 w-4" />
@@ -105,9 +105,9 @@ export function Sidebar({ forcedCollapsed = false }: { forcedCollapsed?: boolean
             title="New tab"
             onClick={() => createTab({ activate: true })}
             data-testid="vertical-new-tab"
-            className="flex h-10 w-full items-center gap-2.5 rounded-xl border border-white/[0.08] bg-white/[0.045] px-3 text-left text-[13px] font-semibold text-white/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] transition hover:border-white/[0.14] hover:bg-white/[0.075] hover:text-white"
+            className="flex h-10 w-full items-center gap-2.5 rounded-control border border-white/[0.08] bg-white/[0.045] px-3 text-left text-[13px] font-semibold text-white/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] transition hover:border-white/[0.14] hover:bg-white/[0.075] hover:text-white"
           >
-            <span className="grid h-6 w-6 place-items-center rounded-lg bg-vast-cyan/[0.09] text-vast-cyan"><Plus className="h-3.5 w-3.5" /></span>
+            <span className="grid h-6 w-6 place-items-center rounded-control bg-vast-cyan/[0.09] text-vast-cyan"><Plus className="h-3.5 w-3.5" /></span>
             <span className="min-w-0 flex-1">New tab</span>
             <kbd className="text-[10px] font-medium text-white/30">Ctrl T</kbd>
           </button>

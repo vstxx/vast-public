@@ -201,7 +201,6 @@ class ControlPanel {
     identitySummary.append(element('span', 'session-menu__status'), element('span', undefined, this.session.environment))
     const identityPanel = element('div', 'session-menu__panel')
     identityPanel.append(
-      element('span', 'eyebrow', 'Authenticated'),
       element('strong', undefined, this.session.actor),
       element('span', 'mono', this.session.key_id)
     )
@@ -273,10 +272,10 @@ class ControlPanel {
     }
   }
 
-  private pageHeader(eyebrow: string, title: string, detail: string, action?: HTMLElement): HTMLElement {
+  private pageHeader(title: string, detail: string, action?: HTMLElement): HTMLElement {
     const header = element('header', 'page-header')
     const copy = element('div')
-    copy.append(element('span', 'eyebrow', eyebrow), element('h1', undefined, title), element('p', undefined, detail))
+    copy.append(element('h1', undefined, title), element('p', undefined, detail))
     header.append(copy)
     if (action) header.append(action)
     return header
@@ -288,7 +287,7 @@ class ControlPanel {
     const fragment = document.createDocumentFragment()
     const refresh = button('Refresh data')
     refresh.addEventListener('click', () => void this.refreshDashboard(true))
-    fragment.append(this.pageHeader('Vast Relay', 'Overview', `Aggregate installation health · ${formatDate(summary.generated_at)}`, refresh))
+    fragment.append(this.pageHeader('Overview', `Aggregate installation health · ${formatDate(summary.generated_at)}`, refresh))
     const metrics = element('section', 'metric-grid')
     const cards: Array<[string, number, string]> = [
       ['Total installations', summary.totals.installations, 'All known installations'],
@@ -345,11 +344,7 @@ class ControlPanel {
     const summary = await api<DashboardSummary>('/v1/admin/dashboard')
     if (nonce !== this.renderNonce) return
     const fragment = document.createDocumentFragment()
-    fragment.append(this.pageHeader(
-      'Minimal registry',
-      'Vast instances',
-      'Every known Relay installation, classified so test profiles can be handled safely.'
-    ))
+    fragment.append(this.pageHeader('Vast instances', 'Every known Relay installation, classified so test profiles can be handled safely.'))
 
     const controls = element('form', 'instances-toolbar')
     const exactId = input('search')
@@ -503,7 +498,7 @@ class ControlPanel {
     const panel = element('section', 'instance-detail')
     const header = element('header', 'instance-detail__header')
     const heading = element('div')
-    heading.append(element('span', 'eyebrow', 'Relay installation'), element('h2', undefined, 'Instance details'))
+    heading.append(element('h2', undefined, 'Instance details'))
     const close = button('Close')
     close.addEventListener('click', () => dialog.close())
     header.append(heading, close)
@@ -556,7 +551,7 @@ class ControlPanel {
     const create = button('New broadcast', 'primary')
     create.addEventListener('click', () => void this.openBroadcastEditor())
     const fragment = document.createDocumentFragment()
-    fragment.append(this.pageHeader('Signed content', 'Broadcasts', 'Create, schedule, preview and stop structured Relay messages.', create))
+    fragment.append(this.pageHeader('Broadcasts', 'Create, schedule, preview and stop structured Relay messages.', create))
     if (this.broadcasts.length === 0) fragment.append(emptyState('No broadcasts', 'Production should remain empty until a reviewed message is intentionally published.'))
     else {
       const toolbar = element('section', 'broadcast-toolbar')
@@ -823,7 +818,7 @@ class ControlPanel {
       field('Enable delivery', enabled)
     )
     const preview = element('aside', 'editor__preview')
-    preview.append(element('span', 'eyebrow', 'Local preview'))
+    preview.append(element('h2', 'editor__preview-title', 'Preview'))
     const previewStage = element('div', 'message-preview-stage')
     const previewCard = element('article', 'message-preview')
     const refreshPreview = (): void => {
@@ -919,7 +914,7 @@ class ControlPanel {
     const action = element('div')
     action.append(upload, file)
     const fragment = document.createDocumentFragment()
-    fragment.append(this.pageHeader('Private R2', 'Media', 'Validated, immutable image assets with signed integrity metadata.', action))
+    fragment.append(this.pageHeader('Media', 'Validated, immutable image assets with signed integrity metadata.', action))
     if (this.assets.length === 0) fragment.append(emptyState('No media', 'Upload a PNG, WEBP or GIF up to 2 MiB.'))
     else {
       const grid = element('section', 'media-grid')
@@ -984,7 +979,7 @@ class ControlPanel {
     return new Promise((resolve) => {
       const dialog = element('dialog', 'dialog dialog--confirm')
       const content = element('section', 'confirm-dialog')
-      content.append(element('span', 'eyebrow', 'Permanent action'), element('h2', undefined, title), element('p', undefined, detail))
+      content.append(element('h2', undefined, title), element('p', undefined, detail))
       const actions = element('div', 'confirm-dialog__actions')
       const cancel = button('Cancel')
       const confirm = button(confirmLabel, 'danger')
@@ -1011,7 +1006,7 @@ class ControlPanel {
     const create = button('New update notice', 'primary')
     create.addEventListener('click', () => void this.openReleaseEditor())
     const fragment = document.createDocumentFragment()
-    fragment.append(this.pageHeader('Updater boundary', 'Update notices', 'Signed availability metadata only. Package trust remains separate.', create))
+    fragment.append(this.pageHeader('Update notices', 'Signed availability metadata only. Package trust remains separate.', create))
     if (this.releases.length === 0) fragment.append(emptyState('No update notices', 'No package is uploaded or authorized by Vast Relay.'))
     else {
       const list = element('section', 'record-list')
@@ -1182,7 +1177,7 @@ class ControlPanel {
     const response = await api<{ items: AuditItem[] }>('/v1/admin/audit?limit=150')
     if (nonce !== this.renderNonce) return
     const fragment = document.createDocumentFragment()
-    fragment.append(this.pageHeader('Administrative history', 'Audit', 'Authenticated control-plane changes. Tokens and message bodies are never recorded.'))
+    fragment.append(this.pageHeader('Audit', 'Authenticated control-plane changes. Tokens and message bodies are never recorded.'))
     if (response.items.length === 0) fragment.append(emptyState('No audit entries', 'Control-plane changes will appear here.'))
     else {
       const timeline = element('section', 'timeline')
@@ -1208,7 +1203,7 @@ class ControlPanel {
 
   private failure(message: string, error: unknown): HTMLElement {
     const node = element('section', 'failure')
-    node.append(element('span', 'eyebrow', 'Safe failure'), element('h2', undefined, message), element('p', undefined, this.errorMessage(error)))
+    node.append(element('h2', undefined, message), element('p', undefined, this.errorMessage(error)))
     const retry = button('Retry', 'primary')
     retry.addEventListener('click', () => void this.navigate(this.activePage))
     node.append(retry)

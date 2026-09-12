@@ -1,3 +1,4 @@
+import { copyText } from '../../lib/clipboard'
 import {
   Activity,
   Cast,
@@ -226,7 +227,7 @@ export function NetworkPage(): JSX.Element {
       <div className="mx-auto max-w-[1480px] space-y-5">
         <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_410px]">
           <section className="space-y-5">
-          <header className="vast-glass-panel rounded-[32px] p-6">
+          <header className="vast-glass-panel rounded-modal p-6">
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
               <div>
                 <h1 className="text-4xl font-semibold tracking-tight">Network Devices</h1>
@@ -246,9 +247,9 @@ export function NetworkPage(): JSX.Element {
                 </button>
               </div>
             </div>
-            {error && <div className="mt-4 rounded-2xl border border-vast-amber/25 bg-vast-amber/10 p-3 text-sm text-vast-amber">{error}</div>}
+            {error && <div className="mt-4 rounded-card border border-vast-amber/25 bg-vast-amber/10 p-3 text-sm text-vast-amber">{error}</div>}
             {!networkSettings.enabled && (
-              <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-vast-amber/25 bg-vast-amber/[0.08] p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="mt-4 flex flex-col gap-3 rounded-card border border-vast-amber/25 bg-vast-amber/[0.08] p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div><div className="text-sm font-semibold">Local discovery is off</div><div className="mt-1 text-xs leading-5 text-vast-soft">Enabling it does not scan automatically. Windows Firewall may ask about local-network access when you start the first scan.</div></div>
                 <button type="button" onClick={() => updateSettings({ network: { enabled: true, allowScans: false } })} className="vault-action-button shrink-0">Enable discovery</button>
               </div>
@@ -262,7 +263,7 @@ export function NetworkPage(): JSX.Element {
             <SummaryCard icon={Shield} label="Online now" value={summary.online} />
           </div>
 
-          <section className="vast-glass-panel rounded-[28px] p-4">
+          <section className="vast-glass-panel rounded-panel p-4">
             <div className="grid gap-3">
               <div className="relative min-w-0">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-vast-soft" />
@@ -270,7 +271,7 @@ export function NetworkPage(): JSX.Element {
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Search devices, IPs, models, services"
-                  className="h-11 w-full rounded-xl border border-white/[0.07] bg-white/[0.03] pl-10 pr-3 text-sm text-white outline-none transition-colors focus:border-white/[0.16] focus:bg-white/[0.045]"
+                  className="h-11 w-full rounded-control border border-white/[0.07] bg-white/[0.03] pl-10 pr-3 text-sm text-white outline-none transition-colors focus:border-white/[0.16] focus:bg-white/[0.045]"
                 />
               </div>
               <div className="grid gap-2 border-t border-white/[0.06] pt-3 lg:grid-cols-[5.5rem_minmax(0,1fr)] lg:items-center">
@@ -308,10 +309,10 @@ export function NetworkPage(): JSX.Element {
                 type="button"
                 key={device.id}
                 onClick={() => setSelectedId(device.id)}
-                className={`vast-glass-panel rounded-[26px] p-4 text-left transition duration-150 hover:-translate-y-0.5 ${selected?.id === device.id ? 'shadow-[0_0_34px_rgba(116,231,255,0.08),inset_0_0_0_1px_rgba(116,231,255,0.24)]' : ''}`}
+                className={`vast-glass-panel rounded-panel p-4 text-left transition duration-150 hover:-translate-y-0.5 ${selected?.id === device.id ? 'shadow-[0_0_34px_rgba(116,231,255,0.08),inset_0_0_0_1px_rgba(116,231,255,0.24)]' : ''}`}
               >
                 <div className="flex items-start gap-4">
-                  <div className="grid h-12 w-12 place-items-center rounded-2xl border border-white/10 bg-white/[0.06] text-vast-cyan">
+                  <div className="grid h-12 w-12 place-items-center rounded-card border border-white/10 bg-white/[0.06] text-vast-cyan">
                     <CategoryIcon category={device.category} className="h-5 w-5" />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -322,12 +323,12 @@ export function NetworkPage(): JSX.Element {
                       </div>
                       <div className="flex items-center gap-1">
                         {device.favorite && <Star className="h-4 w-4 fill-vast-cyan text-vast-cyan" />}
-                        <span className={`h-2.5 w-2.5 rounded-full ${device.online ? 'bg-emerald-300 shadow-[0_0_16px_rgba(110,231,183,0.55)]' : 'bg-white/25'}`} />
+                        <span className={`h-2.5 w-2.5 vast-geometry-circle ${device.online ? 'bg-emerald-300 shadow-[0_0_16px_rgba(110,231,183,0.55)]' : 'bg-white/25'}`} />
                       </div>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-1.5">
                       {deviceBadges(device).map((badge) => (
-                        <span key={badge} className="rounded-full border border-white/[0.08] bg-white/[0.045] px-2 py-1 text-[11px] text-vast-soft">
+                        <span key={badge} className="rounded-control border border-white/[0.08] bg-white/[0.045] px-2 py-1 text-[11px] text-vast-soft">
                           {badge}
                         </span>
                       ))}
@@ -345,7 +346,7 @@ export function NetworkPage(): JSX.Element {
               ))
             )}
             {!loading && filtered.length === 0 && (
-              <div className="vast-glass-panel col-span-full rounded-[28px] p-10 text-center">
+              <div className="vast-glass-panel col-span-full rounded-panel p-10 text-center">
                 <Wifi className="mx-auto h-8 w-8 text-vast-cyan" />
                 <div className="mt-4 text-lg font-semibold">No devices yet</div>
                 <div className="mx-auto mt-2 max-w-md text-sm leading-6 text-vast-soft">
@@ -356,7 +357,7 @@ export function NetworkPage(): JSX.Element {
           </section>
           </section>
 
-          <aside className="network-detail-scroll vast-glass-panel sticky top-0 min-w-0 max-h-[calc(100vh-3rem)] self-start overflow-y-auto rounded-[30px] p-5">
+          <aside className="network-detail-scroll vast-glass-panel sticky top-0 min-w-0 max-h-[calc(100vh-3rem)] self-start overflow-y-auto rounded-panel p-5">
           {loading && devices.length === 0 ? (
             <InternalLoadingSkeleton title="Preparing device detail" lines={6} className="min-h-[320px]" />
           ) : selected ? (
@@ -374,7 +375,7 @@ export function NetworkPage(): JSX.Element {
                   type="button"
                   title="Favorite device"
                   onClick={() => void updateDevice(selected.id, { favorite: !selected.favorite })}
-                  className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-white/[0.045] text-vast-cyan shadow-[inset_0_0_0_1px_rgba(255,255,255,0.065)] transition hover:bg-white/[0.08] hover:shadow-[inset_0_0_0_1px_rgba(116,231,255,0.24),0_0_24px_rgba(116,231,255,0.08)]"
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-card bg-white/[0.045] text-vast-cyan shadow-[inset_0_0_0_1px_rgba(255,255,255,0.065)] transition hover:bg-white/[0.08] hover:shadow-[inset_0_0_0_1px_rgba(116,231,255,0.24),0_0_24px_rgba(116,231,255,0.08)]"
                 >
                   <Heart className={`h-4 w-4 ${selected.favorite ? 'fill-current' : ''}`} />
                 </button>
@@ -386,7 +387,7 @@ export function NetworkPage(): JSX.Element {
                   defaultValue={selected.alias ?? ''}
                   onBlur={(event) => void updateDevice(selected.id, { alias: event.target.value })}
                   placeholder={selected.name}
-                  className="rounded-2xl border border-transparent bg-white/[0.035] px-3 py-2 text-sm text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)] outline-none transition focus:shadow-[inset_0_0_0_1px_rgba(116,231,255,0.3),0_0_24px_rgba(116,231,255,0.07)]"
+                  className="rounded-card border border-transparent bg-white/[0.035] px-3 py-2 text-sm text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)] outline-none transition focus:shadow-[inset_0_0_0_1px_rgba(116,231,255,0.3),0_0_24px_rgba(116,231,255,0.07)]"
                 />
               </label>
 
@@ -402,7 +403,7 @@ export function NetworkPage(): JSX.Element {
                   <ExternalLink className="h-4 w-4" />
                   Open panel
                 </button>
-                <button type="button" onClick={() => selected.primaryIp && void navigator.clipboard.writeText(selected.primaryIp)} className="vault-action-button justify-center">
+                <button type="button" onClick={() => selected.primaryIp && void copyText(selected.primaryIp)} className="vault-action-button justify-center">
                   <Copy className="h-4 w-4" />
                   Copy IP
                 </button>
@@ -415,7 +416,7 @@ export function NetworkPage(): JSX.Element {
                   onBlur={(event) => void updateDevice(selected.id, { notes: event.target.value })}
                   placeholder="Local notes about this device"
                   rows={4}
-                  className="resize-none rounded-2xl border border-transparent bg-white/[0.032] p-3 text-sm leading-6 text-vast-soft shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)] outline-none transition focus:shadow-[inset_0_0_0_1px_rgba(116,231,255,0.3),0_0_24px_rgba(116,231,255,0.07)]"
+                  className="resize-none rounded-card border border-transparent bg-white/[0.032] p-3 text-sm leading-6 text-vast-soft shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)] outline-none transition focus:shadow-[inset_0_0_0_1px_rgba(116,231,255,0.3),0_0_24px_rgba(116,231,255,0.07)]"
                 />
               </label>
 
@@ -423,13 +424,13 @@ export function NetworkPage(): JSX.Element {
                 <div className="mb-2 text-sm font-semibold">Services</div>
                 <div className="space-y-2">
                   {selected.services.slice(0, 8).map((service, index) => (
-                    <div key={`${service.type}-${index}`} className="rounded-2xl bg-white/[0.032] p-3 text-xs text-vast-soft shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)]">
+                    <div key={`${service.type}-${index}`} className="rounded-card bg-white/[0.032] p-3 text-xs text-vast-soft shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)]">
                       <div className="font-semibold text-white">{service.name}</div>
                       <div className="mt-1 truncate">{service.type}</div>
                       {service.port && <div className="mt-1">Port {service.port}</div>}
                     </div>
                   ))}
-                  {selected.services.length === 0 && <div className="rounded-2xl bg-white/[0.032] p-3 text-xs text-vast-soft shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)]">No service metadata yet.</div>}
+                  {selected.services.length === 0 && <div className="rounded-card bg-white/[0.032] p-3 text-xs text-vast-soft shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)]">No service metadata yet.</div>}
                 </div>
               </div>
 
@@ -447,12 +448,12 @@ export function NetworkPage(): JSX.Element {
           </aside>
         </div>
 
-        <section className="vast-glass-panel overflow-hidden rounded-[28px] p-4">
+        <section className="vast-glass-panel overflow-hidden rounded-panel p-4">
           <button
             type="button"
             aria-expanded={showAdvanced}
             onClick={() => setShowAdvanced((value) => !value)}
-            className="flex w-full items-center justify-between gap-4 rounded-xl px-1 py-1 text-left transition-colors hover:bg-white/[0.025]"
+            className="flex w-full items-center justify-between gap-4 rounded-control px-1 py-1 text-left transition-colors hover:bg-white/[0.025]"
           >
             <span className="min-w-0">
               <span className="block text-sm font-semibold">Advanced scan log</span>
@@ -462,11 +463,11 @@ export function NetworkPage(): JSX.Element {
           </button>
           {showAdvanced && (
             <div className="mt-4 grid items-start gap-4 border-t border-white/[0.06] pt-4 lg:grid-cols-[minmax(0,1fr)_240px]">
-              <div className="network-detail-scroll max-h-72 overflow-y-auto rounded-xl border border-white/[0.06] bg-black/20 p-3 font-mono text-xs leading-6 text-vast-soft">
+              <div className="network-detail-scroll max-h-72 overflow-y-auto rounded-control border border-white/[0.06] bg-black/20 p-3 font-mono text-xs leading-6 text-vast-soft">
                 {logs.length ? logs.map((log) => <div key={log}>{log}</div>) : 'No scan log yet.'}
               </div>
               <div className="space-y-2">
-                <button type="button" onClick={() => void navigator.clipboard.writeText(JSON.stringify({ devices, logs }, null, 2))} className="settings-action settings-action-compact w-full justify-center">
+                <button type="button" onClick={() => void copyText(JSON.stringify({ devices, logs }, null, 2))} className="settings-action settings-action-compact w-full justify-center">
                   <Copy className="h-4 w-4" />
                   Copy diagnostics
                 </button>
@@ -498,7 +499,7 @@ export function NetworkPage(): JSX.Element {
 
 function SummaryCard({ icon: Icon, label, value }: { icon: typeof Wifi; label: string; value: number }): JSX.Element {
   return (
-    <div className="vast-glass-panel min-h-[104px] rounded-[24px] p-4">
+    <div className="vast-glass-panel min-h-[104px] rounded-card p-4">
       <div className="flex items-center justify-between">
         <span className="text-sm font-semibold text-vast-soft">{label}</span>
         <Icon className="h-4 w-4 text-vast-cyan" />
@@ -510,12 +511,12 @@ function SummaryCard({ icon: Icon, label, value }: { icon: typeof Wifi; label: s
 
 function InfoRow({ label, value, copyValue }: { label: string; value: string; copyValue?: string }): JSX.Element {
   return (
-    <div className="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-center gap-3 rounded-2xl bg-white/[0.032] px-3 py-2.5 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)]">
+    <div className="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-center gap-3 rounded-card bg-white/[0.032] px-3 py-2.5 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)]">
       <span className="min-w-0 truncate text-xs font-medium text-vast-soft">{label}</span>
       <span className="flex min-w-0 items-center justify-end gap-2 text-right text-sm font-semibold">
         <span className="min-w-0 truncate" title={value}>{value}</span>
         {copyValue && (
-          <button type="button" onClick={() => void navigator.clipboard.writeText(copyValue)} className="shrink-0 text-vast-cyan transition hover:text-white" title={`Copy ${label}`}>
+          <button type="button" onClick={() => void copyText(copyValue)} className="shrink-0 text-vast-cyan transition hover:text-white" title={`Copy ${label}`}>
             <Copy className="h-3.5 w-3.5" />
           </button>
         )}

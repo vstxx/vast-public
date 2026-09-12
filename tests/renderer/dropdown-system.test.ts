@@ -80,7 +80,7 @@ test('Vast dropdown exposes exactly three deliberate control lengths', () => {
   assert.match(stylesSource, /\.vast-select-size-medium\s*\{[^}]*width:\s*min\(100%, 12rem\)/s)
   assert.match(stylesSource, /\.vast-select-size-long\s*\{[^}]*width:\s*min\(100%, 16rem\)/s)
   assert.match(settingsSource, /label="Layout"\s+size="short"/)
-  assert.match(settingsSource, /label="Ad blocking"\s+size="long"/)
+  assert.match(settingsSource, /label="Fingerprinting"\s+size="long"/)
   assert.match(settingsSource, /size = 'medium'/)
 })
 

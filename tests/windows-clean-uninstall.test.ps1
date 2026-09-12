@@ -41,6 +41,19 @@ function Test-RegistryValue([string] $Key, [string] $Name) {
   }
 }
 
+function Get-ProtectedPdfSnapshot {
+  $root = 'Registry::HKEY_CURRENT_USER\Software\Classes\.pdf'
+  if (-not (Test-Path -LiteralPath $root)) { return '' }
+  $keys = @((Get-Item -LiteralPath $root)) + @(Get-ChildItem -LiteralPath $root -Recurse)
+  $values = foreach ($key in $keys) {
+    foreach ($name in $key.GetValueNames()) {
+      if ($key.Name -eq 'HKEY_CURRENT_USER\Software\Classes\.pdf\OpenWithProgids' -and $name -eq 'VastPDF') { continue }
+      [ordered]@{ key=$key.Name; name=$name; kind=[string]$key.GetValueKind($name); value=$key.GetValue($name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) } | ConvertTo-Json -Compress
+    }
+  }
+  return (($values | Sort-Object) -join "`n")
+}
+
 function Get-RegisteredApplicationValue {
   try {
     return [string](Get-ItemPropertyValue -LiteralPath 'Registry::HKEY_CURRENT_USER\Software\RegisteredApplications' -Name 'Vast' -ErrorAction Stop)
@@ -74,10 +87,13 @@ $protectedRegistryKeys = @(
   'HKCU\Software\Classes\http',
   'HKCU\Software\Classes\https',
   'HKCU\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\http\UserChoice',
-  'HKCU\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice'
+  'HKCU\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice',
+  'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.pdf\UserChoice'
 )
 $protectedBefore = @{}
 foreach ($key in $protectedRegistryKeys) { $protectedBefore[$key] = Get-RegSnapshot $key }
+$pdfBefore = Get-ProtectedPdfSnapshot
+$pdfKeyExisted = Test-RegistryKey 'HKEY_CURRENT_USER\Software\Classes\.pdf'
 
 $testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("vast-store-uninstall-{0}" -f [Guid]::NewGuid().ToString('N'))
 $installRoot = Join-Path $testRoot 'installed'
@@ -97,6 +113,19 @@ try {
   Assert-True ($install.ExitCode -eq 0) "silent installer exited with $($install.ExitCode)"
   $vastExe = Join-Path $installRoot 'Vast.exe'
   Assert-True (Test-Path -LiteralPath $vastExe -PathType Leaf) 'installed Vast.exe must exist'
+
+  # Assert installer behavior before the application can repair registration.
+  Assert-True (Test-RegistryKey 'HKEY_CURRENT_USER\Software\Classes\VastPDF') 'installer must create the Vast PDF ProgID'
+  Assert-True (Test-RegistryValue 'HKCU\Software\Classes\.pdf\OpenWithProgids' 'VastPDF') 'installer must advertise Vast in PDF Open with before first launch'
+  Assert-True (Test-RegistryValue 'HKCU\Software\Classes\Applications\Vast.exe\SupportedTypes' '.pdf') 'installer must advertise PDF support'
+  $pdfCommand = (Get-Item -LiteralPath 'Registry::HKEY_CURRENT_USER\Software\Classes\VastPDF\shell\open\command').GetValue('')
+  Assert-True ($pdfCommand -ceq ('"' + $vastExe + '" "%1"')) 'installer PDF command must quote the installed executable and document'
+  $pdfIcon = (Get-Item -LiteralPath 'Registry::HKEY_CURRENT_USER\Software\Classes\VastPDF\DefaultIcon').GetValue('')
+  Assert-True ($pdfIcon -ceq ($vastExe + ',0')) 'installer PDF icon must point to the installed executable'
+  foreach ($key in $protectedRegistryKeys) {
+    Assert-True ((Get-RegSnapshot $key) -ceq $protectedBefore[$key]) "installation must not alter protected registry state: $key"
+  }
+  Assert-True ((Get-ProtectedPdfSnapshot) -ceq $pdfBefore) 'installation must preserve all non-Vast PDF association values'
 
   $previousProfile = $env:VAST_TEST_USER_DATA_DIR
   try {
@@ -154,6 +183,8 @@ try {
   foreach ($key in $protectedRegistryKeys) {
     Assert-True ((Get-RegSnapshot $key) -ceq $protectedBefore[$key]) "uninstall flow must not alter protected registry state: $key"
   }
+  Assert-True ((Get-ProtectedPdfSnapshot) -ceq $pdfBefore) 'uninstall must preserve all non-Vast PDF association values'
+  if ($pdfKeyExisted) { Assert-True (Test-RegistryKey 'HKEY_CURRENT_USER\Software\Classes\.pdf') 'uninstall must preserve the existing generic PDF key' }
 
   # The isolated profile is user-created data, not an installer-owned orphan.
   # It is intentionally retained by the product uninstaller and removed only by this harness.

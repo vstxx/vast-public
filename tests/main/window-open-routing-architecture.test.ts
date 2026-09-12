@@ -29,7 +29,7 @@ test('real popup windows retain opener session without receiving a preload', () 
 })
 
 test('popup close removes every tracked reference', () => {
-  assert.match(sessionsSource, /popup\.on\('closed',[\s\S]*adBlockGuardedPopupWebContents\.delete\(popupContentsId\)/)
+  assert.match(sessionsSource, /popup\.on\('closed',[\s\S]*guardedPopupWebContents\.delete\(popupContentsId\)/)
   assert.match(sessionsSource, /popup\.on\('closed',[\s\S]*trustedOAuthPopupWebContents\.delete\(popupContentsId\)/)
 })
 

@@ -6,7 +6,7 @@ const {
   STORE_POLICY_REVIEW_MAX_AGE_DAYS,
   identityFromEnv,
   manifestXml,
-  msixVersionForSemver,
+  storePackageVersion,
   root
 } = require('./store-msix-config.cjs')
 
@@ -27,7 +27,7 @@ function run(command, args, label, env = process.env) {
   return result
 }
 
-requireGate(pkg.version === '0.2.7', `package.json must be 0.2.7, received ${pkg.version}`)
+requireGate(require('semver').valid(pkg.version) && !require('semver').prerelease(pkg.version), `Stable product version required, received ${pkg.version}`)
 requireGate(lock.version === pkg.version && lock.packages?.['']?.version === pkg.version, 'package-lock root version must match package.json')
 requireGate(pkg.devDependencies?.electron === '44.1.0', 'Electron must be pinned exactly to 44.1.0')
 requireGate(lock.packages?.['node_modules/electron']?.version === '44.1.0', 'package-lock must resolve Electron 44.1.0')
@@ -41,7 +41,7 @@ requireGate(String(process.env.VAST_RELAY_ENABLED ?? '') === '1', 'VAST_RELAY_EN
 let identity
 try {
   identity = identityFromEnv(process.env, false)
-  manifestXml(identity, pkg.version)
+  manifestXml(identity)
 } catch (error) {
   failures.push(error instanceof Error ? error.message : String(error))
 }
@@ -70,7 +70,7 @@ if (networkChecks) {
 const report = {
   ok: failures.length === 0,
   productVersion: pkg.version,
-  msixVersion: msixVersionForSemver(pkg.version),
+  msixVersion: storePackageVersion(),
   electron: pkg.devDependencies.electron,
   sourceCommit: head || null,
   identity: identity ? { name: identity.name, publisher: identity.publisher, publisherDisplayName: identity.publisherDisplayName } : null,

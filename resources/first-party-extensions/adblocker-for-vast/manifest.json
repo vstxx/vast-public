@@ -1,0 +1,44 @@
+{
+  "manifest_version": 2,
+  "name": "Adblocker for Vast",
+  "version": "1.0.0",
+  "description": "Block ads and trackers locally, with site controls, custom filters and cosmetic filtering.",
+  "permissions": [
+    "storage",
+    "webRequest",
+    "webRequestBlocking",
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "scripts": [
+      "dist/background.js"
+    ],
+    "persistent": true
+  },
+  "browser_action": {
+    "default_title": "Adblocker for Vast",
+    "default_popup": "popup.html",
+    "default_icon": "assets/icon-128.png"
+  },
+  "options_page": "options.html",
+  "icons": {
+    "128": "assets/icon-128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "dist/content.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "content_security_policy": "default-src 'self'; script-src 'self'; object-src 'none'; style-src 'self'; worker-src 'self'; connect-src 'self' https://easylist.to https://raw.githubusercontent.com https://secure.fanboy.co.nz; img-src 'self' data:; base-uri 'none'",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmm/GiKl9MgY4jaM5fSMHQeth3e0sDDJe1cN6AyylHTyylE3d1WIsR2UbUjD2CsQygkMQ32UDl+tGVVDaaXc/gAMCwBRMs3w8pRazzb/38WyE4UhLe7UtvPUHUHzOk22utiWFvNOoQWrhAy6SwPShJeCLI4LfZpIymCOtB9wMlEuapoNO+a1OH23PQMrIKG0dsvfCwQ4gp9asRiEtdj2xAjFKVImvbRc44/93/TS9f7MRMG7NgXY6yXkzBuCaZVwbPxtjTLDgnfvpErBjjjxf59HKy0Aa2a/Wy9o5O/skgrcucUxuHppp+aaoEsvodHu5fYTPW4Plqimwm7urYCgciQIDAQAB",
+  "vast_network": 1
+}

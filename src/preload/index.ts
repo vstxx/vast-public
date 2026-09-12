@@ -20,6 +20,12 @@ const openingAnimationSoundVolume = parseOpeningStartupVolumeSearch(
 const openingAnimationHandledBySplash =
   parseOpeningHandledStartupSearch(window.location.search) || parseOpeningHandledStartupFlag(process.argv)
 const guestAutofillPreloadUrl = process.argv.find((value) => value.startsWith('--vast-guest-autofill-preload='))?.slice('--vast-guest-autofill-preload='.length) ?? ''
+const startupRadius = Number(process.argv.find((value) => value.startsWith('--vast-radius='))?.slice('--vast-radius='.length))
+window.addEventListener('DOMContentLoaded', () => {
+  const radius = Number.isFinite(startupRadius) ? Math.min(36, Math.max(6, startupRadius)) : DEFAULT_SETTINGS.appearance.cornerRadius
+  document.documentElement.style.setProperty('--vast-radius-base', `${radius}px`)
+}, { once: true })
+
 const performanceProbeEnabled = process.argv.includes('--vast-performance-probe=1')
 
 if (openingAnimationEnabled) {
@@ -131,8 +137,6 @@ const api = {
     clearSiteData: (origin, webContentsId) =>
       ipcRenderer.invoke('vast:privacy:clear-site-data', origin, webContentsId) as Promise<{ ok: boolean; error?: string }>,
     getSiteInformation: (webContentsId, url) => ipcRenderer.invoke('vast:privacy:site-information', webContentsId, url),
-    filterStatus: () => ipcRenderer.invoke('vast:privacy:filter-status'),
-    updateFilters: () => ipcRenderer.invoke('vast:privacy:update-filters'),
     configureIdentity: (webContentsId, identity, url, identityId) => ipcRenderer.invoke('vast:privacy:configure-identity', webContentsId, identity, url, identityId)
   },
   avidae: {
@@ -202,6 +206,7 @@ const api = {
     }
   },
   downloads: {
+    listCurrent: () => ipcRenderer.invoke('vast:downloads:list-current') as Promise<DownloadItem[]>,
     onChanged: (callback) => {
       const listener = (_event: Electron.IpcRendererEvent, item: DownloadItem) => callback(item)
       ipcRenderer.on('vast:download-changed', listener)
@@ -240,6 +245,7 @@ const api = {
       ipcRenderer.invoke('vast:oauth:fallback', input) as Promise<{ ok: boolean; error?: string }>
   },
   browser: {
+    writeClipboardText: (text) => ipcRenderer.invoke('vast:browser:write-clipboard-text', text),
     onOpenTabRequest: (callback) => tabOpenRequests.subscribe(callback),
     onExternalProtocolRequest: (callback) => {
       const listener = (_event: Electron.IpcRendererEvent, request: Parameters<typeof callback>[0]) => callback(request)

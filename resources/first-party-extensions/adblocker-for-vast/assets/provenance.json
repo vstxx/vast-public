@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "preparedAt": "2026-09-05T08:47:02.826Z",
+  "files": [
+    {
+      "name": "easylist.txt",
+      "url": "https://easylist.to/easylist/easylist.txt",
+      "license": "GPL-3.0-or-later OR CC-BY-SA-3.0",
+      "bytes": 2136892,
+      "sha256": "031df29eec32ad1647267d5ce4dfb1e05d91cf2cfab6510df2348afaebbb6de6"
+    },
+    {
+      "name": "easyprivacy.txt",
+      "url": "https://easylist.to/easylist/easyprivacy.txt",
+      "license": "GPL-3.0-or-later OR CC-BY-SA-3.0",
+      "bytes": 1501315,
+      "sha256": "074b902f67de00c1c9ae135b0fc3b8ebd845a4862fd50785d743c6f043ddf3c5"
+    },
+    {
+      "name": "ublock.txt",
+      "url": "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/filters.txt",
+      "license": "GPL-3.0",
+      "bytes": 471764,
+      "sha256": "b6a5a08f20b9b6ea16646f681a70f0f8bcc50c94e988be9514597d22668283a6"
+    },
+    {
+      "name": "cookies.txt",
+      "url": "https://secure.fanboy.co.nz/fanboy-cookiemonster.txt",
+      "license": "CC-BY-3.0",
+      "bytes": 891382,
+      "sha256": "077d934fd51d4fbc9bb8ce4b1ef06abaaad1218393a6ab0a04c33509226ba001"
+    },
+    {
+      "name": "resources.json",
+      "url": "https://github.com/gorhill/uBlock/tree/6dd2d95e50d134a477a4e183343c0b26e9147123",
+      "license": "GPL-3.0",
+      "bytes": 295848,
+      "sha256": "8f942f32bf4756e59698f0ab24b4523a87b1563c09765126816e401dbc5b411f",
+      "generatedBy": "source/compile-adblock-resources.mjs"
+    },
+    {
+      "name": "MPL-2.0.txt",
+      "url": "https://raw.githubusercontent.com/ghostery/adblocker/ff8ed92b3648bdf49ba884b7d90c46d3dda4c366/LICENSE",
+      "license": "MPL-2.0",
+      "bytes": 16789,
+      "sha256": "9a5743e68333a1959b266bee6905ee8ef1250f799c01a5f1bd98211e00cddd3a"
+    },
+    {
+      "name": "GPL-3.0.txt",
+      "url": "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/LICENSE",
+      "license": "GPL-3.0",
+      "bytes": 35141,
+      "sha256": "589ed823e9a84c56feb95ac58e7cf384626b9cbf4fda2a907bc36e103de1bad2"
+    },
+    {
+      "name": "CC-BY-3.0.txt",
+      "url": "https://creativecommons.org/licenses/by/3.0/legalcode.txt",
+      "license": "CC-BY-3.0",
+      "bytes": 19467,
+      "sha256": "e6bc9e9c474700b708f568bac9e5a8a9bcb2b1dad53442f5ba449fcb848b8e76"
+    }
+  ]
+}

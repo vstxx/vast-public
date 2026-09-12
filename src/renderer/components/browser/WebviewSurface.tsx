@@ -1,9 +1,8 @@
+import { copyText } from '../../lib/clipboard'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
-import { buildCosmeticAdBlockScript } from '../../../shared/adblock'
 import { mouseNavigationActionForButton, shouldTriggerMouseNavigation } from '../../../shared/mouse-navigation'
 import type { ID, PdfCaptureEvent, Tab, WorkspaceIdentitySettings } from '../../../shared/types'
 import { GuestNavigationUrlQueue, shouldAcceptWebviewNavigationEvent, webviewNavigationUrl } from '../../../shared/webview-navigation'
-import { shouldBypassVastInterference } from '../../../shared/auth-compatibility-policy'
 import { automaticPasswordCaptureOrigin } from '../../../shared/password-capture-policy'
 import { isLikelyCallUrl } from '../../../shared/call-protection'
 import { cleanTrackingUrl, hostMatchesList, siteDomain } from '../../../shared/url-cleaning'
@@ -41,14 +40,6 @@ interface BrowserStageProps {
   puristChromeVisible?: boolean
 }
 
-function siteInterventionsAreDisabled(siteInterventionsDisabled: readonly string[], rawUrl: string): boolean {
-  try {
-    const parsed = new URL(rawUrl)
-    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && siteInterventionsDisabled.includes(parsed.origin)
-  } catch {
-    return false
-  }
-}
 
 function pushContextItem(items: ContextMenuItem[], item: ContextMenuItem | undefined): void {
   if (item) items.push(item)
@@ -265,19 +256,7 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
       const currentUrl = webview.getURL() || latestTabRef.current.url
       lastKnownUrlRef.current = currentUrl
       webContentsIdRef.current = webview.getWebContentsId()
-      const latestSettings = useBrowserStore.getState().settings
       void window.vast.privacy.configureIdentity(webContentsIdRef.current, identityRef.current, currentUrl, identitySeedRef.current).catch(() => undefined)
-      const bypassInterventions = shouldBypassVastInterference({ url: currentUrl }) || siteInterventionsAreDisabled(latestSettings.privacy.siteInterventionsDisabled, currentUrl)
-      const bypassCosmeticFiltering = bypassInterventions || hostMatchesList(currentUrl, latestSettings.privacy.adBlockAllowlist)
-      void webview
-        .executeJavaScript(
-          buildCosmeticAdBlockScript(
-            latestSettings.privacy.adBlockerEnabled && !bypassCosmeticFiltering,
-            latestSettings.privacy.adBlockerMode ?? 'standard'
-          ),
-          false
-        )
-        .catch(() => undefined)
       const latestTab = latestTabRef.current
       const audioWebview = webview as Electron.WebviewTag & { setAudioMuted?: (muted: boolean) => void }
       audioWebview.setAudioMuted?.(Boolean(latestTab.muted))
@@ -326,7 +305,8 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
           enabled: true,
           suggestions: result.suggestions,
           theme,
-          accent: settings.accentColor
+          accent: settings.accentColor,
+          radius: Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--vast-radius-base')) || settings.appearance.cornerRadius
         })
       }).catch(() => sendToGuest('vast:password-autofill-config', { enabled: false }))
     }
@@ -537,6 +517,7 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
           pageURL?: string
           selectionText?: string
           isEditable?: boolean
+          editFlags?: { canUndo?: boolean; canRedo?: boolean; canCut?: boolean; canCopy?: boolean; canPaste?: boolean; canSelectAll?: boolean }
         }
       }).params
       const rect = webview.getBoundingClientRect()
@@ -592,11 +573,25 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
 
         const result = await window.vast.browser.downloadUrl(webview.getWebContentsId(), sourceUrl)
         if (!result.ok) {
-          console.warn('[context-menu] Failed to save resource:', result.error)
+          throw new Error(result.error || 'Could not save this resource.')
         }
       }
 
       const items: ContextMenuItem[] = []
+
+      if (params?.isEditable) {
+        for (const [id, label, enabled] of [
+          ['undo', 'Undo', params.editFlags?.canUndo],
+          ['redo', 'Redo', params.editFlags?.canRedo],
+          ['cut', 'Cut', params.editFlags?.canCut],
+          ['copy', 'Copy', params.editFlags?.canCopy],
+          ['paste', 'Paste', params.editFlags?.canPaste],
+          ['selectAll', 'Select all', params.editFlags?.canSelectAll]
+        ] as const) {
+          items.push({ id: `edit-${id}`, label, disabled: enabled === false, action: () => { webview.focus(); webview[id]() } })
+        }
+        pushContextSeparator(items, 'edit-separator')
+      }
 
       if (linkUrl) {
         pushContextItem(
@@ -616,14 +611,14 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
           id: 'copy-link',
           label: 'Copy link address',
           detail: canOpenLink ? undefined : displayUrl(linkUrl),
-          action: () => navigator.clipboard.writeText(linkUrl)
+          action: () => copyText(linkUrl)
         })
         if (cleanLink?.changed) {
           pushContextItem(items, {
             id: 'copy-clean-link',
             label: 'Copy clean link',
             detail: `Removed: ${cleanLink.removedParameters.join(', ')}`,
-            action: () => navigator.clipboard.writeText(cleanLink.url)
+            action: () => copyText(cleanLink.url)
           })
         }
         if (canOpenLink) {
@@ -657,7 +652,7 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
             action: async () => {
               const result = await window.vast.browser.copyImageAt(webview.getWebContentsId(), params?.x ?? 0, params?.y ?? 0)
               if (!result.ok) {
-                console.warn('[context-menu] Failed to copy image:', result.error)
+                throw new Error(result.error || 'Could not copy this image.')
               }
             }
           })
@@ -687,7 +682,7 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
         pushContextItem(items, {
           id: 'copy-selection',
           label: 'Copy selection',
-          action: () => navigator.clipboard.writeText(selectionText)
+          action: () => copyText(selectionText)
         })
       }
 
@@ -729,14 +724,14 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
       pushContextItem(items, {
         id: 'copy-page-url',
         label: 'Copy page URL',
-        action: () => navigator.clipboard.writeText(latestTab.url)
+        action: () => copyText(latestTab.url)
       })
       if (cleanPage.changed) {
         pushContextItem(items, {
           id: 'copy-clean-page-url',
           label: 'Copy clean page URL',
           detail: `Removed: ${cleanPage.removedParameters.join(', ')}`,
-          action: () => navigator.clipboard.writeText(cleanPage.url)
+          action: () => copyText(cleanPage.url)
         })
       }
       pushContextItem(items, {
@@ -765,6 +760,7 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
               url: latestTab.url,
               workspaceId: latestTab.workspaceId
             })
+            useBrowserStore.getState().setActiveSidePanel('notes')
           }
         })
       }
@@ -798,6 +794,8 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
       pushContextItem(items, {
         id: 'inspect',
         label: 'Inspect element',
+        disabled: !useBrowserStore.getState().settings.advanced.developerMode,
+        detail: useBrowserStore.getState().settings.advanced.developerMode ? undefined : 'Enable Developer Mode in Advanced settings',
         action: () => {
           if (typeof webview.inspectElement === 'function') {
             webview.inspectElement(params?.x ?? 0, params?.y ?? 0)
@@ -837,7 +835,18 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
                 duplicateCount: useBrowserStore.getState().tabs.filter((item) => item.url === linkUrl).length
               }
             : undefined,
-        items
+        items: items.map(item => item.action ? {
+          ...item,
+          action: () => {
+            if (!(webview as HTMLElement).isConnected || !useBrowserStore.getState().tabs.some(candidate => candidate.id === latestTab.id)) {
+              throw new Error('This tab is no longer available.')
+            }
+            // Resolve commands against the pane that opened the menu, including
+            // split view and a tab switch while an asynchronous menu is visible.
+            onFocused(latestTab.id)
+            return item.action!()
+          }
+        } : item)
       })
     }
 
@@ -956,23 +965,6 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
     }
   }, [addHistoryEntry, addNote, createTab, isPrivate, onFocused, openContextMenu, register, runtime, setFindOpen, setFindResult, setMediaActive, tab.groupId, tab.id, tab.workspaceId, updateTab, upsertSiteMemory])
 
-  useEffect(() => {
-    const webview = ref.current
-    if (!webview || !domReadyRef.current) return
-    const currentUrl = webview.getURL() || tab.url
-    const bypass = shouldBypassVastInterference({ url: currentUrl }) ||
-      siteInterventionsAreDisabled(privacySettings.siteInterventionsDisabled, currentUrl) ||
-      hostMatchesList(currentUrl, privacySettings.adBlockAllowlist)
-    void webview
-      .executeJavaScript(
-        buildCosmeticAdBlockScript(
-          privacySettings.adBlockerEnabled && !bypass,
-          privacySettings.adBlockerMode ?? 'standard'
-        ),
-        false
-      )
-      .catch(() => undefined)
-  }, [privacySettings.adBlockAllowlist, privacySettings.adBlockerEnabled, privacySettings.adBlockerMode, privacySettings.siteInterventionsDisabled, tab.url])
 
   useEffect(() => {
     const webview = ref.current

@@ -8,7 +8,6 @@ const newTabSource = readFileSync(new URL('../../src/renderer/components/new-tab
 
 test('command palette exposes direct, state-aware privacy and appearance toggles', () => {
   for (const commandId of [
-    'toggle-ad-blocker',
     'toggle-tracker-blocking',
     'toggle-tracking-parameter-cleaning',
     'toggle-third-party-cookies',

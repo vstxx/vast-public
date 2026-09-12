@@ -5,12 +5,13 @@ const { tmpdir } = require('node:os')
 const { basename, dirname, join, relative, resolve } = require('node:path')
 const {
   identityFromEnv,
-  msixVersionForSemver,
+  storePackageVersion,
   packageVersion,
   root,
   STORE_DISPLAY_NAME
 } = require('./store-msix-config.cjs')
 const { windowsSdkTool } = require('./store-msix-tools.cjs')
+const { verifyStoreAssets } = require('./verify-store-assets.cjs')
 
 const input = process.argv[2]
 const development = process.argv.includes('--development')
@@ -68,7 +69,7 @@ try {
   }
   if (actual.name !== expectedIdentity.name) throw new Error(`MSIX identity name is ${actual.name}; expected ${expectedIdentity.name}.`)
   if (actual.publisher !== expectedIdentity.publisher) throw new Error('MSIX publisher does not match the selected Store identity.')
-  if (actual.version !== msixVersionForSemver(packageVersion)) throw new Error(`MSIX version is ${actual.version}; expected ${msixVersionForSemver(packageVersion)}.`)
+  if (actual.version !== storePackageVersion()) throw new Error(`MSIX version is ${actual.version}; expected ${storePackageVersion()}.`)
   if (actual.architecture !== 'x64') throw new Error('MSIX ProcessorArchitecture must be x64.')
   if (!new RegExp(`<Properties>[\\s\\S]*?<DisplayName>${STORE_DISPLAY_NAME}<\\/DisplayName>[\\s\\S]*?<\\/Properties>`).test(manifest)) {
     throw new Error(`MSIX package DisplayName must match the reserved Store name ${STORE_DISPLAY_NAME}.`)
@@ -93,6 +94,10 @@ try {
     'Wide310x150Logo.png': [310, 150],
     'Square310x310Logo.png': [310, 310]
   }
+  if (manifestAttribute(manifest, 'uap:VisualElements', 'BackgroundColor') !== 'transparent') {
+    throw new Error('Store VisualElements BackgroundColor must remain transparent.')
+  }
+  verifyStoreAssets(join(unpackRoot, 'Assets'))
   for (const [asset, expected] of Object.entries(assetDimensions)) {
     const dimensions = pngDimensions(join(unpackRoot, 'Assets', asset))
     if (dimensions.width !== expected[0] || dimensions.height !== expected[1]) throw new Error(`${asset} has invalid dimensions.`)
@@ -110,7 +115,7 @@ try {
   }
   const files = allFiles(unpackRoot)
   const forbidden = files.map((path) => relative(unpackRoot, path).replace(/\\/g, '/')).filter((path) =>
-    /(?:^|\/)(?:VastUpdater(?:[-.]|$)|app-update\.ya?ml$|latest(?:-beta)?\.ya?ml$|\.env(?:\.|$)|secrets?(?:\/|$))|\.(?:pfx|p12|pem|key|pk8|p8)$/i.test(path)
+    /(?:^|\/)(?:VastUpdater(?:[-.]|$)|apply-update\.ps1$|app-update\.ya?ml$|latest(?:-beta)?\.ya?ml$|\.env(?:\.|$)|secrets?(?:\/|$))|\.(?:pfx|p12|pem|key|pk8|p8)$/i.test(path)
   )
   if (forbidden.length) throw new Error(`MSIX contains forbidden updater or secret material: ${forbidden.join(', ')}`)
 

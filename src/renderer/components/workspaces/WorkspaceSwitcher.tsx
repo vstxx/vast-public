@@ -32,7 +32,7 @@ export function WorkspaceSwitcher({ compact }: { compact?: boolean }): JSX.Eleme
               data-workspace-color={workspace.color}
             >
               <div
-                className={`group/workspace flex h-10 w-full items-center gap-1 rounded-xl border px-2 transition duration-150 ${
+                className={`group/workspace flex h-10 w-full items-center gap-1 rounded-control border px-2 transition duration-150 ${
                   active
                     ? 'border-white/[0.12] bg-white/[0.11] text-white shadow-glow'
                     : 'border-transparent text-vast-soft hover:border-white/[0.08] hover:bg-white/[0.06] hover:text-white'
@@ -45,7 +45,7 @@ export function WorkspaceSwitcher({ compact }: { compact?: boolean }): JSX.Eleme
                   className={`flex min-w-0 flex-1 items-center gap-3 text-left ${compact ? 'justify-center' : ''}`}
                 >
                   <span
-                    className="grid h-6 w-6 shrink-0 place-items-center rounded-lg"
+                    className="grid h-6 w-6 shrink-0 place-items-center rounded-control"
                     style={{ backgroundColor: `${workspace.color}22`, color: workspace.color }}
                   >
                     <WorkspaceIcon name={workspace.icon} className="h-3.5 w-3.5" />
@@ -62,7 +62,7 @@ export function WorkspaceSwitcher({ compact }: { compact?: boolean }): JSX.Eleme
                         event.stopPropagation()
                         setAppearanceWorkspaceId((current) => current === workspace.id ? null : workspace.id)
                       }}
-                      className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg transition hover:bg-white/[0.08] hover:text-white ${
+                      className={`grid h-7 w-7 shrink-0 place-items-center rounded-control transition hover:bg-white/[0.08] hover:text-white ${
                         appearanceWorkspaceId === workspace.id ? 'bg-white/[0.1] text-white opacity-100' : 'text-vast-soft opacity-0 group-hover/workspace:opacity-100'
                       }`}
                     >
@@ -82,7 +82,7 @@ export function WorkspaceSwitcher({ compact }: { compact?: boolean }): JSX.Eleme
                           onConfirm: () => deleteWorkspace(workspace.id)
                         })
                       }}
-                      className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-vast-soft opacity-0 transition hover:bg-red-400/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-20 group-hover/workspace:opacity-100"
+                      className="grid h-7 w-7 shrink-0 place-items-center rounded-control text-vast-soft opacity-0 transition hover:bg-red-400/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-20 group-hover/workspace:opacity-100"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -115,7 +115,7 @@ export function WorkspaceSwitcher({ compact }: { compact?: boolean }): JSX.Eleme
           })
         }
         title="New workspace"
-        className={`flex h-10 w-full items-center gap-3 rounded-xl border px-3 text-left transition ${
+        className={`flex h-10 w-full items-center gap-3 rounded-control border px-3 text-left transition ${
           compact
             ? 'justify-center border-transparent bg-transparent px-0 text-white/20 hover:bg-white/[0.05] hover:text-white/50'
             : 'border-dashed border-white/10 text-vast-soft hover:border-white/[0.18] hover:bg-white/[0.055] hover:text-white'

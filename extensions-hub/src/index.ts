@@ -508,7 +508,7 @@ async function approveRelease(env: Env, session: HubSession, submissionId: strin
       env.DB.prepare(`INSERT INTO submission_reviews(id,submission_id,reviewer_id,decision,note,created_at) VALUES(?1,?2,?3,'approve',?4,?5)`).bind(`review_${randomHex(12)}`, submissionId, session.publisher.id, note, publishedAt),
       env.DB.prepare(`UPDATE extensions SET current_release_id=?1,status='published',kind=?2,updated_at=?3 WHERE id=?4`).bind(row.id, summary.kind, publishedAt, row.extension_id),
       env.DB.prepare(`INSERT INTO download_counters(extension_id,count,updated_at) VALUES(?1,0,?2) ON CONFLICT(extension_id) DO NOTHING`).bind(row.extension_id, publishedAt),
-      env.DB.prepare('INSERT INTO audit_log(id,actor_id,target_type,target_id,action,note,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7)').bind(`audit_${randomHex(12)}`, session.publisher.id, 'release', row.id, 'approve-and-sign', note, publishedAt)
+      env.DB.prepare('INSERT INTO audit_log(id,actor_id,target_type,target_id,action,note,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7)').bind(`audit_${randomHex(12)}`, session.publisher.id, 'release', row.id, row.publisher_id === session.publisher.id ? 'admin-self-approve-and-sign' : 'approve-and-sign', note, publishedAt)
     ])
   } catch (error) {
     await deleteR2ObjectBestEffort(env, packageKey, 'hub_package_rollback_cleanup_failed')
@@ -530,8 +530,12 @@ async function reviewDecision(request: Request, env: Env, submissionId: string):
   if (!['approve', 'reject', 'changes'].includes(action) || (action !== 'approve' && note.length < 10)) throw new HttpError(400, 'A valid decision and reviewer note are required.')
   const row = await env.DB.prepare(`SELECT r.*,e.publisher_id,e.current_release_id,e.name extension_name,p.publisher_name FROM submissions s JOIN releases r ON r.id=s.release_id JOIN extensions e ON e.id=r.extension_id JOIN publishers p ON p.id=e.publisher_id WHERE s.id=?1 AND s.status='pending' AND r.status='pending'`).bind(submissionId).first<ReleaseRow>()
   if (!row) throw new HttpError(404, 'Submission was not found.')
-  if (row.publisher_id === session.publisher.id) throw new HttpError(403, 'Publisher and reviewer must be different identities.')
-  const reviewNote = note
+  const ownsRelease = row.publisher_id === session.publisher.id
+  const adminSelfApproval = ownsRelease && session.publisher.role === 'admin' && action === 'approve'
+  if (ownsRelease && !adminSelfApproval) throw new HttpError(403, 'Only an administrator may approve a release owned by the same publisher identity.')
+  const reviewNote = adminSelfApproval
+    ? `Administrator self-review authorized.${note ? ` ${note}` : ''}`
+    : note
   const claimedAt = now()
   const claim = await env.DB.prepare(`UPDATE submissions SET status='reviewing',resolved_at=?1 WHERE id=?2 AND status='pending' RETURNING id`).bind(claimedAt, submissionId).first<{ id: string }>()
   if (!claim) throw new HttpError(409, 'This submission is already being reviewed.')

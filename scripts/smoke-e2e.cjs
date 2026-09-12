@@ -2584,8 +2584,7 @@ async function main() {
   await waitForStorage(session, '(data) => data.settings.openingAnimation === false', 'opening animation setting persisted')
   await setNumberInputByLabel(session, 'Memory target (best effort)', 1536)
   await waitForStorage(session, '(data) => data.settings.advanced.ramLimitMb === 1536', 'RAM limit setting persisted')
-  await setCheckboxByLabel(session, 'Ad blocker', true)
-  await waitForStorage(session, '(data) => data.settings.privacy.adBlockerEnabled === true', 'ad blocker setting persisted')
+  assert(await session.evaluate(`![...document.querySelectorAll('label')].some((label) => label.textContent.trim() === 'Ad blocker')`), 'Removed native ad blocker control must not return; extension filtering has its own E2E gate.')
   await setCheckboxByLabel(session, 'Fake browsing history', true)
   await waitForStorage(
     session,

@@ -43,7 +43,7 @@ The export includes Vast JSON storage, backups, notes, tabs/session/workspaces, 
 
 New exports exclude the deprecated `license-cache.json` and `license-device.json` files. Older archives that declare those entries still receive full ZIP, checksum, and manifest verification during import, but the two files are intentionally not restored.
 
-The export intentionally skips volatile caches and updater scratch data, including `Cache`, `Code Cache`, `GPUCache`, `DawnCache`, `ShaderCache`, `Crashpad`, `UpdaterDownloads`, `UpdaterLogs`, `Temp`, and `Tmp`.
+The export intentionally skips volatile and recoverable caches and updater scratch data, including `Cache`, `Code Cache`, `GPUCache`, `DawnCache`, `ShaderCache`, `Crashpad`, `Cache Storage`, `blob_storage`, `grshadercache`, `Media Cache`, `ScriptCache`, `Logs`, `UpdaterDownloads`, `UpdaterLogs`, `Temp`, and `Tmp`. Excluded caches are rebuilt by Chromium and do not hold the only copy of user data.
 
 ## Full Import
 
@@ -77,6 +77,7 @@ Website session continuity is handled explicitly:
 - If both old and new cookie stores contain data, missing cookies are merged through Electron's cookie API and current target cookies win.
 - Before an in-app update restart, every known persistent session flushes DOM storage and its cookie store. An updater restart does not run the optional clear-on-exit privacy cleanup.
 - Standalone updater backups treat both the default Chromium stores and `Partitions/` as critical profile data.
+- The updater addresses its pre-update backup and copy operations through `\\?\` extended-length paths, so profiles nested deeper than the classic 260-character Windows path limit are backed up and restored correctly.
 
 ## Machine-Bound And Sensitive Data
 

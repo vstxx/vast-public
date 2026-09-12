@@ -12,7 +12,6 @@ export const OPENING_PRESENTATION = {
   height: 400,
   minimumWidth: 520,
   minimumHeight: 320,
-  cornerRadius: 28,
   revealDelayMs: 72,
   fallbackGraceMs: 2_000
 } as const

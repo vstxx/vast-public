@@ -6,7 +6,6 @@ import { createReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { extname, join, resolve } from 'node:path'
 import { DEFAULT_SETTINGS } from '../shared/constants'
-import { VAST_DEFAULT_WEBVIEW_PARTITION } from '../shared/oauth'
 import type { BrowserSettings, DownloadItem } from '../shared/types'
 import { alertScanResult, scanDownloadedFile } from './scanner'
 import { performanceProbeEnabled, recordDownloadDurableWrite, recordDownloadProgressEvent } from './performance-probe'
@@ -72,6 +71,8 @@ async function sha256File(path: string): Promise<string> {
   return hash.digest('hex')
 }
 
+const downloadSessions = new Map<string, Session>()
+const sessionPartitions = new WeakMap<Session, string>()
 const runtimeDownloads = new Map<string, DownloadItem>()
 const activeDownloadItems = new Map<string, ElectronDownloadItem>()
 const downloadSpeedSamples = new Map<string, { at: number; bytes: number; bytesPerSecond: number }>()
@@ -114,10 +115,17 @@ function scheduleDurableCheckpoint(download: DownloadItem, persist: boolean): vo
   durableCheckpointTimers.set(download.id, timer)
 }
 
-async function publishDownload(mainWindow: BrowserWindow, download: DownloadItem, persist: boolean): Promise<void> {
+async function publishDownload(mainWindow: BrowserWindow | undefined, download: DownloadItem, persist: boolean): Promise<void> {
   runtimeDownloads.set(download.id, download)
-  if (download.savePath) runtimeDownloads.set(resolve(download.savePath), download)
-  if (!mainWindow.isDestroyed()) {
+  if (runtimeDownloads.size > 200) {
+    for (const [id, candidate] of runtimeDownloads) {
+      if (candidate.state === 'progressing' || candidate.scanStatus === 'scanning') continue
+      runtimeDownloads.delete(id)
+      downloadSessions.delete(id)
+      if (runtimeDownloads.size <= 200) break
+    }
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('vast:download-changed', download)
   }
   if (!persist) return
@@ -128,13 +136,11 @@ async function publishDownload(mainWindow: BrowserWindow, download: DownloadItem
   }
 }
 
-const configuredDownloadSessions = new Set<Session>()
-let downloadWindow: BrowserWindow | undefined
+const configuredDownloadSessions = new WeakSet<Session>()
 let downloadSettings: (() => BrowserSettings) | undefined
 let sessionListenerRegistered = false
 
 function currentDownloadWindow(): BrowserWindow | undefined {
-  if (downloadWindow && !downloadWindow.isDestroyed()) return downloadWindow
   return BrowserWindow.getAllWindows().find((window) => !window.isDestroyed())
 }
 
@@ -177,9 +183,8 @@ function confirmDangerousDownload(mainWindow: BrowserWindow, item: ElectronDownl
   return result === 1
 }
 
-function configureDownloadsForSession(
-  targetSession: Session
-): void {
+export function configureDownloadsForSession(targetSession: Session, partition?: string): void {
+  if (partition !== undefined) sessionPartitions.set(targetSession, partition)
   if (configuredDownloadSessions.has(targetSession)) return
   configuredDownloadSessions.add(targetSession)
 
@@ -189,7 +194,12 @@ function configureDownloadsForSession(
     // so there is no second request and no save dialog until the viewer asks.
     if (claimPdfDownload(item, initiatingContents)) return
     const id = randomUUID()
+    downloadSessions.set(id, targetSession)
+    const sourcePartition = sessionPartitions.get(targetSession)
     const startedAt = Date.now()
+    const normalize = (state: DownloadItem['state']): DownloadItem => ({
+      ...normalizeDownload(item, id, state), startedAt, sourcePartition
+    })
     const mainWindow = windowRegistry.vastWindowForWebContents(initiatingContents) ?? ownerWindowForDownload(item)
     const downloadOwner = (): BrowserWindow | undefined =>
       mainWindow && !mainWindow.isDestroyed() ? mainWindow : currentDownloadWindow()
@@ -198,7 +208,7 @@ function configureDownloadsForSession(
       const allowed = confirmDangerousDownload(mainWindow, item)
       if (!allowed) {
         event.preventDefault()
-        void publishDownload(mainWindow, normalizeDownload(item, id, 'cancelled'), persistDownload)
+        void publishDownload(mainWindow, normalize('cancelled'), persistDownload)
         return
       }
     }
@@ -209,99 +219,57 @@ function configureDownloadsForSession(
 
     activeDownloadItems.set(id, item)
 
-    const initialDownload = addProgressMetrics(normalizeDownload(item, id, 'progressing'))
-    initialDownload.startedAt = startedAt
-    const initialWindow = downloadOwner()
-    if (initialWindow) void publishDownload(initialWindow, initialDownload, false)
-    else runtimeDownloads.set(initialDownload.id, initialDownload)
-    scheduleDurableCheckpoint(initialDownload, persistDownload)
+    const initialDownload = addProgressMetrics(normalize('progressing'))
+    void publishDownload(downloadOwner(), initialDownload, persistDownload)
 
     item.on('updated', (_event, state) => {
       recordDownloadProgressEvent()
-      const download = addProgressMetrics(normalizeDownload(
-        item,
-        id,
-        state === 'interrupted' ? 'interrupted' : 'progressing'
-      ))
-      download.startedAt = startedAt
-      const window = downloadOwner()
-      if (window) {
-        void publishDownload(window, download, false)
-      } else if (persistDownload) {
-        runtimeDownloads.set(download.id, download)
-      }
+      const download = addProgressMetrics(normalize(state === 'interrupted' ? 'interrupted' : 'progressing'))
+      void publishDownload(downloadOwner(), download, state === 'interrupted' && persistDownload)
       scheduleDurableCheckpoint(download, persistDownload)
     })
 
     item.once('done', (_event, state) => {
       void (async () => {
-      cancelDurableCheckpoint(id)
-      activeDownloadItems.delete(id)
-      downloadSpeedSamples.delete(id)
-      const completed = state === 'completed'
-      const slowCompletionCheckpoint = completed && persistDownload
-        ? setTimeout(() => {
-            const checkpoint = normalizeDownload(item, id, 'completed')
-            checkpoint.startedAt = startedAt
-            checkpoint.scanStatus = 'scanning'
-            void persistDownloadCheckpoint(checkpoint).catch((error) => {
-              console.warn('[downloads] Failed to persist slow completion checkpoint:', error)
-            })
-          }, 5_000)
-        : undefined
-      const savePath = item.getSavePath()
-      const sha256 = completed && savePath ? await sha256File(savePath).catch(() => undefined) : undefined
-      const download = normalizeDownload(
-        item,
-        id,
-        completed ? 'completed' : state === 'cancelled' ? 'cancelled' : 'interrupted',
-        sha256
-      )
-      download.startedAt = startedAt
-      if (completed && download.savePath) download.scanStatus = 'scanning'
-      const window = downloadOwner()
-      if (window) {
-        await publishDownload(window, download, !completed && persistDownload)
-      } else if (persistDownload) {
-        runtimeDownloads.set(download.id, download)
-        if (!completed) await persistDownloadCheckpoint(download)
-      }
+        cancelDurableCheckpoint(id)
+        activeDownloadItems.delete(id)
+        downloadSpeedSamples.delete(id)
+        const completed = state === 'completed'
+        const download = normalize(completed ? 'completed' : state === 'cancelled' ? 'cancelled' : 'interrupted')
+        if (completed && download.savePath) download.scanStatus = 'scanning'
+        // Terminal transfer state is durable before hashing or scanning starts.
+        await publishDownload(downloadOwner(), download, persistDownload)
+        const sha256 = completed && download.savePath ? await sha256File(download.savePath).catch(() => undefined) : undefined
+        download.sha256 = sha256
 
-      if (download.state === 'completed' && download.savePath) {
-        let result: Awaited<ReturnType<typeof scanDownloadedFile>> | undefined
-        try {
-          result = await scanDownloadedFile(download.savePath, download.filename, download.mimeType ?? item.getMimeType() ?? '')
-        } catch (error) {
-          console.warn('[downloads] Security scan failed:', error)
-        } finally {
-          if (slowCompletionCheckpoint) clearTimeout(slowCompletionCheckpoint)
-        }
-        const scannedDownload: DownloadItem = result
-          ? {
-              ...download,
-              scanStatus: result.status,
-              scanFindings: [...result.threats, ...result.warnings],
-              scannedSha256: sha256,
-              scanCompletedAt: Date.now(),
-              updatedAt: Date.now()
-            }
-          : {
-              ...download,
-              scanStatus: 'scan-failed',
-              scanFindings: ['The security scan did not complete.'],
-              scannedSha256: sha256,
-              scanCompletedAt: Date.now(),
-              updatedAt: Date.now()
-            }
-        const currentWindow = downloadOwner()
-        if (currentWindow && !currentWindow.isDestroyed()) {
+        if (download.state === 'completed' && download.savePath) {
+          let result: Awaited<ReturnType<typeof scanDownloadedFile>> | undefined
+          try {
+            result = await scanDownloadedFile(download.savePath, download.filename, download.mimeType ?? item.getMimeType() ?? '')
+          } catch (error) {
+            console.warn('[downloads] Security scan failed:', error)
+          }
+          const scannedDownload: DownloadItem = result
+            ? {
+                ...download,
+                scanStatus: result.status,
+                scanFindings: [...result.threats, ...result.warnings],
+                scannedSha256: sha256,
+                scanCompletedAt: Date.now(),
+                updatedAt: Date.now()
+              }
+            : {
+                ...download,
+                scanStatus: 'scan-failed',
+                scanFindings: ['The security scan did not complete.'],
+                scannedSha256: sha256,
+                scanCompletedAt: Date.now(),
+                updatedAt: Date.now()
+              }
+          const currentWindow = downloadOwner()
           await publishDownload(currentWindow, scannedDownload, persistDownload)
-          if (result) await alertScanResult(currentWindow, download.filename, result)
-        } else if (persistDownload) {
-          await persistDownloadCheckpoint(scannedDownload)
+          if (currentWindow && result) await alertScanResult(currentWindow, download.filename, result)
         }
-      }
-      if (slowCompletionCheckpoint) clearTimeout(slowCompletionCheckpoint)
       })().catch((error) => {
         console.warn('[downloads] Failed to finalize download state:', error)
       })
@@ -309,28 +277,37 @@ function configureDownloadsForSession(
   })
 }
 
-export function setupDownloads(mainWindow: BrowserWindow): void {
-  setupDownloadsWithSettings(mainWindow, () => DEFAULT_SETTINGS)
-}
-
-export function setupDownloadsWithSettings(
-  mainWindow: BrowserWindow,
-  getSettings: () => BrowserSettings
-): void {
-  downloadWindow = mainWindow
+/** Install immediately after app readiness, before any partition is created. */
+export function initializeDownloads(getSettings: () => BrowserSettings): void {
   downloadSettings = getSettings
-  configureDownloadsForSession(session.defaultSession)
   if (sessionListenerRegistered) return
   sessionListenerRegistered = true
-  app.on('session-created', (targetSession) => {
-    configureDownloadsForSession(targetSession)
-  })
+  app.on('session-created', (targetSession) => configureDownloadsForSession(targetSession))
+  configureDownloadsForSession(session.defaultSession, '')
+}
+
+export async function listCurrentDownloads(): Promise<DownloadItem[]> {
+  const stored = (await loadData()).downloads
+  const items = new Map(stored.map((item) => [item.id, item.state === 'progressing'
+    ? { ...item, state: 'interrupted' as const, paused: false, bytesPerSecond: 0 } : item]))
+  for (const item of runtimeDownloads.values()) items.set(item.id, item)
+  return [...items.values()].sort((a, b) => b.startedAt - a.startedAt).slice(0, 200)
+}
+
+export async function clearCompletedDownloadHistory(): Promise<void> {
+  const { clearCompletedDownloads } = await import('./storage')
+  await clearCompletedDownloads()
+  for (const [key, item] of runtimeDownloads) {
+    if (item.state !== 'completed' && item.state !== 'cancelled') continue
+    runtimeDownloads.delete(key)
+    downloadSessions.delete(item.id)
+  }
 }
 
 async function trustedDownloadedItem(identifier: string): Promise<DownloadItem> {
   if (typeof identifier !== 'string' || !identifier) throw new Error('Invalid download identifier.')
   const target = resolve(identifier)
-  const runtimeMatch = runtimeDownloads.get(identifier) ?? runtimeDownloads.get(target)
+  const runtimeMatch = runtimeDownloads.get(identifier) ?? [...runtimeDownloads.values()].find((item) => item.savePath && resolve(item.savePath) === target)
   if (runtimeMatch?.savePath && runtimeMatch.state === 'completed') return runtimeMatch
   const data = await loadData()
   const match = data.downloads.find((item) => item.state === 'completed' && (item.id === identifier || (item.savePath && resolve(item.savePath) === target)))
@@ -419,7 +396,7 @@ export async function retryDownload(id: string): Promise<void> {
   if (typeof id !== 'string' || !id) throw new Error('Invalid download identifier.')
   const runtime = runtimeDownloads.get(id)
   const stored = runtime ?? (await loadData()).downloads.find((item) => item.id === id)
-  if (!stored || stored.state === 'progressing') throw new Error('Only interrupted or cancelled downloads can be retried.')
+  if (!stored || stored.state === 'completed' || activeDownloadItems.has(id)) throw new Error('Only interrupted or cancelled downloads can be retried.')
   let url: URL
   try {
     url = new URL(stored.url)
@@ -427,5 +404,12 @@ export async function retryDownload(id: string): Promise<void> {
     throw new Error('The original download URL is invalid.')
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('Only HTTP(S) downloads can be retried.')
-  session.fromPartition(VAST_DEFAULT_WEBVIEW_PARTITION).downloadURL(url.toString())
+  let source = downloadSessions.get(id)
+  if (!source && stored.sourcePartition !== undefined) {
+    if (stored.sourcePartition && !stored.sourcePartition.startsWith('persist:')) throw new Error('The original private session is no longer available.')
+    source = stored.sourcePartition ? session.fromPartition(stored.sourcePartition) : session.defaultSession
+    configureDownloadsForSession(source, stored.sourcePartition)
+  }
+  if (!source) throw new Error('The original session is unknown for this older download. Download it again from its workspace.')
+  source.downloadURL(url.toString())
 }

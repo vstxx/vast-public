@@ -1,6 +1,6 @@
 # Extension permissions
 
-Permissions are requested by the manifest, displayed before installation, and stored as explicit grants. Requested permissions are not capabilities by themselves.
+Permissions are requested by the manifest, displayed before installation, and stored as explicit grants. Requested permissions are not capabilities by themselves. Chrome permissions (including the `webRequest`/`webRequestBlocking` pair required by network providers) are displayed and granted separately from Vast permissions.
 
 ## Vast Native API v1 grants
 
@@ -25,5 +25,5 @@ The broker authenticates the sender's isolated `webContents`, extension ID, decl
 - Reload: a newly requested native permission puts that layer into permission review; it is not silently granted.
 - Update: same-or-narrower permission snapshots may update automatically after signature/hash validation. Any new Chrome, host, or Vast access enters `pending-approval` and the old version remains active.
 - Disable: runtime and contributions stop, but the installed files and grants remain.
-- Remove: all runtimes, contributions, registry data, scoped storage, and managed files are removed.
+- Remove: all runtimes, contributions, registry data, scoped storage, managed files, and the extension's own `chrome-extension://` origin storage (including IndexedDB) in every workspace session are removed; other extensions' data is untouched.
 - Private browsing: extensions do not load into ephemeral/private workspace partitions and tab APIs omit private/internal tabs.

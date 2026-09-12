@@ -9,7 +9,7 @@ test('bookmark editors stay constrained to the sidebar width', () => {
   assert.match(sidePanelSource, /grid-cols-\[minmax\(0,1fr\)_minmax\(5\.5rem,7\.5rem\)\]/)
   assert.match(sidePanelSource, /min-w-0 max-w-full gap-2 overflow-hidden pl-6/)
   assert.match(sidePanelSource, /className="w-full min-w-0 max-w-\[7\.5rem\]"/)
-  assert.match(sidePanelSource, /min-w-0 overflow-hidden rounded-2xl/)
+  assert.match(sidePanelSource, /min-w-0 overflow-hidden rounded-card/)
 })
 
 test('bookmark folder naming keeps a local draft and protects editable focus', () => {

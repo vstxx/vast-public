@@ -69,9 +69,9 @@ export function NotificationsOverlay({
                 <div className="mt-2 text-xs text-white/[0.45]">
                   {formatBytes(item.receivedBytes)}{item.totalBytes > 0 ? ` of ${formatBytes(item.totalBytes)}` : ' received'}
                 </div>
-                <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/[0.08]">
+                <div className="mt-3 h-1 overflow-hidden rounded-control bg-white/[0.08]">
                   <div
-                    className="h-full rounded-full bg-white/[0.55] transition-[width] duration-300 ease-out"
+                    className="h-full rounded-control bg-white/[0.55] transition-[width] duration-300 ease-out"
                     style={{ width: `${progress ?? 18}%` }}
                   />
                 </div>
@@ -99,13 +99,13 @@ export function NotificationsOverlay({
                 <button
                   type="button"
                   onClick={() => onDismiss(toast.id)}
-                  className="grid h-8 w-8 shrink-0 place-items-center rounded-xl text-vast-soft transition hover:bg-white/10 hover:text-white"
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-control text-vast-soft transition hover:bg-white/10 hover:text-white"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
               {toast.detail && (
-                <div className="mt-3 max-h-36 overflow-auto whitespace-pre-wrap rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-xs leading-5 text-vast-soft">
+                <div className="mt-3 max-h-36 overflow-auto whitespace-pre-wrap rounded-card border border-white/10 bg-black/20 px-3 py-2 text-xs leading-5 text-vast-soft">
                   {toast.detail}
                 </div>
               )}
@@ -115,7 +115,7 @@ export function NotificationsOverlay({
                     <button
                       key={action.label}
                       type="button"
-                      className="rounded-xl border border-vast-cyan/25 bg-vast-cyan/10 px-3 py-1.5 text-xs font-semibold text-vast-cyan transition-colors hover:bg-vast-cyan/20"
+                      className="rounded-control border border-vast-cyan/25 bg-vast-cyan/10 px-3 py-1.5 text-xs font-semibold text-vast-cyan transition-colors hover:bg-vast-cyan/20"
                       onClick={action.action}
                     >
                       {action.label}
@@ -154,7 +154,7 @@ export function ActionPromptModal({
     <ModalShell onClose={() => closeAction && onResolve(closeAction)} width={prompt.choices?.length ? 'max-w-4xl' : 'max-w-lg'}>
       <div className="p-5">
         <div className="flex items-start gap-4">
-          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-white/10 bg-white/[0.05]">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-card border border-white/10 bg-white/[0.05]">
             {toneIconElement}
           </div>
           <div className="min-w-0 flex-1">
@@ -167,7 +167,7 @@ export function ActionPromptModal({
         {prompt.choices && prompt.choices.length > 0 && (
           <div className="mt-5 grid max-h-[52vh] grid-cols-1 gap-3 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3" data-testid="prompt-choice-grid">
             {prompt.choices.map((choice) => (
-              <div key={choice.id} className="overflow-hidden rounded-2xl border border-white/10 bg-black/25 transition hover:border-vast-cyan/35 hover:bg-white/[0.045]">
+              <div key={choice.id} className="overflow-hidden rounded-card border border-white/10 bg-black/25 transition hover:border-vast-cyan/35 hover:bg-white/[0.045]">
                 <button
                   type="button"
                   onClick={() => onResolve(choice.id)}
@@ -190,7 +190,7 @@ export function ActionPromptModal({
                   <button
                     type="button"
                     onClick={() => onResolve(choice.alternateAction!.id)}
-                    className="mx-3 mb-3 w-[calc(100%-1.5rem)] rounded-xl border border-white/10 bg-white/[0.045] px-3 py-2 text-xs font-medium text-vast-soft transition hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vast-cyan/70"
+                    className="mx-3 mb-3 w-[calc(100%-1.5rem)] rounded-control border border-white/10 bg-white/[0.045] px-3 py-2 text-xs font-medium text-vast-soft transition hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vast-cyan/70"
                   >
                     {choice.alternateAction.label}
                   </button>
@@ -206,7 +206,7 @@ export function ActionPromptModal({
               key={action.id}
               type="button"
               onClick={() => onResolve(action.id)}
-              className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${promptActionStyles(action.tone)}`}
+              className={`rounded-control border px-4 py-2 text-sm font-medium transition ${promptActionStyles(action.tone)}`}
             >
               {action.label}
             </button>

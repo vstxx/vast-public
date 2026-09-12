@@ -27,7 +27,7 @@ interface WorkspaceAppearancePickerProps {
 export function WorkspaceAppearancePicker({ workspaceId, icon, color, onChange, compact = false }: WorkspaceAppearancePickerProps): JSX.Element {
   return (
     <div
-      className={`workspace-appearance-picker rounded-xl bg-white/[0.025] ${compact ? 'p-2' : 'p-2.5'}`}
+      className={`workspace-appearance-picker rounded-control bg-white/[0.025] ${compact ? 'p-2' : 'p-2.5'}`}
       data-testid="workspace-appearance-picker"
       data-workspace-id={workspaceId}
     >
@@ -43,7 +43,7 @@ export function WorkspaceAppearancePicker({ workspaceId, icon, color, onChange, 
               aria-label={`Use ${option.label} icon`}
               aria-pressed={active}
               onClick={() => onChange({ icon: option.name })}
-              className={`relative grid h-7 w-7 place-items-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/50 ${
+              className={`relative grid h-7 w-7 place-items-center rounded-checkbox transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/50 ${
                 active
                   ? 'bg-white/[0.1] text-white'
                   : 'text-white/42 hover:bg-white/[0.055] hover:text-white/75'
@@ -68,19 +68,19 @@ export function WorkspaceAppearancePicker({ workspaceId, icon, color, onChange, 
               aria-label={`Use ${option.label} color`}
               aria-pressed={active}
               onClick={() => onChange({ color: option.value })}
-              className={`relative h-6 w-6 justify-self-center rounded-full transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b0c11] ${active ? 'ring-2 ring-white/75 ring-offset-2 ring-offset-[#0b0c11]' : ''}`}
+              className={`relative h-6 w-6 justify-self-center rounded-control transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b0c11] ${active ? 'ring-2 ring-white/75 ring-offset-2 ring-offset-[#0b0c11]' : ''}`}
               style={{ backgroundColor: option.value }}
             />
           )
         })}
       </div>
       <label
-        className="relative mt-2 flex h-7 w-fit cursor-pointer items-center gap-1.5 overflow-hidden rounded-md bg-white/[0.04] px-2.5 text-[11px] font-medium text-white/55 transition-colors hover:bg-white/[0.075] hover:text-white/80 focus-within:ring-1 focus-within:ring-white/50"
+        className="relative mt-2 flex h-7 w-fit cursor-pointer items-center gap-1.5 overflow-hidden rounded-checkbox bg-white/[0.04] px-2.5 text-[11px] font-medium text-white/55 transition-colors hover:bg-white/[0.075] hover:text-white/80 focus-within:ring-1 focus-within:ring-white/50"
         title="Choose custom color"
       >
         <Pipette className="pointer-events-none h-3.5 w-3.5" />
         <span>Custom</span>
-        <span className="pointer-events-none h-3 w-3 rounded-full" style={{ backgroundColor: color }} />
+        <span className="pointer-events-none h-3 w-3 vast-geometry-circle" style={{ backgroundColor: color }} />
         <input
           type="color"
           aria-label="Choose custom workspace color"

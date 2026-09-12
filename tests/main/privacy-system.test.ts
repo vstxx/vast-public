@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 const sessions = readFileSync(new URL('../../src/main/sessions.ts', import.meta.url), 'utf8')
-const filters = readFileSync(new URL('../../src/main/privacy-filter-lists.ts', import.meta.url), 'utf8')
 const preload = readFileSync(new URL('../../src/preload/index.ts', import.meta.url), 'utf8')
 const guestPreload = readFileSync(new URL('../../src/preload/guest-autofill.ts', import.meta.url), 'utf8')
 const stage = readFileSync(new URL('../../src/renderer/components/browser/BrowserStage.tsx', import.meta.url), 'utf8')
@@ -11,15 +10,10 @@ const webviewSurface = readFileSync(new URL('../../src/renderer/components/brows
 const browserRuntime = `${stage}\n${webviewSurface}`
 const cookiePolicy = readFileSync(new URL('../../src/shared/cookie-policy.ts', import.meta.url), 'utf8')
 
-test('request blocking uses maintained lists before requests are sent', () => {
-  for (const marker of ['easylist.txt', 'easyprivacy.txt', 'pgl.yoyo.org', 'urlhaus-filter-domains-online.txt', 'PolishAnnoyanceFilters']) {
-    assert.match(filters, new RegExp(marker.replaceAll('.', '\\.'), 'i'))
-  }
-  assert.match(sessions, /webRequest\.onBeforeRequest/)
-  assert.match(sessions, /matchPrivacyFilter/)
-  assert.match(filters, /filterAutoUpdate/)
-  assert.match(filters, /blockedSinceStart/)
-  assert.doesNotMatch(filters, /visitedUrls|history\.push|pageHistory/)
+test('native ad lists are gone while tracker protection and extension networking remain', () => {
+  assert.match(sessions, /extensionNetworkDecision/)
+  assert.match(sessions, /isTrackerUrl/)
+  assert.doesNotMatch(sessions, /matchPrivacyFilter|isAdRequestUrl|isStrictAdNavigationUrl/)
 })
 
 test('third-party cookies are stripped in both request and response directions', () => {
@@ -33,8 +27,8 @@ test('third-party cookies are stripped in both request and response directions',
 })
 
 test('privacy IPC is narrow and identity configuration is main-owned', () => {
-  assert.match(preload, /filterStatus:/)
-  assert.match(preload, /updateFilters:/)
+  assert.doesNotMatch(preload, /filterStatus:/)
+  assert.doesNotMatch(preload, /updateFilters:/)
   assert.match(preload, /configureIdentity:/)
   assert.match(sessions, /setWebRTCIPHandlingPolicy/)
   assert.match(sessions, /session\.setProxy/)

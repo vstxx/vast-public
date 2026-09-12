@@ -48,7 +48,7 @@ test('settings search provides clear and empty states', () => {
 test('settings search catalog covers every section and a broad function inventory', () => {
   const sections = new Set<SettingsSearchSectionId>(settingsSearchCatalog.map((entry) => entry.section))
   assert.equal(sections.size, 14)
-  assert.ok(settingsSearchCatalog.length >= 180)
+  assert.ok(settingsSearchCatalog.length >= 165)
   assert.equal(new Set(settingsSearchCatalog.map((entry) => `${entry.section}:${entry.label}`)).size, settingsSearchCatalog.length)
 })
 

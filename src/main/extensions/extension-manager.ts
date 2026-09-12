@@ -482,6 +482,9 @@ export class ExtensionManager {
       this.nativeStates.delete(id)
       this.nativeErrors.delete(id)
       await this.storage.removeAll(id)
+      // Chrome-origin state belongs to this extension, including IndexedDB caches.
+      // Never clear a workspace or another extension's origin.
+      await Promise.all([...this.sessions.values()].map(target => target.clearStorageData?.({ origin: `chrome-extension://${id}` })))
       if (record.source !== 'unpacked' && record.source !== 'bundled') await this.managedStore.remove(id)
       if (validated) await this.reloadContentScriptTabsAfterToggle(record, validated)
       if (removed) this.onChanged?.()

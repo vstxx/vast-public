@@ -16,6 +16,8 @@ const walk = (relativeDir) => {
       files.push(...walk(relative(root, absolutePath).replaceAll('\\', '/')))
     } else if (entry.isFile()) {
       files.push(relative(root, absolutePath).replaceAll('\\', '/'))
+    } else {
+      fail(`unsupported link or special file: ${absolutePath}`)
     }
   }
   return files
@@ -47,7 +49,25 @@ for (const path of ['scripts/release-audit.cjs', 'tests/renderer/release-hardeni
 }
 
 const docs = walk('docs')
+// Path checks cover the entire snapshot, including newly introduced directories.
+for (const path of walk('')) {
+  assert(!/(^|\/)(?:audit|secrets|node_modules|\.git|\.wrangler|\.vast-build|\.vast-test-artifacts|performance-results|preview-screenshots|user-data|User Data|Default|Profile \d+)(\/|$)/i.test(path), `private directory in snapshot: ${path}`)
+  assert(!/(^|\/)(?:\.env(?:\..*)?|\.dev\.vars|password-vault\.json|Cookies|Login Data|Web Data|Local State|release\.zip.*)$/i.test(path) || /\.example$/.test(path), `private configuration/profile in snapshot: ${path}`)
+  assert(!/(^|\/)(?:local-proofs\.cjs|read-coverage\.json|architecture-notes\.md|fixture-92A6Z9)(\/|$)/i.test(path), `internal audit proof in snapshot: ${path}`)
+  assert(!/\.(?:pem|key|p8|pk8|pfx|p12|crt|cer|p7b|p7c|log|dmp|msix|exe|tmp|bak)$/i.test(path), `private key, certificate or generated artifact in snapshot: ${path}`)
+  const contents = readFileSync(join(root, path))
+  if (!contents.includes(0)) {
+    const text = contents.toString('utf8')
+    assert(!/^-----BEGIN (?:[A-Z ]*PRIVATE KEY|CERTIFICATE)-----\r?$/m.test(text), `private key/certificate material in snapshot: ${path}`)
+    assert(!/(?:[A-Z]:[\\/]+Users[\\/]+jnowa|D:[\\/]+All Side Files|\/Users\/jnowa|\/home\/jnowa)/i.test(text), `private workstation path in snapshot: ${path}`)
+  }
+}
+for (const path of ['audit', '.gitleaksignore', 'release-candidate.json', 'release', 'out']) {
+  assert(!existsSync(join(root, path)), `private release/scan artifact in snapshot: ${path}`)
+}
 const forbidden = [
+  /^docs\/PRODUCTION_CORRECTNESS_AUDIT\.md$/,
+  /^docs\/STORE_ICONS_AND_MENUS_PASS\.md$/,
   /^docs\/FINAL_POLISH_REPORT\.md$/,
   /^docs\/OPEN_SOURCE_READINESS\.md$/,
   /^docs\/PERFORMANCE_AUDIT\.md$/,

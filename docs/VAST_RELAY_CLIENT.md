@@ -46,7 +46,8 @@ browser shell usable
 ```
 
 HTTP 429 honors `Retry-After` clamped to five minutes through six hours. Network,
-408, 425, and 5xx failures use the capped retry schedule. Other 4xx, malformed
+408, 425, and 5xx failures (including the 503 degraded-database response with
+`Retry-After: 300`) use the capped retry schedule. Other 4xx, malformed
 JSON, unsupported protocol, and invalid schemas wait for the next periodic
 check. DNS, connection, timeout, D1-degraded, signature, and asset failures do
 not show browser error dialogs and cannot delay window creation or normal Vast
@@ -106,6 +107,10 @@ bytes to the renderer. Its memory-only cache is capped at eight entries and
 |---|---|---|
 | public beta / stable | `https://relay.vastbrowser.com` | enabled; release gate requires `VAST_RELAY_ENVIRONMENT=production` |
 | development / internal QA | `https://relay-staging.vastbrowser.com` | enabled by default; may explicitly select production for production smoke tests |
+
+The staging trust root is compile-time embedded. Bundles built without an
+explicit Relay config (for example unbundled test callers importing source
+directly) get a disabled, empty configuration instead of the staging endpoint.
 
 Pinned SPKI DER public keys (Base64):
 

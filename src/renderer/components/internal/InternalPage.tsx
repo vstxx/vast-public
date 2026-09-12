@@ -34,11 +34,11 @@ export function InternalPageHero({
   className?: string
 }): JSX.Element {
   return (
-    <section className={`vast-glass-panel internal-page-section internal-page-enter rounded-[32px] p-6 md:p-7 ${className}`}>
+    <section className={`vast-glass-panel internal-page-section internal-page-enter rounded-modal p-6 md:p-7 ${className}`}>
       <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-3xl">
           {eyebrow && (
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.045] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-vast-soft">
+            <div className="mb-4 inline-flex items-center gap-2 rounded-control border border-white/[0.08] bg-white/[0.045] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-vast-soft">
               {Icon && <Icon className="h-3.5 w-3.5 text-vast-cyan" />}
               {eyebrow}
             </div>
@@ -69,7 +69,7 @@ export function InternalPageSection({
   className?: string
 }): JSX.Element {
   return (
-    <section className={`vast-glass-panel internal-page-section internal-page-enter rounded-[28px] p-5 ${className}`}>
+    <section className={`vast-glass-panel internal-page-section internal-page-enter rounded-panel p-5 ${className}`}>
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
@@ -97,7 +97,7 @@ export function InternalMetricCard({
   hint?: string
 }): JSX.Element {
   return (
-    <div className="vast-glass-panel internal-page-enter min-h-[112px] rounded-[24px] p-4">
+    <div className="vast-glass-panel internal-page-enter min-h-[112px] rounded-card p-4">
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm font-semibold text-vast-soft">{label}</span>
         <Icon className="h-4 w-4 text-vast-cyan" />
@@ -122,7 +122,7 @@ export function InternalFilterButton({
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+      className={`rounded-control px-2.5 py-1.5 text-xs font-medium transition-colors ${
         active
           ? 'bg-white/[0.09] text-white'
           : 'bg-transparent text-vast-soft hover:bg-white/[0.045] hover:text-white'
@@ -147,9 +147,9 @@ export function InternalEmptyState({
   className?: string
 }): JSX.Element {
   return (
-    <div className={`grid min-h-[220px] place-items-center rounded-[26px] border border-dashed border-white/[0.1] bg-white/[0.03] p-8 text-center ${className}`}>
+    <div className={`grid min-h-[220px] place-items-center rounded-panel border border-dashed border-white/[0.1] bg-white/[0.03] p-8 text-center ${className}`}>
       <div className="max-w-md">
-        <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-white/[0.05] text-vast-cyan">
+        <div className="mx-auto grid h-12 w-12 place-items-center rounded-card bg-white/[0.05] text-vast-cyan">
           <Icon className="h-5 w-5" />
         </div>
         <div className="mt-4 text-lg font-semibold text-white">{title}</div>
@@ -170,14 +170,14 @@ export function InternalLoadingSkeleton({
   className?: string
 }): JSX.Element {
   return (
-    <div className={`rounded-[26px] border border-white/[0.08] bg-white/[0.03] p-5 ${className}`}>
+    <div className={`rounded-panel border border-white/[0.08] bg-white/[0.03] p-5 ${className}`}>
       <div className="flex items-center gap-2 text-sm font-semibold text-white">
         <Loader2 className="h-4 w-4 animate-spin text-vast-cyan" />
         {title}
       </div>
       <div className="mt-4 space-y-3">
         {Array.from({ length: lines }, (_item, index) => (
-          <div key={`${title}-${index}`} className={`internal-skeleton h-3 rounded-full ${index === 0 ? 'w-2/3' : index === lines - 1 ? 'w-1/2' : 'w-full'}`} />
+          <div key={`${title}-${index}`} className={`internal-skeleton h-3 rounded-control ${index === 0 ? 'w-2/3' : index === lines - 1 ? 'w-1/2' : 'w-full'}`} />
         ))}
       </div>
     </div>

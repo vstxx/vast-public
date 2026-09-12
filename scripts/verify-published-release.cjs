@@ -28,24 +28,12 @@ const unsignedPublicDistribution = legacyPublicUnsignedBeta || publicUnsignedRel
 const maximumDownloadBytes = 3 * 1024 * 1024 * 1024
 const tempRoot = mkdtempSync(join(tmpdir(), `vast-published-${version}-`))
 
-const assets = [
-  { name: `Vast-Setup-${version}.exe`, local: `Installer/Vast-Setup-${version}.exe`, signed: true },
-  { name: `Vast-${version}-Portable.exe`, local: `Installer/Vast-${version}-Portable.exe`, signed: true },
-  { name: `VastUpdater-${version}.exe`, local: `Updater/VastUpdater-${version}.exe`, signed: true },
-  { name: 'update-manifest.json', local: 'Downloads/update-manifest.json' },
-  { name: `Vast-${version}-update.zip`, local: `Downloads/Vast-${version}-update.zip` },
-  { name: 'checksums.json', local: 'Checksums/checksums.json' },
-  { name: 'SHA256SUMS.txt', local: 'Checksums/SHA256SUMS.txt' },
-  { name: 'SHA512SUMS.txt', local: 'Checksums/SHA512SUMS.txt' },
-  { name: 'release-manifest.json', local: 'Docs/release-manifest.json' },
-  { name: 'ffmpeg-build-provenance.json', local: 'Docs/ffmpeg-build-provenance.json' },
-  { name: 'avidae-ffmpeg-capabilities.json', local: 'Docs/avidae-ffmpeg-capabilities.json' },
-  { name: 'ffmpeg-corresponding-source-win64.tar.zst', local: 'Source/ffmpeg-corresponding-source-win64.tar.zst' },
-  { name: 'version.json', local: 'version.json' }
-]
+const assets = require('./release-files.cjs').publishedReleaseFiles(version, publicUnsignedRelease).map(local => ({
+  name: basename(local), local, signed: /(?:Vast-Setup-|VastUpdater-|Vast-.*-Portable\.exe$)/.test(basename(local)) && local.endsWith('.exe')
+}))
 
 if (legacyPublicUnsignedBeta) assets.push({ name: 'PUBLIC-UNSIGNED-BETA.md', local: 'PUBLIC-UNSIGNED-BETA.md' })
-if (publicUnsignedRelease) assets.push({ name: 'PUBLIC-UNSIGNED-RELEASE.md', local: 'PUBLIC-UNSIGNED-RELEASE.md' })
+
 
 function sha256(file) {
   return createHash('sha256').update(readFileSync(file)).digest('hex')

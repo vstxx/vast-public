@@ -108,13 +108,13 @@ function TabRowComponent({ tab, active, compact, groups = [] }: TabRowProps): JS
           activateTab(tab.id)
         }
       }}
-      className={`group relative flex w-full items-center gap-2 overflow-hidden rounded-xl border px-2 text-left transition duration-150 ease-smooth ${tabTone} ${active ? 'vast-tab-active' : ''} ${compactDensity ? 'h-8' : 'h-10'} ${compact ? 'justify-center px-0' : ''}`}
+      className={`group relative flex w-full items-center gap-2 overflow-hidden rounded-control border px-2 text-left transition duration-150 ease-smooth ${tabTone} ${active ? 'vast-tab-active' : ''} ${compactDensity ? 'h-8' : 'h-10'} ${compact ? 'justify-center px-0' : ''}`}
       style={{ contentVisibility: 'auto', containIntrinsicSize: compactDensity ? '32px' : '40px' }}
       title={tab.title}
     >
       {tab.status === 'loading' && (
         <span
-          className="absolute inset-x-2 bottom-0 h-[2px] rounded-full bg-vast-cyan/70 transition-all"
+          className="absolute inset-x-2 bottom-0 h-[2px] rounded-control bg-vast-cyan/70 transition-all"
           style={{ transform: `scaleX(${Math.max(tab.progress, 0.12)})`, transformOrigin: 'left' }}
         />
       )}
@@ -133,7 +133,7 @@ function TabRowComponent({ tab, active, compact, groups = [] }: TabRowProps): JS
               onChange={(groupId) => moveTabToGroup(tab.id, groupId || undefined)}
               ariaLabel={`Move ${tab.title} to group`}
               className="max-w-20 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
-              buttonClassName="h-7 min-h-7 rounded-md px-1.5 text-[10px]"
+              buttonClassName="h-7 min-h-7 rounded-checkbox px-1.5 text-[10px]"
             />
           )}
           {tab.lifecycle === 'sleeping' && (
@@ -153,7 +153,7 @@ function TabRowComponent({ tab, active, compact, groups = [] }: TabRowProps): JS
                 closeTab(tab.id)
               }
             }}
-            className="grid h-6 w-6 shrink-0 place-items-center rounded-lg text-white/[0.35] opacity-0 transition hover:bg-white/10 hover:text-white group-hover:opacity-100"
+            className="grid h-6 w-6 shrink-0 place-items-center rounded-control text-white/[0.35] opacity-0 transition hover:bg-white/10 hover:text-white group-hover:opacity-100"
           >
             <X className="h-3.5 w-3.5" />
           </span>

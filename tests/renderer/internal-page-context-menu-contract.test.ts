@@ -25,5 +25,5 @@ test('the internal page menu keeps its core tools wired to real actions', () => 
 test('the shared menu renders accessible menu items and invokes their actions', () => {
   assert.match(contextMenuSource, /role="menu"/)
   assert.match(contextMenuSource, /role="menuitem"/)
-  assert.match(contextMenuSource, /void item\.action\?\.\(\)/)
+  assert.match(contextMenuSource, /await item\.action\?\.\(\)/)
 })

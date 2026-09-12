@@ -1,14 +1,23 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import test from 'node:test'
 
-const installerNsh = readFileSync(new URL('../../build/installer.nsh', import.meta.url), 'utf8')
+const product = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
+const installerNsh = readFileSync(new URL(`../../${product.build.nsis.include}`, import.meta.url), 'utf8')
 const defaultBrowserSource = readFileSync(new URL('../../src/main/default-browser.ts', import.meta.url), 'utf8')
 const uninstallCommands = installerNsh
   .split(/\r?\n/)
   .map((line) => line.trim())
   .filter((line) => line && !line.startsWith(';'))
   .join('\n')
+
+test('electron-builder uses the single tested NSIS include for safety and registration', () => {
+  assert.equal(product.build.nsis.include, 'resources/installer.nsh')
+  assert.equal(existsSync(new URL('../../build/installer.nsh', import.meta.url)), false)
+  for (const macro of ['customCheckAppRunning', 'customInstall', 'customUnInstall']) {
+    assert.equal(installerNsh.match(new RegExp(`!macro\\s+${macro}\\b`, 'g'))?.length, 1)
+  }
+})
 
 test('NSIS uninstall removes only Vast-owned default-browser registration', () => {
   assert.match(installerNsh, /!macro\s+customInstall/)

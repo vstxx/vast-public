@@ -10,25 +10,7 @@ const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const version = pkg.version
 const releaseRoot = join(root, 'release')
 
-const requiredFiles = [
-  `Installer/Vast-Setup-${version}.exe`,
-  `Installer/Vast-Setup-${version}.exe.blockmap`,
-  `Installer/Vast-${version}-Portable.exe`,
-  'Installer/latest.yml',
-  `Updater/VastUpdater-${version}.exe`,
-  'Downloads/update-manifest.json',
-  `Downloads/Vast-${version}-update.zip`,
-  'Checksums/SHA256SUMS.txt',
-  'Checksums/SHA512SUMS.txt',
-  'Checksums/checksums.json',
-  'Docs/release-manifest.json',
-  'Docs/data-migration-and-storage.md',
-  'Docs/ffmpeg-build-provenance.json',
-  'Docs/avidae-ffmpeg-capabilities.json',
-  'Source/ffmpeg-corresponding-source-win64.tar.zst',
-  'README.md',
-  'version.json'
-]
+const { requiredReleaseFiles } = require('./release-files.cjs')
 
 const failures = []
 
@@ -118,7 +100,7 @@ const signedPublicDistribution = publicDistributionFromEnv && !publicUnsignedRel
 const expectedSignerSubject = String(process.env.VAST_EXPECTED_SIGNER_SUBJECT ?? '').trim()
 const expectedSourceCommit = String(process.env.VAST_RELEASE_COMMIT ?? '').trim().toLowerCase()
 
-if (publicUnsignedRelease) requiredFiles.push('PUBLIC-UNSIGNED-RELEASE.md')
+const requiredFiles = requiredReleaseFiles(version, publicUnsignedRelease)
 
 function listFiles(directory) {
   if (!existsSync(directory)) return []

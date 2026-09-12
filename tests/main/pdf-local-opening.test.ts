@@ -28,9 +28,9 @@ test('omnibar drop resolves File paths only in preload and opens the scoped view
 
 test('ordinary downloads publish a progressing item before waiting for updated events', () => {
   const downloads = source('src/main/downloads.ts')
-  const initial = downloads.indexOf("normalizeDownload(item, id, 'progressing')")
+  const initial = downloads.indexOf("normalize('progressing')")
   const listener = downloads.indexOf("item.on('updated'")
   assert.ok(initial >= 0 && listener > initial)
-  assert.match(downloads.slice(initial, listener), /publishDownload\(initialWindow, initialDownload, false\)/)
+  assert.match(downloads.slice(initial, listener), /publishDownload\(downloadOwner\(\), initialDownload, persistDownload\)/)
   assert.match(downloads, /windowRegistry\.vastWindowForWebContents\(initiatingContents\)/)
 })

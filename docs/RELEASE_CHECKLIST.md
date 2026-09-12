@@ -9,6 +9,8 @@ Use this checklist for each public Vast release. Route-specific checks that do n
 - [ ] Locked JavaScript, Relay, and Python build dependencies install successfully.
 - [ ] Dependency vulnerability gates pass.
 - [ ] Full-history secret scanning has no unreviewed finding.
+- [ ] `npm run release:preflight` passes on the reviewed source; local/manual blockers are resolved explicitly.
+- [ ] Generated public snapshot excludes `audit/` and passes its own audit and Gitleaks before any push.
 - [ ] No private key, certificate, password, token, local profile, generated release package, or personal absolute path is introduced into the source snapshot.
 
 ## Build and tests

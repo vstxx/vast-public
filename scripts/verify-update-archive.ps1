@@ -2,7 +2,8 @@ param(
   [Parameter(Mandatory = $true)]
   [string] $ArchivePath,
   [Parameter(Mandatory = $true)]
-  [string] $Version
+  [string] $Version,
+  [string] $ExtractRuntimeTo
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,6 +44,26 @@ try {
   foreach ($name in $names) {
     if ($name -match '(?i)(?:^|/)Vast-Setup-[^/]+\.exe$' -or $name -match '(?i)-Portable\.exe$' -or $name -match '(?i)-update\.zip$') {
       throw "Update ZIP embeds an unrelated distribution artifact: $name"
+    }
+  }
+
+  # Resume reconstructs only the sealed ZIP's runtime, never build outputs.
+  if ($ExtractRuntimeTo) {
+    $destination = [IO.Path]::GetFullPath($ExtractRuntimeTo)
+    if (Test-Path -LiteralPath $destination) { throw 'Runtime restore destination already exists.' }
+    $prefix = "Vast-$Version/win-unpacked/"
+    $entries = @($archive.Entries | Where-Object { $_.FullName.Replace('\', '/').StartsWith($prefix, [StringComparison]::Ordinal) -and -not $_.FullName.Replace('\', '/').EndsWith('/') })
+    foreach ($entry in $entries) {
+      $relative = $entry.FullName.Replace('\', '/').Substring($prefix.Length)
+      if ($relative -match '[:<>"|?*]' -or ($relative.Split('/') | Where-Object { $_ -eq '' -or $_ -match '[. ]$' -or $_ -match '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)' })) { throw 'Unsafe runtime extraction path.' }
+      if ((($entry.ExternalAttributes -shr 16) -band 0xF000) -eq 0xA000) { throw 'Runtime ZIP must not contain symlinks.' }
+      $target = [IO.Path]::GetFullPath((Join-Path $destination $relative))
+      if (-not $target.StartsWith(($destination + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)) { throw 'Runtime extraction escaped destination.' }
+    }
+    foreach ($entry in $entries) {
+      $target = Join-Path $destination $entry.FullName.Replace('\', '/').Substring($prefix.Length)
+      [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target)) | Out-Null
+      [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $false)
     }
   }
 

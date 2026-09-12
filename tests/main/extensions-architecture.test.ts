@@ -41,7 +41,7 @@ test('extensions are wired to website partitions while Vast UI and private parti
     source('src/main/extensions/extension-manager.ts')
   ])
 
-  assert.match(main, /sessionProvider:\s*\(partition\)\s*=>\s*session\.fromPartition\(partition\)/)
+  assert.match(main, /sessionProvider:\s*\(partition\)\s*=>\s*\{\s*const target = session\.fromPartition\(partition\)\s*configureDownloadsForSession\(target, partition\)/)
   assert.doesNotMatch(main, /defaultSession\.extensions\.loadExtension/)
   assert.match(sessions, /will-attach-webview/)
   assert.match(sessions, /ensureForPartition\(partition\)/)

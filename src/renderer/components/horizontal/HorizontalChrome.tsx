@@ -1,3 +1,4 @@
+import { copyText } from '../../lib/clipboard'
 import {
   CircleAlert,
   ChevronDown,
@@ -13,6 +14,7 @@ import {
   X
 } from 'lucide-react'
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { calculateVisibleBookmarkCount } from '../../../shared/bookmarks-bar-layout'
 import { INTERNAL_NEW_TAB_URL } from '../../../shared/constants'
 import type { Bookmark as BookmarkModel, BookmarkFolder, Tab, TabGroup, Workspace } from '../../../shared/types'
@@ -99,20 +101,20 @@ export function WorkspacePopover({
         onClick={onToggle}
         aria-label={`Switch workspace. Current: ${workspace?.name ?? 'Workspace'}`}
         className={purist
-          ? 'purist-workspace-button mt-1 grid h-8 w-8 place-items-center rounded-full text-vast-soft transition'
-          : 'mt-2 flex h-8 max-w-52 items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.055] pl-2 pr-2.5 text-xs font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition hover:border-white/[0.16] hover:bg-white/[0.085]'}
+          ? 'purist-workspace-button mt-1 grid h-8 w-8 place-items-center rounded-control text-vast-soft transition'
+          : 'mt-2 flex h-8 max-w-52 items-center justify-between gap-2 rounded-control border border-white/10 bg-white/[0.055] pl-2 pr-2.5 text-xs font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition hover:border-white/[0.16] hover:bg-white/[0.085]'}
         title="Switch workspace"
       >
         <span className={`flex min-w-0 items-center ${purist ? 'justify-center' : 'flex-1 gap-2'}`}>
           <span
-            className={`grid h-5 w-5 shrink-0 place-items-center ${purist ? 'rounded-full' : 'rounded-md'}`}
+            className={`grid h-5 w-5 shrink-0 place-items-center ${purist ? 'rounded-control' : 'rounded-checkbox'}`}
             style={{ backgroundColor: `${workspace?.color ?? '#74e7ff'}22`, color: workspace?.color ?? '#74e7ff' }}
           >
             <WorkspaceIcon name={workspace?.icon ?? 'Sparkles'} className="h-3 w-3" />
           </span>
           {!purist && <span className="min-w-0 truncate leading-none">{workspace?.name ?? 'Workspace'}</span>}
           {!purist && workspace?.isPrivate && (
-            <span className="shrink-0 rounded-md border border-vast-cyan/25 bg-vast-cyan/10 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-vast-cyan">
+            <span className="shrink-0 rounded-checkbox border border-vast-cyan/25 bg-vast-cyan/10 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-vast-cyan">
               Isolated
             </span>
           )}
@@ -121,7 +123,7 @@ export function WorkspacePopover({
       </button>
 
       {open && (
-        <div className="absolute left-0 top-10 z-50 w-80 overflow-hidden rounded-2xl border border-white/10 bg-[#090a0d]/[0.98] p-2 shadow-glass backdrop-blur-2xl" data-testid="workspace-popover">
+        <div className="absolute left-0 top-10 z-50 w-80 overflow-hidden rounded-card border border-white/10 bg-[#090a0d]/[0.98] p-2 shadow-glass backdrop-blur-2xl" data-testid="workspace-popover">
           <div className="px-3 pb-3 pt-2">
             <h2 className="text-2xl font-semibold leading-tight tracking-tight text-white" data-testid="workspace-popover-heading">Workspaces</h2>
           </div>
@@ -132,7 +134,7 @@ export function WorkspacePopover({
               .map((item) => (
                 <div
                   key={item.id}
-                  className={`group/workspace flex w-full items-center gap-2 rounded-xl px-2 py-1.5 transition ${
+                  className={`group/workspace flex w-full items-center gap-2 rounded-control px-2 py-1.5 transition ${
                     item.id === workspace?.id
                       ? 'bg-white/[0.11] text-white'
                       : 'text-vast-soft hover:bg-white/[0.07] hover:text-white'
@@ -144,10 +146,10 @@ export function WorkspacePopover({
                       setActiveWorkspace(item.id)
                       onClose()
                     }}
-                    className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-1 py-0.5 text-left"
+                    className="flex min-w-0 flex-1 items-center gap-3 rounded-control px-1 py-0.5 text-left"
                   >
                     <span
-                      className="grid h-8 w-8 shrink-0 place-items-center rounded-xl"
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-control"
                       style={{ backgroundColor: `${item.color}22`, color: item.color }}
                     >
                       <WorkspaceIcon name={item.icon} className="h-4 w-4" />
@@ -169,7 +171,7 @@ export function WorkspacePopover({
                         onConfirm: () => deleteWorkspace(item.id)
                       })
                     }}
-                    className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-vast-soft opacity-0 transition hover:bg-red-400/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-20 group-hover/workspace:opacity-100"
+                    className="grid h-8 w-8 shrink-0 place-items-center rounded-control text-vast-soft opacity-0 transition hover:bg-red-400/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-20 group-hover/workspace:opacity-100"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -188,7 +190,7 @@ export function WorkspacePopover({
                 onConfirm: (name) => createWorkspace(name, accentColor, privateWorkspaceDefault)
               })
             }}
-            className="mt-2 flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-white/[0.12] text-sm font-medium text-vast-soft hover:border-white/20 hover:bg-white/[0.06] hover:text-white"
+            className="mt-2 flex h-10 w-full items-center justify-center gap-2 rounded-control border border-dashed border-white/[0.12] text-sm font-medium text-vast-soft hover:border-white/20 hover:bg-white/[0.06] hover:text-white"
           >
             <Plus className="h-4 w-4" />
             New workspace
@@ -213,6 +215,21 @@ function HorizontalTabBar(): JSX.Element {
   const [stripWidth, setStripWidth] = useState(900)
   const stripRef = useRef<HTMLDivElement | null>(null)
   const overflowRef = useRef<HTMLDivElement | null>(null)
+  const overflowMenuRef = useRef<HTMLDivElement | null>(null)
+  const [overflowPosition, setOverflowPosition] = useState({ left: 8, top: 48, maxHeight: 440 })
+
+  useLayoutEffect(() => {
+    if (!overflowOpen) return
+    const position = (): void => {
+      const rect = overflowRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const top = Math.min(rect.bottom + 8, Math.max(8, window.innerHeight - 160))
+      setOverflowPosition({ left: Math.max(8, Math.min(rect.right - 320, window.innerWidth - 328)), top, maxHeight: Math.max(100, window.innerHeight - top - 8) })
+    }
+    position()
+    window.addEventListener('resize', position)
+    return () => window.removeEventListener('resize', position)
+  }, [overflowOpen])
 
   const closeOverflow = (): void => {
     setOverflowOpen(false)
@@ -225,17 +242,25 @@ function HorizontalTabBar(): JSX.Element {
 
   useEffect(() => {
     if (!overflowOpen) return
-    const onPointerDown = (event: PointerEvent): void => {
-      if (event.target instanceof Node && !overflowRef.current?.contains(event.target)) closeOverflow()
+    const onPointerDown = (event: Event): void => {
+      if (event.target instanceof Node && !overflowRef.current?.contains(event.target) && !overflowMenuRef.current?.contains(event.target)) closeOverflow()
     }
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') closeOverflow()
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeOverflow()
+        overflowRef.current?.querySelector('button')?.focus()
+      }
     }
     document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('focusin', onPointerDown, true)
     document.addEventListener('keydown', onKeyDown)
+    window.addEventListener('blur', closeOverflow)
     return () => {
       document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('focusin', onPointerDown, true)
       document.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('blur', closeOverflow)
     }
   }, [overflowOpen])
 
@@ -344,7 +369,7 @@ function HorizontalTabBar(): JSX.Element {
           type="button"
           title="New tab"
           onClick={() => createTab({ workspaceId: workspace?.id, activate: true })}
-          className="no-drag mt-[3px] grid h-8 w-8 shrink-0 place-items-center self-center rounded-full bg-transparent text-vast-soft/75 transition hover:bg-white/[0.045] hover:text-white/90"
+          className="no-drag mt-[3px] grid h-8 w-8 shrink-0 place-items-center self-center rounded-control bg-transparent text-vast-soft/75 transition hover:bg-white/[0.045] hover:text-white/90"
         >
           <Plus className="h-4 w-4" strokeWidth={1.8} />
         </button>
@@ -358,14 +383,14 @@ function HorizontalTabBar(): JSX.Element {
             aria-label={`${overflowTabs.length} more tabs`}
             aria-haspopup="dialog"
             aria-expanded={overflowOpen}
-            className="flex h-8 items-center gap-1 rounded-xl border border-white/[0.08] bg-white/[0.045] px-2 text-xs text-vast-soft hover:border-white/[0.14] hover:bg-white/[0.08] hover:text-white"
+            className="flex h-8 items-center gap-1 rounded-control border border-white/[0.08] bg-white/[0.045] px-2 text-xs text-vast-soft hover:border-white/[0.14] hover:bg-white/[0.08] hover:text-white"
             title="More tabs"
           >
             <MoreHorizontal className="h-4 w-4" />
             {overflowTabs.length}
           </button>
-          {overflowOpen && (
-            <div role="dialog" aria-label={`Tabs in ${workspace?.name ?? 'workspace'}`} className="absolute right-0 top-10 z-50 w-80 rounded-2xl border border-white/10 bg-[#090a0d]/[0.98] p-2 shadow-glass backdrop-blur-2xl">
+          {overflowOpen && createPortal(
+            <div ref={overflowMenuRef} role="dialog" aria-label={`Tabs in ${workspace?.name ?? 'workspace'}`} style={overflowPosition} className="no-drag fixed z-[100] flex w-80 max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-card border border-white/10 bg-[#090a0d] p-2 shadow-glass">
               <div className="flex items-center justify-between px-3 py-2">
                 <span className="text-[13px] font-semibold text-white">Tabs in {workspace?.name ?? 'workspace'}</span>
                 <span className="text-[13px] text-vast-soft">{workspaceTabs.length}</span>
@@ -380,7 +405,7 @@ function HorizontalTabBar(): JSX.Element {
                   className="vast-control h-10 w-full pl-9 pr-3"
                 />
               </label>
-              <div className="max-h-[min(60vh,440px)] space-y-0.5 overflow-y-auto">
+              <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
                 {searchableTabs.map((tab) => {
                   const active = tab.id === workspace?.activeTabId
                   const state = overflowTabState(tab, active)
@@ -389,7 +414,7 @@ function HorizontalTabBar(): JSX.Element {
                     <div
                       key={tab.id}
                       data-overflow-tab-id={tab.id}
-                      className={`group/overflow-tab relative flex min-w-0 items-center rounded-xl transition-colors ${active ? 'bg-white/[0.085]' : 'hover:bg-white/[0.055]'}`}
+                      className={`group/overflow-tab relative flex min-w-0 items-center rounded-control transition-colors ${active ? 'bg-white/[0.085]' : 'hover:bg-white/[0.055]'}`}
                     >
                       <button
                         type="button"
@@ -406,7 +431,7 @@ function HorizontalTabBar(): JSX.Element {
                             <span className="min-w-0 truncate">{tabDisplayHost(tab.url)}</span>
                             <span aria-hidden="true" className="shrink-0 text-white/20">·</span>
                             <span className={`inline-flex shrink-0 items-center gap-1 ${state.tone}`} title={tab.error?.description}>
-                              <span className={`h-1.5 w-1.5 rounded-full ${state.dot}`} />
+                              <span className={`h-1.5 w-1.5 vast-geometry-circle ${state.dot}`} />
                               {state.label}
                             </span>
                             {group && <span className="max-w-20 shrink truncate text-white/35">{group.name}</span>}
@@ -424,12 +449,12 @@ function HorizontalTabBar(): JSX.Element {
                         onClick={() => {
                           closeTab(tab.id)
                         }}
-                        className="mr-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white/40 transition-colors hover:bg-white/[0.09] hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/50"
+                        className="mr-1 grid h-8 w-8 shrink-0 place-items-center rounded-control text-white/40 transition-colors hover:bg-white/[0.09] hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/50"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
                       {tab.status === 'loading' && (
-                        <span aria-hidden="true" className="pointer-events-none absolute inset-x-2 bottom-0 h-px overflow-hidden rounded-full bg-white/[0.05]">
+                        <span aria-hidden="true" className="pointer-events-none absolute inset-x-2 bottom-0 h-px overflow-hidden rounded-control bg-white/[0.05]">
                           <span className="block h-full bg-vast-cyan/70" style={{ width: `${Math.min(100, Math.max(8, Math.round(tab.progress * 100)))}%` }} />
                         </span>
                       )}
@@ -440,7 +465,7 @@ function HorizontalTabBar(): JSX.Element {
                   <div className="px-3 py-8 text-center text-[13px] text-vast-soft">No tabs match this search.</div>
                 )}
               </div>
-            </div>
+            </div>, document.body
           )}
         </div>
       )}
@@ -531,10 +556,10 @@ function HorizontalTabComponent({
       className="no-drag group relative h-10 min-w-0 shrink-0 text-left"
     >
       <div
-        className={`absolute inset-x-0 bottom-0 flex h-8 min-w-0 items-center gap-2 overflow-hidden rounded-xl border px-2 transition duration-150 ${tabTone} ${active ? 'vast-tab-active' : ''} ${dragTarget ? 'ring-2 ring-vast-cyan/70 ring-offset-1 ring-offset-transparent' : ''}`}
+        className={`absolute inset-x-0 bottom-0 flex h-8 min-w-0 items-center gap-2 overflow-hidden rounded-control border px-2 transition duration-150 ${tabTone} ${active ? 'vast-tab-active' : ''} ${dragTarget ? 'ring-2 ring-vast-cyan/70 ring-offset-1 ring-offset-transparent' : ''}`}
       >
         {isPlainNewTab ? (
-          <span className="grid h-4 w-4 shrink-0 place-items-center rounded-[4px] bg-white/10 text-[9px] font-semibold text-white/70">
+          <span className="grid h-4 w-4 shrink-0 place-items-center rounded-micro bg-white/10 text-[9px] font-semibold text-white/70">
             N
           </span>
         ) : (
@@ -547,7 +572,7 @@ function HorizontalTabComponent({
         {tab.lifecycle === 'sleeping' && <Moon className="h-3.5 w-3.5 shrink-0 text-vast-soft" aria-label="Sleeping" />}
         {showGroupLabel && (
           <span
-            className="hidden max-w-16 items-center rounded-full border border-white/[0.06] bg-white/[0.035] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-vast-soft xl:flex"
+            className="hidden max-w-16 items-center rounded-control border border-white/[0.06] bg-white/[0.035] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-vast-soft xl:flex"
             title={group.name}
           >
             <span className="truncate">{group.name}</span>
@@ -561,7 +586,7 @@ function HorizontalTabComponent({
             event.stopPropagation()
             onClose()
           }}
-          className={`grid h-5 w-5 shrink-0 place-items-center rounded-md text-white/[0.45] transition hover:bg-white/10 hover:text-white group-hover:opacity-100 group-focus-within:opacity-100 ${active ? 'opacity-100' : 'opacity-0'}`}
+          className={`grid h-5 w-5 shrink-0 place-items-center rounded-checkbox text-white/[0.45] transition hover:bg-white/10 hover:text-white group-hover:opacity-100 group-focus-within:opacity-100 ${active ? 'opacity-100' : 'opacity-0'}`}
         >
           <X className="h-3.5 w-3.5" />
         </span>
@@ -712,7 +737,7 @@ export function BookmarksBar({ variant = 'horizontal' }: { variant?: ChromeVaria
           <button
             type="button"
             onClick={() => setOpenMenuId((id) => (id === 'bookmark-overflow' ? null : 'bookmark-overflow'))}
-            className="chrome-bookmark-overflow flex h-7 items-center gap-1 rounded-lg px-2 hover:bg-white/[0.07] hover:text-white"
+            className="chrome-bookmark-overflow flex h-7 items-center gap-1 rounded-control px-2 hover:bg-white/[0.07] hover:text-white"
             title="More bookmarks"
           >
             <MoreHorizontal className="h-4 w-4" />
@@ -744,7 +769,7 @@ function BookmarkButton({ itemKey, bookmark, onOpen }: { itemKey: string; bookma
       data-bookmark-key={itemKey}
       onClick={() => onOpen(bookmark.url)}
       onContextMenu={openBookmarkContextMenu}
-      className={`chrome-bookmark-item flex h-7 items-center rounded-lg px-2 hover:bg-white/[0.07] hover:text-white${bookmark.title ? ' max-w-40 gap-2' : ''}`}
+      className={`chrome-bookmark-item flex h-7 items-center rounded-control px-2 hover:bg-white/[0.07] hover:text-white${bookmark.title ? ' max-w-40 gap-2' : ''}`}
       title={bookmark.url}
     >
       <Favicon url={bookmark.url} favicon={bookmark.favicon} title={bookmark.title} />
@@ -776,7 +801,7 @@ function FolderButton({
         type="button"
         onClick={onToggle}
         onContextMenu={openFolderContextMenu}
-        className="chrome-bookmark-folder flex h-7 max-w-44 items-center gap-2 rounded-lg px-2 hover:bg-white/[0.07] hover:text-white"
+        className="chrome-bookmark-folder flex h-7 max-w-44 items-center gap-2 rounded-control px-2 hover:bg-white/[0.07] hover:text-white"
       >
         <Folder className="h-3.5 w-3.5 text-vast-cyan" />
         <span className="truncate">{folder.name}</span>
@@ -797,14 +822,14 @@ function BookmarkOverflowMenu({
   onOpen: (url: string) => void
 }): JSX.Element {
   return (
-    <div className="absolute left-0 top-9 z-50 w-80 rounded-2xl border border-white/10 bg-[#090a0d]/[0.98] p-2 shadow-glass backdrop-blur-2xl">
+    <div className="absolute left-0 top-9 z-50 w-80 rounded-card border border-white/10 bg-[#090a0d]/[0.98] p-2 shadow-glass backdrop-blur-2xl">
       {items.map((item) => {
         if (item.type === 'bookmark') {
           return <BookmarkMenuItem key={item.bookmark.id} bookmark={item.bookmark} onOpen={onOpen} />
         }
         const folderBookmarks = allBookmarks.filter((bookmark) => bookmark.folderId === item.folder.id)
         return (
-          <div key={item.folder.id} className="rounded-xl px-2 py-2">
+          <div key={item.folder.id} className="rounded-control px-2 py-2">
             <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-vast-soft">
               <Folder className="h-3.5 w-3.5 text-vast-cyan" />
               {item.folder.name}
@@ -829,7 +854,7 @@ function BookmarkMenu({
   onOpen: (url: string) => void
 }): JSX.Element {
   return (
-    <div className="absolute left-0 top-9 z-50 w-72 rounded-2xl border border-white/10 bg-[#090a0d]/[0.98] p-2 shadow-glass backdrop-blur-2xl">
+    <div className="absolute left-0 top-9 z-50 w-72 rounded-card border border-white/10 bg-[#090a0d]/[0.98] p-2 shadow-glass backdrop-blur-2xl">
       {bookmarks.length === 0 && <div className="px-3 py-3 text-sm text-vast-soft">No bookmarks in this folder.</div>}
       {bookmarks.map((bookmark) => (
         <BookmarkMenuItem key={bookmark.id} bookmark={bookmark} onOpen={onOpen} />
@@ -854,7 +879,7 @@ function BookmarkMenuItem({
       type="button"
       onClick={() => onOpen(bookmark.url)}
       onContextMenu={openBookmarkContextMenu}
-      className={`flex w-full items-center gap-3 rounded-xl text-left hover:bg-white/[0.07] ${
+      className={`flex w-full items-center gap-3 rounded-control text-left hover:bg-white/[0.07] ${
         compact ? 'px-2 py-1.5' : 'px-3 py-2'
       }`}
     >
@@ -891,7 +916,7 @@ function useBookmarkContextMenu(bookmark: BookmarkModel, onOpen: (url: string) =
         {
           id: 'copy-url',
           label: 'Copy URL',
-          action: () => navigator.clipboard.writeText(bookmark.url)
+          action: () => copyText(bookmark.url)
         },
         { id: 'separator-1', label: '', separator: true },
         {

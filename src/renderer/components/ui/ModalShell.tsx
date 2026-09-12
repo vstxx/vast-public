@@ -58,7 +58,7 @@ export function ModalShell({
   return (
     <div className={`fixed inset-0 z-50 flex justify-center bg-black/[0.55] px-5 backdrop-blur-xl ${placement === 'center' ? 'items-center py-5' : 'items-start py-[8vh]'}`}>
       <button className="absolute inset-0 cursor-default" aria-label="Close dialog" onClick={onClose} />
-      <div ref={panelRef} role="dialog" aria-modal="true" aria-label={ariaLabel} tabIndex={-1} className={`relative max-h-[84vh] w-full ${width} overflow-hidden rounded-3xl border border-white/[0.12] bg-[#0b0c11]/95 shadow-glass ${className}`}>
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-label={ariaLabel} tabIndex={-1} className={`relative max-h-[84vh] w-full ${width} overflow-hidden rounded-modal border border-white/[0.12] bg-[#0b0c11]/95 shadow-glass ${className}`}>
         {children}
       </div>
     </div>

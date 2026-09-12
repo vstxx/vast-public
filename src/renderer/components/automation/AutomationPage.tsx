@@ -155,43 +155,43 @@ export function AutomationPage(): JSX.Element {
   return (
     <div className="labs-page-surface h-full overflow-y-auto overflow-x-hidden bg-[#06070a] p-6 text-white" data-testid="automation-page">
       <div className="mx-auto grid max-w-7xl gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <section className="vast-glass-panel rounded-[30px] p-5">
+        <section className="vast-glass-panel rounded-panel p-5">
           <div className="mb-5 flex items-center justify-between gap-3">
             <h1 className="text-3xl font-semibold">Automation</h1>
-            <button type="button" onClick={addMacro} className="grid h-11 w-11 place-items-center rounded-2xl bg-vast-cyan text-black" title="Create macro">
+            <button type="button" onClick={addMacro} className="grid h-11 w-11 place-items-center rounded-card bg-vast-cyan text-black" title="Create macro">
               <Plus className="h-5 w-5" />
             </button>
           </div>
           <div className="relative mb-3">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-vast-soft" />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search macros" className="h-11 w-full rounded-2xl border border-white/10 bg-black/20 pl-10 pr-3 text-sm text-white outline-none focus:border-vast-cyan/[0.35]" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search macros" className="h-11 w-full rounded-card border border-white/10 bg-black/20 pl-10 pr-3 text-sm text-white outline-none focus:border-vast-cyan/[0.35]" />
           </div>
           <div className="space-y-2">
             {filtered.map((macro) => (
-              <button key={macro.id} type="button" onClick={() => setSelectedId(macro.id)} className={`w-full rounded-2xl p-3 text-left transition ${selected?.id === macro.id ? 'bg-white/[0.1]' : 'hover:bg-white/[0.055]'}`}>
+              <button key={macro.id} type="button" onClick={() => setSelectedId(macro.id)} className={`w-full rounded-card p-3 text-left transition ${selected?.id === macro.id ? 'bg-white/[0.1]' : 'hover:bg-white/[0.055]'}`}>
                 <div className="flex items-center gap-3">
-                  <span className="grid h-10 w-10 place-items-center rounded-2xl" style={{ backgroundColor: `${macro.color}22`, color: macro.color }}>
+                  <span className="grid h-10 w-10 place-items-center rounded-card" style={{ backgroundColor: `${macro.color}22`, color: macro.color }}>
                     <Sparkles className="h-4 w-4" />
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold">{macro.name}</div>
                     <div className="truncate text-xs text-vast-soft">{macro.actions.length} actions - {macro.trigger}</div>
                   </div>
-                  <span className={`h-2.5 w-2.5 rounded-full ${macro.enabled ? 'bg-emerald-300' : 'bg-white/25'}`} />
+                  <span className={`h-2.5 w-2.5 vast-geometry-circle ${macro.enabled ? 'bg-emerald-300' : 'bg-white/25'}`} />
                 </div>
               </button>
             ))}
-            {filtered.length === 0 && <div className="rounded-3xl border border-dashed border-white/10 p-8 text-center text-sm text-vast-soft">No macros match this search.</div>}
+            {filtered.length === 0 && <div className="rounded-panel border border-dashed border-white/10 p-8 text-center text-sm text-vast-soft">No macros match this search.</div>}
           </div>
         </section>
 
-        <section className="vast-glass-panel min-h-[720px] rounded-[30px] p-5">
+        <section className="vast-glass-panel min-h-[720px] rounded-panel p-5">
           {selected ? (
             <div className="space-y-5">
               <div className="border-b border-white/10 pb-5">
                 <div className="grid min-w-0 gap-3">
                   <input value={selected.name} onChange={(event) => updateMacro(selected.id, { name: event.target.value })} className="bg-transparent text-3xl font-semibold text-white outline-none" data-testid="macro-name-input" />
-                  <textarea value={selected.description} onChange={(event) => updateMacro(selected.id, { description: event.target.value })} rows={2} className="resize-none rounded-2xl border border-white/10 bg-black/20 p-3 text-sm leading-6 text-vast-soft outline-none focus:border-vast-cyan/[0.35]" />
+                  <textarea value={selected.description} onChange={(event) => updateMacro(selected.id, { description: event.target.value })} rows={2} className="resize-none rounded-card border border-white/10 bg-black/20 p-3 text-sm leading-6 text-vast-soft outline-none focus:border-vast-cyan/[0.35]" />
                 </div>
                 <div className="mt-3 grid grid-cols-4 gap-2" data-testid="automation-primary-actions">
                   <button type="button" onClick={() => void runMacro(false)} disabled={Boolean(runningId)} className="vault-action-button min-w-0 justify-center bg-vast-cyan px-2 text-black disabled:opacity-50" data-testid="macro-run-button"><Play className="h-4 w-4" />{runningId ? 'Running…' : 'Run'}</button>
@@ -202,20 +202,20 @@ export function AutomationPage(): JSX.Element {
                 {runningId === selected.id && <button type="button" onClick={() => runtime.stopMacro(selected.id)} className="vault-danger-button mt-2 w-full justify-center"><Square className="h-4 w-4" />Emergency stop</button>}
               </div>
 
-              <div className="rounded-2xl border border-vast-amber/20 bg-vast-amber/[0.06] p-4">
+              <div className="rounded-card border border-vast-amber/20 bg-vast-amber/[0.06] p-4">
                 <div className="flex items-start gap-3">
                   <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-vast-amber" />
                   <div>
                     <div className="text-sm font-semibold">Permission preview</div>
                     <div className="mt-2 flex flex-wrap gap-2">
-                      {macroPermissionSummary(selected.actions).map((permission) => <span key={permission} className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-xs text-vast-soft">{permission}</span>)}
+                      {macroPermissionSummary(selected.actions).map((permission) => <span key={permission} className="rounded-control border border-white/10 bg-black/20 px-2.5 py-1 text-xs text-vast-soft">{permission}</span>)}
                       {macroPermissionSummary(selected.actions).length === 0 && <span className="text-xs text-vast-soft">No persistent changes.</span>}
                     </div>
                     <div className="mt-2 text-xs leading-5 text-vast-soft">Authentication, payment and password-vault pages are blocked unless you approve that exact manual run. Every run is limited to 25 actions and 30 seconds.</div>
                   </div>
                 </div>
               </div>
-              {statusMessage && <div className="rounded-2xl border border-white/10 bg-white/[0.045] px-4 py-3 text-sm text-vast-soft">{statusMessage}</div>}
+              {statusMessage && <div className="rounded-card border border-white/10 bg-white/[0.045] px-4 py-3 text-sm text-vast-soft">{statusMessage}</div>}
 
               <div className="grid items-end gap-3 md:grid-cols-3">
                 <AutomationSelect
@@ -226,13 +226,13 @@ export function AutomationPage(): JSX.Element {
                 />
                 <label className="grid content-start gap-2 text-sm font-semibold">
                   <span className="leading-5">Color</span>
-                  <span className="flex h-11 items-center rounded-2xl border border-white/10 bg-white/[0.045] px-3">
-                    <input className="h-7 w-full cursor-pointer rounded-lg bg-transparent" type="color" value={selected.color} onChange={(event) => updateMacro(selected.id, { color: event.target.value })} />
+                  <span className="flex h-11 items-center rounded-card border border-white/10 bg-white/[0.045] px-3">
+                    <input className="h-7 w-full cursor-pointer rounded-control bg-transparent" type="color" value={selected.color} onChange={(event) => updateMacro(selected.id, { color: event.target.value })} />
                   </span>
                 </label>
                 <label className="grid content-start gap-2 text-sm font-semibold">
                   <span className="leading-5">Enabled</span>
-                  <span className="flex h-11 items-center justify-between rounded-2xl border border-white/10 bg-white/[0.045] px-4">
+                  <span className="flex h-11 items-center justify-between rounded-card border border-white/10 bg-white/[0.045] px-4">
                     <span className="text-xs font-medium text-vast-soft">Macro active</span>
                     <input type="checkbox" checked={selected.enabled} onChange={(event) => updateMacro(selected.id, { enabled: event.target.checked })} />
                   </span>
@@ -256,7 +256,7 @@ export function AutomationPage(): JSX.Element {
                         if (dragActionId) moveAction(dragActionId, action.id)
                         setDragActionId(null)
                       }}
-                      className={`rounded-3xl border bg-black/[0.18] p-4 transition ${dragActionId === action.id ? 'border-vast-cyan/40 opacity-60' : 'border-white/10'}`}
+                      className={`rounded-panel border bg-black/[0.18] p-4 transition ${dragActionId === action.id ? 'border-vast-cyan/40 opacity-60' : 'border-white/10'}`}
                     >
                       <div className="mb-3 flex items-center justify-between gap-3">
                         <div className="flex cursor-grab items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-vast-soft"><GripVertical className="h-4 w-4" />Step {index + 1}</div>
@@ -316,18 +316,18 @@ export function AutomationPage(): JSX.Element {
                 <h2 className="mb-3 text-lg font-semibold">Activity</h2>
                 <div className="space-y-2">
                   {logs.filter((log) => log.macroId === selected.id).slice(0, 8).map((log) => (
-                    <div key={log.id} className="rounded-2xl border border-white/10 bg-white/[0.035] p-3 text-sm">
+                    <div key={log.id} className="rounded-card border border-white/10 bg-white/[0.035] p-3 text-sm">
                       <div className="flex justify-between gap-3"><span className={log.status === 'success' ? 'text-emerald-300' : 'text-vast-amber'}>{log.status}</span><span className="text-xs text-vast-soft">{formatRelativeTime(log.ranAt)}</span></div>
                       <div className="mt-1 text-vast-soft">{log.message}</div>
                     </div>
                   ))}
-                  {!logs.some((log) => log.macroId === selected.id) && <div className="rounded-2xl border border-dashed border-white/10 p-5 text-sm text-vast-soft">Run this macro to see local activity here.</div>}
+                  {!logs.some((log) => log.macroId === selected.id) && <div className="rounded-card border border-dashed border-white/10 p-5 text-sm text-vast-soft">Run this macro to see local activity here.</div>}
                 </div>
               </div>
             </div>
           ) : (
             <div className="grid h-full place-items-center text-center">
-              <div><Sparkles className="mx-auto mb-4 h-10 w-10 text-vast-cyan" /><div className="text-xl font-semibold">No macros yet</div><button type="button" onClick={addMacro} className="mt-4 rounded-2xl bg-vast-cyan px-4 py-2 text-sm font-semibold text-black">Create macro</button></div>
+              <div><Sparkles className="mx-auto mb-4 h-10 w-10 text-vast-cyan" /><div className="text-xl font-semibold">No macros yet</div><button type="button" onClick={addMacro} className="mt-4 rounded-card bg-vast-cyan px-4 py-2 text-sm font-semibold text-black">Create macro</button></div>
             </div>
           )}
         </section>

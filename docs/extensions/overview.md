@@ -8,7 +8,9 @@ Vast supports three install sources and three runtime shapes:
 | Local `.vext` | Local package | `Extensions/Managed/<id>/versions/<version>` |
 | Vast Extensions Hub | Official | Same managed store, with required pinned-key signature |
 
-An extension can use a compatibility-scored Chrome layer, Vast Native API v1, or both. Vast supports Manifest V3 content scripts and Electron's documented subset of extension APIs; it does not claim Chrome Web Store parity or Manifest V3 background-service-worker support. Vast-native code never receives Node.js, Electron, raw IPC, arbitrary filesystem, or private-workspace access.
+An extension can use a compatibility-scored Chrome layer, Vast Native API v1, or both. Vast supports Manifest V3 content scripts and Electron's documented subset of extension APIs; it does not claim Chrome Web Store parity or Manifest V3 background-service-worker support. Manifest V2 is accepted where a persistent background page is required, notably for opt-in network providers such as the first-party Adblocker for Vast content blocker. Vast-native code never receives Node.js, Electron, raw IPC, arbitrary filesystem, or private-workspace access.
+
+First-party Vast extensions are published through the same Hub review and signing flow as any publisher package; see [ADBLOCKER_FOR_VAST.md](../ADBLOCKER_FOR_VAST.md).
 
 ## Developer quickstart
 

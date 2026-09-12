@@ -278,7 +278,6 @@ async function buildDemoData() {
     privacy: {
       ...data.settings.privacy,
       adBlockerEnabled: true,
-      adBlockerMode: 'brutal'
     },
     spoofing: {
       ...data.settings.spoofing,

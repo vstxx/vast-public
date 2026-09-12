@@ -80,10 +80,10 @@ test('Purist inactive, interactive, and active tab surfaces are deliberately dis
 test('Purist chrome stays rounded, restrained, responsive, and transparency-safe', () => {
   assert.match(stylesSource, /\.layout-purist \.purist-chrome\s*{[^}]*position:\s*absolute;[^}]*pointer-events:\s*none;/s)
   assert.match(stylesSource, /\.purist-chrome-surface\s*{[^}]*backdrop-filter:/s)
-  assert.match(stylesSource, /\.topbar-island\.is-collapsed\s*{[^}]*width:\s*min\(320px,[^}]*max-height:\s*40px;[^}]*border-radius:\s*999px;/s)
+  assert.match(stylesSource, /\.topbar-island\.is-collapsed\s*{[^}]*width:\s*min\(320px,[^}]*max-height:\s*40px;[^}]*border-radius:\s*var\(--vast-radius-control\);/s)
   assert.match(stylesSource, /\.topbar-island\.is-expanded \.topbar-island-expanded\s*{[^}]*opacity:\s*1;/s)
   assert.match(stylesSource, /\.address-bar-purist\s*{[^}]*grid-template-columns:/s)
-  assert.match(stylesSource, /\.vast-top-address-purist\s*{[^}]*border-radius:\s*999px !important;/s)
+  assert.match(stylesSource, /\.vast-top-address-purist\s*{[^}]*border-radius:\s*var\(--vast-radius-control\) !important;/s)
   assert.match(stylesSource, /@media \(max-width: 680px\)[\s\S]*?\.address-bar-purist/)
   assert.match(stylesSource, /@media \(prefers-reduced-transparency: reduce\)[\s\S]*?\.purist-chrome-surface/)
   assert.match(horizontalSource, /variant === 'purist' && orderedItems\.length === 0/)
@@ -96,6 +96,14 @@ test('Purist embeds Vast-owned window controls in the expanded island', () => {
   assert.match(windowControlsSource, /window\.vast\.app\.window\.toggleMaximize\(\)/)
   assert.match(windowControlsSource, /window\.vast\.app\.window\.minimize\(\)/)
   assert.match(windowControlsSource, /window\.vast\.app\.window\.close\(\)/)
+})
+
+test('Purist compact clicks survive focus and exclude hidden native drag regions', () => {
+  assert.doesNotMatch(puristSource, /purist-chrome drag/)
+  assert.doesNotMatch(puristSource, /onFocusCapture=\{expandIsland\}/)
+  assert.match(puristSource, /event\.target\.closest\('\.topbar-island-expanded'\)/)
+  assert.match(stylesSource, /\.topbar-island\.is-collapsed \*\s*{[^}]*-webkit-app-region:\s*no-drag;/s)
+  assert.match(stylesSource, /\.topbar-island\.is-collapsed \.topbar-island-expanded\s*{[^}]*display:\s*none;/s)
 })
 
 test('Purist disappears from Layout choices while Experimental features is disabled', () => {

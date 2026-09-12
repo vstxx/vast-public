@@ -18,17 +18,21 @@ function xml(value) {
     .replace(/'/g, '&apos;')
 }
 
-function msixVersionForSemver(version) {
-  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(String(version))
-  if (!match) throw new Error(`MSIX packaging requires a stable x.y.z version; received ${version}.`)
-  // Package 1.2.7.0 was consumed by the rejected Electron 44.0.0 Store
-  // submission. Keep the Store-reserved fourth component at zero while using
-  // a monotonic patch offset so rebuilt 0.2.7 packages have a unique identity.
-  const values = [Number(match[1]) + 1, Number(match[2]), Number(match[3]) + 1, 0]
-  if (values.some((value) => !Number.isInteger(value) || value < 0 || value > 65535)) {
-    throw new Error(`Version ${version} cannot be represented as a four-part MSIX version.`)
+function storePackageVersion(env = process.env) {
+  const config = require('./release-config.json')
+  const version = env.VAST_MSIX_PACKAGE_VERSION || config.storePackageVersion
+  const previous = env.VAST_MSIX_PREVIOUS_PACKAGE_VERSION || config.previousStorePackageVersion
+  const parse = (value) => {
+    if (!/^[1-9]\d*\.(0|[1-9]\d*)\.(0|[1-9]\d*)\.0$/.test(value) || value.split('.').some((part) => Number(part) > 65535)) {
+      throw new Error(`Invalid Store package version ${value}; use four components, first > 0, each <= 65535, fourth = 0.`)
+    }
+    return value.split('.').map(Number)
   }
-  return values.join('.')
+  const currentParts = parse(version)
+  const previousParts = parse(previous)
+  const difference = currentParts.map((part, index) => part - previousParts[index]).find((part) => part !== 0) || 0
+  if (difference <= 0) throw new Error(`Store package version ${version} must be greater than previously consumed ${previous}. Set VAST_MSIX_PACKAGE_VERSION and VAST_MSIX_PREVIOUS_PACKAGE_VERSION from Partner Center.`)
+  return version
 }
 
 function requiredEnv(env, name) {
@@ -70,8 +74,8 @@ function identityFromEnv(env = process.env, development = false) {
   }
 }
 
-function manifestXml(identity, version = pkg.version) {
-  const packageVersion = msixVersionForSemver(version)
+function manifestXml(identity, env = process.env) {
+  const packageVersion = storePackageVersion(env)
   return `<?xml version="1.0" encoding="utf-8"?>
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
@@ -133,7 +137,7 @@ module.exports = {
   STORE_POLICY_REVIEW_MAX_AGE_DAYS,
   identityFromEnv,
   manifestXml,
-  msixVersionForSemver,
+  storePackageVersion,
   packageVersion: pkg.version,
   root
 }

@@ -135,14 +135,18 @@ export function PuristChrome(): JSX.Element {
     : 0
 
   return (
-    <header className="purist-chrome drag relative z-30 shrink-0 text-white">
+    <header className="purist-chrome relative z-30 shrink-0 text-white">
       <div
         ref={islandRef}
         data-testid="purist-topbar-island"
         data-state={expanded ? 'expanded' : 'collapsed'}
         onPointerEnter={clearCollapseTimer}
         onPointerLeave={() => scheduleCollapse()}
-        onFocusCapture={expandIsland}
+        onFocusCapture={(event) => {
+          // Focusing the compact button precedes its click. Expanding here would
+          // hide it before mouseup and discard the click that opens the address.
+          if (event.target instanceof Element && event.target.closest('.topbar-island-expanded')) expandIsland()
+        }}
         onBlurCapture={() => {
           window.requestAnimationFrame(() => {
             if (!islandRef.current?.contains(document.activeElement)) scheduleCollapse()
@@ -336,7 +340,7 @@ function PuristTabStrip(): JSX.Element {
           onClick={() => {
             createTab({ workspaceId: workspace?.id, activate: true })
           }}
-          className="purist-new-tab no-drag grid h-8 w-8 shrink-0 place-items-center rounded-full text-vast-soft transition"
+          className="purist-new-tab no-drag grid h-8 w-8 shrink-0 place-items-center rounded-control text-vast-soft transition"
         >
           <Plus className="h-4 w-4" strokeWidth={1.7} />
         </button>
@@ -406,7 +410,7 @@ function PuristTabComponent({
         onAuxClick={(event) => {
           if (event.button === 1) onClose()
         }}
-        className="purist-tab-surface flex h-8 w-full min-w-0 items-center gap-2 overflow-hidden rounded-[11px] border px-2 text-left transition"
+        className="purist-tab-surface flex h-8 w-full min-w-0 items-center gap-2 overflow-hidden rounded-control border px-2 text-left transition"
       >
         <Favicon url={tab.url} favicon={tab.favicon} title={tab.title} />
         {!tab.pinned && <span className="purist-tab-title min-w-0 flex-1 truncate text-xs font-medium">{tab.title}</span>}
@@ -417,7 +421,7 @@ function PuristTabComponent({
         {groupIsNamed && (
           <span
             aria-label={`Tab group: ${group?.name}`}
-            className="purist-tab-group-mark absolute bottom-[3px] left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full"
+            className="purist-tab-group-mark absolute bottom-[3px] left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-control"
             style={{ backgroundColor: group?.color }}
           />
         )}
@@ -432,7 +436,7 @@ function PuristTabComponent({
             event.stopPropagation()
             onClose()
           }}
-          className="purist-tab-close absolute right-1.5 top-1/2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded-full transition"
+          className="purist-tab-close absolute right-1.5 top-1/2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded-control transition"
         >
           <X className="h-3 w-3" />
         </button>

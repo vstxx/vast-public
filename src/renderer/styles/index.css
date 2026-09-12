@@ -71,10 +71,6 @@
   --vast-shadow-sm: 0 5px 16px rgba(0, 0, 0, 0.2);
   --vast-shadow-md: 0 14px 40px rgba(0, 0, 0, 0.3);
   --vast-shadow-lg: 0 28px 84px rgba(0, 0, 0, 0.42);
-  --vast-radius-sm: 8px;
-  --vast-radius-md: 13px;
-  --vast-radius-lg: 20px;
-  --vast-radius-xl: 28px;
   --vast-control-height-sm: 2rem;
   --vast-control-height-md: 2.5rem;
   --vast-control-height-lg: 3rem;
@@ -94,12 +90,6 @@
   --vast-border: var(--vast-color-border-default);
   --vast-text: var(--vast-color-text-primary);
   --vast-muted: var(--vast-color-text-secondary);
-  --vast-radius-control: 13px;
-  --vast-radius-checkbox: 7px;
-  --vast-radius-swatch: 10px;
-  --vast-radius-card: 24px;
-  --vast-radius-panel: 28px;
-  --vast-radius-modal: 32px;
   --vast-select-inner-radius: var(--vast-radius-control);
   --vast-select-menu-padding: 0.35rem;
   --vast-select-outer-radius: calc(var(--vast-select-inner-radius) + var(--vast-select-menu-padding));
@@ -303,7 +293,7 @@ button:disabled {
   height: 2.5rem;
   align-items: center;
   gap: 0.5rem;
-  border-radius: 1rem;
+  border-radius: var(--vast-radius-control);
   padding: 0 0.875rem;
   font-size: 0.8125rem;
   font-weight: 650;
@@ -386,7 +376,7 @@ button:disabled {
   content: '';
   position: absolute;
   inset: 14% 12%;
-  border-radius: 999px;
+  border-radius: 50%;
   background:
     linear-gradient(90deg, transparent, color-mix(in srgb, var(--vast-accent) 3%, transparent), transparent),
     radial-gradient(ellipse at 50% 52%, rgba(255, 255, 255, 0.022), transparent 62%);
@@ -429,7 +419,7 @@ button:disabled {
    second CSS radius produced a visibly hollow, mismatched edge at some DPI
    scales. macOS does not use setShape, so it keeps the renderer-side radius. */
 .vast-opening-overlay.platform-darwin {
-  border-radius: 28px;
+  border-radius: var(--vast-radius-panel);
 }
 
 /* Search-only new tab is intentionally completely flat. Keep shared cards,
@@ -472,7 +462,7 @@ button:disabled {
   position: absolute;
   width: min(64vw, 56rem);
   height: min(22vw, 19rem);
-  border-radius: 999px;
+  border-radius: 50%;
   background:
     radial-gradient(ellipse at 50% 50%, rgba(91, 64, 168, 0.23) 0%, rgba(38, 24, 74, 0.15) 34%, transparent 72%);
   opacity: 0;
@@ -638,7 +628,7 @@ button:disabled {
 ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.12);
   border: 3px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--vast-radius-control);
   background-clip: padding-box;
 }
 
@@ -665,7 +655,7 @@ button:disabled {
 .network-detail-scroll::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.14);
   border: 2px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--vast-radius-control);
   background-clip: padding-box;
 }
 
@@ -739,7 +729,7 @@ button:disabled {
   height: 30px;
   place-items: center;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--vast-radius-control);
   background: transparent;
   transition: color 110ms ease, background-color 110ms ease, border-color 110ms ease;
 }
@@ -767,7 +757,7 @@ button:disabled {
   height: 34px;
   padding: 1px 2px;
   border: 1px solid color-mix(in srgb, var(--vast-border) 16%, transparent);
-  border-radius: 12px;
+  border-radius: var(--vast-radius-control);
   background: color-mix(in srgb, var(--vast-panel) 54%, transparent);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
   backdrop-filter: blur(calc(var(--vast-effective-blur) + 4px)) saturate(var(--vast-saturation));
@@ -778,33 +768,33 @@ button:disabled {
 .address-bar-controls > div > button {
   width: 2.75rem;
   height: 2.75rem;
-  border-radius: 0.875rem;
+  border-radius: var(--vast-radius-control);
 }
 
 .address-bar-controls.is-compact > button,
 .address-bar-controls.is-compact > div > button {
   width: 2.25rem;
   height: 2.25rem;
-  border-radius: 0.75rem;
+  border-radius: var(--vast-radius-control);
 }
 
 .side-panel-header > button {
   width: 2.75rem;
   height: 2.75rem;
-  border-radius: 0.875rem;
+  border-radius: var(--vast-radius-control);
 }
 
 .layout-vertical .side-panel-header > button {
   width: 2.25rem;
   height: 2.25rem;
-  border-radius: 0.75rem;
+  border-radius: var(--vast-radius-control);
 }
 
 .app-shell .side-panel-pin-button {
   width: 2rem;
   height: 2rem;
   border-color: transparent !important;
-  border-radius: 0.625rem;
+  border-radius: var(--vast-radius-control);
   background: transparent !important;
   box-shadow: none !important;
 }
@@ -1032,7 +1022,7 @@ button:disabled {
 
 .vast-notification-card {
   min-height: 104px;
-  border-radius: 22px;
+  border-radius: var(--vast-radius-card);
   padding: 16px;
 }
 
@@ -1042,7 +1032,7 @@ button:disabled {
   height: 40px;
   flex: none;
   place-items: center;
-  border-radius: 14px;
+  border-radius: var(--vast-radius-control);
 }
 
 .vast-notification-message {
@@ -1140,7 +1130,7 @@ button:disabled {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  border-radius: 0.75rem;
+  border-radius: var(--vast-radius-control);
   border: 1px solid color-mix(in srgb, var(--vast-border) 26%, transparent);
   font-size: 0.75rem;
   font-weight: 650;
@@ -1553,7 +1543,7 @@ button:disabled {
   width: fit-content;
   padding: 0.25rem;
   border: 1px solid color-mix(in srgb, var(--vast-border) 24%, transparent);
-  border-radius: 1rem;
+  border-radius: var(--vast-radius-control);
   background: color-mix(in srgb, var(--vast-surface) 72%, transparent);
 }
 
@@ -1562,7 +1552,7 @@ button:disabled {
   height: 2.375rem;
   padding: 0 1.125rem;
   border: 1px solid transparent;
-  border-radius: 0.75rem;
+  border-radius: var(--vast-radius-control);
   color: var(--vast-muted);
   font-size: 0.8125rem;
   font-weight: 650;
@@ -1591,7 +1581,7 @@ button:disabled {
   align-items: stretch;
   gap: 0.75rem;
   padding: 0.75rem;
-  border-radius: 1.5rem;
+  border-radius: var(--vast-radius-card);
 }
 
 .extensions-search-field {
@@ -1602,7 +1592,7 @@ button:disabled {
   gap: 0.75rem;
   padding: 0 1rem;
   border: 1px solid color-mix(in srgb, var(--vast-border) 26%, transparent);
-  border-radius: 1rem;
+  border-radius: var(--vast-radius-control);
   background: color-mix(in srgb, var(--vast-surface) 66%, transparent);
   transition: border-color var(--vast-motion-snap), background var(--vast-motion-snap), box-shadow var(--vast-motion-snap);
 }
@@ -1627,14 +1617,14 @@ button:disabled {
   height: 2.75rem;
   align-self: stretch;
   justify-content: center;
-  border-radius: 1rem;
+  border-radius: var(--vast-radius-control);
 }
 
 .extensions-filter-chip {
   min-height: 2rem;
   padding: 0 0.75rem;
   border: 1px solid color-mix(in srgb, var(--vast-border) 22%, transparent);
-  border-radius: 999px;
+  border-radius: var(--vast-radius-control);
   background: color-mix(in srgb, var(--vast-surface) 58%, transparent);
   color: var(--vast-muted);
   font-size: 0.75rem;
@@ -1671,7 +1661,7 @@ button:disabled {
   gap: 0.625rem;
   padding: 0 0.5rem 0 0.875rem;
   border: 1px solid color-mix(in srgb, var(--vast-border) 24%, transparent);
-  border-radius: 0.875rem;
+  border-radius: var(--vast-radius-control);
   background: color-mix(in srgb, var(--vast-surface) 64%, transparent);
   color: var(--vast-text);
   font-size: 0.8125rem;
@@ -1684,7 +1674,7 @@ button:disabled {
   height: 1.5rem;
   flex: 0 0 auto;
   border: 1px solid color-mix(in srgb, var(--vast-border) 32%, transparent);
-  border-radius: 999px;
+  border-radius: var(--vast-radius-control);
   background: color-mix(in srgb, var(--vast-surface-strong) 72%, transparent);
   transition: border-color var(--vast-motion-snap), background var(--vast-motion-snap);
 }
@@ -1695,7 +1685,7 @@ button:disabled {
   left: 0.1875rem;
   width: 1rem;
   height: 1rem;
-  border-radius: 999px;
+  border-radius: var(--vast-radius-control);
   background: color-mix(in srgb, var(--vast-muted) 80%, white);
   transition: transform var(--vast-motion-snap), background var(--vast-motion-snap);
 }
@@ -1864,16 +1854,12 @@ button:disabled {
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.026), rgba(255, 255, 255, 0.007) 56%, rgba(255, 255, 255, 0.015)),
     color-mix(in srgb, var(--vast-bg) 74%, transparent);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.045),
-    0 14px 38px rgba(0, 0, 0, 0.16),
-    0 0 0 1px rgba(255, 255, 255, 0.014);
+  box-shadow: none;
   padding: 0.85rem 1rem;
   color: var(--vast-muted);
   font-size: 0.875rem;
   transition:
     background 150ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    box-shadow 150ms cubic-bezier(0.2, 0.8, 0.2, 1),
     transform 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
@@ -1883,10 +1869,7 @@ button:disabled {
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.011) 56%, rgba(255, 255, 255, 0.022)),
     color-mix(in srgb, var(--vast-bg) 68%, transparent);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.055),
-    0 18px 46px rgba(0, 0, 0, 0.22),
-    0 0 28px color-mix(in srgb, var(--vast-accent) 2%, transparent);
+  box-shadow: none;
 }
 
 .settings-grid label span,
@@ -1894,6 +1877,38 @@ button:disabled {
 .settings-grid-action span {
   color: var(--vast-text);
   font-weight: 550;
+}
+
+/* Keep Privacy controls in source order; only the multiline editor spans rows. */
+.settings-privacy-grid .settings-select-label,
+.settings-privacy-grid .settings-privacy-field,
+.settings-privacy-grid .settings-privacy-rules {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.settings-privacy-grid .settings-select-title {
+  flex: none;
+  white-space: normal;
+  overflow: visible;
+}
+
+.settings-privacy-grid .settings-select-control {
+  width: 100%;
+  flex-basis: auto;
+}
+
+.settings-privacy-grid .settings-privacy-field input {
+  width: 100%;
+  max-width: none !important;
+  margin-top: auto;
+}
+
+.settings-privacy-rules {
+  grid-column: 1 / -1;
 }
 
 .settings-grid-action-value {
@@ -2118,7 +2133,7 @@ button:disabled {
   align-items: center;
   gap: 0.375rem;
   border: 1px solid color-mix(in srgb, var(--vast-border) 24%, transparent);
-  border-radius: 1.1rem;
+  border-radius: var(--vast-radius-card);
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.052), rgba(255, 255, 255, 0.018)),
     color-mix(in srgb, var(--vast-bg) 70%, transparent);
@@ -2385,12 +2400,11 @@ button:disabled {
 
 .settings-range-control input[type='range']::-webkit-slider-runnable-track {
   height: 0.44rem;
-  border-radius: 999px;
+  border-radius: var(--vast-radius-control);
   background:
     linear-gradient(90deg, var(--vast-accent) 0 var(--range-progress), color-mix(in srgb, var(--vast-border) 42%, transparent) var(--range-progress) 100%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 0 18px color-mix(in srgb, var(--vast-accent) 8%, transparent);
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .settings-range-control input[type='range']::-webkit-slider-thumb {
@@ -2399,23 +2413,22 @@ button:disabled {
   margin-top: -0.29rem;
   appearance: none;
   -webkit-appearance: none;
-  border-radius: 999px;
+  border-radius: var(--vast-radius-control);
   background: linear-gradient(135deg, white, color-mix(in srgb, var(--vast-accent) 34%, white));
   box-shadow:
     0 0 0 3px color-mix(in srgb, var(--vast-bg) 62%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--vast-accent) 42%, transparent),
-    0 0 22px color-mix(in srgb, var(--vast-accent) 24%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--vast-accent) 42%, transparent);
 }
 
 .settings-range-control input[type='range']::-moz-range-track {
   height: 0.44rem;
-  border-radius: 999px;
+  border-radius: var(--vast-radius-control);
   background: color-mix(in srgb, var(--vast-border) 42%, transparent);
 }
 
 .settings-range-control input[type='range']::-moz-range-progress {
   height: 0.44rem;
-  border-radius: 999px;
+  border-radius: var(--vast-radius-control);
   background: var(--vast-accent);
 }
 
@@ -2423,12 +2436,11 @@ button:disabled {
   width: 1.02rem;
   height: 1.02rem;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--vast-radius-control);
   background: linear-gradient(135deg, white, color-mix(in srgb, var(--vast-accent) 34%, white));
   box-shadow:
     0 0 0 3px color-mix(in srgb, var(--vast-bg) 62%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--vast-accent) 42%, transparent),
-    0 0 22px color-mix(in srgb, var(--vast-accent) 24%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--vast-accent) 42%, transparent);
 }
 
 .settings-range-control output {
@@ -2458,17 +2470,13 @@ button:disabled {
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.012) 52%, rgba(255, 255, 255, 0.026)),
     color-mix(in srgb, var(--vast-bg) 74%, transparent);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.045),
-    0 14px 38px rgba(0, 0, 0, 0.16),
-    0 0 0 1px rgba(255, 255, 255, 0.014);
+  box-shadow: none;
   padding: 0.85rem 1rem;
   color: var(--vast-text);
   font-size: 0.875rem;
   font-weight: 600;
   transition:
     background 150ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    box-shadow 150ms cubic-bezier(0.2, 0.8, 0.2, 1),
     transform 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
@@ -2476,55 +2484,25 @@ button:disabled {
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.018) 52%, rgba(255, 255, 255, 0.04)),
     color-mix(in srgb, var(--vast-bg) 66%, transparent);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 18px 46px rgba(0, 0, 0, 0.24),
-    0 0 30px color-mix(in srgb, var(--vast-accent) 6%, transparent);
+  box-shadow: none;
 }
 
 .settings-action.settings-action-compact {
   min-height: 2.55rem;
   width: auto;
-  border-radius: 0.9rem;
+  border-radius: var(--vast-radius-control);
   padding: 0.58rem 0.82rem;
   font-size: 0.82rem;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 10px 26px rgba(0, 0, 0, 0.14),
-    0 0 0 1px rgba(255, 255, 255, 0.012);
+  box-shadow: none;
 }
 
 .settings-action.settings-action-compact:hover {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.065),
-    0 14px 32px rgba(0, 0, 0, 0.2),
-    0 0 24px color-mix(in srgb, var(--vast-accent) 7%, transparent);
+  box-shadow: none;
 }
 
 .settings-default-browser-panel {
   margin-top: 1rem;
   padding: 0.35rem 0 0.1rem;
-}
-
-.settings-default-browser-action {
-  min-height: 4.75rem;
-  border-radius: 1.1rem;
-  border-color: color-mix(in srgb, var(--vast-accent) 28%, var(--vast-border));
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--vast-accent) 12%, transparent), rgba(255, 255, 255, 0.018) 54%, rgba(255, 255, 255, 0.04)),
-    color-mix(in srgb, var(--vast-bg) 70%, transparent);
-  font-size: 0.94rem;
-  text-transform: none;
-}
-
-.settings-default-browser-action:hover {
-  border-color: color-mix(in srgb, var(--vast-accent) 42%, var(--vast-border));
-}
-
-.settings-default-browser-action:disabled {
-  cursor: not-allowed;
-  opacity: 0.56;
-  transform: none;
 }
 
 .settings-default-browser-note {
@@ -2769,14 +2747,14 @@ button:disabled {
 .light-theme .settings-select-label {
   border-color: var(--vast-color-border-default);
   background: #f8fafc;
-  box-shadow: var(--vast-shadow-sm);
+  box-shadow: none;
 }
 
 .light-theme .settings-grid label:hover,
 .light-theme .settings-select-label:hover {
   border-color: var(--vast-color-border-strong);
   background: #ffffff;
-  box-shadow: var(--vast-shadow-md);
+  box-shadow: none;
 }
 
 .light-theme .vast-select-button,
@@ -2814,6 +2792,44 @@ button:disabled {
     0 10px 30px rgba(0, 0, 0, 0.2) !important;
 }
 
+/* Settings use borders for depth and a crisp focus ring, without diffuse glow. */
+.settings-modal-shell .vast-select-button,
+.settings-modal-shell .vast-select-button:hover:not(:disabled),
+.settings-modal-shell .vast-select-button[aria-expanded='true'],
+.settings-modal-shell .settings-grid input:not([type='checkbox']):not([type='color']):not([type='range']),
+.settings-modal-shell .settings-grid input:not([type='checkbox']):not([type='color']):not([type='range']):focus,
+.settings-modal-shell .settings-grid input,
+.settings-modal-shell .settings-grid input:hover,
+.settings-modal-shell .settings-grid input:checked {
+  box-shadow: none;
+}
+
+.settings-modal-shell .settings-grid input:not([type='range']) {
+  border: 1px solid color-mix(in srgb, var(--vast-border) 35%, transparent);
+}
+
+.settings-modal-shell .vast-select-button:focus-visible,
+.settings-modal-shell .settings-grid input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--vast-accent) 65%, transparent);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.dim-theme .settings-grid label,
+.dim-theme .settings-select-label,
+.dim-theme .settings-action,
+.dim-theme .settings-grid-action {
+  background: color-mix(in srgb, var(--vast-surface) 45%, var(--vast-bg));
+  box-shadow: none;
+}
+
+.dim-theme .settings-grid label:hover,
+.dim-theme .settings-select-label:hover,
+.dim-theme .settings-action:hover,
+.dim-theme .settings-grid-action:hover {
+  background: color-mix(in srgb, var(--vast-surface) 65%, var(--vast-bg));
+}
+
 .dim-theme .command-palette-panel {
   background: rgba(31, 31, 31, 0.98) !important;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18) !important;
@@ -2827,7 +2843,8 @@ button:disabled {
   background-color: rgba(25, 25, 25, 0.76) !important;
 }
 
-.light-theme aside,
+/* Internal page sidebars own their surfaces; layout-only containers stay transparent. */
+.light-theme aside:not(.labs-page-surface aside):not(.vast-glass-panel),
 .light-theme header,
 .light-theme main,
 .light-theme [class*="bg-[#07080b]"],
@@ -2839,7 +2856,7 @@ button:disabled {
   background-color: #f5f7fa !important;
 }
 
-.dim-theme aside,
+.dim-theme aside:not(.labs-page-surface aside):not(.vast-glass-panel),
 .dim-theme header,
 .dim-theme main,
 .dim-theme [class*="bg-[#07080b]"],
@@ -2952,3 +2969,21 @@ button:disabled {
     max-width: 58vw;
   }
 }
+
+/* One continuous radius scale. Geometry exceptions are explicitly named below. */
+:root { --vast-radius-base: 26px; }
+:root, .app-shell {
+  --vast-radius-micro: calc(var(--vast-radius-base) * 0.16);
+  --vast-radius-checkbox: calc(var(--vast-radius-base) * 0.28);
+  --vast-radius-swatch: var(--vast-radius-checkbox);
+  --vast-radius-control: calc(var(--vast-radius-base) * 0.54);
+  --vast-radius-card: var(--vast-radius-base);
+  --vast-radius-panel: calc(var(--vast-radius-base) * 1.15);
+  --vast-radius-modal: calc(var(--vast-radius-base) * 1.3);
+  --vast-radius-sm: var(--vast-radius-checkbox);
+  --vast-radius-md: var(--vast-radius-control);
+  --vast-radius-lg: var(--vast-radius-card);
+  --vast-radius-xl: var(--vast-radius-panel);
+}
+/* True circular status indicators and decorative radial halos. */
+.vast-geometry-circle { border-radius: 50%; }

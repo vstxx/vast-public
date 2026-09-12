@@ -314,3 +314,19 @@ test('rolls back the registry, runtime, and candidate directory when a managed u
     await assert.rejects(stat(join(root, 'Extensions', 'Managed', managedId, 'versions', '2.0.0')), /ENOENT/)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
+
+
+test('uninstall clears only its own Chrome-origin storage while disable preserves it', async () => {
+  const harness = await managerHarness()
+  try {
+    await harness.manager.initialize([workspace('one'), workspace('two')])
+    const installed = await harness.manager.installUnpacked(harness.extensionPath)
+    const cleared: unknown[] = []
+    for (const runtime of harness.sessions.values()) runtime.clearStorageData = async options => { cleared.push(options) }
+    await harness.manager.disable(installed.id)
+    assert.deepEqual(cleared, [])
+    await harness.manager.remove(installed.id)
+    assert.equal(cleared.length, 2)
+    for (const options of cleared) assert.deepEqual(options, { origin: `chrome-extension://${installed.id}` })
+  } finally { await rm(harness.root, { recursive: true, force: true }) }
+})

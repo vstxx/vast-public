@@ -1,3 +1,4 @@
+import { copyText } from '../../lib/clipboard'
 import 'pdfjs-dist/legacy/web/pdf_viewer.css'
 
 import {
@@ -240,7 +241,7 @@ function ToolbarButton({
       onClick={onClick}
       disabled={disabled}
       className={[
-        wide ? 'flex h-8 items-center gap-2 rounded-xl px-3' : 'grid h-8 w-8 place-items-center rounded-xl',
+        wide ? 'flex h-8 items-center gap-2 rounded-control px-3' : 'grid h-8 w-8 place-items-center rounded-control',
         'border text-sm transition',
         'shrink-0',
         active
@@ -269,7 +270,7 @@ function SidebarTabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex h-10 flex-1 items-center justify-center gap-2 rounded-2xl border px-3 text-sm font-medium transition ${
+      className={`flex h-10 flex-1 items-center justify-center gap-2 rounded-card border px-3 text-sm font-medium transition ${
         active
           ? 'border-[rgba(255,175,110,0.32)] bg-[rgba(255,154,82,0.16)] text-white'
           : 'border-transparent bg-white/[0.04] text-vast-soft hover:bg-white/[0.08] hover:text-white'
@@ -297,7 +298,7 @@ function PdfOutlineTree({
           <button
             type="button"
             onClick={() => onSelect(item)}
-            className="flex w-full items-center justify-between rounded-2xl px-3 py-2 text-left text-sm transition hover:bg-white/[0.06]"
+            className="flex w-full items-center justify-between rounded-card px-3 py-2 text-left text-sm transition hover:bg-white/[0.06]"
             style={outlineTextStyle(item, level)}
           >
             <span className="truncate">{item.title || 'Untitled section'}</span>
@@ -392,7 +393,7 @@ function PdfThumbnailItem({
       type="button"
       onClick={onClick}
       onDoubleClick={() => error && setAttempt((value) => value + 1)}
-      className={`group h-[232px] w-full rounded-[22px] border p-3 text-left transition ${
+      className={`group h-[232px] w-full rounded-card border p-3 text-left transition ${
         active
           ? 'border-[rgba(255,175,110,0.34)] bg-[rgba(255,154,82,0.12)] shadow-[0_10px_26px_rgba(255,140,64,0.08)]'
           : 'border-white/[0.08] bg-white/[0.035] hover:border-white/[0.14] hover:bg-white/[0.06]'
@@ -402,9 +403,9 @@ function PdfThumbnailItem({
         <span>Page</span>
         <span>{label}</span>
       </div>
-      <div className="grid h-[174px] place-items-center rounded-[18px] bg-[#0d1015] p-2 ring-1 ring-white/[0.06]">
-        <canvas ref={canvasRef} className={`max-w-full rounded-[10px] shadow-[0_18px_36px_rgba(0,0,0,0.25)] transition ${rendered ? 'opacity-100' : 'opacity-0'}`} />
-        {!rendered && !error && <div className="h-[154px] w-[120px] rounded-[10px] bg-white/[0.05]" />}
+      <div className="grid h-[174px] place-items-center rounded-card bg-[#0d1015] p-2 ring-1 ring-white/[0.06]">
+        <canvas ref={canvasRef} className={`max-w-full rounded-control shadow-[0_18px_36px_rgba(0,0,0,0.25)] transition ${rendered ? 'opacity-100' : 'opacity-0'}`} />
+        {!rendered && !error && <div className="h-[154px] w-[120px] rounded-control bg-white/[0.05]" />}
         {error && <div className="px-3 text-center text-xs leading-5 text-vast-soft">Preview failed. Double-click to retry.</div>}
       </div>
     </button>
@@ -1044,7 +1045,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
 
   const handleCopyLink = (): void => {
     if (!sourceUrl || localSource) return
-    void navigator.clipboard.writeText(sourceUrl)
+    void copyText(sourceUrl)
   }
 
   const handleOpenOriginal = (): void => {
@@ -1103,9 +1104,9 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
 
   return (
     <div className="pdf-viewer-shell flex h-full min-h-0 flex-col gap-2 bg-[radial-gradient(circle_at_top,rgba(255,162,94,0.12),transparent_26%),linear-gradient(180deg,#09090d,#050507)] p-2 md:p-3">
-      <section className="vast-glass-panel relative z-40 rounded-[22px] px-3 py-2">
+      <section className="vast-glass-panel relative z-40 rounded-card px-3 py-2">
         <div className="flex items-center gap-2">
-          <span className="shrink-0 rounded-full border border-[rgba(255,175,110,0.22)] bg-[rgba(255,154,82,0.12)] px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#ffd4b4]">Built-in PDF</span>
+          <span className="shrink-0 rounded-control border border-[rgba(255,175,110,0.22)] bg-[rgba(255,154,82,0.12)] px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#ffd4b4]">Built-in PDF</span>
           <span className="min-w-0 flex-1 truncate text-sm font-semibold text-white" title={documentName}>{documentName}</span>
           <span className="hidden shrink-0 items-center gap-1.5 text-[11px] text-vast-soft sm:flex">
             {sourceHost && <span>{sourceHost}</span>}
@@ -1143,7 +1144,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
               <ToolbarButton title="Previous page" onClick={() => pdfViewerRef.current?.previousPage()} disabled={currentPage <= 1}>
                 <ChevronLeft className="h-4 w-4" />
               </ToolbarButton>
-              <div className="flex items-center gap-1.5 rounded-xl bg-white/[0.04] px-2.5 py-1">
+              <div className="flex items-center gap-1.5 rounded-control bg-white/[0.04] px-2.5 py-1">
                 <input
                   ref={pageInputRef}
                   value={pageDraft}
@@ -1167,7 +1168,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
               <ToolbarButton title="Zoom out" onClick={() => pdfViewerRef.current?.decreaseScale({ steps: 1 })}>
                 <Minus className="h-4 w-4" />
               </ToolbarButton>
-              <div className="rounded-xl bg-white/[0.04] px-2.5 py-1 text-sm font-semibold text-white">{Math.round(currentScale * 100)}%</div>
+              <div className="rounded-control bg-white/[0.04] px-2.5 py-1 text-sm font-semibold text-white">{Math.round(currentScale * 100)}%</div>
               <ToolbarButton title="Zoom in" onClick={() => pdfViewerRef.current?.increaseScale({ steps: 1 })}>
                 <ZoomIn className="h-4 w-4" />
               </ToolbarButton>
@@ -1204,7 +1205,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
           </div>
 
           <div className="pdf-control-group min-w-0 xl:w-full">
-            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-white/[0.04] text-vast-soft">
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-control bg-white/[0.04] text-vast-soft">
               <Search className="h-4 w-4" />
             </div>
             <input
@@ -1220,7 +1221,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
               placeholder="Search inside this PDF"
               className="min-w-0 flex-1 bg-transparent text-sm font-medium text-white outline-none placeholder:text-vast-soft"
             />
-            <div className="rounded-xl bg-white/[0.04] px-2.5 py-1 text-xs text-vast-soft">
+            <div className="rounded-control bg-white/[0.04] px-2.5 py-1 text-xs text-vast-soft">
               {searchQuery.trim() ? `${searchMatches.current}/${searchMatches.total}` : 'Find'}
             </div>
             <ToolbarButton title="Previous match" onClick={() => goToSearchMatch(true)} disabled={!searchQuery.trim()}>
@@ -1235,7 +1236,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
 
       <div className="relative z-10 flex min-h-0 flex-1 gap-4 overflow-hidden">
         {sidebarOpen && (
-          <aside className="vast-glass-panel hidden w-[320px] shrink-0 flex-col overflow-hidden rounded-[30px] p-3 lg:flex">
+          <aside className="vast-glass-panel hidden w-[320px] shrink-0 flex-col overflow-hidden rounded-panel p-3 lg:flex">
             <div className="mb-3 flex gap-2">
               <SidebarTabButton active={sidebarMode === 'thumbnails'} icon={<LayoutGrid className="h-4 w-4" />} label="Thumbnails" onClick={() => setSidebarMode('thumbnails')} />
               <SidebarTabButton active={sidebarMode === 'outline'} icon={<ListTree className="h-4 w-4" />} label="Outline" onClick={() => setSidebarMode('outline')} />
@@ -1257,21 +1258,21 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
                 outline.length > 0 ? (
                   <PdfOutlineTree items={outline} onSelect={handleOutlineSelect} />
                 ) : (
-                  <div className="grid min-h-[200px] place-items-center rounded-[24px] border border-dashed border-white/[0.08] bg-white/[0.03] p-6 text-center text-sm text-vast-soft">
+                  <div className="grid min-h-[200px] place-items-center rounded-card border border-dashed border-white/[0.08] bg-white/[0.03] p-6 text-center text-sm text-vast-soft">
                     This document does not include an outline.
                   </div>
                 )
               ) : infoRows.length > 0 ? (
                 <div className="space-y-2">
                   {infoRows.map(([label, value]) => (
-                    <div key={label} className="rounded-[22px] border border-white/[0.08] bg-white/[0.035] p-3">
+                    <div key={label} className="rounded-card border border-white/[0.08] bg-white/[0.035] p-3">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-vast-soft">{label}</div>
                       <div className="mt-1 break-words text-sm text-white">{value}</div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="grid min-h-[200px] place-items-center rounded-[24px] border border-dashed border-white/[0.08] bg-white/[0.03] p-6 text-center text-sm text-vast-soft">
+                <div className="grid min-h-[200px] place-items-center rounded-card border border-dashed border-white/[0.08] bg-white/[0.03] p-6 text-center text-sm text-vast-soft">
                   Document metadata will appear here after the PDF finishes loading.
                 </div>
               )}
@@ -1279,14 +1280,14 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
           </aside>
         )}
 
-        <section className="min-w-0 flex-1 overflow-hidden rounded-[30px] border border-white/[0.08] bg-[linear-gradient(180deg,rgba(15,17,22,0.94),rgba(9,11,15,0.98))] shadow-[0_20px_50px_rgba(0,0,0,0.25)]">
+        <section className="min-w-0 flex-1 overflow-hidden rounded-panel border border-white/[0.08] bg-[linear-gradient(180deg,rgba(15,17,22,0.94),rgba(9,11,15,0.98))] shadow-[0_20px_50px_rgba(0,0,0,0.25)]">
           <div className="relative flex h-full min-h-0 flex-col">
             <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3 text-xs text-vast-soft">
               <div className="flex min-w-0 items-center gap-3">
                 <span className="truncate">Page {visiblePageLabel}</span>
                 <span className="hidden sm:inline">Rotation {rotation}&deg;</span>
-                {!printAllowed && <span className="rounded-full border border-vast-amber/30 bg-vast-amber/10 px-2 py-1 text-vast-amber">Print restricted</span>}
-                {!copyAllowed && <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-white/70">Copy restricted</span>}
+                {!printAllowed && <span className="rounded-control border border-vast-amber/30 bg-vast-amber/10 px-2 py-1 text-vast-amber">Print restricted</span>}
+                {!copyAllowed && <span className="rounded-control border border-white/10 bg-white/[0.04] px-2 py-1 text-white/70">Copy restricted</span>}
               </div>
               <div>
                 {searchStatus === 'pending'
@@ -1316,9 +1317,9 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
                           : 'Preparing range-based page rendering, search indexes, and navigation targets.'}
                       </div>
                       {downloadProgress?.total ? (
-                        <div className="mx-auto mt-4 h-1.5 w-64 overflow-hidden rounded-full bg-white/[0.08]">
+                        <div className="mx-auto mt-4 h-1.5 w-64 overflow-hidden rounded-control bg-white/[0.08]">
                           <div
-                            className="h-full rounded-full bg-vast-cyan transition-[width] duration-150"
+                            className="h-full rounded-control bg-vast-cyan transition-[width] duration-150"
                             style={{ width: `${Math.min(100, downloadProgress.received / downloadProgress.total * 100)}%` }}
                           />
                         </div>
@@ -1330,7 +1331,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
                 {passwordRequest && (
                   <div className="absolute inset-0 z-20 grid place-items-center bg-[rgba(8,9,12,0.82)] backdrop-blur-md p-6">
                     <form
-                      className="w-full max-w-md rounded-[28px] border border-white/[0.1] bg-[#0d1015]/95 p-5 shadow-[0_28px_70px_rgba(0,0,0,0.36)]"
+                      className="w-full max-w-md rounded-panel border border-white/[0.1] bg-[#0d1015]/95 p-5 shadow-[0_28px_70px_rgba(0,0,0,0.36)]"
                       onSubmit={(event) => {
                         event.preventDefault()
                         const trimmed = passwordValue.trim()
@@ -1338,7 +1339,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
                         passwordRequest.submit(trimmed)
                       }}
                     >
-                      <div className="inline-flex items-center gap-2 rounded-full border border-[rgba(255,175,110,0.24)] bg-[rgba(255,154,82,0.12)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#ffd4b4]">
+                      <div className="inline-flex items-center gap-2 rounded-control border border-[rgba(255,175,110,0.24)] bg-[rgba(255,154,82,0.12)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#ffd4b4]">
                         <FileText className="h-3.5 w-3.5" />Protected PDF
                       </div>
                       <div className="mt-4 text-xl font-semibold text-white">
@@ -1354,7 +1355,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
                         value={passwordValue}
                         onChange={(event) => setPasswordValue(event.target.value)}
                         placeholder="Document password"
-                        className="mt-5 h-12 w-full rounded-2xl border border-white/[0.1] bg-black/25 px-4 text-sm font-medium text-white outline-none transition focus:border-vast-cyan/40 focus:bg-black/[0.35]"
+                        className="mt-5 h-12 w-full rounded-card border border-white/[0.1] bg-black/25 px-4 text-sm font-medium text-white outline-none transition focus:border-vast-cyan/40 focus:bg-black/[0.35]"
                       />
                       <div className="mt-5 flex justify-end gap-2">
                         <button
@@ -1366,14 +1367,14 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
                             setLoadError('Password entry was cancelled.')
                             void loadingTaskRef.current?.destroy().catch(() => undefined)
                           }}
-                          className="rounded-xl border border-white/[0.1] bg-white/[0.05] px-4 py-2 text-sm font-medium text-vast-soft hover:bg-white/[0.08] hover:text-white"
+                          className="rounded-control border border-white/[0.1] bg-white/[0.05] px-4 py-2 text-sm font-medium text-vast-soft hover:bg-white/[0.08] hover:text-white"
                         >
                           Cancel
                         </button>
                         <button
                           type="submit"
                           disabled={!passwordValue.trim()}
-                          className="rounded-xl bg-vast-cyan px-4 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-45"
+                          className="rounded-control bg-vast-cyan px-4 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-45"
                         >
                           Unlock
                         </button>

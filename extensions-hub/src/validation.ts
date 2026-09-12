@@ -43,6 +43,8 @@ function localPath(value: unknown, label: string, files: ReadonlyMap<string, Uin
 }
 
 function validateReferencedFiles(manifest: Record<string, unknown>, files: ReadonlyMap<string, Uint8Array>): void {
+  if (object(manifest.background) && manifest.background.page !== undefined) localPath(manifest.background.page, 'Background page', files)
+  if (object(manifest.background)) for (const path of strings(manifest.background.scripts, 'Background scripts')) localPath(path, 'Background script', files)
   if (object(manifest.background) && manifest.background.service_worker !== undefined) localPath(manifest.background.service_worker, 'Background service worker', files)
   if (object(manifest.action) && manifest.action.default_popup !== undefined) localPath(manifest.action.default_popup, 'Action popup', files)
   if (object(manifest.browser_action) && manifest.browser_action.default_popup !== undefined) localPath(manifest.browser_action.default_popup, 'Browser action popup', files)
@@ -117,7 +119,8 @@ function scanAstPolicy(root: AstNode, path: string): string[] {
     if (node.type === 'ImportExpression' && /^https?:\/\//i.test(literalString(node.source) ?? '')) violations.add(`${path}: remote import`)
     if (['ImportDeclaration', 'ExportNamedDeclaration', 'ExportAllDeclaration'].includes(node.type) && /^https?:\/\//i.test(literalString(node.source) ?? '')) violations.add(`${path}: remote module source`)
     if (node.type === 'CallExpression' || node.type === 'NewExpression') {
-      const callee = node.callee
+      const rawCallee = node.callee
+      const callee = astNode(rawCallee) && rawCallee.type === 'SequenceExpression' && Array.isArray(rawCallee.expressions) ? rawCallee.expressions.at(-1) : rawCallee
       const name = identifierName(callee)
       const calleePath = memberPath(callee)
       const args = Array.isArray(node.arguments) ? node.arguments : []
@@ -169,7 +172,9 @@ function scanStaticPolicy(files: ReadonlyMap<string, Uint8Array>): string[] {
         }
       }
       if (program) findings.push(...scanAstPolicy(program, path))
-      if (forbiddenSourceFallback.test(source)) findings.push(`${path}: remote or dynamic code execution`)
+      // Parsed JavaScript is inspected structurally: comments and strings may
+      // legitimately document forbidden APIs without executing them. Parse failures
+      // above are rejected, so no source-text fallback is needed here.
       const lines = source.split(/\r?\n/)
       const longest = lines.reduce((length, line) => Math.max(length, line.length), 0)
       if (source.length > 20_000 && (lines.length < 10 || longest > 10_000)) review.push(`${path}: manual review required for minified or obfuscated source`)
@@ -222,9 +227,29 @@ export async function validatePublisherPackage(bytes: Uint8Array, expectedExtens
     ...contentScriptHosts
   ])]
   if (hosts.some((permission) => !parseExtensionMatchPattern(permission))) throw new HttpError(400, 'Host permissions are invalid.')
+  if (manifest.vast_network !== undefined && (manifest.vast_network !== 1 || manifest.manifest_version !== 2 || !chromePermissions.includes('webRequest') || !chromePermissions.includes('webRequestBlocking'))) throw new HttpError(400, 'Network providers require API version 1, a background page and blocking request permissions.')
+  if (manifest.vast_network !== undefined && (!object(manifest.background) || !manifest.background.page && !Array.isArray(manifest.background.scripts))) throw new HttpError(400, 'Network providers require a background page.')
   const hasChrome = manifest.manifest_version !== undefined || manifest.background !== undefined || manifest.content_scripts !== undefined || manifest.action !== undefined
-  if (hasChrome && manifest.manifest_version !== 3) throw new HttpError(400, 'Published Chrome extensions must use Manifest V3.')
+  if (hasChrome && manifest.manifest_version !== 2 && manifest.manifest_version !== 3) throw new HttpError(400, 'Published Chrome extensions must use a supported manifest version.')
   if (!hasChrome && !vast) throw new HttpError(400, 'The package has no supported extension runtime.')
+  if (manifest.manifest_version === 2) {
+    const csp = manifest.content_security_policy
+    if (typeof csp !== 'string') throw new HttpError(400, 'Manifest V2 requires an explicit local-only script policy.')
+    const directives = new Map<string, string[]>()
+    for (const directive of csp.split(';')) {
+      const [name, ...values] = directive.trim().split(/\s+/)
+      if (!name) continue
+      if (directives.has(name)) throw new HttpError(400, 'Duplicate CSP directives are prohibited.')
+      directives.set(name, values)
+    }
+    for (const name of ['script-src', 'object-src']) {
+      const values = directives.get(name)
+      if (!values?.length || values.some(value => !["'self'", "'none'"].includes(value)) || name === 'object-src' && values.join(' ') !== "'none'") throw new HttpError(400, 'Manifest V2 requires local-only scripts and no objects.')
+    }
+    for (const name of ['script-src-elem', 'script-src-attr', 'worker-src']) {
+      if (directives.get(name)?.some(value => !["'self'", "'none'"].includes(value))) throw new HttpError(400, 'Manifest V2 may not relax its script policy.')
+    }
+  }
   validateReferencedFiles(manifest, parsed.files)
   const validation = scanStaticPolicy(parsed.files)
   return {

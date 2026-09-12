@@ -4,7 +4,7 @@ const { join } = require('node:path')
 const {
   identityFromEnv,
   manifestXml,
-  msixVersionForSemver,
+  storePackageVersion,
   packageVersion,
   root
 } = require('./store-msix-config.cjs')
@@ -15,7 +15,7 @@ const identity = identityFromEnv(process.env, development)
 const storeRoot = join(root, 'release', 'store')
 const stagingRoot = join(storeRoot, 'staging-x64')
 const electronRoot = join(root, 'release', 'store-electron', 'win-unpacked')
-const artifactPath = join(storeRoot, `Vast-${packageVersion}-Store-x64${development ? '-Development' : ''}.msix`)
+const artifactPath = join(storeRoot, `Vast-${packageVersion}-Store-${storePackageVersion()}-x64${development ? '-Development' : ''}.msix`)
 const env = {
   ...process.env,
   VAST_DISTRIBUTION_CHANNEL: 'microsoft-store',
@@ -78,6 +78,7 @@ pruneGeneratedPythonCaches(stagingRoot)
 
 for (const relativePath of [
   join('resources', 'app-update.yml'),
+  join('resources', 'apply-update.ps1'),
   'latest.yml',
   'latest-beta.yml'
 ]) {
@@ -104,7 +105,7 @@ console.log(JSON.stringify({
   ok: true,
   artifactPath,
   semanticVersion: packageVersion,
-  msixVersion: msixVersionForSemver(packageVersion),
+  msixVersion: storePackageVersion(),
   identity,
   signed: false,
   signingModel: development ? 'sign with ephemeral local test certificate before sideloading' : 'Microsoft Store signs after certification'

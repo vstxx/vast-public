@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, screen, webContents, type IpcMainInvokeEvent } from 'electron/main'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, screen, webContents, type IpcMainInvokeEvent } from 'electron/main'
 import { writeFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
@@ -23,7 +23,6 @@ import {
   spoofingDocumentConfigForWebContents,
   requestOAuthExternalFallback
 } from './sessions'
-import { updatePrivacyFilters } from './privacy-filter-lists'
 import {
   assertStorageTextSize,
   getStorageRecoveryState,
@@ -32,6 +31,7 @@ import {
   loadData,
   replaceDataFromImport,
   saveData,
+  saveRendererData,
   storagePath
 } from './storage'
 import { resolveRendererPrompt, showRendererNotification } from './ui-bridge'
@@ -289,9 +289,8 @@ export function setupIpc(services: IpcServices = {}): void {
   const persistRendererData = async (data: PersistedData): Promise<{ ok: true } | { ok: false; error: string }> => {
     try {
       if (!isPersistedData(data)) throw new Error('Invalid storage payload.')
-      await saveData(data)
+      await saveRendererData(data)
       onDataSaved?.(data)
-      void updatePrivacyFilters(false)
       return ok()
     } catch (error) {
       return fail(error)
@@ -526,6 +525,12 @@ export function setupIpc(services: IpcServices = {}): void {
     } catch (error) {
       return fail(error)
     }
+  })
+
+  handle('vast:browser:write-clipboard-text', async (_event, text: string) => {
+    if (typeof text !== 'string' || text.length > 2 * 1024 * 1024) throw new Error('Invalid clipboard text.')
+    clipboard.writeText(text)
+    return ok()
   })
 
   handle('vast:browser:copy-image-at', async (event, webContentsId: number, x: number, y: number) => {

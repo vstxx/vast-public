@@ -6,7 +6,7 @@ Cloudflare Worker for the publisher-oriented Vast Publisher Platform, public cat
 
 The published D1 catalog is the only source of truth for Explore. The public website and Vast Browser read the same published extension/current-release rows; Vast only overlays the current profile's local `installed` state. Catalog, details, and current-release metadata use `Cache-Control: no-store`, and the browser revalidates Explore when it is opened or regains focus.
 
-Draft, pending, rejected, suspended, and release-less listings appear in neither client. Installing an unpacked or local package does not publish it: publishing always requires an authenticated publisher upload and a review decision, so private code and profile state never leave the device implicitly. Publisher and reviewer must always be different identities, including for administrators.
+Draft, pending, rejected, suspended, and release-less listings appear in neither client. Installing an unpacked or local package does not publish it: publishing always requires an authenticated publisher upload and a review decision, so private code and profile state never leave the device implicitly. Publishers and reviewers must be different identities, except that an authenticated administrator may approve and sign a release owned by the same publisher identity. That exception is labelled in the UI and recorded with a distinct audit action.
 
 ## Bindings
 

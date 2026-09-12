@@ -26,7 +26,7 @@ function renderInlineMarkdown(text: string): Array<string | JSX.Element> {
   const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^)]+\))/g)
   return parts.filter(Boolean).map((part, index) => {
     if (part.startsWith('**') && part.endsWith('**')) return <strong key={index} className="font-semibold text-white">{part.slice(2, -2)}</strong>
-    if (part.startsWith('`') && part.endsWith('`')) return <code key={index} className="rounded bg-white/10 px-1.5 py-0.5 text-vast-cyan">{part.slice(1, -1)}</code>
+    if (part.startsWith('`') && part.endsWith('`')) return <code key={index} className="rounded-micro bg-white/10 px-1.5 py-0.5 text-vast-cyan">{part.slice(1, -1)}</code>
     const link = part.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/)
     if (link) return <a key={index} href={link[2]} target="_blank" rel="noreferrer" className="text-vast-cyan underline decoration-vast-cyan/40 underline-offset-2">{link[1]}</a>
     return part
@@ -45,7 +45,7 @@ function MarkdownPreview({ body }: { body: string }): JSX.Element {
         code.push(lines[index])
         index += 1
       }
-      blocks.push(<pre key={`code-${index}`} className="my-3 overflow-x-auto rounded-2xl border border-white/10 bg-black/30 p-4 text-[13px] leading-6 text-vast-cyan"><code>{code.join('\n')}</code></pre>)
+      blocks.push(<pre key={`code-${index}`} className="my-3 overflow-x-auto rounded-card border border-white/10 bg-black/30 p-4 text-[13px] leading-6 text-vast-cyan"><code>{code.join('\n')}</code></pre>)
       continue
     }
     const heading = line.match(/^(#{1,3})\s+(.+)$/)
@@ -190,26 +190,26 @@ export function NotesPage(): JSX.Element {
   return (
     <div className="labs-page-surface h-full min-h-0 overflow-y-auto overflow-x-hidden bg-[#06070a] p-6 text-white" data-testid="notes-page">
       <div className="mx-auto grid max-w-7xl gap-5 xl:grid-cols-[370px_minmax(0,1fr)]">
-        <section className="vast-glass-panel rounded-[30px] p-5">
+        <section className="vast-glass-panel rounded-panel p-5">
           <div className="mb-5 flex items-start justify-between gap-3">
             <h1 className="text-3xl font-semibold">Notes</h1>
-            <button type="button" onClick={() => createNote(false)} className="grid h-11 w-11 place-items-center rounded-2xl bg-vast-cyan text-black" title="Create note">
+            <button type="button" onClick={() => createNote(false)} className="grid h-11 w-11 place-items-center rounded-card bg-vast-cyan text-black" title="Create note">
               <Plus className="h-5 w-5" />
             </button>
           </div>
           <div className="relative mb-3">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-vast-soft" />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search notes, pages, tags" className="h-11 w-full rounded-2xl border border-white/10 bg-black/20 pl-10 pr-3 text-sm text-white outline-none focus:border-vast-cyan/[0.35]" data-testid="notes-search-input" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search notes, pages, tags" className="h-11 w-full rounded-card border border-white/10 bg-black/20 pl-10 pr-3 text-sm text-white outline-none focus:border-vast-cyan/[0.35]" data-testid="notes-search-input" />
           </div>
           <div className="mb-4 flex flex-wrap gap-2">
-            <button type="button" onClick={() => setShowArchived((value) => !value)} className={`rounded-full border px-3 py-1.5 text-xs ${showArchived ? 'border-vast-cyan/[0.35] text-vast-cyan' : 'border-white/10 text-vast-soft'}`}>Archived</button>
+            <button type="button" onClick={() => setShowArchived((value) => !value)} className={`rounded-control border px-3 py-1.5 text-xs ${showArchived ? 'border-vast-cyan/[0.35] text-vast-cyan' : 'border-white/10 text-vast-soft'}`}>Archived</button>
             {allTags.slice(0, 8).map((tag) => (
-              <button key={tag} type="button" onClick={() => setTagFilter((value) => (value === tag ? '' : tag))} className={`rounded-full border px-3 py-1.5 text-xs ${tagFilter === tag ? 'border-vast-cyan/[0.35] text-vast-cyan' : 'border-white/10 text-vast-soft'}`}>#{tag}</button>
+              <button key={tag} type="button" onClick={() => setTagFilter((value) => (value === tag ? '' : tag))} className={`rounded-control border px-3 py-1.5 text-xs ${tagFilter === tag ? 'border-vast-cyan/[0.35] text-vast-cyan' : 'border-white/10 text-vast-soft'}`}>#{tag}</button>
             ))}
           </div>
           <div className="space-y-2">
             {filtered.map((note) => (
-              <button key={note.id} type="button" onClick={() => setSelectedId(note.id)} className={`w-full rounded-2xl p-3 text-left transition ${selected?.id === note.id ? 'bg-white/[0.1]' : 'hover:bg-white/[0.055]'}`}>
+              <button key={note.id} type="button" onClick={() => setSelectedId(note.id)} className={`w-full rounded-card p-3 text-left transition ${selected?.id === note.id ? 'bg-white/[0.1]' : 'hover:bg-white/[0.055]'}`}>
                 <div className="flex items-center gap-2">
                   {note.pinned && <Star className="h-3.5 w-3.5 fill-current text-vast-amber" />}
                   <div className="min-w-0 flex-1 truncate text-sm font-semibold">{note.title}</div>
@@ -217,15 +217,15 @@ export function NotesPage(): JSX.Element {
                 </div>
                 <div className="mt-2 line-clamp-2 text-xs leading-5 text-vast-soft">{markdownPreview(note.body) || 'Empty note'}</div>
                 <div className="mt-2 flex flex-wrap gap-1">
-                  {(note.tags ?? []).slice(0, 4).map((tag) => <span key={tag} className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-vast-soft">#{tag}</span>)}
+                  {(note.tags ?? []).slice(0, 4).map((tag) => <span key={tag} className="rounded-control bg-white/[0.06] px-2 py-0.5 text-[10px] text-vast-soft">#{tag}</span>)}
                 </div>
               </button>
             ))}
-            {filtered.length === 0 && <div className="rounded-3xl border border-dashed border-white/10 p-8 text-center text-sm text-vast-soft">No notes match this view.</div>}
+            {filtered.length === 0 && <div className="rounded-panel border border-dashed border-white/10 p-8 text-center text-sm text-vast-soft">No notes match this view.</div>}
           </div>
         </section>
 
-        <section className="vast-glass-panel min-h-[720px] rounded-[30px] p-5">
+        <section className="vast-glass-panel min-h-[720px] rounded-panel p-5">
           {selected ? (
             <div className="grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
               <div className="flex min-h-0 flex-col">
@@ -246,17 +246,17 @@ export function NotesPage(): JSX.Element {
                     <button type="button" onClick={removeSelected} className="vault-danger-button min-w-0 justify-center"><Trash2 className="h-4 w-4" />Delete</button>
                   </div>
                 </div>
-                <textarea value={selected.body} onChange={(event) => updateBody(event.target.value)} placeholder="Write Markdown. Use # headings, **bold**, lists, quotes, links, and fenced code." className="min-h-[420px] flex-1 resize-none rounded-3xl border border-white/10 bg-black/[0.22] p-5 text-base leading-8 text-white outline-none focus:border-vast-cyan/[0.35]" data-testid="note-body-input" />
+                <textarea value={selected.body} onChange={(event) => updateBody(event.target.value)} placeholder="Write Markdown. Use # headings, **bold**, lists, quotes, links, and fenced code." className="min-h-[420px] flex-1 resize-none rounded-panel border border-white/10 bg-black/[0.22] p-5 text-base leading-8 text-white outline-none focus:border-vast-cyan/[0.35]" data-testid="note-body-input" />
               </div>
               <aside className="space-y-4">
-                <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-4">
+                <div className="rounded-panel border border-white/10 bg-white/[0.035] p-4">
                   <div className="mb-2 flex items-center gap-2 text-sm font-semibold"><Tag className="h-4 w-4 text-vast-cyan" />Tags</div>
-                  <input value={(selected.tags ?? []).join(', ')} onChange={(event) => updateAdvancedNote({ tags: parseTags(event.target.value) })} placeholder="research, quote, school" className="h-10 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-white outline-none" />
+                  <input value={(selected.tags ?? []).join(', ')} onChange={(event) => updateAdvancedNote({ tags: parseTags(event.target.value) })} placeholder="research, quote, school" className="h-10 w-full rounded-control border border-white/10 bg-black/20 px-3 text-sm text-white outline-none" />
                 </div>
-                <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-4">
+                <div className="rounded-panel border border-white/10 bg-white/[0.035] p-4">
                   <div className="mb-2 flex items-center gap-2 text-sm font-semibold"><Link2 className="h-4 w-4 text-vast-cyan" />Linked page</div>
-                  <input value={selected.url ?? ''} onChange={(event) => updateAdvancedNote({ url: event.target.value || undefined })} placeholder="https://..." className="h-10 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-white outline-none" />
-                  <button type="button" onClick={createLinkedNote} className="mt-3 w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm hover:bg-white/[0.09]">New note for active page</button>
+                  <input value={selected.url ?? ''} onChange={(event) => updateAdvancedNote({ url: event.target.value || undefined })} placeholder="https://..." className="h-10 w-full rounded-control border border-white/10 bg-black/20 px-3 text-sm text-white outline-none" />
+                  <button type="button" onClick={createLinkedNote} className="mt-3 w-full rounded-control border border-white/10 bg-white/[0.06] px-3 py-2 text-sm hover:bg-white/[0.09]">New note for active page</button>
                   <div className="mt-3 block text-[13px] text-vast-soft">
                     <span>Workspace</span>
                     <VastSelect
@@ -273,12 +273,12 @@ export function NotesPage(): JSX.Element {
                     />
                   </div>
                 </div>
-                <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-4">
+                <div className="rounded-panel border border-white/10 bg-white/[0.035] p-4">
                   <div className="mb-3 flex items-center gap-2 text-sm font-semibold"><FileText className="h-4 w-4 text-vast-cyan" />Preview</div>
                   <div className="max-h-96 overflow-auto"><MarkdownPreview body={selected.body} /></div>
                 </div>
                 {(selected.quotes ?? []).length > 0 && (
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-4">
+                  <div className="rounded-panel border border-white/10 bg-white/[0.035] p-4">
                     <div className="mb-3 text-sm font-semibold">Captured quotes</div>
                     {(selected.quotes ?? []).map((quote) => (
                       <blockquote key={quote.id} className="mb-3 border-l-2 border-vast-cyan/50 pl-3 text-sm leading-6 text-vast-soft">
@@ -291,7 +291,7 @@ export function NotesPage(): JSX.Element {
             </div>
           ) : (
             <div className="grid h-full place-items-center text-center">
-              <div><FileText className="mx-auto mb-4 h-10 w-10 text-vast-cyan" /><div className="text-xl font-semibold">No notes yet</div><button type="button" onClick={() => createNote(false)} className="mt-4 rounded-2xl bg-vast-cyan px-4 py-2 text-sm font-semibold text-black">Create note</button></div>
+              <div><FileText className="mx-auto mb-4 h-10 w-10 text-vast-cyan" /><div className="text-xl font-semibold">No notes yet</div><button type="button" onClick={() => createNote(false)} className="mt-4 rounded-card bg-vast-cyan px-4 py-2 text-sm font-semibold text-black">Create note</button></div>
             </div>
           )}
         </section>

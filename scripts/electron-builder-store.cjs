@@ -10,6 +10,7 @@ if (String(process.env.VAST_UPDATE_ENABLED ?? '') !== '0') {
 
 module.exports = {
   ...pkg.build,
+  extraResources: pkg.build.extraResources.filter(resource => resource.to !== 'apply-update.ps1'),
   // Partner Center signs the accepted MSIX. Requiring a separate publisher
   // Authenticode certificate here would make Store submission depend on a
   // certificate that the Store route neither needs nor uses.

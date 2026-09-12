@@ -53,15 +53,15 @@ environment so staging cannot fall through to production. R2 buckets remain
 private: the deployment script explicitly disables `r2.dev` and fails if a raw
 R2 custom domain is detected.
 
-Production deployment has two code-enforced gates: a successful staging
-verification marker and `VAST_RELAY_ALLOW_PRODUCTION_PROVISION=YES`. Provisioning
-production does not modify or activate a Vast desktop release.
+Production deployment has two code-enforced gates: `VAST_RELAY_ALLOW_PRODUCTION_PROVISION=YES` and a fresh staging verification marker. The deploy script rejects a marker that does not match the current source commit (`source_commit`), protocol 1, the migration-schema SHA-256 (`migration_schema_sha256`), the staging environment, database name/ID, both service URLs, the staging key ID `relay-staging-2026-01`, `fixtures_removed: true`, or a `verified_at` older than 24 hours. Provisioning production does not modify or activate a Vast desktop release.
 
 ## Threat model and privacy boundary
 
 `POST /v1/checkin` and `GET /v1/assets/*` are hostile public endpoints. Relay
 assumes callers can forge installation IDs, versions, counts, headers, and
-traffic volume. Protections include bounded streamed bodies, exact JSON shapes,
+traffic volume. Protections include bounded streamed bodies, exact schemas for
+admin payloads (check-in requests validate their understood fields strictly but
+tolerate unknown extra fields for forward compatibility within protocol 1),
 strict SemVer/UUID validation, fixed prepared SQL, fixed response types,
 Cloudflare-native rate-limit bindings, R2 metadata lookup through D1, extension
 and MIME allowlists, image magic-byte validation, SHA-256 integrity, and passive
@@ -104,6 +104,10 @@ and the actor-aware audit model.
 
 `0003_installation_browser.sql` adds composite indexes used by the private,
 bounded installation registry browser. It changes no collected fields.
+
+`0004_installation_kind.sql` adds the `installations.instance_kind` column
+(`packaged`, `development`, `test`, or `unknown` for legacy clients) with its
+check constraint and a kind/last-seen index.
 
 SQLite `STRICT` tables, `CHECK` constraints, foreign keys, and prepared Workers
 statements provide defense in depth. Apply staging migrations with:
@@ -184,9 +188,12 @@ delivery at 40 ordered by priority. The update field contains the highest
 enabled release version newer than the client, with severity limited to
 `optional`, `recommended`, `important`, or `critical`.
 
-If D1 fails after request validation, check-in returns HTTP 200 with the normal
-empty response and `X-Vast-Relay-Degraded: database`. A Relay outage must never
-become a browser startup failure.
+If the installation upsert fails after request validation, check-in returns
+HTTP 503 with `Retry-After: 300`, `X-Vast-Relay-Degraded: database`, and a
+bounded error body, so clients retry later. If only the post-persistence
+delivery query fails, check-in returns HTTP 200 with the normal empty response
+and `X-Vast-Relay-Degraded: database`. A Relay outage must never become a
+browser startup failure.
 
 ### `GET|HEAD /v1/assets/:assetId`
 
@@ -204,7 +211,8 @@ media.
 Relay uses an independent Ed25519 key pair. It is not an update/package signing
 key. The admin Worker imports a base64 DER PKCS#8 private key from
 `RELAY_SIGNING_PRIVATE_KEY_PKCS8_BASE64`; the public DER SPKI key is recorded in
-`relay/keys/<key_id>.json` and will be embedded in Vast during Phase 2.
+`relay/keys/<key_id>.json` and is embedded in Vast builds at compile time
+(`src/shared/relay-config.ts`).
 
 Canonical serialization is deterministic UTF-8 JSON with these rules:
 
@@ -235,7 +243,7 @@ bypass. JSON bodies are capped at 16 KiB and edits use quoted revision ETags.
 - `GET /v1/admin/session`
 - `GET /v1/admin/dashboard`
 - `GET /v1/admin/installations` (bounded keyset pages; optional activity,
-  exact-version, and exact-install-ID filters)
+  exact-version, instance-kind, and exact-install-ID filters)
 - `GET /v1/admin/installations/:uuid`
 - `GET /v1/admin/audit`
 - `GET|POST /v1/admin/broadcasts`
@@ -258,7 +266,7 @@ grant installation authority.
 
 ## Deployment and staging verification
 
-Wrangler 4.120.1 or newer is required. From `relay/`:
+Wrangler is pinned at 4.123.0 in `relay/package.json`. From `relay/`:
 
 ```powershell
 npm ci
@@ -272,17 +280,27 @@ npm run verify:staging
 
 The deploy script uses Wrangler's named-resource provisioning, dry-runs each
 Worker, deploys public/admin separately, applies D1 migrations, disables raw R2
-public access, creates Worker Secrets, and prints only public deployment facts.
-Private key material is generated in process memory and piped to Wrangler.
-On first provisioning it records Cloudflare's non-secret D1 database ID in both
+public access, configures Worker observability for both Workers, creates Worker
+Secrets, and prints only public deployment facts. Private key material is
+generated in process memory and piped to Wrangler; `VAST_RELAY_INITIALIZE_SIGNING_KEY=YES`
+is needed only on first provisioning (later deploys reuse the stored secret), and
+an operator may instead supply the key explicitly through
+`VAST_RELAY_SIGNING_PRIVATE_KEY_PKCS8_BASE64`. Either way the key material is
+zeroed after piping. On first provisioning it records Cloudflare's non-secret D1
+database ID in both
 Wrangler environment bindings. Review and commit those config changes together
 with the generated public-key file after staging verification.
 
-`verify:staging` performs real HTTPS check-ins, queries the staging installation,
-checks first/last server timestamps, creates one disabled and one short-lived
-enabled broadcast, verifies Ed25519 delivery, uploads a PNG through admin,
-downloads it through public, verifies SHA-256, and confirms the production
-installation count did not change (or that production D1 is absent).
+`verify:staging` requires the Cloudflare Access service-token environment
+variables and Control Panel health, performs real HTTPS check-ins tagged
+`instance_kind: 'test'`, queries the staging installation, checks first/last
+server timestamps, creates one disabled and one short-lived enabled broadcast,
+verifies Ed25519 delivery, uploads a PNG through admin, downloads it through
+public, verifies SHA-256, deletes its test installation row, and writes the
+staging verification marker bound to the exact source commit and the
+migration-schema hash. It also confirms the production installation count did
+not change (production D1 is provisioned and serving; its absence is tolerated
+only as a first-provisioning case).
 
 Provision production infrastructure only after that marker exists:
 
@@ -294,6 +312,12 @@ npm run deploy:production
 
 Production deployment must leave broadcasts disabled/empty and must not publish
 a first user-facing message automatically.
+
+The production release gate is `npm run verify:release-checkin`: it performs one
+live production check-in (`instance_kind: 'test'` plus a `release_gate_source`
+commit field), verifies the row landed in production D1, deletes the fixture,
+and requires `VAST_RELEASE_COMMIT` to match the exact release SHA. `npm run
+release:audit` and the release workflows enforce it.
 
 ## Rollback
 

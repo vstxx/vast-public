@@ -45,7 +45,7 @@ export function PromptDialog(): JSX.Element | null {
           <button
             type="button"
             onClick={cancel}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-vast-soft hover:bg-white/10 hover:text-white"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white"
           >
             <X className="h-4 w-4" />
           </button>
@@ -66,7 +66,7 @@ export function PromptDialog(): JSX.Element | null {
               })
             }}
             placeholder={dialog.placeholder}
-            className="mt-2 h-12 w-full rounded-2xl border border-white/10 bg-black/25 px-4 text-sm font-medium text-white outline-none transition focus:border-vast-cyan/40 focus:bg-black/[0.35]"
+            className="mt-2 h-12 w-full rounded-card border border-white/10 bg-black/25 px-4 text-sm font-medium text-white outline-none transition focus:border-vast-cyan/40 focus:bg-black/[0.35]"
           />
         </label>}
 
@@ -74,14 +74,14 @@ export function PromptDialog(): JSX.Element | null {
           <button
             type="button"
             onClick={cancel}
-            className="rounded-xl border border-white/10 bg-white/[0.045] px-4 py-2 text-sm font-medium text-vast-soft hover:bg-white/[0.08] hover:text-white"
+            className="rounded-control border border-white/10 bg-white/[0.045] px-4 py-2 text-sm font-medium text-vast-soft hover:bg-white/[0.08] hover:text-white"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={!canSubmit}
-            className="rounded-xl bg-vast-cyan px-4 py-2 text-sm font-semibold text-black hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-control bg-vast-cyan px-4 py-2 text-sm font-semibold text-black hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
           >
             {dialog.confirmLabel ?? 'Create'}
           </button>

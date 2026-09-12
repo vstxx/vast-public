@@ -1,4 +1,4 @@
-export type UpdaterState = 'disabled' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'
+export type UpdaterState = 'disabled' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'up-to-date'
 
 export interface UpdaterStateSnapshot {
   state: UpdaterState
@@ -22,7 +22,7 @@ export function createUpdaterStateMachine(initial: UpdaterStateSnapshot = { stat
       current = {
         state,
         version: detail.version ?? current.version,
-        lastError: state === 'error' ? redactUpdaterError(detail.error) : current.lastError
+        lastError: state === 'error' ? redactUpdaterError(detail.error) : undefined
       }
     },
     snapshot(): UpdaterStateSnapshot {

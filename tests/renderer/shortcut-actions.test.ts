@@ -3,7 +3,6 @@ import test from 'node:test'
 
 import { DEFAULT_SHORTCUTS } from '../../src/shared/constants.ts'
 
-test('ad blocker has a configurable keyboard shortcut', () => {
-  assert.equal(typeof DEFAULT_SHORTCUTS.toggleAdBlocker, 'string')
-  assert.match(DEFAULT_SHORTCUTS.toggleAdBlocker, /Ctrl\/Cmd/i)
+test('removed native ad blocker does not reserve a shortcut', () => {
+  assert.equal('toggleAdBlocker' in DEFAULT_SHORTCUTS, false)
 })

@@ -1,4 +1,3 @@
-import type { AdBlockerMode } from './types'
 import { isIdentityProviderPopupUrl, isOAuthLikeFirstPartyAuthUrl } from './auth-compatibility-policy.ts'
 
 export interface WebviewPopupRequest {
@@ -6,8 +5,6 @@ export interface WebviewPopupRequest {
   disposition?: string
   frameName?: string
   features?: string
-  adBlockerEnabled?: boolean
-  adBlockerMode?: AdBlockerMode
 }
 
 export type WebviewWindowOpenRoute = 'popup-window' | 'vast-tab' | 'deny'

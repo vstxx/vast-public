@@ -93,10 +93,10 @@ export function SessionTimelinePage(): JSX.Element {
           }
         >
           <div className="flex flex-wrap gap-2 text-[11px] font-medium text-vast-soft">
-            <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1">
+            <span className="rounded-control border border-white/[0.08] bg-white/[0.04] px-3 py-1">
               Current workspace: <span className="text-white">{activeWorkspace?.name ?? 'None'}</span>
             </span>
-            <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1">
+            <span className="rounded-control border border-white/[0.08] bg-white/[0.04] px-3 py-1">
               Auto-captures before workspace switches and restores
             </span>
           </div>
@@ -120,7 +120,7 @@ export function SessionTimelinePage(): JSX.Element {
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search snapshots, pages, workspace names"
-                className="h-11 w-full rounded-xl border border-white/[0.07] bg-white/[0.03] pl-10 pr-3 text-sm text-white outline-none transition-colors focus:border-white/[0.16] focus:bg-white/[0.045]"
+                className="h-11 w-full rounded-control border border-white/[0.07] bg-white/[0.03] pl-10 pr-3 text-sm text-white outline-none transition-colors focus:border-white/[0.16] focus:bg-white/[0.045]"
               />
             </div>
             <div className="grid gap-2 lg:grid-cols-[5.5rem_minmax(0,1fr)] lg:items-center">
@@ -198,11 +198,11 @@ function SnapshotCard({
   const trigger = snapshot.trigger ?? 'manual'
 
   return (
-    <article className="internal-page-enter rounded-[26px] border border-white/[0.08] bg-white/[0.035] p-4 shadow-[0_12px_32px_rgba(0,0,0,0.16)]">
+    <article className="internal-page-enter rounded-panel border border-white/[0.08] bg-white/[0.035] p-4 shadow-[0_12px_32px_rgba(0,0,0,0.16)]">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${triggerBadgeTone[trigger]}`}>
+            <span className={`rounded-control border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${triggerBadgeTone[trigger]}`}>
               {triggerLabels[trigger]}
             </span>
             <span className="text-xs text-vast-soft" title={formatDateTime(snapshot.createdAt)}>
@@ -212,17 +212,17 @@ function SnapshotCard({
           <h2 className="mt-3 text-xl font-semibold text-white">{snapshot.title}</h2>
           <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-vast-soft">
             {snapshot.workspaceName && (
-              <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-1">
+              <span className="rounded-control border border-white/[0.08] bg-white/[0.04] px-2.5 py-1">
                 Workspace: <span className="text-white">{snapshot.workspaceName}</span>
               </span>
             )}
-            <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-1">
+            <span className="rounded-control border border-white/[0.08] bg-white/[0.04] px-2.5 py-1">
               {snapshot.counts?.tabs ?? tabs.length} tabs
             </span>
-            <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-1">
+            <span className="rounded-control border border-white/[0.08] bg-white/[0.04] px-2.5 py-1">
               {snapshot.counts?.pinned ?? tabs.filter((tab) => tab.pinned).length} pinned
             </span>
-            <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-1">
+            <span className="rounded-control border border-white/[0.08] bg-white/[0.04] px-2.5 py-1">
               {snapshot.counts?.internal ?? tabs.filter((tab) => tab.url.startsWith('vast://')).length} internal
             </span>
           </div>
@@ -234,7 +234,7 @@ function SnapshotCard({
                   type="button"
                   key={`${snapshot.id}-${tab.url}-${tab.title}`}
                   onClick={() => onOpenTab(tab.url)}
-                  className="flex w-full items-center gap-3 rounded-2xl border border-white/[0.06] bg-black/20 px-3 py-2 text-left transition hover:bg-white/[0.06]"
+                  className="flex w-full items-center gap-3 rounded-card border border-white/[0.06] bg-black/20 px-3 py-2 text-left transition hover:bg-white/[0.06]"
                 >
                   <Favicon url={tab.url} favicon={tab.favicon} title={tab.title} />
                   <div className="min-w-0 flex-1">
@@ -246,7 +246,7 @@ function SnapshotCard({
               ))}
             </div>
           ) : (
-            <div className="mt-4 rounded-2xl border border-dashed border-white/[0.1] bg-white/[0.025] px-4 py-3 text-sm text-vast-soft">
+            <div className="mt-4 rounded-card border border-dashed border-white/[0.1] bg-white/[0.025] px-4 py-3 text-sm text-vast-soft">
               Legacy snapshot without stored tab metadata. New entries are fully restorable.
             </div>
           )}

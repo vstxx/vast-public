@@ -1,12 +1,21 @@
 param(
   [string] $PackagePath,
-  [string] $ExpectedVersion = '1.2.8.0',
+  [string] $ExpectedVersion = '',
+  [string] $PreviousVersion = $env:VAST_MSIX_PREVIOUS_PACKAGE_VERSION,
   [ValidateRange(10, 120)]
   [int] $LaunchHealthSeconds = 15
 )
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+if ([string]::IsNullOrWhiteSpace($PreviousVersion)) {
+  $PreviousVersion = (Get-Content -Raw -Encoding UTF8 (Join-Path $repoRoot 'scripts/release-config.json') | ConvertFrom-Json).previousStorePackageVersion
+}
+if ([string]::IsNullOrWhiteSpace($ExpectedVersion)) {
+  $ExpectedVersion = & node -p "require('./scripts/store-msix-config.cjs').storePackageVersion()"
+  if ($LASTEXITCODE -ne 0) { throw 'Invalid configured Store package version.' }
+}
+if ([version]$ExpectedVersion -le [version]$PreviousVersion) { throw 'The Store upgrade fixture must upgrade from the configured previous Store version.' }
 if (-not $env:CI -and $env:VAST_ALLOW_DESTRUCTIVE_STORE_E2E -ne 'YES') {
   throw 'Store install/upgrade E2E changes current-user package state. Run on an isolated CI user or set VAST_ALLOW_DESTRUCTIVE_STORE_E2E=YES.'
 }
@@ -159,7 +168,7 @@ try {
     $packCurrentOutput | Out-Host
     throw 'Could not create the current test MSIX.'
   }
-  $lowerManifest = $testManifest -replace "Version=`"$([regex]::Escape($ExpectedVersion))`"", 'Version="1.2.7.0"'
+  $lowerManifest = $testManifest -replace "Version=`"$([regex]::Escape($ExpectedVersion))`"", "Version=`"$PreviousVersion`""
   Set-Content -LiteralPath $manifestPath -Value $lowerManifest -Encoding UTF8
   Write-Host '[store-e2e] Repacking the lower-version test MSIX.'
   $packOutput = @(& $makeAppx pack /d $unpackedRoot /p $lowerPackage /o /nc 2>&1)
@@ -204,7 +213,7 @@ try {
   Write-Host '[store-e2e] Installing the lower-version locally signed test MSIX.'
   Add-AppxPackage -Path $lowerPackage
   $installed = Get-AppxPackage -Name 'VastBrowser.Development' -ErrorAction Stop
-  Assert-True ($installed.Version.ToString() -eq '1.2.7.0') 'lower package must install first'
+  Assert-True ($installed.Version.ToString() -eq $PreviousVersion) 'lower package must install first'
   $packageDataRoot = [System.IO.Path]::GetFullPath((Join-Path $packagesRoot $installed.PackageFamilyName))
   Assert-True ($packageDataRoot.StartsWith(($packagesRoot + [System.IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)) 'package data root must remain inside the current user Packages directory'
   $profileRoot = [System.IO.Path]::GetFullPath((Join-Path $packageDataRoot 'LocalCache\Roaming\Vast'))
@@ -256,7 +265,7 @@ try {
   Write-Host '[store-e2e] Install, launch, upgrade and uninstall checks passed.'
   [ordered]@{
     ok = $true
-    lowerVersion = '1.2.7.0'
+    lowerVersion = $PreviousVersion
     currentVersion = $ExpectedVersion
     packageFamilyName = $packageFamilyName
     profilePath = $profileRoot

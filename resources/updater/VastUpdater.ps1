@@ -935,6 +935,57 @@ function Test-VastBackupVolatileDirectory {
   return ($script:VastBackupVolatileDirectoryNames -contains $Name)
 }
 
+function ConvertTo-VastExtendedPath {
+  param([string] $Path)
+
+  if ([string]::IsNullOrWhiteSpace($Path)) {
+    return $Path
+  }
+
+  $fullPath = [System.IO.Path]::GetFullPath($Path)
+  if ([System.IO.Path]::DirectorySeparatorChar -ne '\') {
+    return $fullPath
+  }
+  if ($fullPath.StartsWith('\\?\', [System.StringComparison]::Ordinal)) {
+    return $fullPath
+  }
+  if ($fullPath.StartsWith('\\', [System.StringComparison]::Ordinal)) {
+    return '\\?\UNC\' + $fullPath.Substring(2)
+  }
+  return '\\?\' + $fullPath
+}
+
+function Test-VastBackupDirectoryExists {
+  param([string] $Path)
+
+  return [System.IO.Directory]::Exists((ConvertTo-VastExtendedPath -Path $Path))
+}
+
+function Test-VastBackupFileExists {
+  param([string] $Path)
+
+  return [System.IO.File]::Exists((ConvertTo-VastExtendedPath -Path $Path))
+}
+
+function New-VastBackupDirectory {
+  param([string] $Path)
+
+  [System.IO.Directory]::CreateDirectory((ConvertTo-VastExtendedPath -Path $Path)) | Out-Null
+}
+
+function Copy-VastBackupFile {
+  param(
+    [string] $Source,
+    [string] $Destination
+  )
+
+  [System.IO.File]::Copy(
+    (ConvertTo-VastExtendedPath -Path $Source),
+    (ConvertTo-VastExtendedPath -Path $Destination),
+    $true
+  )
+}
+
 function Copy-VastBackupDirectory {
   param(
     [string] $Source,
@@ -942,7 +993,7 @@ function Copy-VastBackupDirectory {
     [bool] $IsRoot = $false
   )
 
-  if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
+  if (-not (Test-VastBackupDirectoryExists -Path $Source)) {
     if ($IsRoot) {
       throw "Critical backup directory disappeared before it could be copied: $Source"
     }
@@ -950,11 +1001,12 @@ function Copy-VastBackupDirectory {
     return
   }
 
-  New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+  New-VastBackupDirectory -Path $Destination
   try {
-    $children = @(Get-ChildItem -LiteralPath $Source -Force -ErrorAction Stop)
+    $sourceForIo = ConvertTo-VastExtendedPath -Path $Source
+    $children = @([System.IO.Directory]::EnumerateFileSystemEntries($sourceForIo))
   } catch {
-    if (-not (Test-Path -LiteralPath $Source)) {
+    if (-not (Test-VastBackupDirectoryExists -Path $Source)) {
       if ($IsRoot) {
         throw "Critical backup directory disappeared while it was being enumerated: $Source"
       }
@@ -964,26 +1016,38 @@ function Copy-VastBackupDirectory {
     throw
   }
 
-  foreach ($child in $children) {
-    $target = Join-Path $Destination $child.Name
-    if ($child.PSIsContainer) {
-      if (Test-VastBackupVolatileDirectory -Name $child.Name) {
-        Write-VastLog "Skipping recoverable Chromium cache during user data backup: $($child.FullName)"
+  foreach ($childPath in $children) {
+    try {
+      $childAttributes = [System.IO.File]::GetAttributes($childPath)
+    } catch {
+      if (-not (Test-VastBackupDirectoryExists -Path $childPath) -and -not (Test-VastBackupFileExists -Path $childPath)) {
+        Write-VastLog "Backup item disappeared during enumeration, skipping: $childPath" 'WARN'
         continue
       }
-      if (($child.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-        Write-VastLog "Skipping reparse point during user data backup: $($child.FullName)" 'WARN'
+      throw
+    }
+
+    $childName = [System.IO.Path]::GetFileName($childPath)
+    $target = Join-Path $Destination $childName
+    $isDirectory = ($childAttributes -band [System.IO.FileAttributes]::Directory) -ne 0
+    if ($isDirectory) {
+      if (Test-VastBackupVolatileDirectory -Name $childName) {
+        Write-VastLog "Skipping recoverable Chromium cache during user data backup: $childPath"
         continue
       }
-      Copy-VastBackupDirectory -Source $child.FullName -Destination $target
+      if (($childAttributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        Write-VastLog "Skipping reparse point during user data backup: $childPath" 'WARN'
+        continue
+      }
+      Copy-VastBackupDirectory -Source $childPath -Destination $target
       continue
     }
 
     try {
-      Copy-Item -LiteralPath $child.FullName -Destination $target -Force -ErrorAction Stop
+      Copy-VastBackupFile -Source $childPath -Destination $target
     } catch {
-      if (-not (Test-Path -LiteralPath $child.FullName)) {
-        Write-VastLog "Recoverable file disappeared during user data backup, skipping: $($child.FullName)" 'WARN'
+      if (-not (Test-VastBackupFileExists -Path $childPath)) {
+        Write-VastLog "Recoverable file disappeared during user data backup, skipping: $childPath" 'WARN'
         continue
       }
       throw
@@ -999,13 +1063,13 @@ function Copy-VastBackupItem {
 
   $parent = Split-Path -Parent $Destination
   if (-not [string]::IsNullOrWhiteSpace($parent)) {
-    New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    New-VastBackupDirectory -Path $parent
   }
 
-  if (Test-Path -LiteralPath $Source -PathType Container) {
+  if (Test-VastBackupDirectoryExists -Path $Source) {
     Copy-VastBackupDirectory -Source $Source -Destination $Destination -IsRoot $true
   } else {
-    Copy-Item -LiteralPath $Source -Destination $Destination -Force -ErrorAction Stop
+    Copy-VastBackupFile -Source $Source -Destination $Destination
   }
 }
 
@@ -1201,12 +1265,16 @@ function Backup-VastUserData {
   }
 
   if ([string]::IsNullOrWhiteSpace($backupParent)) {
-    $backupParent = Join-Path $primaryRoot 'Backups'
+    if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+      $backupParent = Join-Path $env:LOCALAPPDATA 'Vast\UpdaterBackups'
+    } else {
+      $backupParent = Join-Path $primaryRoot 'Backups'
+    }
   }
 
   $timestamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss')
   $backupDestinationRoot = Join-Path $backupParent ("Vast-$TargetVersion-$timestamp")
-  New-Item -ItemType Directory -Path $backupDestinationRoot -Force | Out-Null
+  New-VastBackupDirectory -Path $backupDestinationRoot
 
   $copied = New-Object System.Collections.Generic.List[string]
   $backupErrors = New-Object System.Collections.Generic.List[string]

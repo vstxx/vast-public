@@ -1,7 +1,6 @@
-import { BrowserWindow, ipcMain, screen } from 'electron/main'
+import { app, BrowserWindow, ipcMain, screen } from 'electron/main'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { setupDownloadsWithSettings } from './downloads'
 import { setupWindowSecurity } from './sessions'
 import { windowRegistry, type VastWindowKind } from './windows/WindowRegistry'
 import { windowCloseCoordinator } from './windows/WindowCloseCoordinator'
@@ -127,6 +126,7 @@ export function createMainWindow(
       allowRunningInsecureContent: false,
       webviewTag: true,
       additionalArguments: [
+        `--vast-radius=${startupSettings.appearance.cornerRadius}`,
         serializeOpeningStartupFlag(rendererStartupSettings),
         serializeOpeningStartupVolumeFlag(startupSettings),
         serializeOpeningHandledStartupFlag(openingHandledBySplash),
@@ -138,7 +138,7 @@ export function createMainWindow(
   })
 
   if (openingPresentation && (process.platform === 'win32' || process.platform === 'linux')) {
-    mainWindow.setShape(roundedWindowShape(openingWidth, openingHeight, OPENING_PRESENTATION.cornerRadius))
+    mainWindow.setShape(roundedWindowShape(openingWidth, openingHeight, startupSettings.appearance.cornerRadius))
   }
 
   let openingRevealed = !openingPresentation
@@ -206,9 +206,13 @@ export function createMainWindow(
   })
 
   windowRegistry.register(mainWindow, windowKind)
+  mainWindow.once('closed', () => {
+    // Native extension hosts are hidden BrowserWindows; they must not keep the
+    // application alive after its last browser window has saved and closed.
+    if (process.platform !== 'darwin' && windowRegistry.vastWindows().length === 0) app.quit()
+  })
   windowCloseCoordinator.install(mainWindow)
   setupWindowSecurity(mainWindow, settingsProvider, _onDataSaved, options.extensionManager)
-  setupDownloadsWithSettings(mainWindow, settingsProvider)
   mainWindow.webContents.on('did-finish-load', () => windowRegistry.markRendererReady(mainWindow))
   const publishWindowState = (): void => {
     if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return

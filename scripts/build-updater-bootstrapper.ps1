@@ -1,11 +1,14 @@
 param(
-  [string] $Version = '0.2.7',
+  [string] $Version = '',
   [string] $DefaultManifestUrl = ''
 )
 
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
+if ([string]::IsNullOrWhiteSpace($Version)) {
+  $Version = (Get-Content -Raw -Encoding UTF8 (Join-Path $RepoRoot 'package.json') | ConvertFrom-Json).version
+}
 $Project = Join-Path $RepoRoot 'tools\VastUpdaterBootstrapper\VastUpdaterBootstrapper.csproj'
 $GeneratedConstants = Join-Path $RepoRoot 'tools\VastUpdaterBootstrapper\VastUpdaterBootstrapperConstants.Generated.cs'
 $PublishDir = Join-Path $RepoRoot 'release\Updater\single-file'

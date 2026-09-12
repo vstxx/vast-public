@@ -3,6 +3,16 @@ import type { Config } from 'tailwindcss'
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
+    borderRadius: {
+      none: '0',
+      micro: 'var(--vast-radius-micro)',
+      checkbox: 'var(--vast-radius-checkbox)',
+      swatch: 'var(--vast-radius-swatch)',
+      control: 'var(--vast-radius-control)',
+      card: 'var(--vast-radius-card)',
+      panel: 'var(--vast-radius-panel)',
+      modal: 'var(--vast-radius-modal)'
+    },
     extend: {
       fontFamily: {
         sans: [

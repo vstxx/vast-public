@@ -11,6 +11,9 @@ const updaterConfig = JSON.parse(readFileSync(join(root, 'resources', 'updater',
 const buildMetadataWriter = readFileSync(join(root, 'scripts', 'write-release-build-metadata.cjs'), 'utf8')
 const packageVerifier = readFileSync(join(root, 'scripts', 'verify-release-package.cjs'), 'utf8')
 const failures = []
+const config = require('./release-config.json')
+const semver = require('semver')
+const storeWorkflow = readFileSync(join(root, '.github/workflows/store-release.yml'), 'utf8')
 
 function requireEqual(label, actual, expected = pkg.version) {
   if (actual !== expected) failures.push(`${label} is ${JSON.stringify(actual)}; expected ${JSON.stringify(expected)}`)
@@ -29,7 +32,7 @@ requireEqual('package-lock root version', lock.version)
 requireEqual('package-lock package version', lock.packages?.['']?.version)
 requireEqual('public unsigned workflow expected_version', capture(workflow, /expected_version:[\s\S]*?default:\s*([^\s#]+)/, 'workflow version'))
 requireEqual('signed public workflow expected_version', capture(signedWorkflow, /expected_version:[\s\S]*?default:\s*([^\s#]+)/, 'signed workflow version'))
-requireEqual('updater bootstrapper default', capture(bootstrapper, /\[string\]\s*\$Version\s*=\s*'([^']+)'/, 'bootstrapper version'))
+if (!bootstrapper.includes("'package.json') | ConvertFrom-Json).version")) failures.push('bootstrapper must derive its default from package.json')
 requireEqual('canonical updater targetVersion', updaterConfig.targetVersion)
 requireEqual('canonical updater payloadPath', updaterConfig.payloadPath, `..\\Vast-${pkg.version}\\win-unpacked`)
 if (!buildMetadataWriter.includes('version: pkg.version')) failures.push('release metadata must derive version from package.json')
@@ -50,8 +53,16 @@ for (const token of artifactTokens) {
   if (!token.includes(pkg.version)) failures.push(`artifact token is inconsistent: ${token}`)
 }
 
-if (!/^0\.2\.7$/.test(pkg.version)) failures.push(`0.2.7 release branch expected, found ${pkg.version}`)
-if (!/VAST_PREVIOUS_VERSION:\s*0\.2\.5\b/.test(workflow)) failures.push('public unsigned workflow must use real previous public version 0.2.5')
+if (!semver.valid(pkg.version) || !semver.gt(pkg.version, config.previousPublicVersion)) failures.push('Product version must exceed the previous public release')
+requireEqual('unsigned workflow baseline', capture(workflow, /VAST_PREVIOUS_VERSION:\s*([^\s]+)/, 'baseline'), config.previousPublicVersion)
+requireEqual('signed workflow baseline', capture(signedWorkflow, /previous_version:[\s\S]*?default:\s*([^\s#]+)/, 'signed baseline'), config.previousPublicVersion)
+requireEqual('Store workflow product version', capture(storeWorkflow, /expected_version:[\s\S]*?default:\s*([^\s#]+)/, 'Store product version'))
+requireEqual('Store workflow package version', capture(storeWorkflow, /store_package_version:[\s\S]*?default:\s*([^\s#]+)/, 'Store package version'), config.storePackageVersion)
+requireEqual('Store workflow previous package version', capture(storeWorkflow, /previous_store_package_version:[\s\S]*?default:\s*([^\s#]+)/, 'Store baseline'), config.previousStorePackageVersion)
+for (const [label, source] of [['signed', signedWorkflow], ['unsigned', workflow]]) {
+  if (!source.includes(`https://github.com/vstxx/vast-public/releases/download/v${config.previousPublicVersion}`)) failures.push(`${label} baseline URL differs from release-config.json`)
+}
+require('./store-msix-config.cjs').storePackageVersion()
 
-console.log(JSON.stringify({ ok: failures.length === 0, version: pkg.version, previousPublicVersion: '0.2.5', artifactTokens, failures }, null, 2))
+console.log(JSON.stringify({ ok: failures.length === 0, version: pkg.version, previousPublicVersion: config.previousPublicVersion, artifactTokens, failures }, null, 2))
 if (failures.length) process.exit(1)

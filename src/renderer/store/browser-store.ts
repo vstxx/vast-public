@@ -1349,7 +1349,6 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
         ...state.settings,
         privacy: {
           ...state.settings.privacy,
-          adBlockAllowlist: state.settings.privacy.adBlockAllowlist.filter((entry) => entry !== hostname && entry !== origin),
           cookieExceptions: state.settings.privacy.cookieExceptions.filter((entry) => entry !== hostname && entry !== origin),
           clearSiteDataOnClose: state.settings.privacy.clearSiteDataOnClose.filter((entry) => entry !== hostname && entry !== origin)
         },

@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if ([string]::IsNullOrWhiteSpace($PackagePath)) {
-  $candidate = Get-ChildItem -LiteralPath (Join-Path $repoRoot 'release\store') -Filter 'Vast-*-Store-x64.msix' -File -ErrorAction SilentlyContinue |
+  $candidate = Get-ChildItem -LiteralPath (Join-Path $repoRoot 'release\store') -Filter 'Vast-*-Store-*-x64.msix' -File -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
   if (-not $candidate) { throw 'No production Store MSIX was found. Pass -PackagePath explicitly.' }
   $PackagePath = $candidate.FullName

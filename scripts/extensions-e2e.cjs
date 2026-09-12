@@ -463,11 +463,14 @@ async function runRestart(origin) {
   const visibleExtensionsPage = `([...document.querySelectorAll('[data-testid="extensions-page"]')].find((item) => { const rect = item.getBoundingClientRect(); return rect.width > 0 && rect.height > 0; }))`
   await waitFor(session, `Boolean(${visibleExtensionsPage})`, 'visible extensions page before removal')
   await session.evaluate(`(() => { const page = ${visibleExtensionsPage}; if (!page) throw new Error('Visible extensions page was not found.'); const installed = [...page.querySelectorAll('[role="tab"]')].find((button) => button.textContent.trim() === 'Installed'); if (installed?.getAttribute('aria-selected') !== 'true') installed?.click(); })()`)
-  await waitFor(session, `${visibleExtensionsPage}?.innerText.includes('Vast Content Script Fixture')`, 'extension card before removal')
+  // Offscreen internal cards use content-visibility:auto. Wait for DOM data,
+  // then bring the actual control into view before interacting with it.
+  await waitFor(session, `${visibleExtensionsPage}?.textContent.includes('Vast Content Script Fixture')`, 'extension card before removal')
   await session.evaluate(`(() => {
     const page = ${visibleExtensionsPage};
-    const remove = [...page.querySelectorAll('button')].find((button) => button.innerText.trim() === 'Remove');
+    const remove = [...page.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Remove');
     if (!remove) throw new Error('Remove button was not found.');
+    remove.scrollIntoView({ block: 'center' });
     remove.click();
     return true;
   })()`)

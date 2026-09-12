@@ -66,7 +66,7 @@ export function SmartUnloadPanel(): JSX.Element | null {
   return (
     <div className="smart-unload-layer fixed inset-0 z-50 pointer-events-none">
       <button type="button" aria-label="Close smart unload" className="smart-unload-backdrop pointer-events-auto absolute inset-0 cursor-default" onClick={() => setOpen(false)} />
-      <aside className="smart-unload-panel pointer-events-auto absolute right-4 top-20 flex max-h-[calc(100vh-6rem)] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-[28px] border border-white/10 shadow-glass backdrop-blur-2xl">
+      <aside className="smart-unload-panel pointer-events-auto absolute right-4 top-20 flex max-h-[calc(100vh-6rem)] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-panel border border-white/10 shadow-glass backdrop-blur-2xl">
         <header className="smart-unload-header flex items-start justify-between gap-3 border-b p-4">
           <div>
             <div className="flex items-center gap-2 text-sm font-semibold text-white">
@@ -74,19 +74,19 @@ export function SmartUnloadPanel(): JSX.Element | null {
               Smart unload
             </div>
           </div>
-          <button type="button" onClick={() => setOpen(false)} className="smart-unload-close grid h-9 w-9 place-items-center rounded-xl text-vast-soft hover:text-white">
+          <button type="button" onClick={() => setOpen(false)} className="smart-unload-close grid h-9 w-9 place-items-center rounded-control text-vast-soft hover:text-white">
             <X className="h-4 w-4" />
           </button>
         </header>
 
         <div className="min-h-0 overflow-y-auto p-4">
-          <div className="smart-unload-summary rounded-3xl border p-4">
+          <div className="smart-unload-summary rounded-panel border p-4">
             <div className="flex items-center justify-between gap-3 text-xs text-vast-soft">
               <span>Estimated active footprint</span>
               <span>{snapshot.pressure}% of hard limit</span>
             </div>
-            <div className="smart-unload-track mt-2 h-2 overflow-hidden rounded-full">
-              <div className="h-full rounded-full bg-vast-cyan shadow-[0_0_18px_color-mix(in_srgb,var(--vast-accent)_36%,transparent)]" style={{ width: `${snapshot.pressure}%` }} />
+            <div className="smart-unload-track mt-2 h-2 overflow-hidden rounded-control">
+              <div className="h-full rounded-control bg-vast-cyan shadow-[0_0_18px_color-mix(in_srgb,var(--vast-accent)_36%,transparent)]" style={{ width: `${snapshot.pressure}%` }} />
             </div>
             <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
               <Metric label="Active" value={String(snapshot.active.length)} />
@@ -119,7 +119,7 @@ export function SmartUnloadPanel(): JSX.Element | null {
           </div>
 
           {lastAction && (
-            <div className="mt-3 rounded-2xl border border-vast-cyan/20 bg-vast-cyan/10 px-3 py-2 text-xs text-vast-cyan">
+            <div className="mt-3 rounded-card border border-vast-cyan/20 bg-vast-cyan/10 px-3 py-2 text-xs text-vast-cyan">
               {lastAction}
             </div>
           )}
@@ -135,9 +135,9 @@ export function SmartUnloadPanel(): JSX.Element | null {
                   key={tab.id}
                   type="button"
                   onClick={() => runtime.switchToTab(tab.id)}
-                  className="smart-unload-row flex w-full items-center gap-3 rounded-2xl border p-3 text-left"
+                  className="smart-unload-row flex w-full items-center gap-3 rounded-card border p-3 text-left"
                 >
-                  <div className="smart-unload-avatar grid h-9 w-9 shrink-0 place-items-center rounded-xl text-vast-cyan">
+                  <div className="smart-unload-avatar grid h-9 w-9 shrink-0 place-items-center rounded-control text-vast-cyan">
                     {tab.title.slice(0, 1).toUpperCase()}
                   </div>
                   <div className="min-w-0 flex-1">
@@ -147,7 +147,7 @@ export function SmartUnloadPanel(): JSX.Element | null {
                 </button>
               ))}
               {snapshot.candidates.length === 0 && (
-                <div className="smart-unload-empty rounded-2xl border p-4 text-sm text-vast-soft">
+                <div className="smart-unload-empty rounded-card border p-4 text-sm text-vast-soft">
                   No unload candidates. Active, call/media, and protected pinned tabs stay awake.
                 </div>
               )}
@@ -161,7 +161,7 @@ export function SmartUnloadPanel(): JSX.Element | null {
 
 function Metric({ label, value }: { label: string; value: string }): JSX.Element {
   return (
-    <div className="smart-unload-metric rounded-2xl border px-2 py-2">
+    <div className="smart-unload-metric rounded-card border px-2 py-2">
       <div className="text-lg font-semibold text-white">{value}</div>
       <div className="text-[11px] text-vast-soft">{label}</div>
     </div>

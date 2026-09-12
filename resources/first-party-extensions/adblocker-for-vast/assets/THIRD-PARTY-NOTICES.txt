@@ -1,0 +1,106 @@
+Adblocker for Vast — third-party acknowledgements and source notices
+
+The Vast integration is original code. This product is not the Ghostery browser
+extension and is not affiliated with the upstream filter-list publishers.
+The following components retain their own licenses; Vast's MIT license does not
+replace them. This notice, DEPENDENCY-LICENSES.txt, MPL-2.0.txt, GPL-3.0.txt and
+CC-BY-3.0.txt are distributed alongside the bundled filters.
+
+ENGINE AND DEPENDENCIES
+
+Copyright (c) 2017-present Ghostery GmbH and contributors.
+Source for MPL-covered components is available at the URLs below. These notices
+must remain available with binary distributions, including the source links.
+
+@ghostery/adblocker 2.18.2 — MPL-2.0
+Source: https://github.com/ghostery/adblocker/tree/c4c20aa63e3a72113f66777cf35a3f58877a36ee/packages/adblocker
+Unmodified upstream dependency; copyright and license notices are preserved in the installed package.
+
+@ghostery/adblocker-content 2.18.2 — MPL-2.0
+Source: https://github.com/ghostery/adblocker/tree/c4c20aa63e3a72113f66777cf35a3f58877a36ee/packages/adblocker-content
+Unmodified upstream dependency; copyright and license notices are preserved in the installed package.
+
+@ghostery/adblocker-extended-selectors 2.18.2 — MPL-2.0
+Source: https://github.com/ghostery/adblocker/tree/c4c20aa63e3a72113f66777cf35a3f58877a36ee/packages/adblocker-extended-selectors
+Unmodified upstream dependency; copyright and license notices are preserved in the installed package.
+
+@ghostery/url-parser 1.3.1 — MPL-2.0
+Source: https://github.com/ghostery/url-parser/tree/v1.3.1
+Unmodified upstream dependency; copyright and license notices are preserved in the installed package.
+
+tldts-experimental 7.4.11 — MIT
+Source: https://github.com/remusao/tldts/tree/4092da300ec18ba25dde82b11efbf3c3443c38a7
+Unmodified upstream dependency; copyright and license notices are preserved in the installed package.
+
+tldts-core 7.4.11 — MIT
+Source: https://github.com/remusao/tldts/tree/4092da300ec18ba25dde82b11efbf3c3443c38a7
+Unmodified upstream dependency; copyright and license notices are preserved in the installed package.
+
+@remusao/guess-url-type 2.1.0 — MPL-2.0
+Source: https://github.com/remusao/mono/tree/27c72bf6f12f8e500b19509eef5eb14445e6e2d5/packages/guess-url-type
+Unmodified upstream dependency; copyright and license notices are preserved in the installed package.
+
+@remusao/small 2.1.0 — MPL-2.0
+Source: https://github.com/remusao/mono/tree/27c72bf6f12f8e500b19509eef5eb14445e6e2d5/packages/small
+Unmodified upstream dependency; copyright and license notices are preserved in the installed package.
+
+@remusao/smaz 2.2.0 — MPL-2.0
+Source: https://github.com/remusao/mono/tree/27c72bf6f12f8e500b19509eef5eb14445e6e2d5/packages/smaz
+Unmodified upstream dependency; copyright and license notices are preserved in the installed package.
+
+@remusao/smaz-compress 2.2.0 — MPL-2.0
+Source: https://github.com/remusao/mono/tree/27c72bf6f12f8e500b19509eef5eb14445e6e2d5/packages/smaz-compress
+Unmodified upstream dependency; copyright and license notices are preserved in the installed package.
+
+@remusao/trie 2.1.0 — MPL-2.0
+Source: https://github.com/remusao/mono/tree/27c72bf6f12f8e500b19509eef5eb14445e6e2d5/packages/trie
+Unmodified upstream dependency; copyright and license notices are preserved in the installed package.
+
+@remusao/smaz-decompress 2.2.0 — MPL-2.0
+Source: https://github.com/remusao/mono/tree/27c72bf6f12f8e500b19509eef5eb14445e6e2d5/packages/smaz-decompress
+Unmodified upstream dependency; copyright and license notices are preserved in the installed package.
+
+FILTERS
+
+EasyList and EasyPrivacy — The EasyList authors (https://easylist.to/).
+Dual license: GPL-3.0-or-later OR CC-BY-SA-3.0-or-later. This distribution uses
+the GPL option; full, unmodified filter source is included in easylist.txt and
+easyprivacy.txt. Licensing: https://easylist.to/pages/licence.html
+Source project: https://github.com/easylist/easylist
+
+EasyList cookie notices — The EasyList authors (https://easylist.to/).
+CC-BY-3.0, as specified by the bundled list header. Full, unmodified source is
+included in cookies.txt. License: CC-BY-3.0.txt.
+
+uBlock Origin filters — Raymond Hill and the uAssets contributors.
+GPL-3.0. Full, unmodified filter source is included in ublock.txt.
+Source project: https://github.com/uBlockOrigin/uAssets
+
+REDIRECTS AND SCRIPTLETS
+
+uBlock Origin resource library, Copyright (C) Raymond Hill and contributors;
+Ghostery resource conversion, Copyright Ghostery GmbH and contributors.
+GPL-3.0; the upstream uBlock source permits version 3 or later where indicated.
+No warranty. See GPL-3.0.txt. The complete, unmodified source modules used by
+this distribution are included in source/src/, with copyright notices intact.
+source/provenance.json identifies every file hash and the exact upstream commit:
+https://github.com/gorhill/uBlock/tree/6dd2d95e50d134a477a4e183343c0b26e9147123
+The included source/compile-adblock-resources.mjs reproduces resources.json
+without minification. See source/README.md for reproduction instructions.
+Vast's conversion excludes scriptlets that require trusted-list semantics,
+which the engine adapter does not enforce. Function bodies are unmodified.
+Redirect aliases and synthetic MIME stubs are preserved in
+source/upstream-resources.json from the immutable Ghostery resource revision:
+https://github.com/ghostery/adblocker/tree/ff8ed92b3648bdf49ba884b7d90c46d3dda4c366/packages/adblocker/assets
+
+Resources only change in reviewed extension package releases. Filter subscriptions cannot
+replace these JavaScript bodies. The product does not download executable
+resources or contact upstream analytics at runtime.
+
+RELEASE DISTRIBUTION
+
+Publish these notices, the included filter/resource sources, and the matching
+MPL/GPL source access information with each binary release. Keep corresponding
+source available for the applicable distribution period. The release review
+must retain the included source directory and copyright notices, plus the
+source access information for MPL-covered engine dependencies.

@@ -39,6 +39,7 @@ interface AutofillSuggestion {
 interface AutofillTheme {
   mode: 'dark' | 'dim' | 'light'
   accent: string
+  radius: number
 }
 
 let autofillController: AbortController | undefined
@@ -109,13 +110,14 @@ function validatedAutofillSuggestions(input: unknown): AutofillSuggestion[] {
 
 function validatedAutofillTheme(input: unknown): AutofillTheme {
   const candidate = input && typeof input === 'object'
-    ? (input as { theme?: unknown; accent?: unknown })
+    ? (input as { theme?: unknown; accent?: unknown; radius?: unknown })
     : undefined
   const mode = candidate?.theme === 'light' || candidate?.theme === 'dim' ? candidate.theme : 'dark'
   const accent = typeof candidate?.accent === 'string' && /^#[0-9a-f]{6}$/i.test(candidate.accent)
     ? candidate.accent
     : '#c084fc'
-  return { mode, accent }
+  const radius = typeof candidate?.radius === 'number' && Number.isFinite(candidate.radius) ? Math.min(36, Math.max(6, candidate.radius)) : 26
+  return { mode, accent, radius }
 }
 
 function cleanupAutofill(): void {
@@ -223,19 +225,20 @@ function configureAutofill(input: unknown): void {
   root.id = '__vast_af_root'
   root.dataset.theme = theme.mode
   root.style.setProperty('--vast-af-accent', theme.accent)
+  root.style.setProperty('--vast-radius-base', `${theme.radius}px`)
   const shadow = root.attachShadow({ mode: 'closed' })
   const style = document.createElement('style')
   autofillStyle = style
   style.id = '__vast_af_style'
   style.textContent = [
-    ':host{all:initial;--vast-af-bg:#090a0d;--vast-af-text:#f4f3f6;--vast-af-muted:rgba(244,243,246,.63);--vast-af-divider:rgba(255,255,255,.065);--vast-af-hover:color-mix(in srgb,var(--vast-af-accent) 4%,transparent);box-sizing:border-box;position:fixed;z-index:2147483647;width:min(348px,calc(100vw - 20px));max-height:min(360px,calc(100vh - 20px));overflow-x:hidden;overflow-y:auto;background:var(--vast-af-bg);border:0;border-radius:15px;padding:10px;box-shadow:0 14px 38px rgba(0,0,0,.42);display:none;font-family:"Vast Autofill Inter"!important;font-size:14px;font-weight:400;font-synthesis:none;color:var(--vast-af-text);color-scheme:dark}',
+    ':host{all:initial;--vast-radius-control:calc(var(--vast-radius-base) * 0.54);--vast-radius-checkbox:calc(var(--vast-radius-base) * 0.28);--vast-radius-micro:calc(var(--vast-radius-base) * 0.16);--vast-af-bg:#090a0d;--vast-af-text:#f4f3f6;--vast-af-muted:rgba(244,243,246,.63);--vast-af-divider:rgba(255,255,255,.065);--vast-af-hover:color-mix(in srgb,var(--vast-af-accent) 4%,transparent);box-sizing:border-box;position:fixed;z-index:2147483647;width:min(348px,calc(100vw - 20px));max-height:min(360px,calc(100vh - 20px));overflow-x:hidden;overflow-y:auto;background:var(--vast-af-bg);border:0;border-radius:var(--vast-radius-control);padding:10px;box-shadow:0 14px 38px rgba(0,0,0,.42);display:none;font-family:"Vast Autofill Inter"!important;font-size:14px;font-weight:400;font-synthesis:none;color:var(--vast-af-text);color-scheme:dark}',
     ':host([data-theme="dim"]){--vast-af-bg:#202022;--vast-af-text:#f1f0f2;--vast-af-muted:rgba(241,240,242,.6);--vast-af-divider:rgba(255,255,255,.075);box-shadow:0 12px 34px rgba(0,0,0,.3)}',
     ':host([data-theme="light"]){--vast-af-bg:#f7f7f8;--vast-af-text:#17171a;--vast-af-muted:rgba(23,23,26,.6);--vast-af-divider:rgba(23,23,26,.08);--vast-af-hover:color-mix(in srgb,var(--vast-af-accent) 4%,transparent);box-shadow:0 14px 36px rgba(24,20,35,.14);color-scheme:light}',
     ':host(.visible){display:block}',
     ':host::-webkit-scrollbar{width:7px}',
-    ':host::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--vast-af-text) 14%,transparent);border:2px solid var(--vast-af-bg);border-radius:999px}',
+    ':host::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--vast-af-text) 14%,transparent);border:2px solid var(--vast-af-bg);border-radius:var(--vast-radius-micro)}',
     '#__vast_af_header{font-family:"Vast Autofill Inter"!important;font-size:13px;font-weight:600;line-height:1.3;letter-spacing:-.005em;color:var(--vast-af-text);padding:4px 9px 8px}',
-    '.vast-af-item{position:relative;display:flex;align-items:center;gap:11px;min-height:46px;padding:7px 9px;border-radius:9px;cursor:pointer;border:0;outline:0;background:transparent;width:100%;box-sizing:border-box;text-align:left;font-family:"Vast Autofill Inter"!important;font-size:13.5px;font-weight:400;color:var(--vast-af-text);transition:background-color 100ms ease}',
+    '.vast-af-item{position:relative;display:flex;align-items:center;gap:11px;min-height:46px;padding:7px 9px;border-radius:var(--vast-radius-checkbox);cursor:pointer;border:0;outline:0;background:transparent;width:100%;box-sizing:border-box;text-align:left;font-family:"Vast Autofill Inter"!important;font-size:13.5px;font-weight:400;color:var(--vast-af-text);transition:background-color 100ms ease}',
     '.vast-af-item+.vast-af-item::before{content:"";position:absolute;top:0;left:9px;right:9px;height:1px;background:var(--vast-af-divider)}',
     '.vast-af-item:hover,.vast-af-item.focused{background:var(--vast-af-hover)}',
     '.vast-af-item.focused .vast-af-username{color:var(--vast-af-text)}',
@@ -481,3 +484,8 @@ if (document.readyState === 'loading') {
 } else {
   queueScrollBoundary()
 }
+
+ipcRenderer.on('vast:password-autofill-radius', (_event, radius: unknown) => {
+  if (typeof radius !== 'number' || !Number.isFinite(radius)) return
+  autofillRoot?.style.setProperty('--vast-radius-base', `${Math.min(36, Math.max(6, radius))}px`)
+})

@@ -228,14 +228,6 @@ export function CommandPalette(): JSX.Element | null {
         perform: () => setSettingsOpen(true)
       },
       {
-        id: 'toggle-ad-blocker',
-        title: `${privacy.adBlockerEnabled ? 'Disable' : 'Enable'} Ad Blocker`,
-        subtitle: privacy.adBlockerEnabled ? 'Ad and malware request blocking is on' : 'Ad and malware request blocking is off',
-        section: 'Settings',
-        keywords: ['adblock', 'ad blocker', 'ads', 'privacy', 'toggle'],
-        perform: () => updateSettings({ privacy: { adBlockerEnabled: !privacy.adBlockerEnabled } })
-      },
-      {
         id: 'toggle-tracker-blocking',
         title: `${privacy.blockTrackers ? 'Disable' : 'Enable'} Tracker Blocking`,
         subtitle: privacy.blockTrackers ? 'Known tracker blocking is on' : 'Known tracker blocking is off',
@@ -531,7 +523,7 @@ export function CommandPalette(): JSX.Element | null {
     }))
 
     return [...visibleBase.map(annotateFeatureState), ...extensionCommands, ...macroCommands, ...workspaceCommands, ...tabCommands, ...noteCommands, ...bookmarkCommands, ...historyCommands, ...settingsCommands]
-  }, [activeWorkspaceId, appearance.forceDarkModeWebsites, bookmarks, clearHistory, createMacro, extensionContributions.commands, featureContextSettings, history, labs.spoofing, macros, notes, privacy.adBlockerEnabled, privacy.blockThirdPartyCookies, privacy.blockTrackers, privacy.fingerprintingProtection, privacy.stripTrackingParameters, runtime, security.httpsOnlyMode, setActiveWorkspace, setSettingsOpen, setSmartUnloadOpen, spoofing.enabled, tabs, updateSettings, workspaces])
+  }, [activeWorkspaceId, appearance.forceDarkModeWebsites, bookmarks, clearHistory, createMacro, extensionContributions.commands, featureContextSettings, history, labs.spoofing, macros, notes, privacy.blockThirdPartyCookies, privacy.blockTrackers, privacy.fingerprintingProtection, privacy.stripTrackingParameters, runtime, security.httpsOnlyMode, setActiveWorkspace, setSettingsOpen, setSmartUnloadOpen, spoofing.enabled, tabs, updateSettings, workspaces])
 
   const filtered = useMemo(() => {
     const recentRank = new Map(recentCommandIds.map((id, index) => [id, recentCommandIds.length - index]))
@@ -595,9 +587,9 @@ export function CommandPalette(): JSX.Element | null {
   return (
     <div className="command-palette-shell fixed inset-0 z-50 flex items-start justify-center bg-black/[0.46] px-3 pt-[clamp(2rem,9vh,7rem)] backdrop-blur-md sm:px-5">
       <button className="absolute inset-0 cursor-default" aria-label="Close command palette" onClick={() => setOpen(false)} />
-      <div className="command-palette-panel relative w-full max-w-3xl overflow-hidden rounded-[28px] border border-white/[0.09] bg-[#11131a]/[0.88] shadow-[0_32px_110px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.055)] ring-1 ring-white/[0.03] backdrop-blur-2xl">
+      <div className="command-palette-panel relative w-full max-w-3xl overflow-hidden rounded-panel border border-white/[0.09] bg-[#11131a]/[0.88] shadow-[0_32px_110px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.055)] ring-1 ring-white/[0.03] backdrop-blur-2xl">
         <div className="command-palette-search flex items-center gap-3 border-b border-white/[0.065] px-5 py-4">
-          <div className="grid h-10 w-10 place-items-center rounded-2xl border border-white/[0.08] bg-white/[0.07] text-vast-cyan shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+          <div className="grid h-10 w-10 place-items-center rounded-card border border-white/[0.08] bg-white/[0.07] text-vast-cyan shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
             <CommandIcon className="h-5 w-5" />
           </div>
           <input
@@ -626,7 +618,7 @@ export function CommandPalette(): JSX.Element | null {
           <button
             type="button"
             onClick={() => setOpen(false)}
-            className="grid h-9 w-9 place-items-center rounded-xl text-vast-soft hover:bg-white/10 hover:text-white"
+            className="grid h-9 w-9 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white"
           >
             <X className="h-4 w-4" />
           </button>
@@ -642,7 +634,7 @@ export function CommandPalette(): JSX.Element | null {
               type="button"
               onMouseEnter={() => setSelected(index)}
               onClick={() => void run(command)}
-              className={`group flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition ${
+              className={`group flex w-full items-center gap-3 rounded-card px-3 py-3 text-left transition ${
                 index === selected
                   ? 'bg-white/[0.095] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
                   : 'text-vast-soft hover:bg-white/[0.055] hover:text-white'
@@ -668,7 +660,7 @@ export function CommandPalette(): JSX.Element | null {
                     toggleFavorite(command.id)
                   }
                 }}
-                className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg transition hover:bg-white/10 ${favoriteCommandIds.includes(command.id) ? 'text-vast-cyan' : 'text-vast-soft/55 opacity-0 group-hover:opacity-100'}`}
+                className={`grid h-8 w-8 shrink-0 place-items-center rounded-control transition hover:bg-white/10 ${favoriteCommandIds.includes(command.id) ? 'text-vast-cyan' : 'text-vast-soft/55 opacity-0 group-hover:opacity-100'}`}
               >
                 <Star className={`h-3.5 w-3.5 ${favoriteCommandIds.includes(command.id) ? 'fill-current' : ''}`} />
               </span>
@@ -703,7 +695,7 @@ function CommandGlyph({
   if (command.id.startsWith('bookmark-')) return <Bookmark className={className} />
   if (command.id.startsWith('history-')) return <History className={className} />
   if (command.id.startsWith('workspace-')) {
-    return <div className={`h-2.5 w-2.5 rounded-full ${command.id.endsWith(activeWorkspaceId) ? 'bg-vast-cyan' : 'bg-white/[0.35]'}`} />
+    return <div className={`h-2.5 w-2.5 vast-geometry-circle ${command.id.endsWith(activeWorkspaceId) ? 'bg-vast-cyan' : 'bg-white/[0.35]'}`} />
   }
   if (command.id === 'search-web') return <Search className={className} />
   if (command.id === 'new-tab') return <Plus className={className} />
@@ -714,7 +706,7 @@ function CommandGlyph({
   if (command.id === 'notes-page' || command.id === 'create-note') return <FileText className={className} />
   if (command.id === 'site-data') return <Database className={className} />
   if (command.id === 'diagnostics') return <Shield className={className} />
-  if (command.id === 'toggle-ad-blocker' || command.id === 'toggle-tracker-blocking') return <Shield className={className} />
+  if (command.id === 'toggle-tracker-blocking') return <Shield className={className} />
   if (command.id === 'toggle-tracking-parameter-cleaning') return <Link2Off className={className} />
   if (command.id === 'toggle-third-party-cookies') return <Cookie className={className} />
   if (command.id === 'toggle-fingerprinting-protection' || command.id === 'toggle-spoofing') return <Fingerprint className={className} />

@@ -1,3 +1,4 @@
+import { copyText } from './clipboard'
 import { INTERNAL_NEW_TAB_URL } from '../../shared/constants'
 import type { ContextMenuItem } from '../store/browser-store'
 import { useBrowserStore } from '../store/browser-store'
@@ -70,7 +71,7 @@ export function openTabContextMenu(tab: Tab, x: number, y: number): void {
         id: 'copy-url',
         label: 'Copy URL',
         disabled: isInternalUrl(tab.url),
-        action: () => navigator.clipboard.writeText(tab.url)
+        action: () => copyText(tab.url)
       },
       separator('tab-close-separator'),
       {

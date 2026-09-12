@@ -1,0 +1,35 @@
+const assert = require('node:assert/strict')
+const test = require('node:test')
+const { mkdtempSync, readFileSync, writeFileSync, unlinkSync, rmSync } = require('node:fs')
+const { tmpdir } = require('node:os')
+const { join } = require('node:path')
+const { spawnSync } = require('node:child_process')
+const { verifyStoreAssets } = require('../../scripts/verify-store-assets.cjs')
+
+test('Store taskbar icons are mandatory, transparent and generated without additional padding', { skip: process.platform !== 'win32' }, t => {
+  const output = mkdtempSync(join(tmpdir(), 'vast-store-icons-'))
+  t.after(() => rmSync(output, { recursive: true, force: true }))
+  const run = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/generate-store-assets.ps1', '-Source', 'assets/logos/vasticon-windows.png', '-OutputDirectory', output], { encoding: 'utf8', windowsHide: true })
+  assert.equal(run.status, 0, run.stderr)
+  verifyStoreAssets(output)
+  for (const size of [16,20,24,30,32,36,40,44,48,60,64,72,80,96,256]) {
+    const bytes = readFileSync(join(output, `Square44x44Logo.targetsize-${size}_altform-unplated.png`))
+    assert.equal(bytes.readUInt32BE(16), size)
+    assert.equal(bytes.readUInt32BE(20), size)
+    assert.equal(bytes[25], 6, 'PNG must retain RGBA pixels')
+  }
+  const target = join(output, 'Square44x44Logo.targetsize-44_altform-unplated.png')
+  const original = readFileSync(target)
+  unlinkSync(target)
+  assert.throws(() => verifyStoreAssets(output), /Missing Store asset/)
+  writeFileSync(target, readFileSync(join(output, 'Square44x44Logo.png')))
+  assert.throws(() => verifyStoreAssets(output), /pixels/, 'A padded tile cannot replace a taskbar icon')
+  writeFileSync(target, original)
+  verifyStoreAssets(output)
+})
+
+test('MSIX verification enforces icon pixels and transparent manifest background', () => {
+  const verifier = readFileSync(join(__dirname, '../../scripts/verify-store-msix.cjs'), 'utf8')
+  assert.match(verifier, /verifyStoreAssets\(join\(unpackRoot, 'Assets'\)\)/)
+  assert.match(verifier, /'BackgroundColor'\) !== 'transparent'/)
+})

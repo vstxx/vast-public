@@ -37,7 +37,7 @@ test('Video & Audio manager stays outside the critical startup bundle', () => {
   assert.doesNotMatch(ipcSource, /from '\.\/avidae'/)
   assert.match(ipcSource, /registerAvidaeIpc\(handle\)/)
   assert.match(startupSource, /import\('\.\/avidae'\).*stopAvidae/s)
-  assert.match(updaterSource, /import\('\.\/avidae'\).*stopAvidae/s)
+  assert.match(updaterSource, /app\.quit\(\)/) // Main shutdown owns the awaited stopAvidae barrier.
   for (const method of ['getAvidaeStatus', 'startAvidae', 'stopAvidae', 'installAvidaeDependencies']) {
     assert.match(avidaeIpcSource, new RegExp(`import.+avidae.+${method}`))
   }

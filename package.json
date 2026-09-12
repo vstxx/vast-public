@@ -1,7 +1,7 @@
 {
   "name": "vast-browser",
   "productName": "Vast",
-  "version": "0.2.7",
+  "version": "0.3.0",
   "description": "A local-first desktop browser for power users, built with Electron, React, TypeScript, Vite, and Tailwind CSS.",
   "author": "VastProductions",
   "main": "out/main/main.js",
@@ -30,10 +30,11 @@
     "dist:store": "node scripts/build-store-msix.cjs",
     "dist:store:dev": "node scripts/build-store-msix.cjs --development",
     "dist:upgrader": "node scripts/build-release.cjs upgrader",
-    "lint": "tsc --noEmit",
+    "lint": "node scripts/check-radius.cjs && tsc --noEmit",
     "test": "node scripts/run-node-tests.cjs",
     "test:unit": "node scripts/run-node-tests.cjs",
     "test:updater": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/updater/vast-updater.test.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File tests/updater/vast-bootstrapper-release.test.ps1",
+    "test:updater:background": "node scripts/run-updater-download-e2e.cjs && powershell -NoProfile -ExecutionPolicy Bypass -File tests/updater/background-install-guard.test.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File tests/updater/background-startup.test.ps1",
     "test:upgrade:public": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/updater/vast-public-beta-upgrade.test.ps1",
     "test:upgrade:0.1.5": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/updater/vast-0.1.5-to-0.2.5-upgrade.test.ps1",
     "test:fuses:integration": "node scripts/test-electron-fuses-integration.cjs",
@@ -44,6 +45,8 @@
     "test:package:ci": "node scripts/verify-ci-package.cjs",
     "updater:stage": "node scripts/stage-updater-sources.cjs",
     "test:app": "node scripts/run-app-test.cjs",
+    "test:purist-click": "npm run build && node scripts/purist-click-e2e.cjs",
+    "test:menus": "npm run build && node scripts/menus-e2e.cjs",
     "test:extensions:e2e": "node scripts/run-isolated-electron-e2e.cjs extensions-e2e.cjs",
     "test:extensions:native-e2e": "node scripts/run-isolated-electron-e2e.cjs native-extensions-e2e.cjs",
     "extension:pack": "node scripts/pack-extension.cjs",
@@ -67,7 +70,8 @@
     "release:check": "node scripts/release-check.cjs",
     "release:direct:check": "node scripts/release-check.cjs",
     "release:store:check": "node scripts/release-store-check.cjs",
-    "release:0.2.7": "npm run release:version-check && npm run test:electron-version && npm run test:store",
+    "release:preflight": "node scripts/release-preflight.cjs",
+    "test:release": "node --test tests/release/*.test.cjs",
     "store:wack": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-windows-app-certification.ps1",
     "release:audit": "node scripts/public-release-audit.cjs",
     "release:local": "node scripts/local-release-from-env.cjs",
@@ -79,7 +83,12 @@
     "dist:public": "npm run dist:upgrader",
     "release:stable": "npm run dist:upgrader",
     "release:windows": "npm run dist:upgrader",
-    "release:version-check": "node scripts/release-version-consistency.cjs"
+    "release:version-check": "node scripts/release-version-consistency.cjs",
+    "extension:adblock:build": "node scripts/build-adblock-extension.mjs",
+    "extension:adblock:typecheck": "tsc --noEmit -p resources/first-party-extensions/adblocker-for-vast/tsconfig.json",
+    "test:adblock:extension-e2e": "node scripts/run-isolated-electron-e2e.cjs adblock-extension-e2e.cjs",
+    "test:production-pass": "node scripts/production-pass-e2e.cjs",
+    "performance:regressions": "node scripts/check-production-regressions.cjs"
   },
   "dependencies": {
     "electron-updater": "6.8.9",
@@ -89,6 +98,7 @@
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.0.0",
     "@electron/fuses": "2.1.2",
+    "@ghostery/adblocker": "2.18.2",
     "@types/react": "19.2.15",
     "@types/react-dom": "19.2.3",
     "@types/semver": "^7.7.1",
@@ -115,6 +125,8 @@
     "zustand": "5.0.13"
   },
   "overrides": {
+    "sharp": "0.35.4",
+    "js-yaml": "4.3.2",
     "tmp": "0.2.7",
     "esbuild": "0.28.1",
     "fast-uri": "3.1.6",
@@ -142,6 +154,10 @@
       "package.json"
     ],
     "extraResources": [
+      {
+        "from": "resources/apply-update.ps1",
+        "to": "apply-update.ps1"
+      },
       {
         "from": "resources/avidae",
         "to": "avidae"
@@ -194,6 +210,7 @@
       }
     },
     "nsis": {
+      "include": "resources/installer.nsh",
       "artifactName": "Vast-Setup-${version}.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true

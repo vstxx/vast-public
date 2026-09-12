@@ -3,7 +3,7 @@ const test = require('node:test')
 const {
   identityFromEnv,
   manifestXml,
-  msixVersionForSemver,
+  storePackageVersion,
   STORE_DISPLAY_NAME
 } = require('../../scripts/store-msix-config.cjs')
 const { recencyReport } = require('../../scripts/check-store-browser-recency.cjs')
@@ -20,12 +20,13 @@ const windowsCi = readFileSync(join(root, '.github', 'workflows', 'windows-ci.ym
 const packagedLaunchHealth = readFileSync(join(root, 'tests', 'store', 'packaged-launch-health.test.ps1'), 'utf8')
 const wackRunner = readFileSync(join(root, 'scripts', 'run-windows-app-certification.ps1'), 'utf8')
 
-test('semantic versions map monotonically to Store-compatible four-part versions', () => {
-  assert.equal(msixVersionForSemver('0.2.7'), '1.2.8.0')
-  assert.equal(msixVersionForSemver('0.2.8'), '1.2.9.0')
-  assert.equal(msixVersionForSemver('1.0.0'), '2.0.1.0')
-  assert.throws(() => msixVersionForSemver('0.2.7-beta.1'), /stable x\.y\.z/)
-  assert.throws(() => msixVersionForSemver('1.0.65535'), /cannot be represented/)
+test('Store versions are configurable and monotonic independently of product version', () => {
+  assert.equal(storePackageVersion({}), '1.2.9.0')
+  assert.equal(storePackageVersion({ VAST_MSIX_PACKAGE_VERSION: '1.3.0.0' }), '1.3.0.0')
+  for (const value of ['0.3.0', '0.3.0.0', '1.2.9.1', '1.2.65536.0', '1.2.8.0', '1.1.99.0']) {
+    assert.throws(() => storePackageVersion({ VAST_MSIX_PACKAGE_VERSION: value }))
+  }
+  assert.throws(() => storePackageVersion({ VAST_MSIX_PREVIOUS_PACKAGE_VERSION: '1.2.10.0' }), /must be greater/)
 })
 
 test('production Store identity fails closed and development identity is explicit', () => {
@@ -38,12 +39,12 @@ test('production Store identity fails closed and development identity is explici
 })
 
 test('manifest declares one x64 packaged classic app and only required capabilities', () => {
-  const source = manifestXml(identityFromEnv({}, true), '0.2.7')
+  const source = manifestXml(identityFromEnv({}, true), {})
   assert.equal(STORE_DISPLAY_NAME, 'Vast Browser')
   assert.match(source, /<Properties>[\s\S]*?<DisplayName>Vast Browser<\/DisplayName>/)
   assert.match(source, /<uap:VisualElements\s+DisplayName="Vast Browser"/)
   assert.doesNotMatch(source, /<Properties>[\s\S]*?<DisplayName>Vast<\/DisplayName>/)
-  assert.match(source, /Version="1\.2\.8\.0" ProcessorArchitecture="x64"/)
+  assert.match(source, /Version="1\.2\.9\.0" ProcessorArchitecture="x64"/)
   assert.match(source, /uap10:RuntimeBehavior="packagedClassicApp"/)
   assert.match(source, /rescap:Capability Name="runFullTrust"/)
   assert.match(source, /Capability Name="internetClient"/)
@@ -79,8 +80,9 @@ test('Store package relies on Partner Center signing and keeps a recursive PE in
 
 test('Store upgrade E2E uses isolated locally signed test identities and full package servicing', () => {
   assert.match(storeUpgradeE2e, /\$testPublisher = 'CN=Vast Browser Development'/)
-  assert.match(storeUpgradeE2e, /\$ExpectedVersion = '1\.2\.8\.0'/)
-  assert.equal((storeUpgradeE2e.match(/1\.2\.7\.0/g) || []).length, 3)
+  assert.match(storeUpgradeE2e, /storePackageVersion\(\)/)
+  assert.match(storeUpgradeE2e, /previousStorePackageVersion/)
+  assert.match(storeUpgradeE2e, /lowerVersion = \$PreviousVersion/)
   assert.doesNotMatch(storeUpgradeE2e, /1\.2\.6\.0/)
   assert.match(storeUpgradeE2e, /Add-AppxPackage -Path \$lowerPackage/)
   assert.match(storeUpgradeE2e, /Add-AppxPackage -Path \$currentPackage/)

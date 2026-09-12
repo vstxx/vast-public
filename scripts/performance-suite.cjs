@@ -33,6 +33,7 @@ class CdpSession {
     this.socket = socket
     this.nextId = 1
     this.pending = new Map()
+    socket.addEventListener('close', () => { for (const pending of this.pending.values()) pending.reject(new Error('CDP connection closed')); this.pending.clear() })
     socket.addEventListener('message', (event) => {
       const message = JSON.parse(event.data)
       const pending = message.id && this.pending.get(message.id)
@@ -56,7 +57,8 @@ class CdpSession {
   send(method, params = {}) {
     return new Promise((resolve, reject) => {
       const id = this.nextId++
-      this.pending.set(id, { resolve, reject })
+      const timer=setTimeout(()=>{this.pending.delete(id);reject(new Error('CDP timed out: '+method))},30000)
+      this.pending.set(id, { resolve: value=>{clearTimeout(timer);resolve(value)}, reject: error=>{clearTimeout(timer);reject(error)} })
       this.socket.send(JSON.stringify({ id, method, params }))
     })
   }
@@ -89,11 +91,11 @@ async function waitFor(session, expression, timeoutMs = 30000) {
 
 function processSnapshot() {
   const escaped = executable.replace(/'/g, "''")
-  const command = `$rows=Get-CimInstance Win32_Process | Where-Object ExecutablePath -eq '${escaped}'; $out=@(); foreach($row in $rows){$p=Get-Process -Id $row.ProcessId -ErrorAction SilentlyContinue; if($p){$out += [pscustomobject]@{pid=$p.Id;cpu=[double]$p.CPU;workingSet=[double]$p.WorkingSet64;privateMemory=[double]$p.PrivateMemorySize64;handle=$p.MainWindowHandle.ToInt64()}}}; @($out)|ConvertTo-Json -Compress`
+  const command = `$rows=Get-CimInstance Win32_Process | Where-Object ExecutablePath -eq '${escaped}'; $out=@(); foreach($row in $rows){$p=Get-Process -Id $row.ProcessId -ErrorAction SilentlyContinue; if($p){$out += [pscustomobject]@{pid=$p.Id;cpu=[double]$p.CPU;workingSet=[double]$p.WorkingSet64;privateMemory=[double]$p.PrivateMemorySize64;handle=$p.MainWindowHandle.ToInt64();commandLine=$row.CommandLine}}}; @($out)|ConvertTo-Json -Compress`
   const raw = execFileSync('powershell', ['-NoProfile', '-Command', command], { encoding: 'utf8' }).trim()
   if (!raw) return []
   const parsed = JSON.parse(raw)
-  return Array.isArray(parsed) ? parsed : [parsed]
+  return (Array.isArray(parsed) ? parsed : [parsed]).map(({commandLine,...row}) => ({...row,type:/--type=([^ ]+)/.exec(commandLine)?.[1] || 'browser'}))
 }
 
 function aggregateProcesses(rows) {
@@ -106,10 +108,13 @@ function aggregateProcesses(rows) {
 }
 
 async function idleCpuSample(durationMs = 3000) {
-  const before = aggregateProcesses(processSnapshot())
+  const before = processSnapshot()
+  const started = performance.now()
   await wait(durationMs)
-  const after = aggregateProcesses(processSnapshot())
-  return Math.max(0, after.cpuSeconds - before.cpuSeconds) / (durationMs / 1000) * 100
+  const after = processSnapshot()
+  const elapsedSeconds = (performance.now() - started) / 1000
+  const processes = after.map(row => ({pid:row.pid,type:row.type,cpuSeconds:Math.max(0,row.cpu-(before.find(p=>p.pid===row.pid)?.cpu || 0))}))
+  return { percent: processes.reduce((sum,row)=>sum+row.cpuSeconds,0)/elapsedSeconds*100, elapsedSeconds, processes }
 }
 
 function setWindowState(showCommand) {
@@ -129,17 +134,17 @@ async function measureTabSwitch(session, title) {
       button.click();
       return 'strip';
     }
-    const overflow = document.querySelector('button[title="Tab overflow"]');
+    const overflow = document.querySelector('button[title="More tabs"]');
     if (!overflow) throw new Error('Missing tab and overflow button: ' + ${JSON.stringify(title)});
     overflow.click();
     return 'overflow';
   })()`)
   if (route === 'overflow') {
-    const overflowTarget = `[...document.querySelectorAll('button')].find((item) => [...item.querySelectorAll('span')].some((label) => label.textContent === ${JSON.stringify(title)}))`
+    const overflowTarget = `document.querySelector('[data-overflow-tab-id="perf-tab-${targetIndex}"] > button')`
     await waitFor(session, `Boolean(${overflowTarget})`, 5000)
     await session.evaluate(`${overflowTarget}?.click()`)
   }
-  await waitFor(session, `[...document.querySelectorAll('webview')].some((view) => getComputedStyle(view).display !== 'none' && view.getAttribute('src')?.includes('/page/${targetIndex}'))`, 10000)
+  await waitFor(session, `[...document.querySelectorAll('webview')].some((view) => view.getBoundingClientRect().width > 0 && view.getAttribute('src')?.includes('/page/${targetIndex}'))`, 10000)
   return performance.now() - started
 }
 
@@ -174,20 +179,20 @@ function seedTabs(template, tabCount, hibernateInactiveTabs = true) {
 }
 
 async function stopRun(child, session) {
+  const started=Date.now()
   await session.evaluate('window.vast.app.window.close()').catch(() => undefined)
-  session.close()
-  if (child.exitCode !== null || child.signalCode !== null) return
-  const exited = await Promise.race([
-    new Promise((resolve) => child.once('exit', () => resolve(true))),
-    wait(8000).then(() => false)
-  ])
-  if (!exited && child.exitCode === null && child.signalCode === null) {
-    try {
-      execFileSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' })
-    } catch {
-      // The process may exit between the final state check and taskkill.
-    }
+  const exited = child.exitCode !== null || child.signalCode !== null || await new Promise(resolve => {
+    const onExit=()=>{clearTimeout(timer);resolve(true)}
+    const timer=setTimeout(()=>{child.removeListener('exit',onExit);resolve(false)},30000)
+    child.once('exit',onExit)
+  })
+  const result={graceful:exited,durationMs:Date.now()-started}
+  if (!exited) {
+    result.renderer = await session.evaluate('document.body.innerText.slice(-3000)').catch(error=>String(error))
+    try { execFileSync('taskkill', ['/pid',String(child.pid),'/t','/f'], {stdio:'ignore'}) } catch {}
   }
+  session.close()
+  return result
 }
 
 async function readJsonEventually(filePath, attempts = 30) {
@@ -221,10 +226,14 @@ async function runScenario(name, profileDir, options = {}) {
   })
   const session = await connectRenderer(debugPort)
   const shellAt = await waitFor(session, "document.querySelector('.app-shell')")
-  if (options.webviewCount) await waitFor(session, `document.querySelectorAll('webview').length >= ${options.webviewCount}`, 60000)
+  await session.evaluate(`(() => { window.__vastPerfLongTasks = []; window.__vastPerfObserver = new PerformanceObserver(list => window.__vastPerfLongTasks.push(...list.getEntries().map(e => e.duration))); window.__vastPerfObserver.observe({type:'longtask', buffered:true}); })()`)
+  if (options.webviewCount) {
+    await waitFor(session, `document.querySelectorAll('webview').length >= ${options.webviewCount}`, 60000)
+    await waitFor(session, `[...document.querySelectorAll('webview')].every(v=>v.getURL().includes('/page/') && !v.isLoading())`, 60000)
+  }
   await wait(options.settleMs ?? 1500)
   const paint = await session.evaluate(`Object.fromEntries(performance.getEntriesByType('paint').map((entry) => [entry.name, entry.startTime]))`)
-  const longTaskDurations = await session.evaluate(`performance.getEntriesByType('longtask').map((entry) => entry.duration)`).catch(() => [])
+  const longTaskDurations = await session.evaluate(`window.__vastPerfLongTasks`).catch(() => [])
   const rendererLongTasks = {
     count: longTaskDurations.length,
     totalDurationMs: longTaskDurations.reduce((sum, duration) => sum + duration, 0),
@@ -233,17 +242,32 @@ async function runScenario(name, profileDir, options = {}) {
   const metricsResult = await session.send('Performance.getMetrics')
   const rendererMetrics = Object.fromEntries(metricsResult.metrics.map((metric) => [metric.name, metric.value]))
   const memory = aggregateProcesses(processSnapshot())
+  // Operation, idle and close measurements begin after the native opening reveal.
+  await waitFor(session, `!document.querySelector('.vast-opening-overlay')`, 15000)
+  if (options.verified) {
+    await waitFor(session, `innerWidth >= 980 && document.visibilityState === 'visible'`, 15000)
+    await wait(2000)
+  }
   let idleCpu
+  let idleRenderer
   if (options.idleCpu !== false) {
     if (options.idleCpuStates) await wait(3000)
-    idleCpu = { visiblePercent: await idleCpuSample() }
+    const idleBefore = await session.send('Performance.getMetrics')
+    const idleLongTasksBefore = await session.evaluate('window.__vastPerfLongTasks.length')
+    const idleAnimations = await session.evaluate(`document.getAnimations().filter(a=>a.playState==='running').map(a=>({name:a.animationName, target:a.effect?.target?.outerHTML?.slice(0,180), time:a.currentTime}))`)
+    const visibleSample = await idleCpuSample()
+    idleCpu = { visiblePercent: visibleSample.percent }
+    const idleAfter = await session.send('Performance.getMetrics')
+    const task = metrics => metrics.metrics.find(m=>m.name==='TaskDuration').value
+    idleRenderer = { cpuSample: visibleSample, taskDurationSeconds: task(idleAfter)-task(idleBefore), longTaskDurations: await session.evaluate(`window.__vastPerfLongTasks.slice(${idleLongTasksBefore})`), animations: idleAnimations }
+
     if (options.idleCpuStates && setWindowState(6)) {
       await wait(500)
-      idleCpu.minimizedPercent = await idleCpuSample()
+      idleCpu.minimizedPercent = (await idleCpuSample()).percent
       setWindowState(9)
       await wait(500)
       if (setWindowState(0)) {
-        idleCpu.hiddenPercent = await idleCpuSample()
+        idleCpu.hiddenPercent = (await idleCpuSample()).percent
         setWindowState(5)
       }
     }
@@ -253,11 +277,37 @@ async function runScenario(name, profileDir, options = {}) {
     tabSwitchMs = {}
     for (const title of options.tabSwitchTitles) tabSwitchMs[title] = await measureTabSwitch(session, title)
   }
+  let scrolling
+  if (options.scrolling) {
+    await session.evaluate(`document.querySelector('button[title="More tabs"]').click()`)
+    await waitFor(session, `document.querySelector('[role="dialog"]')`)
+    scrolling = await session.evaluate(`(async () => {
+      const scroller=[...document.querySelectorAll('[role="dialog"] *')].find(e => e.scrollHeight > e.clientHeight + 100 && ['auto','scroll'].includes(getComputedStyle(e).overflowY));
+      if (!scroller) throw new Error('Missing scrollable tab list');
+      const frames=[]; let last=performance.now();
+      for(let i=0;i<90;i++){ await new Promise(requestAnimationFrame); const now=performance.now(); frames.push(now-last); last=now; scroller.scrollTop = (i*90) % scroller.scrollHeight; }
+      frames.sort((a,b)=>a-b); return {frames:frames.length,p95FrameMs:frames[Math.floor(frames.length*.95)],maxFrameMs:frames.at(-1)};
+    })()`)
+    await session.evaluate(`document.querySelector('button[title="More tabs"]').click()`)
+  }
+  let smartUnload
+  if (options.smartUnload) {
+    const before = aggregateProcesses(processSnapshot())
+    await session.evaluate(`document.querySelector('button[title="More browser tools"]').click()`)
+    await waitFor(session, `[...document.querySelectorAll('.browser-tools-menu button')].some(b=>b.textContent.includes('Smart unload'))`)
+    await session.evaluate(`[...document.querySelectorAll('.browser-tools-menu button')].find(b=>b.textContent.includes('Smart unload')).click()`)
+    await waitFor(session, `document.querySelector('.smart-unload-panel')`)
+    await session.evaluate(`[...document.querySelectorAll('.smart-unload-action')].find(b=>b.textContent.includes('Deep discard')).click()`)
+    await waitFor(session, `document.querySelectorAll('webview').length <= 2`, 15000)
+    await wait(3000)
+    smartUnload = { before, after: aggregateProcesses(processSnapshot()), remainingGuests: await session.evaluate(`document.querySelectorAll('webview').length`) }
+    assert(smartUnload.after.processCount < before.processCount, 'Smart Unload did not reclaim guest processes')
+  }
   let memoryAfterClose
   if (options.closeTabCount) {
     await session.evaluate(`(async () => {
       for (let index = 0; index < ${options.closeTabCount}; index += 1) {
-        const rows = [...document.querySelectorAll('button[title^="Perf Tab"]')];
+        const rows = [...document.querySelectorAll('[data-tab-motion-id]')];
         rows.at(-1)?.querySelector('[title="Close tab"]')?.click();
         await new Promise((resolve) => setTimeout(resolve, 40));
       }
@@ -292,14 +342,18 @@ async function runScenario(name, profileDir, options = {}) {
     await wait(2000)
   }
   if (options.downloadStress) {
+    await session.evaluate(`(() => { window.__vastPerfDownloads=[]; window.__vastPerfDownloadUnsubscribe=window.vast.downloads.onChanged(item=>window.__vastPerfDownloads.push(item)); })()`)
     await session.evaluate(`document.querySelector('webview').executeJavaScript("document.querySelector('#download').click()")`)
-    await waitFor(session, `document.body.innerText.includes('100%') || document.body.innerText.includes('Open')`, 60000).catch(() => undefined)
+    await waitFor(session, `window.__vastPerfDownloads.some(item=>item.state === 'progressing')`, 10000)
+    await waitFor(session, `window.__vastPerfDownloads.some(item=>item.state === 'completed' && item.scanStatus && !['pending','scanning'].includes(item.scanStatus))`, 60000)
+    await session.evaluate(`window.__vastPerfDownloadUnsubscribe()`)
+
     await wait(1500)
   }
   if (options.navigation || options.downloadStress) {
     operationCountersAfter = await session.evaluate('window.vast.app.performanceCounters()')
   }
-  await stopRun(child, session)
+  const close = await stopRun(child, session)
   // Give Chromium children and Electron's per-profile single-instance lock time
   // to disappear before a warm relaunch of the same profile. This delay is
   // outside every reported scenario metric.
@@ -309,13 +363,17 @@ async function runScenario(name, profileDir, options = {}) {
     name,
     launchEpochMs,
     shellInteractiveMs: shellAt - launchEpochMs,
+    close,
     paint,
     rendererMetrics,
     rendererLongTasks,
     memory,
     idleCpu,
+    idleRenderer,
     tabSwitchMs,
     memoryAfterClose,
+    scrolling,
+    smartUnload,
     lifecycleCycles,
     operationCounters: operationCountersBefore && operationCountersAfter ? {
       before: operationCountersBefore,
@@ -329,17 +387,13 @@ async function runScenario(name, profileDir, options = {}) {
 }
 
 function bundleMetrics() {
-  const roots = [path.join(root, 'out', 'main'), path.join(root, 'out', 'preload'), path.join(root, 'out', 'renderer')]
-  const files = []
-  const walk = (dir) => {
-    if (!fs.existsSync(dir)) return
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name)
-      if (entry.isDirectory()) walk(full)
-      else files.push({ path: path.relative(root, full), bytes: fs.statSync(full).size })
-    }
-  }
-  roots.forEach(walk)
+  const asar = require('@electron/asar')
+  const archive = path.join(path.dirname(executable), 'resources', 'app.asar')
+  const files = asar.listPackage(archive).map(name => name.replace(/^[/\\]+/, '').replaceAll('\\', '/'))
+    .filter(name => /^out\/(main|preload|renderer)\//.test(name))
+    .map(name => ({ name, info: asar.statFile(archive, name.split('/').join(path.sep)) }))
+    .filter(({ info }) => !info.files)
+    .map(({name,info}) => ({path:name,bytes:info.size}))
   return { totalBytes: files.reduce((sum, file) => sum + file.bytes, 0), jsBytes: files.filter((file) => /\.(js|mjs|cjs)$/.test(file.path)).reduce((sum, file) => sum + file.bytes, 0), files }
 }
 
@@ -362,6 +416,35 @@ async function main() {
   })
   await new Promise((resolve) => server.listen(serverPort, '127.0.0.1', resolve))
   try {
+    if (process.argv.includes('--idle-only')) {
+      const template = structuredClone((await import(require('node:url').pathToFileURL(path.join(root, 'src/shared/constants.ts')).href)).DEFAULT_DATA)
+      const scenarios = []
+      for (const count of [1, 50]) for (let repetition = 1; repetition <= 3; repetition++) {
+        const profileDir = path.join(profilesRoot, `idle-confirmed-${count}-${repetition}`)
+        fs.mkdirSync(profileDir, { recursive: true })
+        fs.writeFileSync(path.join(profileDir, 'vast-data.json'), JSON.stringify(seedTabs(template, count, count === 1)))
+        scenarios.push(await runScenario(`idle-confirmed-${count}-${repetition}`, profileDir, { webviewCount: count, idleCpuStates: count === 1, verified: true }))
+      }
+      for (let repetition = 1; repetition <= 3; repetition++) {
+        const profileDir = path.join(profilesRoot, `download-confirmed-${repetition}`)
+        fs.mkdirSync(profileDir, { recursive: true })
+        fs.writeFileSync(path.join(profileDir, 'vast-data.json'), JSON.stringify(seedTabs(template, 1)))
+        scenarios.push(await runScenario(`download-confirmed-${repetition}`, profileDir, { webviewCount: 1, idleCpu: false, downloadStress: true, verified: true }))
+      }
+      fs.writeFileSync(path.join(resultsRoot, `${phase}-idle.json`), JSON.stringify({ phase, executable, scenarios }, null, 2))
+      return
+    }
+    if (process.argv.includes('--scroll-only')) {
+      const template = structuredClone((await import(require('node:url').pathToFileURL(path.join(root, 'src/shared/constants.ts')).href)).DEFAULT_DATA)
+      const profileDir=path.join(profilesRoot,'scroll-250'); fs.mkdirSync(profileDir,{recursive:true});
+      fs.writeFileSync(path.join(profileDir,'vast-data.json'),JSON.stringify(seedTabs(template,250)));
+      const result=await runScenario('scroll-250',profileDir,{scrolling:true,idleCpu:true});
+      fs.writeFileSync(path.join(resultsRoot,`${phase}-scroll.json`),JSON.stringify(result,null,2));
+      const unloadDir=path.join(profilesRoot,'smart-unload'); fs.mkdirSync(unloadDir,{recursive:true});
+      fs.writeFileSync(path.join(unloadDir,'vast-data.json'),JSON.stringify(seedTabs(template,10,false)));
+      const unloadResult=await runScenario('smart-unload',unloadDir,{webviewCount:10,smartUnload:true,idleCpu:false});
+      fs.writeFileSync(path.join(resultsRoot,`${phase}-unload.json`),JSON.stringify(unloadResult,null,2)); return;
+    }
     if (startupOnly) {
       const scenarios = []
       for (let repetition = 1; repetition <= 3; repetition += 1) {
@@ -386,7 +469,7 @@ async function main() {
     const template = JSON.parse(fs.readFileSync(storagePath, 'utf8'))
     const scenarios = [bootstrap]
 
-    for (const tabCount of [1, 10, 25, 50, 100, 250]) {
+    for (const tabCount of (process.argv.includes('--startup-recheck') ? [1] : [1, 10, 25, 50, 100, 250])) {
       const profileDir = path.join(profilesRoot, `restore-${tabCount}`)
       fs.rmSync(profileDir, { recursive: true, force: true })
       fs.mkdirSync(profileDir, { recursive: true })
@@ -399,7 +482,7 @@ async function main() {
       if (tabCount === 1) scenarios.push(await runScenario('restore-1-warm', profileDir, { idleCpu: false }))
     }
 
-    for (let repetition = 2; repetition <= 3; repetition += 1) {
+    for (let repetition = 2; repetition <= Number((process.argv.find(a=>a.startsWith('--startup-samples=')) || '--startup-samples=3').split('=')[1]); repetition += 1) {
       const profileDir = path.join(profilesRoot, `startup-repeat-${repetition}`)
       fs.rmSync(profileDir, { recursive: true, force: true })
       fs.mkdirSync(profileDir, { recursive: true })
@@ -408,6 +491,9 @@ async function main() {
       scenarios.push(await runScenario(`restore-1-warm-${repetition}`, profileDir, { idleCpu: false }))
     }
 
+    if (process.argv.includes('--startup-recheck')) {
+      fs.writeFileSync(path.join(resultsRoot, `${phase}.json`),JSON.stringify({phase,executable,bundle:bundleMetrics(),scenarios},null,2)); return;
+    }
     for (const tabCount of [1, 10, 25, 50]) {
       const profileDir = path.join(profilesRoot, `loaded-${tabCount}`)
       fs.rmSync(profileDir, { recursive: true, force: true })
@@ -454,7 +540,9 @@ function osVersion() {
   return execFileSync('powershell', ['-NoProfile', '-Command', "[System.Environment]::OSVersion.VersionString"], { encoding: 'utf8' }).trim()
 }
 
-main().catch((error) => {
+module.exports = { CdpSession, connectRenderer, waitFor, stopRun }
+
+if (require.main === module) main().catch((error) => {
   console.error(error)
   try {
     const escaped = executable.replace(/'/g, "''")

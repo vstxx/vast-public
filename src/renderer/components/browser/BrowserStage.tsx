@@ -1,3 +1,4 @@
+import { copyText } from '../../lib/clipboard'
 import {
   forwardRef,
   useCallback,
@@ -271,7 +272,7 @@ export const BrowserStage = forwardRef<BrowserStageHandle, BrowserStageProps>(fu
           {
             id: 'copy-title',
             label: 'Copy tab title',
-            action: () => navigator.clipboard.writeText(tab.title)
+            action: () => copyText(tab.title)
           }
         ]
       })
@@ -396,8 +397,8 @@ export const BrowserStage = forwardRef<BrowserStageHandle, BrowserStageProps>(fu
               )}
               {wakingSleepingTab && (
                 <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center bg-black/[0.18] backdrop-blur-[1px]">
-                  <div className="rounded-3xl border border-white/10 bg-black/50 px-5 py-4 text-center shadow-glass backdrop-blur-xl">
-                    <div className="mx-auto mb-3 h-1.5 w-14 rounded-full bg-vast-cyan/70 shadow-[0_0_22px_color-mix(in_srgb,var(--vast-accent)_32%,transparent)]" />
+                  <div className="rounded-panel border border-white/10 bg-black/50 px-5 py-4 text-center shadow-glass backdrop-blur-xl">
+                    <div className="mx-auto mb-3 h-1.5 w-14 rounded-control bg-vast-cyan/70 shadow-[0_0_22px_color-mix(in_srgb,var(--vast-accent)_32%,transparent)]" />
                     <div className="text-sm font-semibold text-white">Restoring discarded tab</div>
                     <div className="mt-1 text-xs text-vast-soft">Vast unloaded this page under memory pressure.</div>
                   </div>
@@ -451,7 +452,7 @@ export const BrowserStage = forwardRef<BrowserStageHandle, BrowserStageProps>(fu
           }}
         >
           <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-white/10 transition-colors group-hover:bg-vast-cyan/55 group-focus-visible:bg-vast-cyan" />
-          <span className="absolute left-1/2 top-5 grid h-7 w-5 -translate-x-1/2 place-items-center rounded-full border border-white/10 bg-[#111218] text-white/35 shadow-md transition group-hover:border-vast-cyan/30 group-hover:text-vast-cyan">
+          <span className="absolute left-1/2 top-5 grid h-7 w-5 -translate-x-1/2 place-items-center rounded-control border border-white/10 bg-[#111218] text-white/35 shadow-md transition group-hover:border-vast-cyan/30 group-hover:text-vast-cyan">
             <Columns2 className="h-3 w-3" />
           </span>
         </div>
@@ -462,7 +463,7 @@ export const BrowserStage = forwardRef<BrowserStageHandle, BrowserStageProps>(fu
         </section>
       )}
       {activeWorkspace?.isPrivate && !htmlFullscreenTabId && (
-        <div className="pointer-events-none absolute bottom-4 left-4 z-20 rounded-full border border-white/10 bg-black/40 px-3 py-1 text-[11px] font-medium text-vast-cyan backdrop-blur-xl">
+        <div className="pointer-events-none absolute bottom-4 left-4 z-20 rounded-control border border-white/10 bg-black/40 px-3 py-1 text-[11px] font-medium text-vast-cyan backdrop-blur-xl">
           Isolated workspace - history off
         </div>
       )}

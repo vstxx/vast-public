@@ -23,15 +23,7 @@ export function registerPrivacyIpc(handle: IpcHandle): void {
     }
   })
 
-  handle('vast:privacy:filter-status', async () => ({
-    ok: true,
-    status: (await import('../privacy-filter-lists')).privacyFilterStatus()
-  }))
 
-  handle('vast:privacy:update-filters', async () => ({
-    ok: true,
-    status: await (await import('../privacy-filter-lists')).updatePrivacyFilters(true)
-  }))
 
   handle('vast:privacy:configure-identity', async (
     _event,

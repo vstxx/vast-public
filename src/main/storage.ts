@@ -284,7 +284,7 @@ const entityGuards = {
     return isRecord(item) && safeId(item.id) && safeString(item.title, 4_096) && storedUrl(item.url) && optionalFavicon(item.favicon) && finiteNumber(item.visitCount, 0, 1_000_000) && finiteNumber(item.lastVisitedAt) && optionalId(item.workspaceId)
   },
   download(item: unknown): item is PersistedData['downloads'][number] {
-    return isRecord(item) && safeId(item.id) && safeString(item.filename, 4_096, false) && storedUrl(item.url, false) && optionalString(item.mimeType, 512) && optionalString(item.savePath, 32_768) && optionalString(item.sha256, 128) &&
+    return isRecord(item) && safeId(item.id) && safeString(item.filename, 4_096, false) && storedUrl(item.url, false) && optionalString(item.mimeType, 512) && optionalString(item.savePath, 32_768) && optionalString(item.sha256, 128) && optionalString(item.sourcePartition, 512) &&
       finiteNumber(item.receivedBytes) && finiteNumber(item.totalBytes) && ['progressing', 'completed', 'cancelled', 'interrupted'].includes(String(item.state)) &&
       (item.paused === undefined || typeof item.paused === 'boolean') && (item.bytesPerSecond === undefined || finiteNumber(item.bytesPerSecond, 0, 1_000_000_000_000)) && optionalString(item.dangerType, 512) &&
       (item.scanStatus === undefined || ['pending', 'scanning', 'clean', 'suspicious', 'dangerous', 'scan-unavailable', 'scan-failed'].includes(String(item.scanStatus))) &&
@@ -331,7 +331,6 @@ const enumSettings = new Map<string, ReadonlySet<string>>([
   ['sidePanel.mode', new Set(['auto', 'docked', 'overlay'])],
   ['startupBehavior', new Set(['restore', 'new-tab', 'home'])],
   ['newTabBehavior', new Set(['vast', 'search', 'blank'])],
-  ['privacy.adBlockerMode', new Set(['standard', 'strict', 'custom'])],
   ['privacy.fingerprintingProtection', new Set(['standard', 'strict', 'maximum'])],
   ['privacy.webRtcPolicy', new Set(['public-interface-only', 'default', 'disabled'])],
   ['spoofing.browserProfile', new Set(['chrome-windows', 'chrome-macos', 'firefox-windows', 'safari-macos', 'custom'])],
@@ -446,9 +445,6 @@ export function migrateData(data: PersistedData): PersistedData {
       ? sanitizeRamLimitMb(legacyAdvanced.ramLimitMb)
       : deriveLegacyRamLimitMb(legacyAdvanced)
   const settingsInput = JSON.parse(JSON.stringify(data.settings ?? {})) as Record<string, unknown>
-  const legacyPrivacy = isRecord(settingsInput.privacy) ? settingsInput.privacy : undefined
-  if (legacyPrivacy?.adBlockerMode === 'soft') legacyPrivacy.adBlockerMode = 'standard'
-  if (legacyPrivacy?.adBlockerMode === 'brutal') legacyPrivacy.adBlockerMode = 'strict'
   const sanitizedSettings = sanitizeBrowserSettings(settingsInput)
   sanitizedSettings.advanced.ramLimitMb = nextRamLimitMb
   const merged: PersistedData = {
@@ -643,9 +639,19 @@ async function backupRejectedStorageFile(file: string, expectedRaw: string): Pro
   }
 }
 
+// Downloads are main-owned. Merge at execution time so queued renderer saves and
+// simultaneous download completions cannot overwrite a newer transfer state.
+let mainDownloads: DownloadItem[] | undefined
+
+export async function saveRendererData(data: PersistedData): Promise<void> {
+  const current = await loadData()
+  mainDownloads ??= current.downloads
+  await saveData({ ...data, downloads: mainDownloads })
+}
+
 async function writeData(data: PersistedData): Promise<void> {
   const writeStartedAt = performance.now()
-  const next = normalizePersistedData(data)
+  const next = normalizePersistedData(mainDownloads ? { ...data, downloads: mainDownloads } : data)
   const file = storagePath()
   const tmp = `${file}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
   const serialized = JSON.stringify(next)
@@ -680,9 +686,15 @@ async function writeData(data: PersistedData): Promise<void> {
 }
 
 const durableSaveQueue = new LatestTaskQueue<PersistedData>(writeData)
+let pendingSaveData: PersistedData | undefined
 
 export async function saveData(data: PersistedData): Promise<void> {
-  await durableSaveQueue.run(data)
+  pendingSaveData = data
+  try {
+    await durableSaveQueue.run(data)
+  } finally {
+    if (pendingSaveData === data) pendingSaveData = undefined
+  }
 }
 
 export async function clearHistory(): Promise<PersistedData> {
@@ -693,21 +705,26 @@ export async function clearHistory(): Promise<PersistedData> {
 }
 
 export async function upsertDownload(download: DownloadItem): Promise<void> {
-  const data = await loadData()
-  const downloads = data.downloads.filter((item) => item.id !== download.id)
+  const loaded = await loadData()
+  const data = pendingSaveData ?? loaded
+  const downloads = (mainDownloads ?? data.downloads).filter((item) => item.id !== download.id)
   downloads.unshift(download)
-  await saveData({ ...data, downloads: downloads.slice(0, 200) })
+  mainDownloads = downloads.slice(0, 200)
+  await saveData({ ...data, downloads: mainDownloads })
 }
 
 export async function clearCompletedDownloads(): Promise<void> {
-  const data = await loadData()
-  const downloads = data.downloads.filter((item) => item.state !== 'completed' && item.state !== 'cancelled')
+  const loaded = await loadData()
+  const data = pendingSaveData ?? loaded
+  const downloads = (mainDownloads ?? data.downloads).filter((item) => item.state !== 'completed' && item.state !== 'cancelled')
+  mainDownloads = downloads
   await saveData({ ...data, downloads })
 }
 
 export async function replaceDataFromImport(data: PersistedData): Promise<PersistedData> {
   const next = migrateData(data)
   await createStorageBackup('pre-import')
+  mainDownloads = next.downloads
   await saveData(next)
   return next
 }
@@ -718,6 +735,7 @@ export async function restoreStorageBackup(id: string): Promise<PersistedData> {
   assertStorageTextSize(raw)
   const parsed = JSON.parse(raw) as unknown
   if (!isPersistedData(parsed)) throw new Error('Selected backup is not valid Vast data.')
+  mainDownloads = undefined
   await createStorageBackup('pre-restore')
   const next = migrateData(parsed)
   await saveData(next)

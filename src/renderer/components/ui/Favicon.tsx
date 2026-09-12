@@ -101,7 +101,7 @@ export function getInternalTabMeta(url?: string): InternalTabMeta | null {
 
 export function Favicon({ url, favicon, title, className = '' }: FaviconProps): JSX.Element {
   if (favicon) {
-    return <img src={favicon} alt="" className={`h-4 w-4 rounded-[4px] object-cover ${className}`} />
+    return <img src={favicon} alt="" className={`h-4 w-4 rounded-micro object-cover ${className}`} />
   }
 
   if (url && !isInternalUrl(url)) {
@@ -109,7 +109,7 @@ export function Favicon({ url, favicon, title, className = '' }: FaviconProps): 
     const letter = (title || host || '*').trim().charAt(0).toUpperCase()
     return (
       <span
-        className={`grid h-4 w-4 place-items-center rounded-[4px] bg-white/10 text-[9px] font-semibold text-white/80 ${className}`}
+        className={`grid h-4 w-4 place-items-center rounded-micro bg-white/10 text-[9px] font-semibold text-white/80 ${className}`}
       >
         {letter}
       </span>
@@ -120,7 +120,7 @@ export function Favicon({ url, favicon, title, className = '' }: FaviconProps): 
   if (internalMeta) {
     const Icon = internalMeta.icon
     return (
-      <span className={`grid h-4 w-4 place-items-center rounded-[5px] ${internalMeta.iconClassName} ${className}`}>
+      <span className={`grid h-4 w-4 place-items-center rounded-micro ${internalMeta.iconClassName} ${className}`}>
         <Icon className="h-[10px] w-[10px]" strokeWidth={2.2} />
       </span>
     )

@@ -16,6 +16,7 @@ Vast does not trust the Hub transport alone, catalog JSON, D1 rows, R2 object na
 - `vast-extension://` serves only validated files from the owning managed/unpacked root with containment and MIME checks.
 - The dedicated preload exposes typed `vast.*` methods, not generic IPC. Main authenticates `webContents` ownership for every message.
 - Extension tab APIs exclude private, internal, and non-HTTP(S) tabs. Ephemeral/private partitions never receive extension runtimes.
+- An opt-in network provider (top-level `vast_network: 1`; Manifest V2 background page holding `webRequest`/`webRequestBlocking`) receives sanitized JSON request events through the fixed `globalThis.vastWebRequest.handle` entry point, and only after Vast's built-in privacy checks have run. The bridge evaluates no provider source, serves only live Vast-owned webviews whose page and request URLs both match the provider's host permissions, bounds every provider call (500 ms, at most 2048 in-flight, fail-open), and accepts only sanitized `cancel`, data/same-origin `redirectURL`, or response-CSP decisions. The `vast.*` native layer cannot register as a provider, and provider payloads never include private-workspace traffic.
 
 ## Package and update threats
 
@@ -25,7 +26,7 @@ Updates bind the same extension and publisher identities, require a strictly hig
 
 ## Hub controls
 
-GitHub OAuth state is random, hashed at rest, cookie-bound, expiring, and single-use. Access tokens are used only to retrieve the stable GitHub user ID and are not persisted. Sessions are opaque and hashed in D1; cookies are Secure, HttpOnly, SameSite where applicable. Mutations require an exact allowed Origin (when supplied), session, and separate CSRF token. Ownership and reviewer/admin roles are checked server-side, and publishers cannot approve their own releases.
+GitHub OAuth state is random, hashed at rest, cookie-bound, expiring, and single-use. Access tokens are used only to retrieve the stable GitHub user ID and are not persisted. Sessions are opaque and hashed in D1; cookies are Secure, HttpOnly, SameSite where applicable. Mutations require an exact allowed Origin (when supplied), session, and separate CSRF token. Ownership and reviewer/admin roles are checked server-side. Publishers cannot approve their own releases; the only exception is an authenticated administrator, whose self-approval is labelled separately in the review UI and recorded with a distinct `admin-self-approve-and-sign` audit action before the package is re-validated and signed like any other approval.
 
 All D1 values are parameterized. Inputs and responses are bounded. Public/package abuse controls store an HMAC-derived IP subject instead of the raw address. Security headers include a deny-by-default CSP, `nosniff`, frame denial, restrictive Permissions Policy, and no-referrer. Public HTML escapes all untrusted values and uses no raw publisher HTML.
 

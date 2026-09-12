@@ -44,7 +44,5 @@ test('storage migration applies URL and privacy migrations to all saved data usi
   assert.match(storageSource, /merged\.recentlyClosedTabs[\s\S]*\.map\(migrateLegacyInternalTab\)/)
   assert.match(storageSource, /merged\.sessionSnapshots[\s\S]*\.map\(migrateLegacySessionSnapshot\)/)
   assert.match(constantsSource, /STORAGE_SCHEMA_VERSION = 8/)
-  assert.match(storageSource, /adBlockerMode === 'soft'/)
-  assert.match(storageSource, /adBlockerMode === 'brutal'/)
   assert.match(storageSource, /sessionMode: workspace\.isPrivate \? 'ephemeral' : 'isolated'/)
 })

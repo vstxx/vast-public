@@ -76,7 +76,6 @@ export const DEFAULT_SHORTCUTS: Record<string, string> = {
   zoomOut: 'Ctrl/Cmd+Minus',
   resetZoom: 'Ctrl/Cmd+0',
   print: 'Ctrl/Cmd+P',
-  toggleAdBlocker: 'Ctrl/Cmd+Shift+A'
 }
 
 export const DEFAULT_SETTINGS: BrowserSettings = {
@@ -135,20 +134,6 @@ export const DEFAULT_SETTINGS: BrowserSettings = {
   openingAnimationSoundVolume: 0,
   privacy: {
     blockTrackers: true,
-    adBlockerEnabled: true,
-    adBlockerMode: 'standard',
-    filterEasyList: true,
-    filterEasyPrivacy: true,
-    filterPeterLowe: true,
-    filterMalware: true,
-    filterPolishAnnoyances: false,
-    filterAutoUpdate: true,
-    customFilterRules: '',
-    adBlockAllowlist: [],
-    customBlockAds: true,
-    customBlockTrackers: true,
-    customBlockMalware: true,
-    customBlockThirdPartyCookies: true,
     stripTrackingParameters: true,
     stripAffiliateParameters: false,
     blockThirdPartyCookies: true,

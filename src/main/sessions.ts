@@ -1,8 +1,10 @@
+import { configureDownloadsForSession } from './downloads'
+import { extensionNetworkDecision } from './extensions/extension-network-bridge'
 import { BrowserWindow, app, desktopCapturer, session, webContents, type BrowserWindowConstructorOptions, type Session } from 'electron/main'
 import { appendFile, mkdir } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { join } from 'node:path'
-import { isAdRequestUrl, isStrictAdNavigationUrl, isTrackerUrl } from '../shared/adblock'
+import { isTrackerUrl } from '../shared/tracker-policy'
 import {
   AUTH_COMPATIBILITY_MODEL,
   AUTH_IDENTITY_PROFILE,
@@ -36,7 +38,6 @@ import { loadData, saveData } from './storage'
 import { avidaeAuthorizationHeader } from './avidae-auth'
 import { clearExternalProtocolRequestsForContents, requestExternalProtocolOpen } from './external-protocol'
 import { installGuestRuntimeEventHandling, protectGuestMediaCapture } from './guest-runtime-events'
-import { initializePrivacyFilters, matchPrivacyFilter, recordPrivacyFilterBlock } from './privacy-filter-lists'
 import { cleanTrackingUrl, hostMatchesList } from '../shared/url-cleaning'
 import { shouldBlockThirdPartyCookieHeaders } from '../shared/cookie-policy'
 import { buildFingerprintingProtectionScript } from '../shared/fingerprinting'
@@ -114,7 +115,7 @@ const sessionIdentityScopes = new WeakMap<Session, string>()
 const configuredIdentityProxies = new WeakMap<Session, string>()
 const trustedInternalNavigationWebContents = new Set<number>()
 const trustedOAuthPopupWebContents = new Set<number>()
-const adBlockGuardedPopupWebContents = new Set<number>()
+const guardedPopupWebContents = new Set<number>()
 const authCompatibilityWebContents = new Map<number, OAuthPopupWindowContext>()
 const directAuthOpeners = new Set<number>()
 let securitySettings: (() => BrowserSettings) | undefined
@@ -180,7 +181,7 @@ function isLocalHttpHost(hostname: string): boolean {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
 }
 
-const blockedRequestCounts = new Map<number, { trackers: number; ads: number; malware: number }>()
+const blockedRequestCounts = new Map<number, { trackers: number }>()
 
 // Real popup windows keep native browsing-context semantics, so a misbehaving
 // page could otherwise spawn them without bound. Chromium's popup blocker is
@@ -260,8 +261,6 @@ function configureTrackerBlocking(targetSession: Session, getSettings: () => Bro
   let requestPolicy: {
     httpsOnlyMode: boolean
     trackerBlocking: boolean
-    adBlocking: boolean
-    adBlockerMode: BrowserSettings['privacy']['adBlockerMode']
     disabledOrigins: readonly string[]
     settings: BrowserSettings
   }
@@ -269,12 +268,9 @@ function configureTrackerBlocking(targetSession: Session, getSettings: () => Bro
     const settings = getSettings()
     if (settings !== cachedSettings) {
       cachedSettings = settings
-      const adBlocking = settings.privacy.adBlockerEnabled
       requestPolicy = {
         httpsOnlyMode: settings.security.httpsOnlyMode,
         trackerBlocking: isTemporarySession || settings.privacy.blockTrackers,
-        adBlocking,
-        adBlockerMode: settings.privacy.adBlockerMode ?? 'standard',
         disabledOrigins: settings.privacy.siteInterventionsDisabled,
         settings
       }
@@ -290,7 +286,7 @@ function configureTrackerBlocking(targetSession: Session, getSettings: () => Bro
     }
     const policy = currentPolicy()
     if (typeof details.webContentsId === 'number' && details.resourceType === 'mainFrame') {
-      blockedRequestCounts.set(details.webContentsId, { trackers: 0, ads: 0, malware: 0 })
+      blockedRequestCounts.set(details.webContentsId, { trackers: 0 })
     }
     if (siteInterventionsDisabled(details, policy.disabledOrigins)) {
       callback({})
@@ -310,29 +306,18 @@ function configureTrackerBlocking(targetSession: Session, getSettings: () => Bro
         return
       }
     }
-    const topLevelOrigin = requestTopLevelOrigin(details)
-    if (topLevelOrigin && hostMatchesList(topLevelOrigin, policy.settings.privacy.adBlockAllowlist)) {
-      callback({})
-      return
-    }
-    const listCategory = matchPrivacyFilter(details.url, topLevelOrigin, details.resourceType, policy.settings)
-    const trackerBlocked = listCategory === 'trackers' || policy.trackerBlocking && isTrackerUrl(details.url)
-    const adBlocked = listCategory === 'ads' || policy.adBlocking && isAdRequestUrl(details.url, details.resourceType, policy.adBlockerMode)
-    const malwareBlocked = listCategory === 'malware'
-    if (trackerBlocked || adBlocked || malwareBlocked) {
-      if (listCategory) recordPrivacyFilterBlock(listCategory)
+    const trackerBlocked = policy.trackerBlocking && isTrackerUrl(details.url)
+    if (trackerBlocked) {
       if (typeof details.webContentsId === 'number' && details.webContentsId > 0) {
-        const counts = blockedRequestCounts.get(details.webContentsId) ?? { trackers: 0, ads: 0, malware: 0 }
+        const counts = blockedRequestCounts.get(details.webContentsId) ?? { trackers: 0 }
         blockedRequestCounts.set(details.webContentsId, {
-          trackers: counts.trackers + Number(trackerBlocked),
-          ads: counts.ads + Number(adBlocked),
-          malware: counts.malware + Number(malwareBlocked)
+          trackers: counts.trackers + Number(trackerBlocked)
         })
       }
       callback({ cancel: true })
       return
     }
-    callback({})
+    void extensionNetworkDecision(targetSession, details, topLevelUrl || details.referrer).then(callback, () => callback({}))
   })
 }
 
@@ -361,9 +346,7 @@ function configureSpoofingForSession(targetSession: Session, getSettings: () => 
     const requestHeaders = spoofing.enabled
       ? buildSpoofingHeaders(spoofing, details.requestHeaders, process.versions.chrome)
       : buildDefaultChromiumRequestHeaders(defaultChromiumIdentity, details.requestHeaders)
-    const thirdPartyCookiesBlocked = settings.privacy.blockThirdPartyCookies ||
-      settings.privacy.adBlockerMode === 'strict' ||
-      settings.privacy.adBlockerMode === 'custom' && settings.privacy.customBlockThirdPartyCookies
+    const thirdPartyCookiesBlocked = settings.privacy.blockThirdPartyCookies
     if (shouldBlockThirdPartyCookieHeaders({
       requestUrl: details.url,
       topLevelUrl,
@@ -780,9 +763,7 @@ function configureSecurityHeaders(targetSession: Session): void {
     const settings = currentSecuritySettings()
     const authWindow = typeof details.webContentsId === 'number' && authCompatibilityWebContents.has(details.webContentsId)
     const topLevelUrl = requestTopLevelUrl(details)
-    const thirdPartyCookiesBlocked = settings.privacy.blockThirdPartyCookies ||
-      settings.privacy.adBlockerMode === 'strict' ||
-      settings.privacy.adBlockerMode === 'custom' && settings.privacy.customBlockThirdPartyCookies
+    const thirdPartyCookiesBlocked = settings.privacy.blockThirdPartyCookies
     if (shouldBlockThirdPartyCookieHeaders({
       requestUrl: details.url,
       topLevelUrl,
@@ -818,6 +799,13 @@ function configureSecurityHeaders(targetSession: Session): void {
       responseHeaders = pdfAttachmentHeaders(responseHeaders, pdf.filename)
     }
 
+    if (!shouldBypassVastInterference({ url: details.url, topLevelUrl, authWindow }) && !siteInterventionsDisabled(details, settings.privacy.siteInterventionsDisabled) && (details.resourceType === 'mainFrame' || details.resourceType === 'subFrame')) {
+      void extensionNetworkDecision(targetSession, details, details.resourceType === 'mainFrame' ? details.url : topLevelUrl || details.referrer, 'headers').then(result => {
+        if (result.csp) { const key = Object.keys(responseHeaders).find(key => key.toLowerCase() === 'content-security-policy') ?? 'Content-Security-Policy'; responseHeaders[key] = [...(responseHeaders[key] ?? []), result.csp] }
+        callback({ responseHeaders })
+      }, () => callback({ responseHeaders }))
+      return
+    }
     callback({ responseHeaders })
   })
 }
@@ -828,7 +816,6 @@ export function allowInternalNavigationForWebContents(contents: Electron.WebCont
 }
 
 export function setupTrackerBlocking(getSettings: () => BrowserSettings): void {
-  initializePrivacyFilters(getSettings)
   for (const targetSession of persistentBrowserSessions()) {
     configureTrackerBlocking(targetSession, getSettings)
     configureSpoofingForSession(targetSession, getSettings)
@@ -998,7 +985,7 @@ function createOAuthPopupWindow(options: BrowserWindowConstructorOptions, contex
   windowRegistry.register(popup, 'popup')
   let lastMainFrameUrl = context.initialUrl || popup.webContents.getURL() || 'about:blank'
 
-  adBlockGuardedPopupWebContents.add(popupContentsId)
+  guardedPopupWebContents.add(popupContentsId)
   trustedOAuthPopupWebContents.add(popupContentsId)
   logOAuthPopupFlow(
     `created popup id=${popupContentsId} auth=${authCompatibilityPopup} identity=${authCompatibilityPopup ? AUTH_IDENTITY_PROFILE : 'session-default'} debugger=${popup.webContents.debugger.isAttached()} opener=${context.opener?.id ?? 'none'} ${sessionScopeForLog(openerSession ?? popup.webContents.session)} disposition=${context.disposition ?? ''} frameName=${context.frameName ?? ''} initialUrl=${redactedUrlForLog(lastMainFrameUrl)}`
@@ -1043,7 +1030,7 @@ function createOAuthPopupWindow(options: BrowserWindowConstructorOptions, contex
   })
   popup.on('closed', () => {
     unregisterPopupWindow(context.opener?.id, popup.id)
-    adBlockGuardedPopupWebContents.delete(popupContentsId)
+    guardedPopupWebContents.delete(popupContentsId)
     trustedOAuthPopupWebContents.delete(popupContentsId)
     authCompatibilityWebContents.delete(popupContentsId)
     if (context.directNavigation && context.opener) directAuthOpeners.delete(context.opener.id)
@@ -1215,20 +1202,10 @@ function installWindowOpenRouting(contents: Electron.WebContents): void {
     if (isWebviewGuest || isRealPopup) {
       if (requestExternalProtocolOpen(contents, url)) return { action: 'deny' }
       const settings = currentSecuritySettings()
-      const openerUrl = contents.getURL()
-      const bypassAdBlocking = bypassVastInterference ||
-        siteInterventionsDisabled({ url: openerUrl, resourceType: 'mainFrame', webContentsId: contents.id }, settings.privacy.siteInterventionsDisabled) ||
-        hostMatchesList(openerUrl, settings.privacy.adBlockAllowlist)
-      if (!bypassAdBlocking && settings.privacy.adBlockerEnabled && settings.privacy.adBlockerMode === 'strict' && isStrictAdNavigationUrl(url)) {
-        logOAuthPopupFlow(`blocked brutal ad popup opener=${contents.id} disposition=${disposition} url=${redactedUrlForLog(url)}`)
-        return { action: 'deny' }
-      }
 
       const route = routeWebviewWindowOpen({
         url,
         disposition,
-        adBlockerEnabled: settings.privacy.adBlockerEnabled && !bypassAdBlocking,
-        adBlockerMode: settings.privacy.adBlockerMode ?? 'standard',
         frameName,
         features
       })
@@ -1317,6 +1294,8 @@ export function setupWindowSecurity(
       return
     }
 
+    configureDownloadsForSession(partition ? session.fromPartition(partition) : session.defaultSession, partition)
+
     if (partition && extensionManager && !extensionSurface) {
       void extensionManager.ensureForPartition(partition).catch((error) => {
         console.warn(`[extensions] Could not prepare a workspace session: ${error instanceof Error ? error.message : String(error)}`)
@@ -1340,6 +1319,7 @@ export function setupWindowSecurity(
     webPreferences.transparent = false
   })
   mainWindow.webContents.on('did-attach-webview', (_event, guestContents) => {
+    configureDownloadsForSession(guestContents.session)
     const preferences = (guestContents as Electron.WebContents & { getLastWebPreferences(): Electron.WebPreferences }).getLastWebPreferences()
     const tokenArgument = preferences.additionalArguments?.find((value: string) => value.startsWith('--vast-extension-surface-token='))
     const pendingIndex = pendingExtensionSurfaces.findIndex((pending) => guestContents.session === session.fromPartition(pending.partition))
@@ -1494,18 +1474,8 @@ export function setupWindowSecurity(
       }
 
       const window = ownerWindowForWebContents(contents)
-      const isGuardedPopup = adBlockGuardedPopupWebContents.has(contents.id)
+      const isGuardedPopup = guardedPopupWebContents.has(contents.id)
       if (isGuardedPopup && requestExternalProtocolOpen(contents, url)) {
-        event.preventDefault()
-        return
-      }
-      const settings = currentSecuritySettings()
-      const currentUrl = contents.getURL()
-      const bypassAdBlocking = shouldBypassVastInterference({ url: currentUrl, authWindow: authCompatibilityWebContents.has(contents.id) }) ||
-        siteInterventionsDisabled({ url: currentUrl, resourceType: 'mainFrame', webContentsId: contents.id }, settings.privacy.siteInterventionsDisabled) ||
-        hostMatchesList(currentUrl, settings.privacy.adBlockAllowlist)
-      if (!bypassAdBlocking && (isWebviewGuest || isGuardedPopup) && settings.privacy.adBlockerEnabled && settings.privacy.adBlockerMode === 'strict' && isStrictAdNavigationUrl(url)) {
-        logOAuthPopupFlow(`blocked strict ad navigation contents=${contents.id} url=${redactedUrlForLog(url)}`)
         event.preventDefault()
         return
       }
@@ -1652,7 +1622,7 @@ export function spoofingDocumentConfigForWebContents(contents: Electron.WebConte
 export async function getSiteInformation(webContentsId: number, requestedUrl: string): Promise<SiteInformation> {
   const { inspectSiteInformation } = await import('./sessions/site-information')
   return inspectSiteInformation(webContentsId, requestedUrl, {
-    blockedCountsFor: (id) => blockedRequestCounts.get(id) ?? { trackers: 0, ads: 0, malware: 0 },
+    blockedCountsFor: (id) => blockedRequestCounts.get(id) ?? { trackers: 0 },
     currentSettings: currentSecuritySettings,
     identityScopeFor: (targetSession) => sessionIdentityScopes.get(targetSession),
     ownsWebContents: (contents) => Boolean(ownerWindowForWebContents(contents))

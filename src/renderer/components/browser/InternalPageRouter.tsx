@@ -35,18 +35,18 @@ function InternalPageFallback(): JSX.Element {
   return (
     <div className="internal-page-shell bg-[linear-gradient(180deg,#08090d,#050507)] p-5">
       <div className="mx-auto max-w-6xl">
-        <div className="vast-glass-panel rounded-[30px] p-6">
+        <div className="vast-glass-panel rounded-panel p-6">
           <div className="flex items-center gap-3">
-            <div className="internal-skeleton h-11 w-11 rounded-2xl" />
+            <div className="internal-skeleton h-11 w-11 rounded-card" />
             <div className="min-w-0 flex-1 space-y-2">
-              <div className="internal-skeleton h-4 w-40 rounded-full" />
-              <div className="internal-skeleton h-3 w-72 rounded-full" />
+              <div className="internal-skeleton h-4 w-40 rounded-control" />
+              <div className="internal-skeleton h-3 w-72 rounded-control" />
             </div>
           </div>
           <div className="mt-5 grid gap-3 md:grid-cols-3">
-            <div className="internal-skeleton h-24 rounded-[24px]" />
-            <div className="internal-skeleton h-24 rounded-[24px]" />
-            <div className="internal-skeleton h-24 rounded-[24px]" />
+            <div className="internal-skeleton h-24 rounded-card" />
+            <div className="internal-skeleton h-24 rounded-card" />
+            <div className="internal-skeleton h-24 rounded-card" />
           </div>
         </div>
       </div>
@@ -57,7 +57,7 @@ function InternalPageFallback(): JSX.Element {
 function UnknownInternalPage({ url }: { url: string }): JSX.Element {
   return (
     <div className="internal-page-shell grid place-items-center bg-[linear-gradient(180deg,#08090d,#050507)] p-6">
-      <div className="vast-glass-panel max-w-xl rounded-[30px] p-8 text-center">
+      <div className="vast-glass-panel max-w-xl rounded-panel p-8 text-center">
         <h2 className="text-xl font-semibold text-white">Unknown Vast page</h2>
         <p className="mt-3 text-sm leading-6 text-vast-soft">This version of Vast does not recognize <code>{url}</code>.</p>
       </div>

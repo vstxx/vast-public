@@ -33,10 +33,10 @@ export function SplitPaneHeader({
       <button
         type="button"
         onClick={onActivate}
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 text-left hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vast-cyan/65"
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-control px-1.5 py-1 text-left hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vast-cyan/65"
         title={`Focus ${tab.title}`}
       >
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${active ? 'bg-vast-cyan shadow-[0_0_10px_var(--vast-accent)]' : 'bg-white/20'}`} />
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-control ${active ? 'bg-vast-cyan shadow-[0_0_10px_var(--vast-accent)]' : 'bg-white/20'}`} />
         <Favicon url={tab.url} favicon={tab.favicon} title={tab.title} />
         <span className="min-w-0 flex-1">
           <span className={`block truncate text-xs font-semibold ${active ? 'text-white' : 'text-vast-soft'}`}>{tab.title}</span>
@@ -48,7 +48,7 @@ export function SplitPaneHeader({
           type="button"
           onClick={onSwap}
           title="Swap split panes"
-          className="grid h-7 w-7 place-items-center rounded-lg text-white/35 transition hover:bg-white/[0.07] hover:text-white"
+          className="grid h-7 w-7 place-items-center rounded-control text-white/35 transition hover:bg-white/[0.07] hover:text-white"
         >
           <ArrowLeftRight className="h-3.5 w-3.5" />
         </button>
@@ -57,7 +57,7 @@ export function SplitPaneHeader({
         type="button"
         onClick={onExit}
         title="Exit split view"
-        className="grid h-7 w-7 place-items-center rounded-lg text-white/35 transition hover:bg-white/[0.07] hover:text-white"
+        className="grid h-7 w-7 place-items-center rounded-control text-white/35 transition hover:bg-white/[0.07] hover:text-white"
       >
         <X className="h-3.5 w-3.5" />
       </button>
