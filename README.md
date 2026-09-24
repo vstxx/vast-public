@@ -13,6 +13,9 @@
 
 Vast combines Chromium page rendering through Electron with a React application shell built around workspaces, flexible tab layouts, local tools, privacy controls, and a deliberately configurable interface.
 
+> [!WARNING]
+> **Vast is beta software under active development.** Bugs, regressions, incomplete features, and unexpected behavior may occur. If you run into an issue, please report it so it can be investigated and improved.
+
 ## What Vast focuses on
 
 - Vertical, horizontal, and experimental Purist tab layouts
