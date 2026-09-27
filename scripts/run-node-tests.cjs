@@ -5,6 +5,27 @@ const { spawnSync } = require('node:child_process')
 const root = join(__dirname, '..')
 const testsRoot = join(root, 'tests')
 
+function runPreparation(script, args = [], capture = false) {
+  return spawnSync(process.execPath, [join(__dirname, script), ...args], {
+    cwd: root,
+    env: process.env,
+    stdio: capture ? 'pipe' : 'inherit',
+    encoding: capture ? 'utf8' : undefined,
+    windowsHide: true
+  })
+}
+
+let ece = runPreparation('prepare-extension-compat-runtime.cjs', ['--check'], true)
+if (ece.status !== 0) {
+  ece = runPreparation('prepare-extension-compat-runtime.cjs')
+  if (ece.error || ece.status !== 0) process.exit(ece.status ?? 1)
+}
+ece = runPreparation('prepare-extension-compat-runtime.cjs', ['--check'])
+if (ece.error || ece.status !== 0) process.exit(ece.status ?? 1)
+
+const adblock = runPreparation('build-adblock-extension.mjs')
+if (adblock.error || adblock.status !== 0) process.exit(adblock.status ?? 1)
+
 function collect(dir) {
   const entries = readdirSync(dir)
   const files = []

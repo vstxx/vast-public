@@ -11,12 +11,22 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type MouseEvent as ReactMouseEvent } from 'react'
 import { INTERNAL_EXTENSIONS_URL } from '../../../shared/constants'
+import {
+  clampExtensionMenuSize,
+  resizeExtensionMenu,
+  sanitizeStoredExtensionMenuSize,
+  type ExtensionMenuResizeAxis,
+  type ExtensionMenuSize
+} from '../../../shared/extension-menu-sizing'
 import { matchesExtensionMatchPattern } from '../../../shared/extension-match-pattern'
 import { partitionForWorkspace, resolveWorkspaceIdentity } from '../../../shared/workspace-identity'
 import type { VastExtensionInfo, VastExtensionMutationResult, VastExtensionSurface, VastExtensionSurfaceKind } from '../../../shared/types'
 import { useBrowserRuntime } from '../../app/browser-runtime'
+import { isInternalUrl } from '../../lib/url'
 import { selectActiveTab, selectActiveWorkspace, useBrowserStore } from '../../store/browser-store'
 import { IconButton } from '../ui/IconButton'
+import { VastButton } from '../ui/VastButton'
+import { VastMenuItem } from '../ui/VastMenuItem'
 import { useVastConfirm } from '../ui/useVastConfirm'
 
 interface ExtensionsToolbarMenuProps {
@@ -54,7 +64,11 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
   const confirm = useVastConfirm()
   const activeWorkspace = useBrowserStore(selectActiveWorkspace)
   const activeTab = useBrowserStore(selectActiveTab)
+  const extensionMenuSettings = useBrowserStore((state) => state.settings.extensionMenu)
+  const updateSettings = useBrowserStore((state) => state.updateSettings)
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const menuRef = useRef<HTMLElement | null>(null)
+  const resizeCleanupRef = useRef<(() => void) | null>(null)
   const [extensions, setExtensions] = useState<VastExtensionInfo[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -64,6 +78,14 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
   const [surfaceLoading, setSurfaceLoading] = useState(false)
   const [surfaceError, setSurfaceError] = useState<string | null>(null)
   const [actionMenu, setActionMenu] = useState<ActionMenuState | null>(null)
+  const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }))
+  const [menuTop, setMenuTop] = useState(60)
+  const [menuSize, setMenuSize] = useState<ExtensionMenuSize>(() => clampExtensionMenuSize(
+    extensionMenuSettings,
+    { width: window.innerWidth, height: window.innerHeight },
+    60
+  ))
+  const [resizeAxis, setResizeAxis] = useState<ExtensionMenuResizeAxis | null>(null)
 
   const identity = activeWorkspace ? resolveWorkspaceIdentity(activeWorkspace) : undefined
   const privateWorkspace = Boolean(activeWorkspace?.isPrivate || identity?.sessionMode === 'ephemeral')
@@ -95,6 +117,37 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
   }, [open, refresh])
 
   useEffect(() => {
+    const onResize = (): void => {
+      setViewport({ width: window.innerWidth, height: window.innerHeight })
+      setMenuTop(Math.max(0, Math.round(menuRef.current?.getBoundingClientRect().top ?? 60)))
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    const frame = window.requestAnimationFrame(() => {
+      const top = Math.max(0, Math.round(menuRef.current?.getBoundingClientRect().top ?? 60))
+      setMenuTop(top)
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [open])
+
+  useEffect(() => {
+    if (resizeAxis) return
+    setMenuSize(clampExtensionMenuSize(extensionMenuSettings, viewport, menuTop))
+  }, [extensionMenuSettings, menuTop, resizeAxis, viewport])
+
+  useEffect(() => () => resizeCleanupRef.current?.(), [])
+
+  useEffect(() => {
+    if (open || !resizeAxis) return
+    resizeCleanupRef.current?.()
+    setResizeAxis(null)
+  }, [open, resizeAxis])
+
+  useEffect(() => {
     if (open) return
     setSelectedId(null)
     setSurface(null)
@@ -124,7 +177,7 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
     }
   }, [actionMenu, onOpenChange, open, selectedId])
 
-  const openSurface = async (extension: VastExtensionInfo, preferred?: VastExtensionSurfaceKind): Promise<void> => {
+  const openSurface = useCallback(async (extension: VastExtensionInfo, preferred?: VastExtensionSurfaceKind): Promise<void> => {
     setSelectedId(extension.id)
     setActionMenu(null)
     setSurface(null)
@@ -132,6 +185,15 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
     if (!extension.enabled) return
     const kind = preferred ?? (extension.ui.popup ? 'popup' : extension.ui.options ? 'options' : undefined)
     if (!kind) return
+    // Vast internal pages share the privileged shell renderer instead of
+    // owning an ordinary website WebContents. Never expose that renderer as a
+    // synthetic chrome.tabs target. Chromium-compatible popups must therefore
+    // fail closed here instead of receiving an empty active-tab result and
+    // crashing (observed with the unmodified iCloud Passwords popup).
+    if (kind === 'popup' && extension.runtime !== 'vast' && (!activeTab || isInternalUrl(activeTab.url))) {
+      setSurfaceError('Open a website tab before using this extension. Vast internal pages are isolated from Chrome extensions.')
+      return
+    }
     setSurfaceLoading(true)
     try {
       const result = await window.vast.extensions.prepareSurface(extension.id, kind, workspacePartition)
@@ -142,7 +204,26 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
     } finally {
       setSurfaceLoading(false)
     }
-  }
+  }, [activeTab, workspacePartition])
+
+  useEffect(() => window.vast.extensions.onOpenPopup((extensionId) => {
+    void (async () => {
+      onOpenChange(true)
+      try {
+        const result = await window.vast.extensions.list()
+        if (!result.ok) throw new Error(result.error ?? 'Could not load extensions.')
+        const nextExtensions = result.extensions ?? []
+        setExtensions(nextExtensions)
+        const extension = nextExtensions.find((candidate) => candidate.id === extensionId)
+        if (!extension) throw new Error('The extension requesting its popup is not installed.')
+        await openSurface(extension, 'popup')
+      } catch (popupError) {
+        setSelectedId(extensionId)
+        setSurface(null)
+        setSurfaceError(popupError instanceof Error ? popupError.message : 'Could not open the extension interface.')
+      }
+    })()
+  }), [onOpenChange, openSurface])
 
   const mutate = async (extension: VastExtensionInfo, operation: () => Promise<VastExtensionMutationResult>): Promise<void> => {
     setBusyId(extension.id)
@@ -182,13 +263,51 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
     if (selectedId === extension.id) setSelectedId(null)
   }
 
+  const startResize = (event: ReactMouseEvent<HTMLDivElement>, axis: ExtensionMenuResizeAxis): void => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    resizeCleanupRef.current?.()
+    const startPointer = { x: event.clientX, y: event.clientY }
+    const startSize = menuSize
+    const top = Math.max(0, Math.round(menuRef.current?.getBoundingClientRect().top ?? menuTop))
+    let lastSize = startSize
+    let finished = false
+    const cleanup = (): void => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', finish)
+      window.removeEventListener('blur', finish)
+      resizeCleanupRef.current = null
+    }
+    const finish = (): void => {
+      if (finished) return
+      finished = true
+      cleanup()
+      setResizeAxis(null)
+      const persistedSize = sanitizeStoredExtensionMenuSize(lastSize)
+      updateSettings({ extensionMenu: persistedSize })
+    }
+    const onMove = (moveEvent: MouseEvent): void => {
+      lastSize = resizeExtensionMenu(startSize, axis, {
+        x: moveEvent.clientX - startPointer.x,
+        y: moveEvent.clientY - startPointer.y
+      }, viewport, top)
+      setMenuSize(lastSize)
+    }
+    resizeCleanupRef.current = cleanup
+    setResizeAxis(axis)
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', finish)
+    window.addEventListener('blur', finish)
+  }
+
   const toggleActionMenu = (event: ReactMouseEvent<HTMLButtonElement>, id: string): void => {
     event.stopPropagation()
     if (actionMenu?.id === id) {
       setActionMenu(null)
       return
     }
-    const root = rootRef.current?.getBoundingClientRect()
+    const root = menuRef.current?.getBoundingClientRect()
     const button = event.currentTarget.getBoundingClientRect()
     const top = root ? Math.max(54, Math.min(button.top - root.top, Math.max(54, root.height - 224))) : 54
     setActionMenu({ id, top })
@@ -213,37 +332,41 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
       </IconButton>
 
       {open && (
-        <section
-          role="dialog"
-          aria-label="Extensions"
-          data-testid="extensions-toolbar-menu"
-          className="extensions-toolbar-menu absolute right-0 top-11 z-[70] flex w-[23rem] max-w-[calc(100vw-1rem)] flex-col overflow-visible rounded-card border border-white/[0.1] bg-[#0a0b0f]/[0.985] text-white"
-        >
+        <>
+          {resizeAxis && <div data-testid="extensions-menu-resize-shield" className={`fixed inset-0 z-[100] ${resizeAxis === 'width' ? 'cursor-col-resize' : resizeAxis === 'height' ? 'cursor-row-resize' : 'cursor-[nesw-resize]'}`} />}
+          <section
+            ref={menuRef}
+            role="dialog"
+            aria-label="Extensions"
+            data-testid="extensions-toolbar-menu"
+            className="extensions-toolbar-menu absolute right-0 top-11 z-[70] flex flex-col overflow-hidden rounded-card border border-white/[0.1] bg-[#0a0b0f]/[0.985] text-white"
+            style={{ width: menuSize.width, height: menuSize.height }}
+          >
           <header className="flex h-[3.25rem] shrink-0 items-center gap-2 border-b border-white/[0.07] px-3">
             {selected ? (
-              <button type="button" aria-label="Back to extensions" onClick={() => { setSelectedId(null); setSurface(null); setSurfaceError(null) }} className="grid h-8 w-8 place-items-center rounded-control text-vast-soft transition hover:bg-white/[0.06] hover:text-white">
+              <IconButton variant="quiet" size="sm" aria-label="Back to extensions" onClick={() => { setSelectedId(null); setSurface(null); setSurfaceError(null) }}>
                 <ArrowLeft className="h-4 w-4" />
-              </button>
+              </IconButton>
             ) : <Puzzle className="ml-1 h-4 w-4 text-vast-soft" />}
             <div className="min-w-0 flex-1 truncate text-[13px] font-semibold">{selected?.name ?? 'Extensions'}</div>
-            <button type="button" onClick={() => manageExtensions(selected)} className="grid h-8 w-8 place-items-center rounded-control text-vast-soft transition hover:bg-white/[0.06] hover:text-white" aria-label={selected ? `Manage ${selected.name}` : 'Manage extensions'} title={selected ? 'Manage extension' : 'Manage extensions'}>
+            <IconButton variant="quiet" size="sm" onClick={() => manageExtensions(selected)} aria-label={selected ? `Manage ${selected.name}` : 'Manage extensions'} tooltip={selected ? 'Manage extension' : 'Manage extensions'}>
               <Settings2 className="h-4 w-4" />
-            </button>
+            </IconButton>
           </header>
 
           {selected ? (
-            <div className="min-h-0">
+            <div className="min-h-0 flex-1 overflow-hidden">
               {surfaceLoading ? (
-                <div className="grid h-72 place-items-center"><RefreshCw className="h-4 w-4 animate-spin text-vast-soft" /></div>
+                <div className="grid h-full place-items-center"><RefreshCw className="h-4 w-4 animate-spin text-vast-soft" /></div>
               ) : surface ? (
                 <webview
                   key={`${surface.partition}-${surface.src}`}
                   src={surface.src}
                   partition={surface.partition}
-                  className="extension-toolbar-surface flex h-[25rem] max-h-[calc(100vh-8rem)] w-full rounded-card bg-[#0a0b0f]"
+                  className="extension-toolbar-surface flex h-full w-full bg-[#0a0b0f]"
                 />
               ) : (
-                <div className="p-4">
+                <div className="h-full overflow-y-auto p-4">
                   <div className="flex items-center gap-3">
                     <ExtensionIcon extension={selected} size="large" />
                     <div className="min-w-0 flex-1">
@@ -262,8 +385,8 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
                   <p className="mt-4 text-xs leading-5 text-white/55">{selected.description || 'This extension does not provide a custom popup. Use Manage extension for permissions and installation details.'}</p>
                   {surfaceError && <div role="alert" className="mt-3 rounded-control border border-red-400/15 bg-red-400/[0.06] px-3 py-2.5 text-xs leading-5 text-red-100">{surfaceError}</div>}
                   <div className="mt-4 grid gap-2">
-                    {selected.ui.options && selected.enabled && <button type="button" onClick={() => { void openSurface(selected, 'options') }} className="extensions-toolbar-primary-action"><SlidersHorizontal className="h-4 w-4" />Extension settings</button>}
-                    <button type="button" onClick={() => manageExtensions(selected)} className="extensions-toolbar-secondary-action"><Settings2 className="h-4 w-4" />Manage extension</button>
+                    {selected.ui.options && selected.enabled && <VastButton variant="primary" size="sm" onClick={() => { void openSurface(selected, 'options') }}><SlidersHorizontal className="h-4 w-4" />Extension settings</VastButton>}
+                    <VastButton variant="secondary" size="sm" onClick={() => manageExtensions(selected)}><Settings2 className="h-4 w-4" />Manage extension</VastButton>
                   </div>
                 </div>
               )}
@@ -271,11 +394,11 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
           ) : (
             <>
               {error && <div role="alert" className="mx-3 mt-3 rounded-control border border-red-400/15 bg-red-400/[0.06] px-3 py-2 text-xs leading-5 text-red-100">{error}</div>}
-              <div className="max-h-[22rem] min-h-20 overflow-y-auto overscroll-contain p-2" role="menu" aria-label="Installed extensions">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2" role="menu" aria-label="Installed extensions">
                 {loading && extensions.length === 0 ? (
                   <div className="grid h-24 place-items-center"><RefreshCw className="h-4 w-4 animate-spin text-vast-soft" /></div>
                 ) : orderedExtensions.length === 0 ? (
-                  <div className="px-4 py-8 text-center"><Puzzle className="mx-auto h-5 w-5 text-white/25" /><div className="mt-3 text-xs font-medium text-white/70">No extensions installed</div><button type="button" onClick={() => manageExtensions()} className="mt-2 text-[11px] font-medium text-vast-cyan hover:text-white">Explore Vast Extensions</button></div>
+                  <div className="px-4 py-8 text-center"><Puzzle className="mx-auto h-5 w-5 text-white/25" /><div className="mt-3 text-xs font-medium text-white/70">No extensions installed</div><VastButton variant="quiet" size="xs" className="mt-2" onClick={() => manageExtensions()}>Explore Vast Extensions</VastButton></div>
                 ) : orderedExtensions.map((extension) => {
                   const state = extensionState(extension, activeTab?.url)
                   const busy = busyId === extension.id
@@ -297,24 +420,25 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
                           <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-vast-soft"><span className={`h-1.5 w-1.5 vast-geometry-circle ${state.tone}`} />{state.label}</span>
                         </span>
                       </button>
-                      <button
-                        type="button"
+                      <IconButton
+                        variant="quiet"
+                        size="sm"
+                        className="mr-1 shrink-0"
                         aria-label={`More actions for ${extension.name}`}
                         aria-haspopup="menu"
                         aria-expanded={actionMenu?.id === extension.id}
                         disabled={busy}
                         onClick={(event) => toggleActionMenu(event, extension.id)}
-                        className="mr-1 grid h-8 w-8 shrink-0 place-items-center rounded-control text-white/35 outline-none transition hover:bg-white/[0.07] hover:text-white focus-visible:bg-white/[0.07] disabled:opacity-40"
                       >
                         {busy ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
-                      </button>
+                      </IconButton>
                     </div>
                   )
                 })}
               </div>
               <footer className="flex h-11 shrink-0 items-center justify-between border-t border-white/[0.07] px-3 text-[11px] text-vast-soft">
                 <span>{extensions.length} installed</span>
-                <button type="button" onClick={() => manageExtensions()} className="font-medium text-white/65 transition hover:text-white">Manage extensions</button>
+                <VastButton variant="quiet" size="xs" onClick={() => manageExtensions()}>Manage extensions</VastButton>
               </footer>
             </>
           )}
@@ -329,7 +453,12 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
               {actionExtension.removable && <><div className="my-1 border-t border-white/[0.07]" /><MenuAction label="Remove from Vast" icon={Trash2} danger onClick={() => { void removeExtension(actionExtension) }} /></>}
             </div>
           )}
-        </section>
+
+            <div role="separator" aria-label="Resize extensions menu width" aria-orientation="vertical" data-testid="extensions-menu-width-resizer" onMouseDown={(event) => startResize(event, 'width')} className="group absolute bottom-3 left-0 top-3 z-30 w-2 cursor-col-resize touch-none"><span aria-hidden="true" className="absolute bottom-1/3 left-0 top-1/3 w-px bg-transparent transition group-hover:bg-vast-cyan/60" /></div>
+            <div role="separator" aria-label="Resize extensions menu height" aria-orientation="horizontal" data-testid="extensions-menu-height-resizer" onMouseDown={(event) => startResize(event, 'height')} className="group absolute bottom-0 left-3 right-3 z-30 h-2 cursor-row-resize touch-none"><span aria-hidden="true" className="absolute bottom-0 left-1/3 right-1/3 h-px bg-transparent transition group-hover:bg-vast-cyan/60" /></div>
+            <div role="separator" aria-label="Resize extensions menu width and height" data-testid="extensions-menu-corner-resizer" onMouseDown={(event) => startResize(event, 'both')} className="group absolute bottom-0 left-0 z-40 h-4 w-4 cursor-[nesw-resize] touch-none"><span aria-hidden="true" className="absolute bottom-0.5 left-0.5 h-2 w-2 border-b border-l border-white/20 transition group-hover:border-vast-cyan/70" /></div>
+          </section>
+        </>
       )}
     </div>
   )
@@ -343,9 +472,8 @@ function MenuAction({ label, icon: Icon, onClick, disabled = false, danger = fal
   danger?: boolean
 }): JSX.Element {
   return (
-    <button type="button" role="menuitem" disabled={disabled} onClick={onClick} className={`flex h-9 w-full items-center gap-2.5 rounded-control px-2.5 text-left text-xs outline-none transition disabled:cursor-not-allowed disabled:opacity-35 ${danger ? 'text-red-200 hover:bg-red-400/[0.08]' : 'text-white/75 hover:bg-white/[0.06] hover:text-white'}`}>
-      <Icon className="h-3.5 w-3.5" />
-      <span>{label}</span>
-    </button>
+    <VastMenuItem disabled={disabled} danger={danger} onClick={onClick} icon={<Icon className="h-3.5 w-3.5" />}>
+      {label}
+    </VastMenuItem>
   )
 }

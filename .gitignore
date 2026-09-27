@@ -53,3 +53,4 @@ relay/**/.wrangler/
 relay/**/.dev.vars
 relay/.dev.vars
 relay/control-panel/dist/
+extension-reference/

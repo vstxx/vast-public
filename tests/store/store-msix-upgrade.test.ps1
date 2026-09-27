@@ -228,7 +228,7 @@ try {
   $probeFiles = [ordered]@{
     'settings-session.txt' = 'settings-session-preserved'
     'relay-identity.txt' = 'relay-identity-preserved'
-    'password-vault.txt' = 'encrypted-vault-location-preserved'
+    'unknown-user-state.txt' = 'unknown-user-state-preserved'
     'extension-state.txt' = 'extension-state-preserved'
   }
   foreach ($entry in $probeFiles.GetEnumerator()) {

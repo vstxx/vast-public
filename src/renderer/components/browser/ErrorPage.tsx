@@ -21,7 +21,7 @@ export function ErrorPage({ tab, onReload }: { tab: Tab; onReload: () => void })
         <button
           type="button"
           onClick={onReload}
-          className="mt-6 inline-flex items-center gap-2 rounded-control border border-white/10 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+          className="vast-button vast-button--secondary vast-button--sm mt-6"
         >
           <RotateCw className="h-4 w-4" />
           {crashed ? 'Reload tab' : 'Try again'}

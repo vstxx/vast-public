@@ -1,6 +1,8 @@
 const { join } = require('node:path')
+const { approvedElectronDist } = require('./verify-extension-compat-runtime.cjs')
 
 const pkg = require(join(__dirname, '..', 'package.json'))
+const compatibilityManifest = require(join(__dirname, '..', 'patches', 'extension-compatibility-runtime.json'))
 if (process.env.VAST_DISTRIBUTION_CHANNEL !== 'microsoft-store') {
   throw new Error('The Store electron-builder config requires VAST_DISTRIBUTION_CHANNEL=microsoft-store.')
 }
@@ -10,6 +12,7 @@ if (String(process.env.VAST_UPDATE_ENABLED ?? '') !== '0') {
 
 module.exports = {
   ...pkg.build,
+  electronDist: approvedElectronDist({ manifest: compatibilityManifest }),
   extraResources: pkg.build.extraResources.filter(resource => resource.to !== 'apply-update.ps1'),
   // Partner Center signs the accepted MSIX. Requiring a separate publisher
   // Authenticode certificate here would make Store submission depend on a

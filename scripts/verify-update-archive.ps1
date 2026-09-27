@@ -23,11 +23,17 @@ try {
     if ($name.StartsWith('/') -or $name -match '^[A-Za-z]:') { throw "Update ZIP contains an unsafe path: $name" }
     $segments = @($name.Split('/') | Where-Object { $_ -ne '' })
     if ($segments | Where-Object { $_ -eq '.' -or $_ -eq '..' }) { throw "Update ZIP contains path traversal: $name" }
+    if ($segments | Where-Object { $_ -match '[:<>"|?*]' -or $_ -match '[. ]$' -or $_ -match '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)' }) { throw "Update ZIP contains an unsafe Windows path segment: $name" }
     if (-not $seen.Add($name)) { throw "Update ZIP contains a duplicate path: $name" }
     if ($name.EndsWith('/')) { continue }
+    $unixType = (($entry.ExternalAttributes -shr 16) -band 0xF000)
+    if ($unixType -ne 0 -and $unixType -ne 0x8000) { throw "Update ZIP contains a link or special file: $name" }
+    if (($entry.ExternalAttributes -band 0x400) -ne 0) { throw "Update ZIP contains a Windows reparse-point entry: $name" }
+    if ($entry.Length -gt 1610612736) { throw "Update ZIP contains an oversized file: $name" }
     [void] $names.Add($name)
     $fileCount += 1
     $uncompressedBytes += $entry.Length
+    if ($fileCount -gt 200000 -or $uncompressedBytes -gt 4294967296) { throw 'Update ZIP exceeds safe extraction limits.' }
   }
 
   $required = @(
@@ -56,13 +62,19 @@ try {
     foreach ($entry in $entries) {
       $relative = $entry.FullName.Replace('\', '/').Substring($prefix.Length)
       if ($relative -match '[:<>"|?*]' -or ($relative.Split('/') | Where-Object { $_ -eq '' -or $_ -match '[. ]$' -or $_ -match '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)' })) { throw 'Unsafe runtime extraction path.' }
-      if ((($entry.ExternalAttributes -shr 16) -band 0xF000) -eq 0xA000) { throw 'Runtime ZIP must not contain symlinks.' }
       $target = [IO.Path]::GetFullPath((Join-Path $destination $relative))
       if (-not $target.StartsWith(($destination + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)) { throw 'Runtime extraction escaped destination.' }
     }
     foreach ($entry in $entries) {
       $target = Join-Path $destination $entry.FullName.Replace('\', '/').Substring($prefix.Length)
-      [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target)) | Out-Null
+      $parent = [IO.Path]::GetDirectoryName($target)
+      [IO.Directory]::CreateDirectory($parent) | Out-Null
+      $cursor = $parent
+      while ($cursor -and $cursor.StartsWith($destination, [StringComparison]::OrdinalIgnoreCase)) {
+        if (([IO.File]::GetAttributes($cursor) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Runtime extraction parent is a reparse point.' }
+        if ($cursor -eq $destination) { break }
+        $cursor = [IO.Path]::GetDirectoryName($cursor)
+      }
       [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $false)
     }
   }

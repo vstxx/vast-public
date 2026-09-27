@@ -6,7 +6,7 @@ on:
       expected_version:
         description: Exact package version authorized for this candidate
         required: true
-        default: 0.3.0
+        default: 0.4.0
         type: string
       store_package_version:
         description: Store identity version; must exceed every version consumed by Partner Center
@@ -25,7 +25,7 @@ on:
         options: [beta, stable]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: store-release-candidate
@@ -52,7 +52,7 @@ jobs:
       VAST_MSIX_PUBLISHER_DISPLAY_NAME: ${{ secrets.VAST_MSIX_PUBLISHER_DISPLAY_NAME }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - name: Fail before runtime preparation when release inputs are unavailable
@@ -70,7 +70,7 @@ jobs:
           }
           $missing = @($required.GetEnumerator() | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.Value) } | ForEach-Object Key)
           if ($missing.Count) { throw "Missing Store release inputs: $($missing -join ', ')" }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -78,6 +78,10 @@ jobs:
             package-lock.json
             relay/package-lock.json
       - run: npm ci
+      - name: Restore exact patched Electron runtime
+        uses: ./.github/actions/prepare-patched-electron
+        with:
+          github-token: ${{ github.token }}
       - run: npm ci --prefix relay
       - name: Bind candidate to the exact clean source SHA
         shell: pwsh
@@ -91,7 +95,7 @@ jobs:
           "VAST_RELEASE_COMMIT=$head" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Fail before runtime preparation when Store production is not ready
         run: npm run release:store:check
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.13'
       - run: python -m pip install -r resources/avidae/requirements.txt -r resources/avidae/requirements-build.txt
@@ -105,6 +109,7 @@ jobs:
       - run: npm run test:store
       - run: npm run check --prefix relay
       - run: npm run test:electron-version
+      - run: npm run test:cookie-encryption
       - name: Verify production Relay synthetic D1 write
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -117,7 +122,39 @@ jobs:
       - name: Run Windows App Certification Kit
         shell: pwsh
         run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-windows-app-certification.ps1 -PackagePath release/store/Vast-${{ inputs.expected_version }}-Store-${{ inputs.store_package_version }}-x64.msix
-      - uses: actions/upload-artifact@v4
+      - name: Preserve verified MSIX and evidence in private source repository
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $head = git rev-parse HEAD
+          $tag = "ci-store-v${{ inputs.expected_version }}-${{ inputs.store_package_version }}-$head"
+          $stem = "release/store/Vast-${{ inputs.expected_version }}-Store-${{ inputs.store_package_version }}-x64"
+          $files = @(
+            "$stem.msix",
+            "$stem-verification.json",
+            "$stem-AppxManifest.xml",
+            "$stem-SHA256SUMS.txt",
+            'release/store/browser-recency.json',
+            'release/store/wack-report.xml'
+          )
+          foreach ($file in $files) { if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Store evidence is missing: $file" } }
+          $existing = gh release list --repo vstxx/vast --limit 1000 --json tagName | ConvertFrom-Json
+          if (@($existing | Where-Object tagName -EQ $tag).Count -ne 0) { throw "Private Store candidate tag already exists: $tag; refusing to overwrite it." }
+          gh release create $tag @files --repo vstxx/vast --target $head --draft --prerelease --latest=false --title "Private Store candidate ${{ inputs.expected_version }} / ${{ inputs.store_package_version }}" --notes "Unsigned MSIX for Partner Center submission only. Source commit: $head. Inspect WACK, identity, manifest, hashes, and version before upload. Not a public release."
+          if ($LASTEXITCODE -ne 0) { throw 'Could not preserve the verified private Store candidate.' }
+          $assets = (gh release view $tag --repo vstxx/vast --json assets | ConvertFrom-Json).assets
+          foreach ($file in $files) {
+            $name = Split-Path -Leaf $file
+            $asset = @($assets | Where-Object name -EQ $name)
+            $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            $size = (Get-Item -LiteralPath $file).Length
+            if ($asset.Count -ne 1 -or $asset[0].size -ne $size -or $asset[0].digest -ne "sha256:$hash") { throw "Private Store candidate asset verification failed: $name" }
+          }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        continue-on-error: true # The private hash-verified candidate above is authoritative when Actions storage quota is exhausted.
         with:
           name: Vast-${{ inputs.expected_version }}-Store-${{ inputs.store_package_version }}-x64-candidate-${{ github.sha }}
           path: |

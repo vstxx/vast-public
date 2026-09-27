@@ -287,45 +287,443 @@ button:disabled {
     0 0 34px color-mix(in srgb, var(--vast-accent) var(--vast-focus-glow-mix), transparent);
 }
 
-.vault-action-button,
-.vault-danger-button {
-  display: inline-flex;
-  height: 2.5rem;
-  align-items: center;
-  gap: 0.5rem;
-  border-radius: var(--vast-radius-control);
-  padding: 0 0.875rem;
-  font-size: 0.8125rem;
-  font-weight: 650;
-  color: var(--vast-text);
-  background: color-mix(in srgb, var(--vast-surface) 76%, transparent);
-  border: 1px solid color-mix(in srgb, var(--vast-border) 44%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+/* ---------------------------------------------------------------
+   Shared semantic control system.
+   .vast-button / .vast-icon-button / .vast-menu-item / .vast-choice
+   derive typography, focus, disabled, transitions and accent response
+   from one token layer so the whole browser speaks one control language.
+   --------------------------------------------------------------- */
+.vast-button,
+.vast-icon-button,
+.vast-menu-item {
+  font-family: var(--vast-font);
+  cursor: pointer;
   transition:
-    transform var(--vast-motion-snap),
     background var(--vast-motion-snap),
+    border-color var(--vast-motion-snap),
+    color var(--vast-motion-snap),
     box-shadow var(--vast-motion-snap);
 }
 
-.vault-action-button:hover {
-  transform: translateY(-1px);
-  background: color-mix(in srgb, var(--vast-surface-strong) 86%, transparent);
+.vast-button:disabled,
+.vast-icon-button:disabled,
+.vast-menu-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.vast-button:focus-visible,
+.vast-icon-button:focus-visible,
+.vast-menu-item:focus-visible,
+.vast-choice:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--vast-accent) 62%, transparent);
+  outline-offset: 2px;
+}
+
+/* Text buttons: website-influenced glass surface, restrained accent use. */
+.vast-button {
+  display: inline-flex;
+  height: 2.5rem;
+  min-width: 7rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: var(--vast-radius-button);
+  background: rgba(17, 16, 23, 0.68);
+  color: rgba(246, 244, 249, 0.9);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  padding: 0 1.05rem;
+  cursor: pointer;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 12px 30px rgba(0, 0, 0, 0.18),
-    0 0 22px color-mix(in srgb, var(--vast-accent) 5%, transparent);
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 8px 24px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(18px) saturate(135%);
+  -webkit-app-region: no-drag;
+  transition:
+    transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    background var(--vast-motion-snap),
+    border-color var(--vast-motion-snap),
+    color var(--vast-motion-snap),
+    box-shadow var(--vast-motion-snap),
+    border-radius var(--vast-motion-swift);
 }
 
-.vault-danger-button {
-  color: #ffb4b4;
-  background: rgba(255, 96, 96, 0.075);
-  border-color: rgba(255, 96, 96, 0.16);
+.vast-button--xs {
+  height: 1.75rem;
+  min-width: 0;
+  padding: 0 0.6rem;
+  gap: 0.375rem;
+  font-size: 0.72rem;
 }
 
-.vault-danger-button:hover {
+.vast-button--sm {
+  height: 2.125rem;
+  min-width: 5.5rem;
+  padding: 0 0.8rem;
+  font-size: 0.78rem;
+}
+
+.vast-button--md {
+  height: 2.5rem;
+  min-width: 7rem;
+  padding: 0 1.05rem;
+  font-size: 0.8125rem;
+}
+
+.vast-button--sm svg,
+.vast-button--md svg {
+  flex: none;
+}
+
+/* Full-width left-aligned row actions (side panel and list panels):
+   auto height, comfortable padding, original card geometry. */
+.vast-button--block {
+  height: auto;
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
+  border-radius: var(--vast-radius-card);
+  padding: 0.72rem 0.95rem;
+  font-size: 0.84rem;
+  font-weight: 550;
+  letter-spacing: 0;
+}
+
+.vast-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--vast-accent) 44%, rgba(255, 255, 255, 0.09));
+  background: color-mix(in srgb, var(--vast-accent) 14%, rgba(17, 16, 23, 0.68));
+  color: #fff;
   transform: translateY(-1px);
-  background: rgba(255, 96, 96, 0.12);
-  box-shadow: 0 12px 30px rgba(255, 80, 80, 0.12);
+}
+
+.vast-button:active:not(:disabled) {
+  transform: translateY(0) scale(0.985);
+}
+
+.vast-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+  transform: none;
+}
+
+.vast-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--vast-accent) 66%, white 4%);
+  outline-offset: 2px;
+}
+
+.vast-button--primary {
+  border-color: color-mix(in srgb, var(--vast-accent) 24%, rgba(255, 255, 255, 0.09));
+  background: rgba(25, 22, 34, 0.76);
+}
+
+.vast-button--primary:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--vast-accent) 46%, rgba(255, 255, 255, 0.09));
+  background: #1a1822;
+}
+
+.vast-button--selected {
+  border-color: color-mix(in srgb, var(--vast-accent) 34%, rgba(255, 255, 255, 0.09));
+  background: color-mix(in srgb, var(--vast-accent) 12%, rgba(17, 16, 23, 0.68));
+  color: color-mix(in srgb, var(--vast-accent) 76%, white);
+}
+
+.vast-button--selected:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--vast-accent) 50%, rgba(255, 255, 255, 0.09));
+  background: color-mix(in srgb, var(--vast-accent) 17%, rgba(17, 16, 23, 0.68));
+}
+
+.vast-button--ghost {
+  min-width: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--vast-muted);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.vast-button--ghost:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--vast-border) 44%, transparent);
+  background: var(--vast-color-state-hover);
+  color: var(--vast-text);
+}
+
+.vast-button--danger {
+  border-color: color-mix(in srgb, var(--vast-color-danger) 22%, rgba(255, 255, 255, 0.09));
+  background: color-mix(in srgb, var(--vast-color-danger) 7%, rgba(17, 16, 23, 0.68));
+  color: color-mix(in srgb, var(--vast-color-danger) 76%, white);
+}
+
+.vast-button--danger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--vast-color-danger) 40%, rgba(255, 255, 255, 0.09));
+  background: color-mix(in srgb, var(--vast-color-danger) 12%, rgba(17, 16, 23, 0.68));
+  color: color-mix(in srgb, var(--vast-color-danger) 86%, white);
+}
+
+.vast-button--quiet {
+  height: auto;
+  min-width: 0;
+  border-color: transparent;
+  background: transparent;
+  color: color-mix(in srgb, var(--vast-accent) 55%, var(--vast-text));
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding: 0.22rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.vast-button--quiet:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--vast-accent) 10%, transparent);
+  color: color-mix(in srgb, var(--vast-accent) 45%, var(--vast-text));
+  transform: none;
+}
+
+/* Light theme: crisp white buttons with restrained accent response. */
+.light-theme .vast-button {
+  border-color: rgba(15, 23, 42, 0.14);
+  background: #ffffff;
+  color: var(--vast-text);
+  box-shadow: 0 7px 20px rgba(15, 23, 42, 0.07);
+}
+
+.light-theme .vast-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--vast-accent) 36%, rgba(15, 23, 42, 0.14));
+  background: #f7f3fb;
+  color: var(--vast-text);
+}
+
+.light-theme .vast-button--primary {
+  background: #ffffff;
+}
+
+.light-theme .vast-button--primary:hover:not(:disabled) {
+  background: #f7f3fb;
+}
+
+.light-theme .vast-button--selected {
+  background: color-mix(in srgb, var(--vast-accent) 10%, white);
+}
+
+.light-theme .vast-button--danger {
+  border-color: color-mix(in srgb, var(--vast-color-danger) 30%, rgba(15, 23, 42, 0.14));
+  background: color-mix(in srgb, var(--vast-color-danger) 7%, white);
+  color: color-mix(in srgb, var(--vast-color-danger) 70%, #101827);
+}
+
+/* Icon buttons share the same semantic family: quiet translucent surface,
+   thin border, restrained accent response when active. */
+.vast-icon-button {
+  border: 1px solid rgba(255, 255, 255, 0.045);
+  background: rgba(255, 255, 255, 0.026);
+  color: var(--vast-muted);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.vast-icon-button:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.085);
+  color: var(--vast-text);
+  box-shadow:
+    0 10px 26px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.055);
+}
+
+.vast-icon-button--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--vast-muted);
+  box-shadow: none;
+}
+
+.vast-icon-button--ghost:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--vast-color-state-hover);
+  color: var(--vast-text);
+  box-shadow: none;
+}
+
+.vast-icon-button--quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--vast-muted);
+  box-shadow: none;
+}
+
+.vast-icon-button--quiet:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--vast-color-state-hover) 60%, transparent);
+  color: var(--vast-text);
+  box-shadow: none;
+}
+
+.vast-icon-button--selected,
+.vast-icon-button.is-active {
+  border-color: color-mix(in srgb, var(--vast-accent) 35%, transparent);
+  background: color-mix(in srgb, var(--vast-accent) 10%, transparent);
+  color: var(--vast-accent);
+  box-shadow: 0 0 40px color-mix(in srgb, var(--vast-accent) 16%, transparent);
+}
+
+.vast-icon-button--danger {
+  border-color: color-mix(in srgb, var(--vast-color-danger) 30%, transparent);
+  background: color-mix(in srgb, var(--vast-color-danger) 7%, transparent);
+  color: color-mix(in srgb, var(--vast-color-danger) 62%, var(--vast-text));
+}
+
+.vast-icon-button--danger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--vast-color-danger) 45%, transparent);
+  background: color-mix(in srgb, var(--vast-color-danger) 12%, transparent);
+  color: color-mix(in srgb, var(--vast-color-danger) 78%, var(--vast-text));
+}
+
+.light-theme .vast-icon-button {
+  border-color: rgba(15, 23, 42, 0.1);
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.light-theme .vast-icon-button:hover:not(:disabled) {
+  border-color: rgba(15, 23, 42, 0.2);
+  background: #f7f3fb;
+}
+
+.light-theme .vast-icon-button--ghost,
+.light-theme .vast-icon-button--quiet {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Shared menu/list command rows: same focus, hover, selected, danger and
+   disabled tokens as buttons, with menu-appropriate geometry. */
+.vast-menu-item {
+  display: flex;
+  width: 100%;
+  min-height: 1.85rem;
+  align-items: center;
+  gap: 0.45rem;
+  border: 0;
+  border-radius: var(--vast-radius-control);
+  background: transparent;
+  color: var(--vast-muted);
+  padding: 0.3rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-align: left;
+}
+
+.vast-menu-item:hover:not(:disabled) {
+  background: var(--vast-color-state-hover);
+  color: var(--vast-text);
+}
+
+.vast-menu-item.is-selected {
+  background: color-mix(in srgb, var(--vast-accent) 10%, transparent);
+  color: color-mix(in srgb, var(--vast-accent) 32%, var(--vast-text));
+}
+
+.vast-menu-item.is-danger {
+  color: color-mix(in srgb, var(--vast-color-danger) 68%, var(--vast-text));
+}
+
+.vast-menu-item.is-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--vast-color-danger) 10%, transparent);
+  color: color-mix(in srgb, var(--vast-color-danger) 82%, var(--vast-text));
+}
+
+.vast-menu-item-detail {
+  display: block;
+  overflow: hidden;
+  color: var(--vast-muted);
+  font-size: 0.68rem;
+  font-weight: 450;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vast-menu-item > svg {
+  flex: none;
+  color: var(--vast-muted);
+}
+
+.vast-menu-item kbd {
+  flex: none;
+  color: var(--vast-muted);
+  font-family: inherit;
+  font-size: 0.68rem;
+}
+
+.vast-menu-item:hover:not(:disabled) > svg,
+.vast-menu-item:hover:not(:disabled) kbd {
+  color: var(--vast-text);
+}
+
+/* Shared selectable choice card (visual pickers). */
+.vast-choice {
+  position: relative;
+  display: flex;
+  min-height: 6.2rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 58%, transparent);
+  border-radius: var(--vast-radius-tile);
+  background: var(--vast-surface);
+  padding: 0.75rem 0.625rem;
+  color: var(--vast-text);
+  font-family: var(--vast-font);
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color var(--vast-motion-snap),
+    background var(--vast-motion-snap),
+    border-radius var(--vast-motion-swift);
+}
+
+.vast-choice:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--vast-color-border-strong) 72%, transparent);
+  background: var(--vast-surface-strong);
+}
+
+.vast-choice.is-selected {
+  border-color: color-mix(in srgb, var(--vast-accent) 62%, var(--vast-border));
+  background: color-mix(in srgb, var(--vast-accent) 7%, var(--vast-surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vast-accent) 10%, transparent);
+}
+
+.vast-choice:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.light-theme .vast-choice {
+  border-color: var(--vast-color-border-default);
+  background: #f8fafc;
+}
+
+.light-theme .vast-choice:hover:not(:disabled) {
+  border-color: var(--vast-color-border-strong);
+  background: #ffffff;
+}
+
+.light-theme .vast-choice.is-selected {
+  border-color: color-mix(in srgb, var(--vast-accent) 46%, transparent);
+  background: color-mix(in srgb, var(--vast-accent) 8%, #ffffff);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vast-accent) 16%, transparent);
+}
+
+.dim-theme .vast-choice {
+  background: color-mix(in srgb, var(--vast-surface) 45%, var(--vast-bg));
+}
+
+.dim-theme .vast-choice:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--vast-surface) 65%, var(--vast-bg));
 }
 
 .vast-logo-image {
@@ -402,29 +800,7 @@ button:disabled {
   animation: vast-preload-logo 1.2s ease-in-out infinite alternate;
 }
 
-.vast-opening-overlay {
-  width: 100vw;
-  height: 100vh;
-  contain: layout paint style;
-  isolation: isolate;
-  border: 0;
-  border-radius: 0;
-  background-color: #030406;
-  background:
-    radial-gradient(circle at 50% 45%, rgba(91, 64, 168, 0.032) 0%, transparent 26%),
-    linear-gradient(180deg, #030406 0%, #06070a 54%, #08090b 100%);
-}
-
-/* Windows and Linux clip the opening BrowserWindow with the native shape. A
-   second CSS radius produced a visibly hollow, mismatched edge at some DPI
-   scales. macOS does not use setShape, so it keeps the renderer-side radius. */
-.vast-opening-overlay.platform-darwin {
-  border-radius: var(--vast-radius-panel);
-}
-
-/* Search-only new tab is intentionally completely flat. Keep shared cards,
-   inputs, icons, and modal descendants from reintroducing visual effects. */
-.new-tab-flat-search,
+/* Keep search-only content flat without overriding the selected page background. */
 .new-tab-flat-search *,
 .new-tab-flat-search *::before,
 .new-tab-flat-search *::after {
@@ -440,138 +816,7 @@ button:disabled {
   border-color: rgba(255, 255, 255, 0.18);
 }
 
-.vast-opening-backdrop {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background:
-    radial-gradient(ellipse at 50% 48%, rgba(91, 64, 168, 0.17) 0%, rgba(42, 25, 82, 0.095) 31%, transparent 66%),
-    linear-gradient(180deg, #030406 0%, #06070a 54%, #08090b 100%);
-  animation: vast-opening-backdrop var(--vast-opening-duration, 5000ms) cubic-bezier(0.42, 0, 0.16, 1) both;
-  animation-delay: var(--vast-opening-delay, 0ms);
-}
 
-.vast-opening-core {
-  position: relative;
-  z-index: 1;
-  animation: vast-opening-core var(--vast-opening-duration, 5000ms) cubic-bezier(0.33, 0, 0.16, 1) both;
-  animation-delay: var(--vast-opening-delay, 0ms);
-}
-
-.vast-opening-logo-halo {
-  position: absolute;
-  width: min(64vw, 56rem);
-  height: min(22vw, 19rem);
-  border-radius: 50%;
-  background:
-    radial-gradient(ellipse at 50% 50%, rgba(91, 64, 168, 0.23) 0%, rgba(38, 24, 74, 0.15) 34%, transparent 72%);
-  opacity: 0;
-  transform: scale(0.94);
-  animation: vast-opening-logo-halo var(--vast-opening-duration, 5000ms) cubic-bezier(0.33, 0, 0.16, 1) both;
-  animation-delay: var(--vast-opening-delay, 0ms);
-}
-
-.vast-opening-logo-frame {
-  /* vast.png is a 1584x396 canvas whose visible mark occupies only about
-     461x144 pixels. Crop the transparent canvas so the mark itself is the
-     element being centered. */
-  display: block;
-  width: min(64vw, 15rem);
-  aspect-ratio: 493 / 176;
-  overflow: hidden;
-  filter:
-    drop-shadow(0 0 14px rgba(91, 64, 168, 0.2))
-    drop-shadow(0 18px 40px rgba(0, 0, 0, 0.26));
-  animation: vast-opening-logo var(--vast-opening-duration, 5000ms) cubic-bezier(0.33, 0, 0.16, 1) both;
-  animation-delay: var(--vast-opening-delay, 0ms);
-}
-
-.vast-opening-logo {
-  position: absolute;
-  /* Compensate for the visible pixels' optical centroid within the crop. */
-  left: calc(50% - 2.07%);
-  top: calc(50% - 5.4%);
-  display: block;
-  width: 321.3%;
-  height: auto;
-  max-width: none;
-  aspect-ratio: 4 / 1;
-  object-fit: contain;
-  transform: translate(-50%, -50%);
-  filter: brightness(0) invert(1);
-}
-
-@media (max-width: 640px) {
-  .vast-opening-logo-frame {
-    width: min(64vw, 15rem);
-  }
-}
-
-@keyframes vast-opening-backdrop {
-  0% {
-    opacity: 0;
-  }
-  8%,
-  66% {
-    opacity: 1;
-  }
-  92%,
-  100% {
-    opacity: 0;
-  }
-}
-
-@keyframes vast-opening-core {
-  0% {
-    transform: translateY(4px) scale(0.992);
-  }
-  22%,
-  66% {
-    transform: translateY(0) scale(1);
-  }
-  92%,
-  100% {
-    transform: translateY(-5px) scale(1.006);
-  }
-}
-
-@keyframes vast-opening-logo-halo {
-  0% {
-    opacity: 0;
-    transform: scale(0.92);
-  }
-  22% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  66% {
-    opacity: 0.88;
-    transform: scale(1.08);
-  }
-  92%,
-  100% {
-    opacity: 0;
-    transform: scale(1.16);
-  }
-}
-
-@keyframes vast-opening-logo {
-  0%,
-  8% {
-    opacity: 0;
-    transform: translateY(8px) scale(0.965);
-  }
-  22%,
-  66% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-  92%,
-  100% {
-    opacity: 0;
-    transform: translateY(-5px) scale(1.006);
-  }
-}
 
 @keyframes vast-preload-logo {
   from {
@@ -778,6 +1023,27 @@ button:disabled {
   border-radius: var(--vast-radius-control);
 }
 
+.address-bar-controls .vast-icon-button > svg {
+  width: var(--vast-toolbar-icon-size, 16px);
+  height: var(--vast-toolbar-icon-size, 16px);
+}
+
+.clean-toolbar-icons .address-bar-controls .vast-icon-button,
+.clean-toolbar-icons .address-bar-controls .vast-icon-button:hover:not(:disabled),
+.clean-toolbar-icons .address-bar-controls .vast-icon-button.is-active {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.clean-toolbar-icons .address-bar-controls .vast-icon-button:hover:not(:disabled) {
+  color: var(--vast-text);
+}
+
+.clean-toolbar-icons .address-bar-controls .vast-icon-button.is-active {
+  color: var(--vast-accent);
+}
+
 .side-panel-header > button {
   width: 2.75rem;
   height: 2.75rem;
@@ -829,41 +1095,6 @@ button:disabled {
   pointer-events: none;
   background: radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--vast-accent) 3%, transparent), transparent 28%);
   opacity: 0.5;
-}
-
-.app-shell[data-appearance-bg='midnight'] .app-main-surface {
-  background:
-    radial-gradient(circle at 50% -12%, color-mix(in srgb, var(--vast-accent) var(--vast-gradient-mix), transparent), transparent 30%),
-    radial-gradient(circle at 8% 18%, color-mix(in srgb, #2347ff var(--vast-gradient-mix), transparent), transparent 36%),
-    linear-gradient(180deg, color-mix(in srgb, #07101d 72%, var(--vast-bg)) 0%, var(--vast-bg) 100%) !important;
-}
-
-.app-shell[data-appearance-bg='aurora'] .app-main-surface {
-  background:
-    radial-gradient(circle at 28% -8%, color-mix(in srgb, var(--vast-accent) var(--vast-gradient-strong-mix), transparent), transparent 34%),
-    radial-gradient(circle at 72% 4%, color-mix(in srgb, var(--vast-accent-secondary) var(--vast-gradient-strong-mix), transparent), transparent 34%),
-    radial-gradient(circle at 50% 112%, color-mix(in srgb, #00ffa8 var(--vast-gradient-soft-mix), transparent), transparent 42%),
-    linear-gradient(180deg, var(--vast-ink) 0%, var(--vast-bg) 100%) !important;
-}
-
-.app-shell[data-appearance-bg='violet'] .app-main-surface {
-  background:
-    radial-gradient(circle at 50% -10%, color-mix(in srgb, var(--vast-accent-secondary) var(--vast-gradient-strong-mix), transparent), transparent 34%),
-    radial-gradient(circle at 86% 22%, color-mix(in srgb, #ff4fd8 var(--vast-gradient-mix), transparent), transparent 30%),
-    linear-gradient(180deg, color-mix(in srgb, #0d0718 68%, var(--vast-ink)) 0%, var(--vast-bg) 100%) !important;
-}
-
-.app-shell[data-appearance-bg='carbon'] .app-main-surface {
-  background:
-    radial-gradient(circle at 50% -12%, color-mix(in srgb, var(--vast-accent) var(--vast-gradient-soft-mix), transparent), transparent 26%),
-    linear-gradient(180deg, #07080a 0%, #030304 100%) !important;
-}
-
-.app-shell[data-appearance-bg='frost'] .app-main-surface {
-  background:
-    radial-gradient(circle at 48% -10%, color-mix(in srgb, var(--vast-accent) var(--vast-gradient-strong-mix), transparent), transparent 30%),
-    radial-gradient(circle at 82% 8%, color-mix(in srgb, var(--vast-accent-secondary) var(--vast-gradient-mix), transparent), transparent 32%),
-    linear-gradient(180deg, color-mix(in srgb, var(--vast-bg) 58%, white) 0%, var(--vast-bg) 100%) !important;
 }
 
 .horizontal-chrome,
@@ -1006,14 +1237,6 @@ button:disabled {
     linear-gradient(180deg, color-mix(in srgb, var(--vast-surface-elevated) 96%, transparent), color-mix(in srgb, var(--vast-bg) 90%, black)) !important;
 }
 
-.browser-tools-action {
-  background: transparent !important;
-}
-
-.browser-tools-action:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--vast-surface-strong) 66%, transparent) !important;
-}
-
 .vast-notification-stack,
 .vast-notification-card {
   width: min(25rem, calc(100vw - 2.5rem));
@@ -1058,48 +1281,6 @@ button:disabled {
   animation: link-preview-in 120ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
-.link-preview-action,
-.smart-unload-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.55rem;
-  border: 1px solid color-mix(in srgb, var(--vast-border) 22%, transparent);
-  border-radius: var(--vast-radius-control);
-  background: color-mix(in srgb, var(--vast-surface) 72%, transparent);
-  color: var(--vast-text);
-  font-size: var(--vast-font-size-caption);
-  font-weight: 650;
-  transition:
-    background var(--vast-motion-snap),
-    border-color var(--vast-motion-snap),
-    transform var(--vast-motion-snap);
-}
-
-.link-preview-action {
-  height: 2rem;
-  min-width: 4.35rem;
-  padding: 0 0.7rem;
-}
-
-.smart-unload-action {
-  min-height: 3rem;
-  width: 100%;
-  justify-content: flex-start;
-  padding: 0 0.9rem;
-}
-
-.link-preview-action:hover,
-.smart-unload-action:hover {
-  transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--vast-accent) 24%, transparent);
-  background: color-mix(in srgb, var(--vast-surface-strong) 82%, transparent);
-}
-
-.smart-unload-row {
-  contain: layout paint style;
-}
-
 .extensions-toolbar-menu {
   background: color-mix(in srgb, var(--vast-bg) 96%, #11121a) !important;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.34);
@@ -1120,44 +1301,6 @@ button:disabled {
 .extension-toolbar-surface {
   border: 0;
   color-scheme: dark;
-}
-
-.extensions-toolbar-primary-action,
-.extensions-toolbar-secondary-action {
-  display: flex;
-  min-height: 2.5rem;
-  width: 100%;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  border-radius: var(--vast-radius-control);
-  border: 1px solid color-mix(in srgb, var(--vast-border) 26%, transparent);
-  font-size: 0.75rem;
-  font-weight: 650;
-  transition: border-color var(--vast-motion-snap), background var(--vast-motion-snap), color var(--vast-motion-snap);
-}
-
-.extensions-toolbar-primary-action {
-  border-color: color-mix(in srgb, var(--vast-accent) 26%, transparent);
-  background: color-mix(in srgb, var(--vast-accent) 9%, var(--vast-surface));
-  color: color-mix(in srgb, var(--vast-accent) 68%, white);
-}
-
-.extensions-toolbar-primary-action:hover {
-  border-color: color-mix(in srgb, var(--vast-accent) 38%, transparent);
-  background: color-mix(in srgb, var(--vast-accent) 13%, var(--vast-surface));
-  color: white;
-}
-
-.extensions-toolbar-secondary-action {
-  background: rgba(255, 255, 255, 0.025);
-  color: rgba(255, 255, 255, 0.68);
-}
-
-.extensions-toolbar-secondary-action:hover {
-  border-color: color-mix(in srgb, var(--vast-border) 40%, transparent);
-  background: rgba(255, 255, 255, 0.055);
-  color: white;
 }
 
 .smart-unload-panel {
@@ -1212,11 +1355,6 @@ button:disabled {
   background: var(--smart-unload-surface);
 }
 
-.smart-unload-action {
-  background: var(--smart-unload-surface);
-}
-
-.smart-unload-action:hover,
 .smart-unload-row:hover,
 .smart-unload-close:hover {
   background: var(--smart-unload-surface-hover);
@@ -1240,8 +1378,20 @@ button:disabled {
 }
 
 .settings-nav-item {
+  height: 38px;
   background: transparent !important;
   color: var(--vast-muted);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.settings-nav-item svg {
+  width: 15px;
+  height: 15px;
+}
+
+.settings-nav-item.is-active svg {
+  color: var(--vast-accent);
 }
 
 .settings-nav-item:hover {
@@ -1448,7 +1598,7 @@ button:disabled {
 }
 
 .settings-section {
-  margin-bottom: 2rem;
+  margin-bottom: 2.25rem;
 }
 
 .settings-modal-shell {
@@ -1530,32 +1680,34 @@ button:disabled {
   transform: none;
 }
 
-.app-shell .extensions-page-surface .vault-action-button:hover,
-.app-shell .extensions-page-surface .vault-danger-button:hover {
-  transform: none;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.018);
-}
-
 .extensions-tablist {
-  display: inline-grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: inline-flex;
   gap: 0.25rem;
-  width: fit-content;
-  padding: 0.25rem;
-  border: 1px solid color-mix(in srgb, var(--vast-border) 24%, transparent);
-  border-radius: var(--vast-radius-control);
-  background: color-mix(in srgb, var(--vast-surface) 72%, transparent);
+  padding: 0.1875rem;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: var(--vast-radius-button);
+  background: rgba(17, 16, 23, 0.68);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 8px 24px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(18px) saturate(135%);
 }
 
 .extensions-tab {
-  min-width: 6.75rem;
-  height: 2.375rem;
-  padding: 0 1.125rem;
+  display: inline-flex;
+  height: 1.875rem;
+  min-width: 5.5rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0 1rem;
   border: 1px solid transparent;
-  border-radius: var(--vast-radius-control);
-  color: var(--vast-muted);
-  font-size: 0.8125rem;
-  font-weight: 650;
+  border-radius: calc(var(--vast-radius-button) - 3px);
+  background: transparent;
+  color: rgba(246, 244, 249, 0.6);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  cursor: pointer;
   transition: border-color var(--vast-motion-snap), background var(--vast-motion-snap), color var(--vast-motion-snap);
 }
 
@@ -1565,14 +1717,10 @@ button:disabled {
 }
 
 .extensions-tab.is-active {
-  border-color: color-mix(in srgb, var(--vast-border) 34%, transparent);
-  background: color-mix(in srgb, var(--vast-surface-strong) 82%, transparent);
-  color: var(--vast-text);
-}
-
-.extensions-subpanel {
-  border: 1px solid color-mix(in srgb, var(--vast-border) 20%, transparent);
-  background: color-mix(in srgb, var(--vast-surface) 64%, transparent);
+  border-color: color-mix(in srgb, var(--vast-accent) 46%, transparent);
+  background: color-mix(in srgb, var(--vast-accent) 26%, #0b0c11);
+  color: #ffffff;
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--vast-accent) 24%, transparent);
 }
 
 .extensions-search-panel {
@@ -1654,24 +1802,20 @@ button:disabled {
   background: color-mix(in srgb, var(--vast-surface-elevated) 97%, white 3%) !important;
 }
 
+/* Enabled toggle pill: optically identical to the vast-button--sm pills next to
+   it (the element carries the vast-button classes); these rules only adapt the
+   layout to host the switch and keep the pill non-interactive itself. */
 .extensions-enabled-control {
-  display: inline-flex;
-  height: 2.5rem;
-  align-items: center;
-  gap: 0.625rem;
-  padding: 0 0.5rem 0 0.875rem;
-  border: 1px solid color-mix(in srgb, var(--vast-border) 24%, transparent);
-  border-radius: var(--vast-radius-control);
-  background: color-mix(in srgb, var(--vast-surface) 64%, transparent);
-  color: var(--vast-text);
-  font-size: 0.8125rem;
-  font-weight: 650;
+  justify-content: space-between;
+  gap: 0.55rem;
+  padding-right: 0.3rem;
+  cursor: default;
 }
 
 .extensions-enabled-switch {
   position: relative;
-  width: 2.625rem;
-  height: 1.5rem;
+  width: 2.25rem;
+  height: 1.25rem;
   flex: 0 0 auto;
   border: 1px solid color-mix(in srgb, var(--vast-border) 32%, transparent);
   border-radius: var(--vast-radius-control);
@@ -1681,10 +1825,10 @@ button:disabled {
 
 .extensions-enabled-switch > span {
   position: absolute;
-  top: 0.1875rem;
-  left: 0.1875rem;
-  width: 1rem;
-  height: 1rem;
+  top: 0.125rem;
+  left: 0.125rem;
+  width: 0.875rem;
+  height: 0.875rem;
   border-radius: var(--vast-radius-control);
   background: color-mix(in srgb, var(--vast-muted) 80%, white);
   transition: transform var(--vast-motion-snap), background var(--vast-motion-snap);
@@ -1696,7 +1840,7 @@ button:disabled {
 }
 
 .extensions-enabled-switch.is-active > span {
-  transform: translateX(1.125rem);
+  transform: translateX(1rem);
   background: color-mix(in srgb, var(--vast-accent) 72%, white);
 }
 
@@ -1807,7 +1951,7 @@ button:disabled {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 1.5rem;
+  padding: 1.5rem 1.875rem 2.75rem;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   -webkit-overflow-scrolling: touch;
@@ -1821,99 +1965,363 @@ button:disabled {
   contain: layout paint style;
 }
 
-.settings-modal-scroll .settings-grid > *,
+.settings-modal-scroll .settings-rows > *,
+.settings-modal-scroll .settings-card,
 .settings-modal-scroll .space-y-2 > *,
 .settings-modal-scroll .grid > * {
   contain: layout paint style;
 }
 
-.settings-section h2 {
-  margin: 0 0 1rem;
-  color: var(--vast-text);
-  font-size: 1rem;
-  font-weight: 650;
+
+/* Redesigned Settings: grouped surfaces with divider rows (preview system). */
+.settings-page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.25rem;
+  margin-bottom: 1.15rem;
 }
 
-.settings-grid {
+.settings-section h2 {
+  margin: 0;
+  color: var(--vast-text);
+  font-size: 1.1875rem;
+  font-weight: 650;
+  letter-spacing: -0.028em;
+}
+
+.settings-page-sub {
+  margin: 0.35rem 0 0;
+  color: var(--vast-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.settings-page-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Two-column page canvas (Appearance). */
+.settings-page-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(330px, 0.92fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.settings-stack {
+  display: grid;
+  gap: 0.875rem;
+}
+
+.settings-card {
+  border: 1px solid color-mix(in srgb, var(--vast-border) 50%, transparent);
+  border-radius: var(--vast-radius-card);
+  background: color-mix(in srgb, var(--vast-surface) 72%, var(--vast-bg));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.017);
+  padding: 1rem;
+  transition: border-radius var(--vast-motion-swift), background var(--vast-motion-snap);
+}
+
+.settings-card-title {
+  margin: 0 0 0.75rem;
+  color: var(--vast-text);
+  font-size: 0.8438rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.settings-rows {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 48%, transparent);
+  border-radius: var(--vast-radius-card);
+  background: color-mix(in srgb, var(--vast-surface) 72%, var(--vast-bg));
+  transition: border-radius var(--vast-motion-swift);
+}
+
+.settings-row {
+  display: grid;
+  min-height: 3.25rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1.125rem;
+  padding: 0.5rem 0.9rem;
+  transition: background var(--vast-motion-snap);
+}
+
+.settings-row + .settings-row {
+  border-top: 1px solid color-mix(in srgb, var(--vast-border) 42%, transparent);
+}
+
+.settings-row:hover {
+  background: color-mix(in srgb, var(--vast-color-state-hover) 65%, transparent);
+}
+
+.settings-row-label {
+  min-width: 0;
+  color: var(--vast-text);
+  font-size: 0.84rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+.settings-row-sub {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--vast-muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.settings-row-control {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
+.settings-row-meta {
+  color: var(--vast-muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+/* Stacked variant for wide editors such as exception lists. */
+.settings-row-stacked {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.settings-row-stacked .settings-row-control {
+  justify-content: stretch;
+}
+
+.settings-row-stacked .settings-row-control > * {
+  width: 100%;
+}
+
+.settings-switch {
+  position: relative;
+  display: block;
+  width: 2.375rem;
+  height: 1.375rem;
+  flex: 0 0 auto;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 70%, transparent);
+  border-radius: var(--vast-radius-panel);
+  background: color-mix(in srgb, var(--vast-text) 10%, var(--vast-bg));
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  transition: background var(--vast-motion-snap), border-color var(--vast-motion-snap);
+}
+
+.settings-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 1rem;
+  height: 1rem;
+  border-radius: var(--vast-radius-panel);
+  background: color-mix(in srgb, var(--vast-text) 80%, var(--vast-bg));
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.26);
+  transition: left var(--vast-motion-snap), background var(--vast-motion-snap);
+}
+
+.settings-switch:hover {
+  border-color: var(--vast-color-border-strong);
+}
+
+.settings-switch:checked {
+  border-color: var(--vast-accent);
+  background: var(--vast-accent);
+}
+
+.settings-switch:checked::after {
+  left: 1.125rem;
+  background: var(--vast-color-text-inverse);
+}
+
+.settings-switch:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--vast-accent) 62%, transparent);
+  outline-offset: 2px;
+}
+
+.settings-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.settings-row input:not([type='checkbox']):not([type='color']):not([type='range']) {
+  min-width: 0;
+  max-width: 16rem;
+  height: 2.1rem;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 52%, transparent);
+  border-radius: var(--vast-radius-control);
+  background: color-mix(in srgb, var(--vast-surface) 78%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+  padding: 0 0.6rem;
+  color: var(--vast-text);
+  font-size: 0.78rem;
+  outline: none;
+  transition: border-color var(--vast-motion-snap), background var(--vast-motion-snap);
+}
+
+.settings-row input:not([type='checkbox']):not([type='color']):not([type='range']):hover {
+  border-color: var(--vast-color-border-strong);
+}
+
+.settings-row input:not([type='checkbox']):not([type='color']):not([type='range']):focus {
+  border-color: color-mix(in srgb, var(--vast-accent) 38%, transparent);
+  background: color-mix(in srgb, var(--vast-bg) 52%, transparent);
+  box-shadow: none;
+}
+
+.settings-row input[type='number'] {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-value-chip {
+  display: inline-flex;
+  min-width: 3.4rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 52%, transparent);
+  border-radius: var(--vast-radius-control);
+  background: color-mix(in srgb, var(--vast-surface) 78%, var(--vast-bg));
+  padding: 0.42rem 0.6rem;
+  color: var(--vast-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-row .vast-select-button {
+  width: 11rem;
+  min-height: 2.125rem;
+  border-color: color-mix(in srgb, var(--vast-border) 66%, transparent);
+  background: color-mix(in srgb, var(--vast-surface) 78%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.settings-row .vast-select-button:hover:not(:disabled) {
+  border-color: var(--vast-color-border-strong);
+}
+
+.settings-feature-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem;
+  gap: 0.625rem;
 }
 
-.settings-grid label,
-.settings-select-label,
-.settings-grid-action {
+.settings-feature {
   display: flex;
-  min-height: 4.25rem;
-  width: 100%;
+  min-height: 3.6rem;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  border: 1px solid color-mix(in srgb, var(--vast-border) 22%, transparent);
+  gap: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 50%, transparent);
   border-radius: var(--vast-radius-card);
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.026), rgba(255, 255, 255, 0.007) 56%, rgba(255, 255, 255, 0.015)),
-    color-mix(in srgb, var(--vast-bg) 74%, transparent);
-  box-shadow: none;
-  padding: 0.85rem 1rem;
-  color: var(--vast-muted);
-  font-size: 0.875rem;
-  transition:
-    background 150ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    transform 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  background: color-mix(in srgb, var(--vast-surface) 72%, var(--vast-bg));
+  padding: 0.8rem 0.95rem;
+  transition: background var(--vast-motion-snap), border-color var(--vast-motion-snap);
 }
 
-.settings-grid label:hover,
-.settings-select-label:hover,
-.settings-grid-action:hover {
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.011) 56%, rgba(255, 255, 255, 0.022)),
-    color-mix(in srgb, var(--vast-bg) 68%, transparent);
-  box-shadow: none;
+.settings-feature:hover {
+  background: color-mix(in srgb, var(--vast-color-state-hover) 65%, transparent);
 }
 
-.settings-grid label span,
-.settings-select-label span,
-.settings-grid-action span {
-  color: var(--vast-text);
-  font-weight: 550;
+.settings-feature.is-locked {
+  opacity: 0.75;
 }
 
-/* Keep Privacy controls in source order; only the multiline editor spans rows. */
-.settings-privacy-grid .settings-select-label,
-.settings-privacy-grid .settings-privacy-field,
-.settings-privacy-grid .settings-privacy-rules {
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
-  gap: 0.6rem;
+.settings-feature-label {
   min-width: 0;
+  color: var(--vast-text);
+  font-size: 0.84rem;
+  font-weight: 600;
 }
 
-.settings-privacy-grid .settings-select-title {
-  flex: none;
-  white-space: normal;
-  overflow: visible;
+
+/* Colors card: compact two-column swatch grid (preview system). */
+.settings-color-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 48%, transparent);
+  border-radius: var(--vast-radius-card);
+  background: color-mix(in srgb, var(--vast-border) 48%, transparent);
 }
 
-.settings-privacy-grid .settings-select-control {
-  width: 100%;
-  flex-basis: auto;
+.settings-color-item {
+  display: flex;
+  min-height: 3.6rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.375rem;
+  background: color-mix(in srgb, var(--vast-surface) 84%, var(--vast-bg));
+  padding: 0.7rem 0.9rem;
 }
 
-.settings-privacy-grid .settings-privacy-field input {
-  width: 100%;
-  max-width: none !important;
-  margin-top: auto;
+.settings-color-grid input[type='color'] {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 60%, transparent);
+  border-radius: var(--vast-radius-panel);
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  overflow: hidden;
+  cursor: pointer;
 }
 
-.settings-privacy-rules {
-  grid-column: 1 / -1;
+.settings-color-grid input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 0;
 }
 
-.settings-grid-action-value {
-  color: var(--vast-muted) !important;
-  font-size: 0.8125rem;
+.settings-color-grid input[type='color']::-webkit-color-swatch {
+  border: 0;
+  border-radius: var(--vast-radius-panel);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.settings-color-grid input[type='color']::-moz-color-swatch {
+  border: 0;
+  border-radius: var(--vast-radius-panel);
+}
+
+/* Compact inline switch group (spoofing master toggle). */
+.settings-inline-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 52%, transparent);
+  border-radius: var(--vast-radius-control);
+  background: var(--vast-surface);
+  padding: 0.45rem 0.8rem;
+  color: var(--vast-text);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Light theme extras for the new surfaces. */
+.light-theme .settings-color-item {
+  background: #f8fafc;
+}
+
+.light-theme .settings-inline-toggle {
+  background: #ffffff;
 }
 
 .settings-inline-error {
@@ -1921,6 +2329,480 @@ button:disabled {
   padding: 0 0.25rem;
   color: #fca5a5;
   font-size: 0.75rem;
+}
+
+/* Visual choice cards (preview system). */
+.settings-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.625rem;
+}
+
+/* Two-option groups (Layout without Purist) fill evenly. */
+.settings-choice-grid:has(> :nth-child(2):last-child) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* .settings-choice-card is now the shared .vast-choice primitive. */
+
+.settings-choice-title,
+.settings-background-option span {
+  color: var(--vast-text);
+  font-family: var(--vast-font);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.005em;
+}
+
+.settings-choice-sub {
+  margin-top: 0.1rem;
+  color: var(--vast-muted);
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+/* Layout wireframe glyphs */
+.settings-mini-layout {
+  position: relative;
+  width: 62px;
+  height: 40px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 54%, transparent);
+  border-radius: calc(var(--vast-radius-control) * 0.78);
+  background: var(--vast-ink);
+}
+
+.settings-mini-layout::before,
+.settings-mini-layout::after {
+  content: '';
+  position: absolute;
+  border-radius: calc(var(--vast-radius-micro) * 0.8);
+  background: color-mix(in srgb, var(--vast-text) 14%, transparent);
+}
+
+.settings-mini-layout.horizontal::before {
+  top: 7px;
+  right: 7px;
+  left: 7px;
+  height: 7px;
+  background: color-mix(in srgb, var(--vast-accent) 22%, color-mix(in srgb, var(--vast-text) 14%, transparent));
+}
+
+.settings-mini-layout.horizontal::after {
+  right: 7px;
+  bottom: 7px;
+  left: 7px;
+  height: 15px;
+}
+
+.settings-mini-layout.vertical::before {
+  top: 7px;
+  bottom: 7px;
+  left: 7px;
+  width: 13px;
+  background: color-mix(in srgb, var(--vast-accent) 22%, color-mix(in srgb, var(--vast-text) 14%, transparent));
+}
+
+.settings-mini-layout.vertical::after {
+  top: 7px;
+  right: 7px;
+  bottom: 7px;
+  left: 25px;
+}
+
+.settings-mini-layout.purist::before {
+  top: 7px;
+  right: 10px;
+  left: 10px;
+  height: 6px;
+  background: color-mix(in srgb, var(--vast-accent) 26%, color-mix(in srgb, var(--vast-text) 14%, transparent));
+}
+
+.settings-mini-layout.purist::after {
+  right: 7px;
+  bottom: 7px;
+  left: 7px;
+  height: 14px;
+}
+
+/* Theme glyphs */
+.settings-theme-glyph {
+  display: grid;
+  height: 40px;
+  place-items: center;
+  color: var(--vast-muted);
+  font-size: 21px;
+  line-height: 1;
+}
+
+/* New Tab background presets. */
+.settings-background-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.settings-background-option {
+  align-items: stretch;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 56%, transparent);
+  border-radius: var(--vast-radius-tile);
+  background: var(--vast-surface);
+  padding: 0.45rem 0.45rem 0.6rem;
+  color: var(--vast-text);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--vast-motion-snap),
+    background var(--vast-motion-snap),
+    border-radius var(--vast-motion-swift);
+}
+
+.settings-background-option:hover {
+  border-color: color-mix(in srgb, var(--vast-color-border-strong) 70%, transparent);
+  background: var(--vast-surface-strong);
+}
+
+.settings-background-option.is-selected {
+  border-color: color-mix(in srgb, var(--vast-accent) 58%, var(--vast-border));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vast-accent) 10%, transparent);
+}
+
+.settings-background-option:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--vast-accent) 62%, transparent);
+  outline-offset: 2px;
+}
+
+.settings-background-thumb {
+  height: 64px;
+  margin-bottom: 0.55rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 42%, transparent);
+  border-radius: calc(var(--vast-radius-tile) * 0.62);
+}
+
+.settings-background-option span {
+  display: block;
+  padding: 1px 4px 0;
+}
+
+.settings-background-space-black {
+  background: #020202;
+}
+
+.settings-background-accent-gradient {
+  background:
+    radial-gradient(circle at 50% -12%, color-mix(in srgb, var(--vast-accent) 10%, transparent), transparent 54%),
+    #020202;
+}
+
+.settings-background-carbon-black {
+  background: #141414;
+}
+
+.settings-background-depth {
+  background: linear-gradient(145deg, #050505, #151515);
+}
+
+.settings-background-adaptive {
+  background: #050505;
+}
+
+.dim-theme .settings-background-adaptive {
+  background: #1d1d1d;
+}
+
+.light-theme .settings-background-adaptive {
+  background: #f1f3f6;
+}
+
+.settings-background-custom {
+  background-color: #080808;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+/* Contextual help tooltip (rendered via portal, shown after dwell). */
+.settings-hint {
+  position: fixed;
+  z-index: 90;
+  max-width: 270px;
+  border: 1px solid color-mix(in srgb, var(--vast-color-border-strong) 58%, transparent);
+  border-radius: var(--vast-radius-control);
+  background: color-mix(in srgb, var(--vast-surface-elevated) 96%, var(--vast-bg));
+  box-shadow: var(--vast-shadow-md);
+  padding: 0.5rem 0.62rem;
+  color: var(--vast-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.42;
+  letter-spacing: -0.005em;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(3px) scale(0.985);
+  transition: opacity 120ms ease, transform 150ms cubic-bezier(0.2, 0.8, 0.2, 1), border-radius var(--vast-motion-swift);
+}
+
+.settings-hint.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* Live browser preview: preview-faithful structure on runtime tokens. */
+.settings-preview {
+  --vast-radius-micro: calc(var(--vast-radius-base) * 0.16);
+  --vast-radius-checkbox: calc(var(--vast-radius-base) * 0.28);
+  --vast-radius-swatch: var(--vast-radius-checkbox);
+  --vast-radius-control: calc(var(--vast-radius-base) * 0.54);
+  --vast-radius-button: calc(var(--vast-radius-base) * 0.7);
+  --vast-radius-tile: calc(var(--vast-radius-base) * 0.8);
+  --vast-radius-card: var(--vast-radius-base);
+  --vast-radius-panel: calc(var(--vast-radius-base) * 1.15);
+  --vast-radius-modal: calc(var(--vast-radius-base) * 1.3);
+  display: block;
+  contain: layout paint style;
+}
+
+/* Dark token restore when the surrounding app shell is dim or light. */
+.settings-preview-dark {
+  --vast-color-bg-canvas: #050507;
+  --vast-color-bg-subtle: #090a0e;
+  --vast-surface: rgba(255, 255, 255, 0.055);
+  --vast-surface-strong: rgba(255, 255, 255, 0.09);
+  --vast-surface-elevated: rgba(12, 13, 18, 0.98);
+  --vast-border: rgba(255, 255, 255, 0.14);
+  --vast-color-border-strong: rgba(255, 255, 255, 0.22);
+  --vast-text: #f5f7fb;
+  --vast-muted: #b4bbc8;
+  --vast-bg: var(--vast-color-bg-canvas);
+  --vast-ink: var(--vast-color-bg-subtle);
+  --vast-panel: rgba(8, 9, 13, 0.9);
+  --vast-color-text-inverse: #11141a;
+}
+
+.settings-preview-frame {
+  display: flex;
+  height: 300px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 62%, transparent);
+  border-radius: var(--vast-radius-tile);
+  background: #030304;
+  box-shadow: var(--vast-shadow-md);
+  transition: border-radius var(--vast-motion-swift);
+}
+
+.pv-rail {
+  width: 0;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--vast-panel) var(--vast-chrome-mix), transparent);
+  border-right: 1px solid color-mix(in srgb, var(--vast-border) 30%, transparent);
+  transition: width var(--vast-motion-swift);
+}
+
+.settings-preview[data-preview-layout='vertical'] .pv-rail {
+  width: 92px;
+}
+
+.pv-rail span {
+  display: block;
+  height: 24px;
+  margin: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 26%, transparent);
+  border-radius: calc(var(--vast-radius-control) * 0.62);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.pv-rail span:first-child {
+  margin-top: 14px;
+  border-color: color-mix(in srgb, var(--vast-accent) 34%, transparent);
+  background: color-mix(in srgb, var(--vast-accent) 12%, rgba(255, 255, 255, 0.045));
+}
+
+.pv-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.pv-tabs {
+  display: flex;
+  height: 44px;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 0 10px;
+  background: color-mix(in srgb, var(--vast-panel) var(--vast-chrome-mix), transparent);
+}
+
+.settings-preview[data-preview-layout='vertical'] .pv-tabs {
+  display: none;
+}
+
+.settings-preview[data-preview-layout='purist'] .pv-tabs {
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+}
+
+.pv-tab {
+  display: flex;
+  height: 30px;
+  min-width: 118px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: var(--vast-radius-control);
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--vast-muted);
+  font-size: 10px;
+  font-weight: 550;
+  padding: 0 9px;
+}
+
+.pv-tab:not(.is-inactive) {
+  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--vast-text);
+}
+
+.pv-tab.is-inactive {
+  background: rgba(255, 255, 255, 0.03);
+}
+.settings-preview[data-preview-layout='purist'] .pv-tab {
+  height: 26px;
+  min-width: 160px;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+  border-radius: var(--vast-radius-control);
+  background: rgba(3, 4, 7, 0.72);
+  backdrop-filter: blur(14px);
+  opacity: 1;
+}
+
+.pv-toolbar {
+  display: flex;
+  height: 42px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  background: color-mix(in srgb, var(--vast-panel) var(--vast-chrome-mix), transparent);
+  border-top: 1px solid color-mix(in srgb, var(--vast-border) 26%, transparent);
+}
+
+.settings-preview[data-preview-layout='purist'] .pv-toolbar {
+  height: 40px;
+  background: transparent;
+  padding: 2px 18px 7px;
+}
+
+.pv-icon {
+  width: 22px;
+  height: 22px;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 24%, transparent);
+  border-radius: calc(var(--vast-radius-control) * 0.6);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.settings-preview.clean-toolbar-icons .pv-icon {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.settings-preview.clean-toolbar-icons .pv-icon::after {
+  position: absolute;
+  inset: 7px;
+  border: 1.5px solid color-mix(in srgb, var(--vast-text) 68%, transparent);
+  border-radius: var(--vast-radius-control);
+  content: '';
+}
+
+.pv-url {
+  height: 28px;
+  flex: 1;
+  border: 1px solid color-mix(in srgb, var(--vast-accent) var(--vast-address-border-mix), transparent);
+  border-radius: var(--vast-radius-control);
+  background: color-mix(in srgb, var(--vast-bg) var(--vast-address-panel-mix), var(--vast-surface-tint));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 12px 34px rgba(0, 0, 0, var(--vast-address-shadow-alpha));
+  backdrop-filter: blur(var(--vast-effective-blur)) saturate(var(--vast-saturation));
+}
+
+.settings-preview[data-preview-layout='purist'] .pv-url {
+  height: 30px;
+}
+
+.pv-page {
+  position: relative;
+  flex: 1;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 50% -15%, color-mix(in srgb, var(--vast-accent) 8%, transparent), transparent 28%),
+    linear-gradient(180deg, #07080a, #030304);
+}
+
+
+.pv-mark {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.pv-logo-frame {
+  display: block;
+  position: relative;
+  width: 130px;
+  aspect-ratio: 493 / 176;
+  overflow: hidden;
+}
+.pv-logo {
+  position: absolute;
+  left: calc(50% - 2.07%);
+  top: calc(50% - 5.4%);
+  display: block;
+  width: 321.3%;
+  height: auto;
+  max-width: none;
+  aspect-ratio: 4 / 1;
+  object-fit: contain;
+  transform: translate(-50%, -50%);
+  filter: brightness(0) invert(1);
+  opacity: 0.96;
+  user-select: none;
+}
+.pv-favicon {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: var(--vast-radius-micro);
+  background: color-mix(in srgb, var(--vast-accent) 55%, white 10%);
+}
+
+.pv-close {
+  margin-left: auto;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--vast-muted);
+}
+
+.pv-search {
+  position: absolute;
+  top: 64%;
+  left: 50%;
+  width: 150px;
+  height: 30px;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 28%, transparent);
+  border-radius: var(--vast-radius-control);
+  background: rgba(7, 8, 11, 0.8);
+  backdrop-filter: blur(var(--vast-effective-blur));
+  transform: translateX(-50%);
 }
 
 .settings-select-control {
@@ -1963,21 +2845,21 @@ button:disabled {
 
 .vast-select-button {
   display: flex;
-  min-height: 2.625rem;
+  min-height: 2.125rem;
   width: 100%;
   min-width: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.6rem;
   border: 1px solid color-mix(in srgb, var(--vast-border) 32%, transparent);
   border-radius: var(--vast-select-inner-radius);
   background: color-mix(in srgb, var(--vast-bg) 88%, var(--vast-surface));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.045),
     var(--vast-shadow-sm);
-  padding: 0 0.8rem;
+  padding: 0 0.7rem;
   color: var(--vast-text);
-  font-size: 0.875rem;
+  font-size: 0.78rem;
   font-weight: 560;
   outline: none;
   transition:
@@ -2255,7 +3137,7 @@ button:disabled {
   }
 }
 
-.settings-grid input:not([type='checkbox']):not([type='color']):not([type='range']) {
+[data-testid='automation-page'] input:not([type='checkbox']):not([type='color']):not([type='range']) {
   min-width: 0;
   max-width: 16rem;
   border: 1px solid transparent;
@@ -2269,7 +3151,7 @@ button:disabled {
   outline: none;
 }
 
-.settings-grid input:not([type='checkbox']):not([type='color']):not([type='range']):focus {
+[data-testid='automation-page'] input:not([type='checkbox']):not([type='color']):not([type='range']):focus {
   border-color: transparent;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
@@ -2277,7 +3159,6 @@ button:disabled {
     0 0 24px color-mix(in srgb, var(--vast-accent) 9%, transparent);
 }
 
-.settings-grid input[type='checkbox'],
 [data-testid='automation-page'] input[type='checkbox'] {
   position: relative;
   display: grid;
@@ -2303,7 +3184,6 @@ button:disabled {
     transform 140ms ease;
 }
 
-.settings-grid input[type='checkbox']:hover,
 [data-testid='automation-page'] input[type='checkbox']:hover {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
@@ -2311,7 +3191,6 @@ button:disabled {
     0 0 20px color-mix(in srgb, var(--vast-accent) 10%, transparent);
 }
 
-.settings-grid input[type='checkbox']:checked,
 [data-testid='automation-page'] input[type='checkbox']:checked {
   background:
     linear-gradient(135deg, var(--vast-accent), color-mix(in srgb, var(--vast-accent) 42%, #a855f7)),
@@ -2322,7 +3201,6 @@ button:disabled {
     0 0 22px color-mix(in srgb, var(--vast-accent) 24%, transparent);
 }
 
-.settings-grid input[type='checkbox']:checked::after,
 [data-testid='automation-page'] input[type='checkbox']:checked::after {
   content: '';
   width: 0.3rem;
@@ -2333,7 +3211,6 @@ button:disabled {
   transform: rotate(45deg);
 }
 
-.settings-grid input[type='checkbox']:focus-visible,
 [data-testid='automation-page'] input[type='checkbox']:focus-visible {
   outline: none;
   box-shadow:
@@ -2342,7 +3219,6 @@ button:disabled {
     0 0 28px color-mix(in srgb, var(--vast-accent) 18%, transparent);
 }
 
-.settings-grid input[type='color'],
 [data-testid='automation-page'] input[type='color'] {
   width: 3.35rem;
   height: 2.15rem;
@@ -2362,19 +3238,16 @@ button:disabled {
   overflow: hidden;
 }
 
-.settings-grid input[type='color']::-webkit-color-swatch-wrapper,
 [data-testid='automation-page'] input[type='color']::-webkit-color-swatch-wrapper {
   padding: 0;
 }
 
-.settings-grid input[type='color']::-webkit-color-swatch,
 [data-testid='automation-page'] input[type='color']::-webkit-color-swatch {
   border: 0;
   border-radius: var(--vast-radius-swatch);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
 }
 
-.settings-grid input[type='color']::-moz-color-swatch,
 [data-testid='automation-page'] input[type='color']::-moz-color-swatch {
   border: 0;
   border-radius: var(--vast-radius-swatch);
@@ -2417,7 +3290,15 @@ button:disabled {
   background: linear-gradient(135deg, white, color-mix(in srgb, var(--vast-accent) 34%, white));
   box-shadow:
     0 0 0 3px color-mix(in srgb, var(--vast-bg) 62%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--vast-accent) 42%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--vast-accent) 42%, transparent),
+    0 3px 8px rgba(0, 0, 0, 0.24);
+}
+
+.settings-range-control input[type='range']:hover::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--vast-bg) 62%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--vast-accent) 56%, transparent),
+    0 3px 8px rgba(0, 0, 0, 0.24);
 }
 
 .settings-range-control input[type='range']::-moz-range-track {
@@ -2440,7 +3321,15 @@ button:disabled {
   background: linear-gradient(135deg, white, color-mix(in srgb, var(--vast-accent) 34%, white));
   box-shadow:
     0 0 0 3px color-mix(in srgb, var(--vast-bg) 62%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--vast-accent) 42%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--vast-accent) 42%, transparent),
+    0 3px 8px rgba(0, 0, 0, 0.24);
+}
+
+.settings-range-control input[type='range']:hover::-moz-range-thumb {
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--vast-bg) 62%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--vast-accent) 56%, transparent),
+    0 3px 8px rgba(0, 0, 0, 0.24);
 }
 
 .settings-range-control output {
@@ -2448,56 +3337,14 @@ button:disabled {
   color: var(--vast-muted);
   font-size: var(--vast-font-size-caption);
   font-weight: 650;
+  font-variant-numeric: tabular-nums;
 }
 
-.settings-grid input[type='color']:hover,
 [data-testid='automation-page'] input[type='color']:hover {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.09),
     0 0 0 1px color-mix(in srgb, var(--vast-accent) 32%, transparent),
     0 0 24px color-mix(in srgb, var(--vast-accent) 12%, transparent);
-}
-
-.settings-action {
-  display: inline-flex;
-  min-height: 4.25rem;
-  width: 100%;
-  align-items: center;
-  justify-content: center;
-  gap: 0.55rem;
-  border: 1px solid color-mix(in srgb, var(--vast-border) 22%, transparent);
-  border-radius: var(--vast-radius-card);
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.012) 52%, rgba(255, 255, 255, 0.026)),
-    color-mix(in srgb, var(--vast-bg) 74%, transparent);
-  box-shadow: none;
-  padding: 0.85rem 1rem;
-  color: var(--vast-text);
-  font-size: 0.875rem;
-  font-weight: 600;
-  transition:
-    background 150ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    transform 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.settings-action:hover {
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.018) 52%, rgba(255, 255, 255, 0.04)),
-    color-mix(in srgb, var(--vast-bg) 66%, transparent);
-  box-shadow: none;
-}
-
-.settings-action.settings-action-compact {
-  min-height: 2.55rem;
-  width: auto;
-  border-radius: var(--vast-radius-control);
-  padding: 0.58rem 0.82rem;
-  font-size: 0.82rem;
-  box-shadow: none;
-}
-
-.settings-action.settings-action-compact:hover {
-  box-shadow: none;
 }
 
 .settings-default-browser-panel {
@@ -2546,7 +3393,12 @@ button:disabled {
   .side-panel,
   .settings-modal-shell,
   .vast-select-menu,
-  [role='menu'] {
+  [role='menu'],
+  .pv-url,
+  .pv-rail,
+  .pv-tabs,
+  .pv-toolbar,
+  .settings-preview[data-preview-layout='purist'] .pv-tab {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
@@ -2743,22 +3595,22 @@ button:disabled {
   backdrop-filter: none !important;
 }
 
-.light-theme .settings-grid label,
-.light-theme .settings-select-label {
+.light-theme .settings-rows,
+.light-theme .settings-card,
+.light-theme .settings-feature {
   border-color: var(--vast-color-border-default);
   background: #f8fafc;
   box-shadow: none;
 }
 
-.light-theme .settings-grid label:hover,
-.light-theme .settings-select-label:hover {
-  border-color: var(--vast-color-border-strong);
-  background: #ffffff;
-  box-shadow: none;
+.light-theme .settings-row:hover,
+.light-theme .settings-feature:hover {
+  background: var(--vast-color-state-hover);
 }
 
-.light-theme .vast-select-button,
-.light-theme .settings-grid input:not([type='checkbox']):not([type='color']):not([type='range']) {
+.light-theme .settings-row .vast-select-button,
+.light-theme .settings-row input:not([type='checkbox']):not([type='color']):not([type='range']),
+.light-theme .settings-value-chip {
   border-color: var(--vast-color-border-default);
   background: #ffffff;
   box-shadow: none;
@@ -2796,43 +3648,106 @@ button:disabled {
 .settings-modal-shell .vast-select-button,
 .settings-modal-shell .vast-select-button:hover:not(:disabled),
 .settings-modal-shell .vast-select-button[aria-expanded='true'],
-.settings-modal-shell .settings-grid input:not([type='checkbox']):not([type='color']):not([type='range']),
-.settings-modal-shell .settings-grid input:not([type='checkbox']):not([type='color']):not([type='range']):focus,
-.settings-modal-shell .settings-grid input,
-.settings-modal-shell .settings-grid input:hover,
-.settings-modal-shell .settings-grid input:checked {
+.settings-modal-shell .settings-row input,
+.settings-modal-shell .settings-row input:hover,
+.settings-modal-shell .settings-row input:checked {
   box-shadow: none;
 }
 
-.settings-modal-shell .settings-grid input:not([type='range']) {
+.settings-modal-shell .settings-row input:not([type='range']) {
   border: 1px solid color-mix(in srgb, var(--vast-border) 35%, transparent);
 }
 
 .settings-modal-shell .vast-select-button:focus-visible,
-.settings-modal-shell .settings-grid input:focus-visible {
+.settings-modal-shell .settings-row input:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--vast-accent) 65%, transparent);
   outline-offset: 2px;
   box-shadow: none;
 }
 
-.dim-theme .settings-grid label,
-.dim-theme .settings-select-label,
-.dim-theme .settings-action,
-.dim-theme .settings-grid-action {
+.dim-theme .settings-rows,
+.dim-theme .settings-card,
+.dim-theme .settings-feature {
   background: color-mix(in srgb, var(--vast-surface) 45%, var(--vast-bg));
   box-shadow: none;
 }
 
-.dim-theme .settings-grid label:hover,
-.dim-theme .settings-select-label:hover,
-.dim-theme .settings-action:hover,
-.dim-theme .settings-grid-action:hover {
+.dim-theme .settings-row:hover,
+.dim-theme .settings-feature:hover {
   background: color-mix(in srgb, var(--vast-surface) 65%, var(--vast-bg));
 }
 
 .dim-theme .command-palette-panel {
   background: rgba(31, 31, 31, 0.98) !important;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18) !important;
+}
+
+/* Light theme keeps the new Settings surfaces crisp and opaque. */
+.light-theme .settings-choice-card {
+  border-color: var(--vast-color-border-default);
+  background: #f8fafc;
+}
+
+.light-theme .settings-choice-card:hover {
+  border-color: var(--vast-color-border-strong);
+  background: #ffffff;
+}
+
+.light-theme .settings-choice-card.is-selected {
+  border-color: color-mix(in srgb, var(--vast-accent) 46%, transparent);
+  background: color-mix(in srgb, var(--vast-accent) 8%, #ffffff);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vast-accent) 16%, transparent);
+}
+
+.light-theme .settings-preview-frame {
+  border-color: var(--vast-color-border-default);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.16);
+}
+
+.light-theme .pv-rail,
+.light-theme .pv-tabs,
+.light-theme .pv-toolbar {
+  background: #f5f7fa;
+}
+
+.light-theme .pv-url {
+  border-color: rgba(15, 23, 42, 0.1);
+  background: #ffffff;
+}
+
+.light-theme .pv-icon {
+  border-color: rgba(15, 23, 42, 0.1);
+  background: rgba(15, 23, 42, 0.07);
+}
+
+.light-theme .pv-rail span {
+  border-color: rgba(15, 23, 42, 0.09);
+  background: #ffffff;
+}
+
+.light-theme .pv-tab {
+  border-color: var(--vast-accent);
+  background: #ffffff;
+  color: #455269;
+}
+
+.dim-theme .pv-rail,
+.dim-theme .pv-tabs,
+.dim-theme .pv-toolbar {
+  background: rgba(25, 25, 25, 0.82);
+}
+
+.dim-theme .pv-url,
+.settings-preview[data-preview-layout='purist'] .pv-tab {
+  background: rgba(31, 31, 31, 0.92);
+}
+
+.dim-theme .settings-choice-card {
+  background: color-mix(in srgb, var(--vast-surface) 45%, var(--vast-bg));
+}
+
+.dim-theme .settings-choice-card:hover {
+  background: color-mix(in srgb, var(--vast-surface) 65%, var(--vast-bg));
 }
 
 .light-theme [class*='bg-black\/'] {
@@ -2910,8 +3825,10 @@ button:disabled {
   background: #1d1d1d !important;
 }
 
-.app-shell.is-new-tab .app-main-surface {
-  background: var(--vast-bg) !important;
+.app-shell.is-new-tab .app-main-surface,
+.browser-stage.is-new-tab,
+.browser-stage.is-new-tab .browser-stage-pane {
+  background: transparent !important;
 }
 
 .app-shell.is-new-tab .app-main-surface::before {
@@ -2919,11 +3836,52 @@ button:disabled {
   background: none !important;
 }
 
-.browser-stage.is-new-tab,
-.browser-stage.is-new-tab .browser-stage-pane,
-.browser-stage.is-new-tab .new-tab-page {
-  background: var(--vast-bg) !important;
+.new-tab-page {
+  background-color: #020202 !important;
   background-image: none !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+  background-size: cover !important;
+}
+
+.settings-preview .pv-page[data-new-tab-background='space-black'],
+.new-tab-page[data-new-tab-background='space-black'] {
+  background-color: #020202 !important;
+}
+
+.settings-preview .pv-page[data-new-tab-background='accent-gradient'],
+.new-tab-page[data-new-tab-background='accent-gradient'] {
+  background-image: radial-gradient(circle at 50% -12%, color-mix(in srgb, var(--vast-accent) 10%, transparent), transparent 54%) !important;
+}
+
+.settings-preview .pv-page[data-new-tab-background='carbon-black'],
+.new-tab-page[data-new-tab-background='carbon-black'] {
+  background-color: #141414 !important;
+}
+
+.settings-preview .pv-page[data-new-tab-background='depth'],
+.new-tab-page[data-new-tab-background='depth'] {
+  background-image: linear-gradient(145deg, #050505 0%, #101010 58%, #151515 100%) !important;
+}
+
+.settings-preview .pv-page[data-new-tab-background='adaptive'],
+.new-tab-page[data-new-tab-background='adaptive'] {
+  background-color: #050505 !important;
+}
+
+.dim-theme .settings-preview .pv-page[data-new-tab-background='adaptive'],
+.dim-theme .new-tab-page[data-new-tab-background='adaptive'] {
+  background-color: #1d1d1d !important;
+}
+
+.light-theme .settings-preview .pv-page[data-new-tab-background='adaptive'],
+.light-theme .new-tab-page[data-new-tab-background='adaptive'] {
+  background-color: #f1f3f6 !important;
+}
+
+.settings-preview .pv-page[data-new-tab-background='custom'],
+.new-tab-page[data-new-tab-background='custom'] {
+  background-image: var(--vast-new-tab-image, none) !important;
 }
 
 .light-theme input,
@@ -2949,8 +3907,25 @@ button:disabled {
 }
 
 @media (max-width: 1120px) {
-  .settings-grid {
+  .settings-page-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 780px) {
+  .settings-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.5rem;
+  }
+
+  .settings-row-control {
+    justify-content: flex-start;
+  }
+
+  .settings-feature-grid,
+  .settings-choice-grid,
+  .settings-background-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -2977,6 +3952,8 @@ button:disabled {
   --vast-radius-checkbox: calc(var(--vast-radius-base) * 0.28);
   --vast-radius-swatch: var(--vast-radius-checkbox);
   --vast-radius-control: calc(var(--vast-radius-base) * 0.54);
+  --vast-radius-button: calc(var(--vast-radius-base) * 0.7);
+  --vast-radius-tile: calc(var(--vast-radius-base) * 0.8);
   --vast-radius-card: var(--vast-radius-base);
   --vast-radius-panel: calc(var(--vast-radius-base) * 1.15);
   --vast-radius-modal: calc(var(--vast-radius-base) * 1.3);
@@ -2987,3 +3964,375 @@ button:disabled {
 }
 /* True circular status indicators and decorative radial halos. */
 .vast-geometry-circle { border-radius: 50%; }
+
+/* ============================== Onboarding (vast://onboarding) ============================== */
+
+.onboarding-page {
+  position: relative;
+  height: 100%;
+  overflow-y: auto;
+  isolation: isolate;
+  font-family: var(--vast-font);
+  color: var(--vast-text);
+  background:
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--vast-accent) 8%, transparent), transparent 30%),
+    radial-gradient(circle at 90% 10%, color-mix(in srgb, var(--vast-accent-secondary) 7%, transparent), transparent 28%),
+    linear-gradient(180deg, var(--vast-color-bg-canvas), var(--vast-color-bg-subtle));
+}
+
+.light-theme .onboarding-page {
+  background:
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--vast-accent) 7%, transparent), transparent 30%),
+    radial-gradient(circle at 90% 10%, color-mix(in srgb, var(--vast-accent-secondary) 6%, transparent), transparent 28%),
+    linear-gradient(180deg, #e9edf3, #dde3eb);
+}
+
+.onboarding-progress {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: color-mix(in srgb, var(--vast-border) 62%, transparent);
+}
+
+.onboarding-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--vast-accent);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--vast-accent) 42%, transparent);
+  transition: width 0.62s cubic-bezier(0.16, 1, 0.3, 1), background 0.25s ease;
+}
+
+.onboarding-viewport {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 54px clamp(18px, 4vw, 56px) 116px;
+}
+
+.onboarding-stage {
+  width: min(880px, 100%);
+  display: grid;
+  place-items: center;
+}
+
+.onboarding-content {
+  width: min(760px, 100%);
+  margin-inline: auto;
+  display: grid;
+  justify-items: center;
+  text-align: center;
+}
+
+.onboarding-content--narrow { width: min(620px, 100%); }
+.onboarding-content--wide { width: min(900px, 100%); }
+
+.onboarding-content > * { animation: onboarding-enter 0.58s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.onboarding-content > *:nth-child(2) { animation-delay: 40ms; }
+.onboarding-content > *:nth-child(3) { animation-delay: 90ms; }
+.onboarding-content > *:nth-child(4) { animation-delay: 140ms; }
+.onboarding-content > *:nth-child(5) { animation-delay: 190ms; }
+
+@keyframes onboarding-enter {
+  from { opacity: 0; transform: translateY(14px) scale(0.986); filter: blur(6px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+.onboarding-logo {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  margin-bottom: 30px;
+  filter: drop-shadow(0 18px 44px color-mix(in srgb, var(--vast-accent) 18%, transparent));
+  animation: onboarding-logo-float 6s ease-in-out infinite;
+}
+
+@keyframes onboarding-logo-float {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  50% { transform: translateY(-7px) rotate(0.8deg); }
+}
+
+.onboarding-logo--ready { animation: onboarding-ready-pulse 2.8s ease-in-out infinite; }
+
+@keyframes onboarding-ready-pulse {
+  50% { transform: scale(1.035); }
+}
+
+.onboarding-title {
+  margin: 0;
+  font-size: clamp(38px, 5.1vw, 62px);
+  line-height: 0.98;
+  letter-spacing: -0.058em;
+  font-weight: 500;
+  color: var(--vast-text);
+}
+
+.onboarding-title--welcome {
+  white-space: nowrap;
+  font-size: clamp(34px, 7.2vw, 88px);
+}
+
+.onboarding-subtitle {
+  max-width: 620px;
+  margin: 18px auto 0;
+  color: var(--vast-muted);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.onboarding-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 34px;
+}
+
+.onboarding-setup-block {
+  width: 100%;
+  margin-top: 38px;
+  display: grid;
+  gap: 28px;
+  justify-items: center;
+}
+
+.onboarding-group { display: grid; gap: 12px; justify-items: center; width: 100%; }
+
+.onboarding-group-label {
+  font-size: 12px;
+  color: var(--vast-color-text-tertiary);
+  letter-spacing: 0.01em;
+}
+
+.onboarding-choice-grid {
+  width: 100%;
+  display: grid;
+  gap: 9px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.onboarding-choice {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  min-height: 72px;
+  padding: 13px 15px;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 58%, transparent);
+  border-radius: calc(var(--vast-radius-base) * 0.58);
+  background: color-mix(in srgb, var(--vast-surface-elevated) 68%, transparent);
+  color: var(--vast-text);
+  font-family: var(--vast-font);
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.17s ease, background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, border-radius var(--vast-motion-swift);
+}
+
+.onboarding-choice:hover { transform: translateY(-1px); background: var(--vast-surface-strong); }
+
+.onboarding-choice.is-selected {
+  border-color: color-mix(in srgb, var(--vast-accent) 55%, var(--vast-border));
+  background: color-mix(in srgb, var(--vast-accent) 10%, var(--vast-surface-elevated));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vast-accent) 7%, transparent);
+}
+
+@keyframes onboarding-select-pop {
+  from { transform: scale(0); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.onboarding-choice-title { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
+
+.onboarding-theme-chip {
+  height: 28px;
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 70%, transparent);
+  border-radius: calc(var(--vast-radius-base) * 0.34);
+  margin-bottom: 10px;
+}
+
+.onboarding-theme-chip--dark { background: #050507; }
+.onboarding-theme-chip--dim { background: #151515; }
+.onboarding-theme-chip--light { background: #e9edf3; }
+
+.onboarding-accent-row { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
+
+.onboarding-accent {
+  width: 34px;
+  height: 34px;
+  padding: 4px;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 70%, transparent);
+  background: transparent;
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.18s ease;
+}
+
+.onboarding-accent:hover { transform: scale(1.08); }
+
+.onboarding-accent span { display: block; width: 100%; height: 100%; }
+
+.onboarding-accent.is-selected {
+  box-shadow: 0 0 0 2px var(--vast-bg), 0 0 0 4px color-mix(in srgb, var(--vast-accent) 70%, white 6%);
+}
+
+.onboarding-radius { width: min(560px, 100%); display: grid; }
+.onboarding-radius .settings-range-control { width: 100%; }
+
+.onboarding-pills { display: flex; flex-wrap: wrap; gap: 9px; justify-content: center; }
+.onboarding-pills--wide { max-width: 680px; }
+
+.onboarding-pill-wide { min-width: 8.4rem; justify-content: center; }
+
+.onboarding-profile-select { width: min(340px, 100%); text-align: left; }
+
+.onboarding-rows { width: min(680px, 100%); display: grid; gap: 8px; text-align: left; }
+
+.onboarding-row {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 58%, transparent);
+  border-radius: calc(var(--vast-radius-base) * 0.52);
+  background: color-mix(in srgb, var(--vast-surface-elevated) 66%, transparent);
+  cursor: pointer;
+  transition: border-radius var(--vast-motion-swift), background 0.18s ease, border-color 0.18s ease;
+}
+
+.onboarding-row:hover { background: var(--vast-surface-strong); }
+
+.onboarding-row-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+.onboarding-row-icon {
+  width: 30px;
+  height: 30px;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 64%, transparent);
+  border-radius: calc(var(--vast-radius-base) * 0.32);
+  display: grid;
+  place-items: center;
+  color: var(--vast-muted);
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+.onboarding-row-title { display: block; font-size: 13px; font-weight: 600; }
+.onboarding-row-desc { display: block; font-size: 11px; color: var(--vast-color-text-tertiary); margin-top: 3px; line-height: 1.35; }
+
+.onboarding-extension-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.onboarding-extension-slot {
+  min-height: 126px;
+  padding: 15px;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 58%, transparent);
+  border-radius: calc(var(--vast-radius-base) * 0.55);
+  background: color-mix(in srgb, var(--vast-surface-elevated) 94%, transparent);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 18px;
+  text-align: left;
+  transition: background 0.18s ease, border-color 0.18s ease, border-radius var(--vast-motion-swift), transform 0.18s ease;
+}
+
+.onboarding-extension-slot:hover { transform: translateY(-1px); border-color: var(--vast-border); }
+
+.onboarding-extension-slot.is-added {
+  border-color: color-mix(in srgb, var(--vast-accent) 46%, var(--vast-border));
+  background: color-mix(in srgb, var(--vast-accent) 9%, var(--vast-surface-elevated));
+}
+
+.onboarding-extension-head { display: flex; align-items: center; gap: 11px; min-width: 0; }
+
+.onboarding-extension-icon {
+  width: 36px;
+  height: 36px;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 64%, transparent);
+  border-radius: calc(var(--vast-radius-base) * 0.34);
+  background: var(--vast-surface);
+  display: grid;
+  place-items: center;
+  color: var(--vast-muted);
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+
+.onboarding-extension-meta { min-width: 0; }
+.onboarding-extension-title { display: block; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.onboarding-extension-sub { display: block; margin-top: 4px; font-size: 10px; color: var(--vast-color-text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.onboarding-extension-bottom { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
+.onboarding-hub-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--vast-color-text-tertiary); }
+
+.onboarding-summary-chips { display: flex; justify-content: center; flex-wrap: wrap; gap: 7px; margin-top: 28px; }
+
+.onboarding-summary-chip {
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 64%, transparent);
+  border-radius: var(--vast-radius-control);
+  background: var(--vast-surface);
+  color: var(--vast-muted);
+  font-size: 11px;
+}
+
+.onboarding-note { font-size: 12px; color: var(--vast-muted); max-width: 620px; text-align: center; }
+.onboarding-note--warning {
+  border: 1px solid color-mix(in srgb, var(--vast-color-warning) 24%, transparent);
+  background: color-mix(in srgb, var(--vast-color-warning) 8%, transparent);
+  color: color-mix(in srgb, var(--vast-color-warning) 62%, var(--vast-text));
+  border-radius: var(--vast-radius-control);
+  padding: 8px 12px;
+}
+
+.onboarding-nav {
+  position: absolute;
+  z-index: 25;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.onboarding-choice:focus-visible,
+.onboarding-accent:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--vast-accent) 60%, transparent);
+  outline-offset: 2px;
+}
+
+.no-motion .onboarding-content > *,
+.no-motion .onboarding-logo,
+.no-motion .onboarding-progress > span {
+  animation: none !important;
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-content > *,
+  .onboarding-logo,
+  .onboarding-progress > span {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .onboarding-viewport { padding: 46px 15px 104px; }
+  .onboarding-choice-grid,
+  .onboarding-extension-grid { grid-template-columns: 1fr; }
+  .onboarding-title { font-size: 40px; }
+  .onboarding-title--welcome { font-size: clamp(30px, 9.2vw, 48px); }
+  .onboarding-setup-block { margin-top: 30px; gap: 24px; }
+  .onboarding-nav { bottom: 14px; }
+  .onboarding-logo { width: 74px; height: 74px; }
+}

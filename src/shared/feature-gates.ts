@@ -4,7 +4,6 @@ import {
   INTERNAL_DIAGNOSTICS_URL,
   INTERNAL_NETWORK_URL,
   INTERNAL_NOTES_URL,
-  INTERNAL_PASSWORDS_URL,
   INTERNAL_SESSION_TIMELINE_URL
 } from './constants'
 import type { BrowserSettings } from './types'
@@ -13,7 +12,6 @@ import { resolveLocalFeatureState, type LocalFeatureStateKind } from './local-fe
 export const VastFeatures = {
   Avidae: 'avidae',
   NetworkDevices: 'network-devices',
-  PasswordManager: 'password-manager',
   Notes: 'notes',
   AdvancedNotes: 'advanced-notes',
   Automation: 'automation',
@@ -61,13 +59,6 @@ export const FEATURE_REGISTRY: Record<FeatureId, FeatureGate> = {
     description: 'Discover local devices, cast targets, routers, printers, and private web panels.',
     lab: 'networkDevices',
     internalUrl: INTERNAL_NETWORK_URL
-  },
-  [VastFeatures.PasswordManager]: {
-    id: VastFeatures.PasswordManager,
-    label: 'Password Manager',
-    description: 'Local encrypted password vault, CSV import/export, and autofill helpers.',
-    lab: 'passwordManager',
-    internalUrl: INTERNAL_PASSWORDS_URL
   },
   [VastFeatures.Notes]: {
     id: VastFeatures.Notes,
@@ -133,7 +124,6 @@ export function featureById(id: FeatureId): FeatureGate {
 export function featureGateForInternalUrl(url: string): FeatureGate | null {
   if (url === INTERNAL_AVIDAE_URL) return FEATURE_REGISTRY[VastFeatures.Avidae]
   if (url === INTERNAL_NETWORK_URL) return FEATURE_REGISTRY[VastFeatures.NetworkDevices]
-  if (url === INTERNAL_PASSWORDS_URL) return FEATURE_REGISTRY[VastFeatures.PasswordManager]
   if (url === INTERNAL_NOTES_URL) return FEATURE_REGISTRY[VastFeatures.Notes]
   if (url === INTERNAL_AUTOMATION_URL) return FEATURE_REGISTRY[VastFeatures.Automation]
   if (url === INTERNAL_SESSION_TIMELINE_URL) return FEATURE_REGISTRY[VastFeatures.SessionTimeline]

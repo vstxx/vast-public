@@ -6,8 +6,8 @@ export const VEXT_SIGNATURE_ALGORITHM = 'Ed25519'
 export const VEXT_METADATA_PATH = 'META-INF/vast-package.json'
 export const VEXT_SIGNATURE_PATH = 'META-INF/vast-signature.json'
 export const VEXT_LIMITS = Object.freeze({
-  maxCompressedBytes: 20 * 1024 * 1024,
-  maxUncompressedBytes: 40 * 1024 * 1024,
+  maxCompressedBytes: 40 * 1024 * 1024,
+  maxUncompressedBytes: 96 * 1024 * 1024,
   maxFileBytes: 15 * 1024 * 1024,
   maxFiles: 2_000,
   maxPathBytes: 512,
@@ -72,6 +72,8 @@ export interface VextPackageSigner {
 
 interface ZipDirectoryEntry {
   path: string
+  archivePath: string
+  isDirectory: boolean
   flags: number
   method: number
   crc32: number
@@ -177,26 +179,29 @@ function parseZipDirectory(bytes: Uint8Array): { entries: ZipDirectoryEntry[]; c
     if (cursor + recordLength > eocd || diskStart !== 0 || [compressedSize, uncompressedSize, localOffset].includes(0xffffffff)) {
       throw new Error('Invalid or unsupported ZIP64 entry.')
     }
-    if ((flags & 0x0001) !== 0 || (flags & 0x0008) !== 0 || (flags & ~0x0800) !== 0 || (method !== 0 && method !== 8)) {
+    if ((flags & 0x0001) !== 0 || (flags & ~(0x0800 | 0x0008)) !== 0 || (method !== 0 && method !== 8)) {
       throw new Error('ZIP entry is encrypted or unsupported.')
     }
-    const path = normalizeVextPath(decodeUtf8(sliceExact(bytes, cursor + 46, nameLength)))
-    if (path.endsWith('/')) throw new Error(`ZIP directories are not allowed: ${path}.`)
+    const archivePath = decodeUtf8(sliceExact(bytes, cursor + 46, nameLength))
+    const isDirectory = archivePath.endsWith('/')
+    const path = normalizeVextPath(isDirectory ? archivePath.slice(0, -1) : archivePath)
+    if (isDirectory && (uncompressedSize !== 0 || crc !== 0)) throw new Error(`Invalid ZIP directory: ${archivePath}.`)
     const lower = path.toLowerCase()
     if (exact.has(path) || folded.has(lower)) throw new Error(`duplicate or case-colliding path: ${path}.`)
     exact.add(path)
     folded.add(lower)
     const unixMode = (externalAttributes >>> 16) & 0xffff
     const host = versionMadeBy >>> 8
-    if (host === 3 && unixMode !== 0 && (unixMode & 0xf000) !== 0x8000) throw new Error(`Package has a symlink or special file: ${path}.`)
-    if (!packageMetadataPaths.has(lower) && forbiddenExtensions.has(extensionFor(path))) throw new Error(`Forbidden executable or archive: ${path}.`)
+    const unixType = unixMode & 0xf000
+    if (host === 3 && unixType !== 0 && unixType !== (isDirectory ? 0x4000 : 0x8000)) throw new Error(`Package has a symlink or special file: ${path}.`)
+    if (!isDirectory && !packageMetadataPaths.has(lower) && forbiddenExtensions.has(extensionFor(path))) throw new Error(`Forbidden executable or archive: ${path}.`)
     if (uncompressedSize > VEXT_LIMITS.maxFileBytes) throw new Error(`Package file too large: ${path}.`)
     totalUncompressed += uncompressedSize
     if (totalUncompressed > VEXT_LIMITS.maxUncompressedBytes) throw new Error('Package expands past its limit.')
     if (uncompressedSize > 1024 * 1024 && compressedSize > 0 && uncompressedSize / compressedSize > VEXT_LIMITS.maxCompressionRatio) {
       throw new Error(`Suspicious compression ratio: ${path}.`)
     }
-    entries.push({ path, flags, method, crc32: crc, compressedSize, uncompressedSize, localOffset, externalAttributes, versionMadeBy })
+    entries.push({ path, archivePath, isDirectory, flags, method, crc32: crc, compressedSize, uncompressedSize, localOffset, externalAttributes, versionMadeBy })
     cursor += recordLength
   }
   if (cursor !== eocd) throw new Error('ZIP directory has trailing data.')
@@ -219,7 +224,7 @@ function crc32(bytes: Uint8Array): number {
   return (value ^ 0xffffffff) >>> 0
 }
 
-function extractZipEntries(bytes: Uint8Array): Map<string, Uint8Array> {
+export function extractSecureZipEntries(bytes: Uint8Array): Map<string, Uint8Array> {
   const { entries, centralOffset } = parseZipDirectory(bytes)
   const result = new Map<string, Uint8Array>()
   const ranges: Array<{ start: number; end: number }> = []
@@ -234,7 +239,8 @@ function extractZipEntries(bytes: Uint8Array): Map<string, Uint8Array> {
     const nameLength = readU16(bytes, offset + 26)
     const extraLength = readU16(bytes, offset + 28)
     const localPath = decodeUtf8(sliceExact(bytes, offset + 30, nameLength))
-    if (localPath !== entry.path || localFlags !== entry.flags || localMethod !== entry.method || localCrc !== entry.crc32 || localCompressed !== entry.compressedSize || localUncompressed !== entry.uncompressedSize) {
+    const usesDataDescriptor = (entry.flags & 0x0008) !== 0
+    if (localPath !== entry.archivePath || localFlags !== entry.flags || localMethod !== entry.method || (!usesDataDescriptor && (localCrc !== entry.crc32 || localCompressed !== entry.compressedSize || localUncompressed !== entry.uncompressedSize))) {
       throw new Error(`ZIP records disagree: ${entry.path}.`)
     }
     const dataStart = offset + 30 + nameLength + extraLength
@@ -249,7 +255,7 @@ function extractZipEntries(bytes: Uint8Array): Map<string, Uint8Array> {
       throw new Error(`Could not decompress: ${entry.path}.`)
     }
     if (data.byteLength !== entry.uncompressedSize || crc32(data) !== entry.crc32) throw new Error(`ZIP integrity failed: ${entry.path}.`)
-    result.set(entry.path, data)
+    if (!entry.isDirectory) result.set(entry.path, data)
   }
   ranges.sort((left, right) => left.start - right.start)
   for (let index = 1; index < ranges.length; index += 1) if (ranges[index].start < ranges[index - 1].end) throw new Error('ZIP entries overlap.')
@@ -370,7 +376,7 @@ async function validateManifestIdentity(metadata: VextPackageMetadata, manifestB
 }
 
 export async function parseVextPackage(bytes: Uint8Array): Promise<ParsedVextPackage> {
-  const entries = extractZipEntries(bytes)
+  const entries = extractSecureZipEntries(bytes)
   const metadataBytes = entries.get(VEXT_METADATA_PATH)
   if (!metadataBytes) throw new Error('Package metadata is missing.')
   const metadata = parseMetadata(parseJson(metadataBytes, 'Package metadata'))

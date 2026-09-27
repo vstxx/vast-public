@@ -97,7 +97,7 @@ index 0000000000000000000000000000000000000000..cb1ed9f6e75fcfbe5dcb786292aa72d5
 +
 +struct BackupManifest {
 +  std::map<std::string, ExpectedFile> files;
-+  bool password_vault_present = false;
++  bool legacy_metadata_present = false;
 +  std::string error;
 +};
 +
@@ -432,8 +432,8 @@ index 0000000000000000000000000000000000000000..cb1ed9f6e75fcfbe5dcb786292aa72d5
 +    manifest.error = "Vast backup lacks the required Vast data file.";
 +    return manifest;
 +  }
-+  manifest.password_vault_present =
-+      manifest.files.contains("data/password-vault.json");
++  manifest.legacy_metadata_present =
++      manifest.files.contains("data/legacy-metadata.json");
 +  return manifest;
 +}
 +
@@ -649,7 +649,7 @@ index 0000000000000000000000000000000000000000..cb1ed9f6e75fcfbe5dcb786292aa72d5
 +    result.product_data_root.clear();
 +    return result;
 +  }
-+  result.password_vault_present = manifest.password_vault_present;
++  result.legacy_metadata_present = manifest.legacy_metadata_present;
 +  result.success = true;
 +  return result;
 +}
@@ -685,7 +685,7 @@ index 0000000000000000000000000000000000000000..d9200768ac6447a026d1a4e24eb455ca
 +  uint32_t verified_files = 0;
 +  uint32_t extracted_product_files = 0;
 +  uint64_t verified_bytes = 0;
-+  bool password_vault_present = false;
++  bool legacy_metadata_present = false;
 +  std::string error;
 +};
 +
@@ -812,8 +812,8 @@ index 0000000000000000000000000000000000000000..8c96824d2aebcb0275c31b0c9ef0ebfb
 +    manifest.Set("skippedFileCount", 0);
 +    manifest.Set("skippedFiles", base::ListValue());
 +    manifest.Set("vastDataIncluded", data_files.contains("vast-data.json"));
-+    manifest.Set("passwordVaultIncluded",
-+                 data_files.contains("password-vault.json"));
++    manifest.Set("legacyMetadataIncluded",
++                 data_files.contains("legacy-metadata.json"));
 +    manifest.Set("checksums", std::move(checksums));
 +    manifest.Set("warnings", base::ListValue());
 +    std::string serialized_manifest;
@@ -862,7 +862,7 @@ index 0000000000000000000000000000000000000000..8c96824d2aebcb0275c31b0c9ef0ebfb
 +       VerifiesAllFilesExtractsOnlyProductDataAndFeedsTransaction) {
 +  const base::FilePath archive = CreateBackup({
 +      {"vast-data.json", kValidVastData},
-+      {"password-vault.json", "opaque encrypted vault fixture"},
++      {"legacy-metadata.json", "opaque legacy metadata fixture"},
 +      {"Cookies", "verified but never extracted"},
 +  });
 +  const base::FilePath extraction_parent = CreateDirectory("Extractions");
@@ -873,13 +873,13 @@ index 0000000000000000000000000000000000000000..8c96824d2aebcb0275c31b0c9ef0ebfb
 +  ASSERT_TRUE(extraction.success) << extraction.error;
 +  EXPECT_EQ(extraction.verified_files, 3u);
 +  EXPECT_EQ(extraction.extracted_product_files, 2u);
-+  EXPECT_TRUE(extraction.password_vault_present);
++  EXPECT_TRUE(extraction.legacy_metadata_present);
 +  EXPECT_EQ(Read(extraction.product_data_root.Append(
 +                FILE_PATH_LITERAL("vast-data.json"))),
 +            kValidVastData);
 +  EXPECT_EQ(Read(extraction.product_data_root.Append(
-+                FILE_PATH_LITERAL("password-vault.json"))),
-+            "opaque encrypted vault fixture");
++                FILE_PATH_LITERAL("legacy-metadata.json"))),
++            "opaque legacy metadata fixture");
 +  EXPECT_FALSE(base::PathExists(
 +      extraction.product_data_root.Append(FILE_PATH_LITERAL("Cookies"))));
 +

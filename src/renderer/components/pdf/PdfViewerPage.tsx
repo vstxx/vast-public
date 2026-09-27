@@ -1374,7 +1374,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
                         <button
                           type="submit"
                           disabled={!passwordValue.trim()}
-                          className="rounded-control bg-vast-cyan px-4 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-45"
+                          className="vast-button vast-button--primary vast-button--sm"
                         >
                           Unlock
                         </button>
@@ -1398,7 +1398,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
                                 if (!result.ok) throw new Error(result.error || 'External PDF fallback failed.')
                               }).catch(() => handleOpenOriginal())
                             }}
-                            className="vault-action-button"
+                            className="vast-button vast-button--secondary vast-button--sm"
                           >
                             <ExternalLink className="h-4 w-4" />Open externally
                           </button>
@@ -1408,7 +1408,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
                               tab.id,
                               `${tab.url}${tab.url.includes('?') ? '&' : '?'}r=${Date.now()}`
                             )}
-                            className="vault-action-button bg-vast-cyan text-black"
+                            className="vast-button vast-button--primary vast-button--sm"
                           >
                             <Loader2 className="h-4 w-4" />Retry viewer
                           </button>

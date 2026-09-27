@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "repository": "vstxx/vast",
+  "releaseTag": "ci-cache-electron-183e7b4461f7b8e7",
+  "assetName": "electron-44.3.0-vast-r3-win32-x64.zip",
+  "archiveSha256": "0878737a70cb3d3c748a89c693202b43a5071af9a53c412e1cd81b94f4ff1b58",
+  "patchsetRevision": "electron-44.3.0-vast-r3",
+  "patchsetSha256": "183e7b4461f7b8e79cb5721d79367cd3e237cc9d4ae0f2ed3c280e3742449332",
+  "binarySha256": "3faafae4f5e7ae36a992346b40ab56c87f5ae395f7d7dfebf125ff3844f16a6b"
+}

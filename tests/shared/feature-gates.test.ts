@@ -30,7 +30,7 @@ test('normally available features have no Labs flag', () => {
 })
 
 test('all experimental runtime features retain their local Labs flags', () => {
-  for (const flag of ['avidae', 'networkDevices', 'automation', 'passwordManager', 'advancedDiagnostics', 'spoofing']) {
+  for (const flag of ['avidae', 'networkDevices', 'automation', 'advancedDiagnostics', 'spoofing']) {
     assert.match(source, new RegExp(`lab: '${flag}'`))
   }
   assert.match(source, /settings\.labs\?\.\[gate\.lab\] === true/)

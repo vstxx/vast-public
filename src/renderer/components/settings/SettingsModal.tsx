@@ -1,19 +1,24 @@
 import { copyText } from '../../lib/clipboard'
-import { Activity, Code2, Database, Eraser, FileDown, FileUp, Fingerprint, FlaskConical, FolderOpen, History, Keyboard, KeyRound, LockKeyhole, MapPin, MonitorCheck, Palette, Plus, RefreshCw, Search, Shield, Sparkles, Trash2, Wifi, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { DEFAULT_SETTINGS, DEFAULT_SHORTCUTS, INTERNAL_AUTOMATION_URL, INTERNAL_DIAGNOSTICS_URL, INTERNAL_NETWORK_URL, INTERNAL_PASSWORDS_URL, INTERNAL_SESSION_TIMELINE_URL, INTERNAL_SITE_DATA_URL, SEARCH_ENGINES } from '../../../shared/constants'
+import { Activity, Code2, Database, Eraser, FileDown, FileUp, Fingerprint, FlaskConical, FolderOpen, History, Keyboard, LockKeyhole, MapPin, MonitorCheck, Palette, Plus, Search, Shield, Sparkles, Trash2, Wifi, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type InputHTMLAttributes, type ReactNode } from 'react'
+import { DEFAULT_SETTINGS, DEFAULT_SHORTCUTS, INTERNAL_AUTOMATION_URL, INTERNAL_DIAGNOSTICS_URL, INTERNAL_NETWORK_URL, INTERNAL_SESSION_TIMELINE_URL, INTERNAL_SITE_DATA_URL, SEARCH_ENGINES } from '../../../shared/constants'
 import { getFeatureState, VastFeatures, type FeatureId, type FeatureState } from '../../../shared/feature-gates'
 import { resolveLayoutMode } from '../../../shared/layout-mode'
 import type { RelayClientSnapshot } from '../../../shared/relay-types'
 import { parseShortcut } from '../../../shared/shortcuts'
-import type { DataPathInfo, DefaultBrowserStatus, FingerprintingProtectionMode, MigrationReport, PermissionSetting, SpoofingBrowserProfile, SpoofingLocationMode, WebRtcPolicy, WorkspaceProxyMode, WorkspaceSessionMode } from '../../../shared/types'
+import type { DataPathInfo, DefaultBrowserStatus, FingerprintingProtectionMode, MigrationReport, NewTabBackground, PermissionSetting, SpoofingBrowserProfile, SpoofingLocationMode, WebRtcPolicy, WorkspaceProxyMode, WorkspaceSessionMode } from '../../../shared/types'
 import { useBrowserRuntime } from '../../app/browser-runtime'
 import { useBrowserStore, selectActiveTab, selectActiveWorkspace } from '../../store/browser-store'
-import { VastSelect, type VastSelectOption, type VastSelectSize } from '../ui/VastSelect'
+import { VastSelect, type VastSelectOption } from '../ui/VastSelect'
+import { IconButton } from '../ui/IconButton'
+import { VastButton } from '../ui/VastButton'
+import { VastChoice } from '../ui/VastChoice'
 import { ModalShell } from '../ui/ModalShell'
 import { NotificationCard } from '../ui/NotificationCard'
 import { WorkspaceAppearancePicker } from '../workspaces/WorkspaceAppearancePicker'
 import { WorkspaceIcon } from '../workspaces/WorkspaceIcon'
+import { AppearancePreview } from './AppearancePreview'
+import { SettingsHint } from './SettingsHint'
 import { normalizeSettingsSearchText, searchSettings, type SettingsSearchEntry, type SettingsSearchResult, type SettingsSearchSectionId } from './settings-search'
 
 const settingsNav: ReadonlyArray<readonly [SettingsSearchSectionId, typeof Palette]> = [
@@ -50,7 +55,6 @@ const permissionOptions: Array<{ value: PermissionSetting; label: string }> = [
   { value: 'allow', label: 'Always allow' },
   { value: 'block', label: 'Block' }
 ]
-
 
 const fingerprintingOptions: Array<{ value: FingerprintingProtectionMode; label: string }> = [
   { value: 'standard', label: 'Standard - aggressive APIs' },
@@ -91,37 +95,68 @@ const spoofingLocationOptions: Array<{ value: SpoofingLocationMode; label: strin
   { value: 'fixed', label: 'Fixed coordinates' }
 ]
 
-function SettingsSelect<T extends string>({
+const themeGlyphs: Record<'dark' | 'dim' | 'light', string> = { dark: '◐', dim: '◑', light: '○' }
+
+function RowLabel({ label, help }: { label: string; help?: string }): JSX.Element {
+  return <span className="settings-row-label">{help ? <SettingsHint help={help}>{label}</SettingsHint> : label}</span>
+}
+
+function ToggleRow({
   label,
-  value,
-  options,
-  onChange,
-  size = 'medium'
+  help,
+  checked,
+  disabled,
+  onChange
 }: {
   label: string
+  help?: string
+  checked: boolean
+  disabled?: boolean
+  onChange: (checked: boolean) => void
+}): JSX.Element {
+  return (
+    <label className="settings-row">
+      <RowLabel label={label} help={help} />
+      <span className="settings-row-control">
+        <input className="settings-switch" type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} />
+      </span>
+    </label>
+  )
+}
+
+function SelectRow<T extends string>({
+  label,
+  help,
+  value,
+  options,
+  onChange
+}: {
+  label: string
+  help?: string
   value: T
   options: readonly VastSelectOption<T>[]
   onChange: (value: T) => void
-  size?: VastSelectSize
 }): JSX.Element {
   return (
-    <div className="settings-select-label">
-      <span className="settings-select-title" title={label}>{label}</span>
-      <VastSelect
-        value={value}
-        options={options}
-        onChange={onChange}
-        ariaLabel={label}
-        size={size}
-        className="settings-select-control"
-        dataSettingsSelect={label}
-      />
+    <div className="settings-row">
+      <span className="settings-row-label settings-select-title" title={label}>{help ? <SettingsHint help={help}>{label}</SettingsHint> : label}</span>
+      <span className="settings-row-control">
+        <VastSelect
+          value={value}
+          options={options}
+          onChange={onChange}
+          ariaLabel={label}
+          className="settings-select-control"
+          dataSettingsSelect={label}
+        />
+      </span>
     </div>
   )
 }
 
-function RangeSetting({
+function RangeRow({
   label,
+  help,
   value,
   min = 0,
   max = 100,
@@ -130,6 +165,7 @@ function RangeSetting({
   onChange
 }: {
   label: string
+  help?: string
   value: number
   min?: number
   max?: number
@@ -138,36 +174,82 @@ function RangeSetting({
   onChange: (value: number) => void
 }): JSX.Element {
   return (
-    <label className="settings-range-label">
-      <span>{label}</span>
-      <div className="settings-range-control">
-        <input
-          type="range"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          onChange={(event) => onChange(Number(event.target.value))}
-          style={{ '--range-progress': `${((value - min) / (max - min)) * 100}%` } as CSSProperties}
-        />
-        <output>{value}{suffix}</output>
-      </div>
+    <label className="settings-row">
+      <RowLabel label={label} help={help} />
+      <span className="settings-row-control">
+        <span className="settings-range-control">
+          <input
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={value}
+            onChange={(event) => onChange(Number(event.target.value))}
+            style={{ '--range-progress': `${((value - min) / (max - min)) * 100}%` } as CSSProperties}
+          />
+          <output>{value}{suffix}</output>
+        </span>
+      </span>
     </label>
   )
 }
 
-function ColorSetting({
+function TextRow({ label, help, ...inputProps }: { label: string; help?: string } & InputHTMLAttributes<HTMLInputElement>): JSX.Element {
+  return (
+    <label className="settings-row">
+      <RowLabel label={label} help={help} />
+      <span className="settings-row-control">
+        <input {...inputProps} />
+      </span>
+    </label>
+  )
+}
+
+function StackedTextRow({ label, help, ...inputProps }: { label: string; help?: string } & InputHTMLAttributes<HTMLInputElement>): JSX.Element {
+  return (
+    <label className="settings-row settings-row-stacked">
+      <RowLabel label={label} help={help} />
+      <span className="settings-row-control">
+        <input {...inputProps} />
+      </span>
+    </label>
+  )
+}
+
+function ActionRow({ label, help, children }: { label: string; help?: string; children: ReactNode }): JSX.Element {
+  return (
+    <div className="settings-row">
+      <RowLabel label={label} help={help} />
+      <span className="settings-row-control">{children}</span>
+    </div>
+  )
+}
+
+function MetaRow({ label, value }: { label: string; value: string | number }): JSX.Element {
+  return (
+    <div className="settings-row">
+      <RowLabel label={label} />
+      <span className="settings-row-control">
+        <span className="settings-value-chip">{value}</span>
+      </span>
+    </div>
+  )
+}
+
+function ColorRow({
   label,
+  help,
   value,
   onChange
 }: {
   label: string
+  help?: string
   value: string
   onChange: (value: string) => void
 }): JSX.Element {
   return (
-    <label>
-      <span>{label}</span>
+    <label className="settings-color-item">
+      <RowLabel label={label} help={help} />
       <input type="color" value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   )
@@ -188,8 +270,8 @@ function FeatureToggleSetting({
   const badge = state.state === 'ComingSoon' ? 'Soon' : undefined
 
   return (
-    <label className={locked ? 'opacity-75' : ''}>
-      <span>
+    <label className={locked ? 'settings-feature is-locked' : 'settings-feature'}>
+      <span className="settings-feature-label">
         <span className="flex items-center gap-2">
           {label}
           {badge && (
@@ -198,9 +280,9 @@ function FeatureToggleSetting({
             </span>
           )}
         </span>
-        {locked && <span className="mt-1 block text-[11px] leading-4 text-vast-soft">{state.message}</span>}
+        {locked && <span className="settings-row-sub">{state.message}</span>}
       </span>
-      <input type="checkbox" checked={checked} disabled={locked} onChange={(event) => onChange(event.target.checked)} />
+      <input className="settings-switch" type="checkbox" checked={checked} disabled={locked} onChange={(event) => onChange(event.target.checked)} />
     </label>
   )
 }
@@ -239,6 +321,9 @@ export function SettingsModal(): JSX.Element | null {
   const [defaultBrowserStatus, setDefaultBrowserStatus] = useState<DefaultBrowserStatus | null>(null)
   const [defaultBrowserMessage, setDefaultBrowserMessage] = useState('')
   const [settingDefaultBrowser, setSettingDefaultBrowser] = useState(false)
+  const [customBackgroundDataUrl, setCustomBackgroundDataUrl] = useState<string>()
+  const [customBackgroundMessage, setCustomBackgroundMessage] = useState('')
+  const [choosingCustomBackground, setChoosingCustomBackground] = useState(false)
 
   const [dataPathInfo, setDataPathInfo] = useState<DataPathInfo | null>(null)
   const [dataActionBusy, setDataActionBusy] = useState<'export' | 'import' | 'change' | 'open' | null>(null)
@@ -246,6 +331,15 @@ export function SettingsModal(): JSX.Element | null {
   const [dataMessage, setDataMessage] = useState('')
   const [appVersion, setAppVersion] = useState('Loading...')
   const [relayStatusLabel, setRelayStatusLabel] = useState('status loading')
+  const [systemPrefersLight, setSystemPrefersLight] = useState(() => (typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-color-scheme: light)').matches : false))
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const query = window.matchMedia('(prefers-color-scheme: light)')
+    const onChange = (event: MediaQueryListEvent): void => setSystemPrefersLight(event.matches)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
+  const resolvedTheme = settings.theme === 'system' ? (systemPrefersLight ? 'light' : 'dark') : settings.theme
   const featureStateFor = (featureId: FeatureId): FeatureState => getFeatureState(featureId, { settings })
   const diagnosticsState = featureStateFor(VastFeatures.AdvancedDiagnostics)
   const spoofingState = featureStateFor(VastFeatures.Spoofing)
@@ -262,6 +356,18 @@ export function SettingsModal(): JSX.Element | null {
     setActiveSection('Appearance')
     setSettingsSearchQuery('')
   }, [open, settings.keyboardShortcuts])
+
+  useEffect(() => {
+    if (!open) return
+    let active = true
+    setCustomBackgroundMessage('')
+    void window.vast.newTabBackground.get().then((result) => {
+      if (active) setCustomBackgroundDataUrl(result.ok ? result.dataUrl : undefined)
+    }).catch(() => {
+      if (active) setCustomBackgroundDataUrl(undefined)
+    })
+    return () => { active = false }
+  }, [open])
 
   useEffect(() => () => {
     if (searchHighlightTimerRef.current !== null) window.clearTimeout(searchHighlightTimerRef.current)
@@ -373,7 +479,7 @@ export function SettingsModal(): JSX.Element | null {
         const text = normalizeSettingsSearchText(element.innerText)
         return text === normalizedTarget || text.startsWith(`${normalizedTarget} `)
       })
-      const target = candidate?.closest<HTMLElement>('label, button, [data-workspace-settings-id], .rounded-control, .rounded-card') ?? candidate ?? section
+      const target = candidate?.closest<HTMLElement>('label, button, [data-workspace-settings-id], .settings-row, .settings-rows, .settings-feature') ?? candidate ?? section
       scrollRef.current?.querySelectorAll('.settings-search-highlight').forEach((element) => element.classList.remove('settings-search-highlight'))
       target.classList.add('settings-search-highlight')
       target.scrollIntoView({ block: 'center', behavior: settings.animations ? 'smooth' : 'auto' })
@@ -529,29 +635,41 @@ export function SettingsModal(): JSX.Element | null {
     }
   }
 
+  const chooseCustomNewTabBackground = async (): Promise<void> => {
+    setChoosingCustomBackground(true)
+    setCustomBackgroundMessage('')
+    try {
+      const result = await window.vast.newTabBackground.choose()
+      if (!result.ok) {
+        setCustomBackgroundMessage(result.error ?? 'Could not use that image.')
+        return
+      }
+      if (result.canceled || !result.dataUrl) return
+      setCustomBackgroundDataUrl(result.dataUrl)
+      updateSettings({ newTab: { background: 'custom' } })
+      window.dispatchEvent(new CustomEvent('vast-new-tab-background-changed', { detail: result.dataUrl }))
+    } catch (error) {
+      setCustomBackgroundMessage(error instanceof Error ? error.message : 'Could not use that image.')
+    } finally {
+      setChoosingCustomBackground(false)
+    }
+  }
+
   if (!open) return null
 
   return (
-    <ModalShell onClose={() => setOpen(false)} width="max-w-5xl" className="settings-modal-shell">
-      <div className="flex h-[78vh] min-h-0 flex-col">
-        <header className="settings-modal-header flex items-center justify-between px-6 py-5">
-          <div>
-            <div className="text-xl font-semibold text-white">Settings</div>
-            <div className="mt-1 text-sm text-vast-soft">Customize Vast without sending data anywhere.</div>
-          </div>
-          <button
-            type="button"
-            title="Close settings"
-            onClick={() => setOpen(false)}
-            className="grid h-10 w-10 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white"
-          >
+    <ModalShell onClose={() => setOpen(false)} width="max-w-[1360px]" className="settings-modal-shell" ariaLabel="Settings">
+      <div className="flex h-[80vh] min-h-0 flex-col">
+        <header className="settings-modal-header flex h-[76px] items-center justify-between px-6">
+          <div className="text-[22px] font-semibold leading-none tracking-[-0.02em] text-white">Settings</div>
+          <IconButton variant="secondary" size="md" tooltip="Close settings" aria-label="Close settings" onClick={() => setOpen(false)}>
             <X className="h-4 w-4" />
-          </button>
+          </IconButton>
         </header>
 
-        <div className="grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)]">
-          <nav className="settings-modal-nav p-4 text-sm text-vast-soft">
-            <div className="settings-search-panel mb-3 flex h-10 items-center gap-2 rounded-control border border-white/10 bg-black/20 px-3 text-vast-soft focus-within:border-vast-cyan/40 focus-within:bg-black/30">
+        <div className="grid min-h-0 flex-1 grid-cols-[250px_minmax(0,1fr)]">
+          <nav className="settings-modal-nav p-4 pt-3.5 text-sm text-vast-soft">
+            <div className="settings-search-panel mb-3 flex h-[38px] items-center gap-2 rounded-control border border-white/10 bg-white/[0.045] px-3 text-vast-soft focus-within:border-vast-cyan/40">
               <Search className="h-4 w-4 shrink-0" />
               <input
                 value={settingsSearchQuery}
@@ -569,21 +687,22 @@ export function SettingsModal(): JSX.Element | null {
                 placeholder="Search settings"
                 aria-label="Search settings"
                 data-testid="settings-search-input"
-                className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-vast-soft"
+                className="min-w-0 flex-1 bg-transparent text-[13px] text-white outline-none placeholder:text-vast-soft"
               />
               {settingsSearchQuery && (
-                <button
-                  type="button"
-                  title="Clear settings search"
+                <IconButton
+                  variant="quiet"
+                  size="xs"
+                  className="h-6 w-6 shrink-0"
+                  tooltip="Clear settings search"
                   aria-label="Clear settings search"
                   onClick={(event) => {
                     setSettingsSearchQuery('')
                     event.currentTarget.parentElement?.querySelector('input')?.focus()
                   }}
-                  className="grid h-7 w-7 shrink-0 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white"
                 >
                   <X className="h-3.5 w-3.5" />
-                </button>
+                </IconButton>
               )}
             </div>
             {normalizedSettingsSearchQuery ? (
@@ -613,11 +732,11 @@ export function SettingsModal(): JSX.Element | null {
                   })}
                 </div>
               </> : (
-              <div className="settings-search-empty rounded-control border border-white/[0.08] bg-white/[0.035] px-3 py-4 text-center">
-                <Search className="mx-auto h-4 w-4 text-vast-soft" />
-                <div className="mt-2 text-sm font-medium text-white">No settings found</div>
-                <div className="mt-1 text-xs leading-5 text-vast-soft">Try a name, synonym, or shorter phrase.</div>
-              </div>
+                <div className="settings-search-empty rounded-control border border-white/[0.08] bg-white/[0.035] px-3 py-4 text-center">
+                  <Search className="mx-auto h-4 w-4 text-vast-soft" />
+                  <div className="mt-2 text-sm font-medium text-white">No settings found</div>
+                  <div className="mt-1 text-xs leading-5 text-vast-soft">Try a name, synonym, or shorter phrase.</div>
+                </div>
               )
             ) : visibleSettingsNav.map(([label, Icon]) => (
               <button
@@ -627,11 +746,11 @@ export function SettingsModal(): JSX.Element | null {
                   setActiveSection(label)
                   scrollRef.current?.querySelector<HTMLElement>(`#${CSS.escape(label)}`)?.scrollIntoView({ block: 'start', behavior: settings.animations ? 'smooth' : 'auto' })
                 }}
-                className={`settings-nav-item flex w-full items-center gap-3 rounded-control px-3 py-2 text-left transition ${
+                className={`settings-nav-item flex w-full items-center gap-2.5 rounded-control px-2.5 text-left transition ${
                   activeSection === label ? 'is-active text-white' : 'hover:text-white'
                 }`}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="h-4 w-4 shrink-0" />
                 {label}
               </button>
             ))}
@@ -639,212 +758,255 @@ export function SettingsModal(): JSX.Element | null {
 
           <div ref={scrollRef} className="settings-modal-scroll">
             <section id="Appearance" className="settings-section" hidden={!sectionVisible('Appearance')}>
-              <h2>Appearance</h2>
-              <div className="settings-grid">
-                <SettingsSelect
-                  label="Layout"
-                  size="short"
-                  value={selectedLayoutMode}
-                  onChange={(layoutMode) => updateSettings({ layoutMode })}
-                  options={[
-                    { value: 'vertical', label: 'Vertical' },
-                    { value: 'horizontal', label: 'Horizontal' },
-                    ...(settings.advanced.experimentalFeatures
-                      ? [{ value: 'purist' as const, label: 'Purist' }]
-                      : [])
-                  ]}
-                />
-                <SettingsSelect
-                  label="Theme"
-                  size="short"
-                  value={settings.theme}
-                  onChange={(theme) => updateSettings({ theme })}
-                  options={[
-                    { value: 'dark', label: 'Dark' },
-                    { value: 'dim', label: 'Dim' },
-                    { value: 'light', label: 'Light' },
-                    { value: 'system', label: 'System' }
-                  ]}
-                />
-                <label>
-                  <span>Force dark mode on websites</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.appearance.forceDarkModeWebsites}
-                    onChange={(event) => updateSettings({ appearance: { forceDarkModeWebsites: event.target.checked } })}
-                  />
-                </label>
-                <SettingsSelect
-                  label="Background"
-                  value={settings.appearance.backgroundStyle}
-                  onChange={(backgroundStyle) => updateSettings({ appearance: { backgroundStyle } })}
-                  options={[
-                    { value: 'graphite', label: 'Graphite glass' },
-                    { value: 'midnight', label: 'Midnight blue' },
-                    { value: 'aurora', label: 'Aurora flow' },
-                    { value: 'violet', label: 'Violet cinema' },
-                    { value: 'carbon', label: 'Carbon minimal' },
-                    { value: 'frost', label: 'Frosted light' }
-                  ]}
-                />
-                <ColorSetting label="Accent color" value={settings.accentColor} onChange={(accentColor) => updateSettings({ accentColor })} />
-                <ColorSetting
-                  label="Secondary accent"
-                  value={settings.appearance.secondaryAccentColor}
-                  onChange={(secondaryAccentColor) => updateSettings({ appearance: { secondaryAccentColor } })}
-                />
-                <ColorSetting
-                  label="Background tint"
-                  value={settings.appearance.backgroundTintColor}
-                  onChange={(backgroundTintColor) => updateSettings({ appearance: { backgroundTintColor } })}
-                />
-                <ColorSetting
-                  label="Surface tint"
-                  value={settings.appearance.surfaceTintColor}
-                  onChange={(surfaceTintColor) => updateSettings({ appearance: { surfaceTintColor } })}
-                />
-                <SettingsSelect
-                  label="Sidebar density"
-                  size="short"
-                  value={settings.sidebarDensity}
-                  onChange={(sidebarDensity) => updateSettings({ sidebarDensity })}
-                  options={[
-                    { value: 'comfortable', label: 'Comfortable' },
-                    { value: 'compact', label: 'Compact' }
-                  ]}
-                />
-                <SettingsSelect
-                  label="Sidebar mode"
-                  value={settings.sidePanel.mode}
-                  onChange={(mode) => updateSettings({ sidePanel: { mode } })}
-                  options={[
-                    { value: 'auto', label: 'Automatic' },
-                    { value: 'docked', label: 'In sidebar' },
-                    { value: 'overlay', label: 'Pinned over page' }
-                  ]}
-                />
-                <RangeSetting label="Sidebar width" value={settings.sidePanel.width} min={304} max={520} suffix="px" onChange={(width) => updateSettings({ sidePanel: { width } })} />
-                <label>
-                  <span>Sidebar labels</span>
-                  <input type="checkbox" checked={settings.sidePanel.showLabels} onChange={(event) => updateSettings({ sidePanel: { showLabels: event.target.checked } })} />
-                </label>
-                <RangeSetting label="Corner radius" value={settings.appearance.cornerRadius} min={6} max={36} suffix="px" onChange={(cornerRadius) => updateSettings({ appearance: { cornerRadius } })} />
-                <RangeSetting label="Glassiness" value={settings.appearance.glassIntensity} onChange={(glassIntensity) => updateSettings({ appearance: { glassIntensity } })} />
-                <RangeSetting label="Blur" value={settings.appearance.blurIntensity} onChange={(blurIntensity) => updateSettings({ appearance: { blurIntensity } })} />
-                <RangeSetting label="Glow" value={settings.appearance.glowIntensity} onChange={(glowIntensity) => updateSettings({ appearance: { glowIntensity } })} />
-                <RangeSetting label="Borders" value={settings.appearance.borderIntensity} onChange={(borderIntensity) => updateSettings({ appearance: { borderIntensity } })} />
-                <RangeSetting label="Shadow depth" value={settings.appearance.shadowIntensity} onChange={(shadowIntensity) => updateSettings({ appearance: { shadowIntensity } })} />
-                <RangeSetting label="Gradients" value={settings.appearance.gradientIntensity} onChange={(gradientIntensity) => updateSettings({ appearance: { gradientIntensity } })} />
-                <RangeSetting label="Panel opacity" value={settings.appearance.panelOpacity} onChange={(panelOpacity) => updateSettings({ appearance: { panelOpacity } })} />
-                <RangeSetting label="Chrome opacity" value={settings.appearance.chromeOpacity} onChange={(chromeOpacity) => updateSettings({ appearance: { chromeOpacity } })} />
-                <RangeSetting label="Saturation" value={settings.appearance.saturation} min={80} max={145} suffix="%" onChange={(saturation) => updateSettings({ appearance: { saturation } })} />
-                <label>
-                  <span>Animations</span>
-                  <input type="checkbox" checked={settings.animations} onChange={(event) => updateSettings({ animations: event.target.checked })} />
-                </label>
-                <label>
-                  <span>Opening animation</span>
-                  <input type="checkbox" checked={settings.openingAnimation} onChange={(event) => updateSettings({ openingAnimation: event.target.checked })} />
-                </label>
-                <RangeSetting
-                  label="Opening sound"
-                  value={settings.openingAnimationSoundVolume}
-                  suffix="%"
-                  onChange={(openingAnimationSoundVolume) => updateSettings({ openingAnimationSoundVolume })}
-                />
-                <label>
-                  <span>Bookmarks bar</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.bookmarksBarVisible}
-                    onChange={(event) => updateSettings({ bookmarksBarVisible: event.target.checked })}
-                  />
-                </label>
-                <label>
-                  <span>Show bookmarks bar only on New Tab</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.bookmarksBarOnlyOnNewTab}
-                    disabled={!settings.bookmarksBarVisible}
-                    onChange={(event) => updateSettings({ bookmarksBarOnlyOnNewTab: event.target.checked })}
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="settings-grid-action"
-                  onClick={() =>
-                    updateSettings({
-                      accentColor: DEFAULT_SETTINGS.accentColor,
-                      appearance: DEFAULT_SETTINGS.appearance
-                    })
-                  }
-                >
-                  <span>Visual style</span>
-                  <span className="settings-grid-action-value">Reset</span>
-                </button>
+              <div className="settings-page-head">
+                <h2>Appearance</h2>
+              </div>
+              <div className="settings-page-grid">
+                <div className="settings-stack">
+                  <div className="settings-card">
+                    <h3 className="settings-card-title">Preview</h3>
+                    <AppearancePreview settings={settings} layoutMode={selectedLayoutMode} />
+                  </div>
+                  <div className="settings-card">
+                    <h3 className="settings-card-title">Colors</h3>
+                    <div className="settings-color-grid">
+                      <ColorRow label="Accent color" help="Primary highlight color used across the interface." value={settings.accentColor} onChange={(accentColor) => updateSettings({ accentColor })} />
+                      <ColorRow
+                        label="Secondary accent"
+                        help="Supporting color for gradients and secondary highlights."
+                        value={settings.appearance.secondaryAccentColor}
+                        onChange={(secondaryAccentColor) => updateSettings({ appearance: { secondaryAccentColor } })}
+                      />
+                      <ColorRow
+                        label="Background tint"
+                        help="Color blended into the browser canvas atmosphere."
+                        value={settings.appearance.backgroundTintColor}
+                        onChange={(backgroundTintColor) => updateSettings({ appearance: { backgroundTintColor } })}
+                      />
+                      <ColorRow
+                        label="Surface tint"
+                        help="Color blended into glass surfaces such as the address bar."
+                        value={settings.appearance.surfaceTintColor}
+                        onChange={(surfaceTintColor) => updateSettings({ appearance: { surfaceTintColor } })}
+                      />
+                    </div>
+                  </div>
+                  <div className="settings-rows">
+                    <ToggleRow
+                      label="Force dark mode on websites"
+                      help="Render sites that lack their own dark theme with a dark palette."
+                      checked={settings.appearance.forceDarkModeWebsites}
+                      onChange={(forceDarkModeWebsites) => updateSettings({ appearance: { forceDarkModeWebsites } })}
+                    />
+                    <ToggleRow label="Animations" checked={settings.animations} onChange={(animations) => updateSettings({ animations })} />
+                    <ToggleRow label="Opening animation" checked={settings.openingAnimation} onChange={(openingAnimation) => updateSettings({ openingAnimation })} />
+                    <RangeRow
+                      label="Opening sound"
+                      help="Volume of the startup chime."
+                      value={settings.openingAnimationSoundVolume}
+                      suffix="%"
+                      onChange={(openingAnimationSoundVolume) => updateSettings({ openingAnimationSoundVolume })}
+                    />
+                    <ToggleRow label="Bookmarks bar" checked={settings.bookmarksBarVisible} onChange={(bookmarksBarVisible) => updateSettings({ bookmarksBarVisible })} />
+                    <ToggleRow
+                      label="Show bookmarks bar only on New Tab"
+                      checked={settings.bookmarksBarOnlyOnNewTab}
+                      disabled={!settings.bookmarksBarVisible}
+                      onChange={(bookmarksBarOnlyOnNewTab) => updateSettings({ bookmarksBarOnlyOnNewTab })}
+                    />
+                    <ToggleRow
+                      label="Clean toolbar icons"
+                      help="Remove button surfaces and slightly enlarge the main toolbar icons."
+                      checked={settings.appearance.cleanToolbarIcons}
+                      onChange={(cleanToolbarIcons) => updateSettings({ appearance: { cleanToolbarIcons } })}
+                    />
+                    <SelectRow
+                      label="Sidebar density"
+                      value={settings.sidebarDensity}
+                      onChange={(sidebarDensity) => updateSettings({ sidebarDensity })}
+                      options={[
+                        { value: 'comfortable', label: 'Comfortable' },
+                        { value: 'compact', label: 'Compact' }
+                      ]}
+                    />
+                    <SelectRow
+                      label="Sidebar mode"
+                      help="Where workspace tools open: docked beside pages or pinned over them."
+                      value={settings.sidePanel.mode}
+                      onChange={(mode) => updateSettings({ sidePanel: { mode } })}
+                      options={[
+                        { value: 'auto', label: 'Automatic' },
+                        { value: 'docked', label: 'In sidebar' },
+                        { value: 'overlay', label: 'Pinned over page' }
+                      ]}
+                    />
+                    <RangeRow label="Sidebar width" value={settings.sidePanel.width} min={304} max={520} suffix="px" onChange={(width) => updateSettings({ sidePanel: { width } })} />
+                    <ToggleRow label="Sidebar labels" checked={settings.sidePanel.showLabels} onChange={(showLabels) => updateSettings({ sidePanel: { showLabels } })} />
+                    <ActionRow label="Visual style" help="Restore the default colors, effects, and radius.">
+                      <VastButton
+                        variant="secondary"
+                        size="sm"
+                        onClick={() =>
+                          updateSettings({
+                            accentColor: DEFAULT_SETTINGS.accentColor,
+                            appearance: DEFAULT_SETTINGS.appearance
+                          })
+                        }
+                      >
+                        Reset
+                      </VastButton>
+                    </ActionRow>
+                  </div>
+                </div>
+                <div className="settings-stack">
+                  <div className="settings-card">
+                    <h3 className="settings-card-title">Layout</h3>
+                    <div className="settings-choice-grid" role="group" aria-label="Layout">
+                      {([
+                        { value: 'vertical', label: 'Vertical' },
+                        { value: 'horizontal', label: 'Horizontal' },
+                        ...(settings.advanced.experimentalFeatures
+                          ? [{ value: 'purist' as const, label: 'Purist' }]
+                          : [])
+                      ] as const).map((option) => (
+                        <VastChoice
+                          key={option.value}
+                          selected={selectedLayoutMode === option.value}
+                          onSelect={() => updateSettings({ layoutMode: option.value })}
+                          aria-label={option.label}
+                        >
+                          <span className={`settings-mini-layout ${option.value}`} aria-hidden="true" />
+                          <span className="settings-choice-title">{option.label}</span>
+                        </VastChoice>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="settings-card">
+                    <h3 className="settings-card-title">Theme</h3>
+                    <div className="settings-choice-grid" role="group" aria-label="Theme">
+                      {(['dark', 'dim', 'light'] as const).map((value) => (
+                        <VastChoice
+                          key={value}
+                          selected={resolvedTheme === value}
+                          onSelect={() => updateSettings({ theme: value })}
+                          aria-label={value === 'dark' ? 'Dark' : value === 'dim' ? 'Dim' : 'Light'}
+                        >
+                          <span className="settings-theme-glyph" aria-hidden="true">{themeGlyphs[value]}</span>
+                          <span className="settings-choice-title">{value === 'dark' ? 'Dark' : value === 'dim' ? 'Dim' : 'Light'}</span>
+                        </VastChoice>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="settings-card">
+                    <h3 className="settings-card-title">New Tab background</h3>
+                    <div className="settings-background-grid" role="group" aria-label="New Tab background">
+                      {([
+                        { value: 'space-black', label: 'Space Black' },
+                        { value: 'accent-gradient', label: 'Accent Gradient' },
+                        { value: 'carbon-black', label: 'Carbon Black' },
+                        { value: 'depth', label: 'Depth' },
+                        { value: 'adaptive', label: 'Adaptive' },
+                        { value: 'custom', label: choosingCustomBackground ? 'Choosing...' : 'Custom' }
+                      ] satisfies Array<{ value: NewTabBackground; label: string }>).map((option) => (
+                        <VastChoice
+                          key={option.value}
+                          selected={settings.newTab.background === option.value}
+                          onSelect={() => {
+                            if (option.value === 'custom') void chooseCustomNewTabBackground()
+                            else updateSettings({ newTab: { background: option.value } })
+                          }}
+                          aria-label={option.label}
+                          disabled={option.value === 'custom' && choosingCustomBackground}
+                          className={`settings-background-option${settings.newTab.background === option.value ? ' is-selected' : ''}`}
+                        >
+                          <span
+                            className={`settings-background-thumb settings-background-${option.value}`}
+                            style={option.value === 'custom' && customBackgroundDataUrl
+                              ? { backgroundImage: `url(${JSON.stringify(customBackgroundDataUrl)})` }
+                              : undefined}
+                            aria-hidden="true"
+                          />
+                          <span>{option.label}</span>
+                        </VastChoice>
+                      ))}
+                    </div>
+                    {customBackgroundMessage && <div className="settings-row-sub mt-2 text-vast-amber" role="status">{customBackgroundMessage}</div>}
+                  </div>
+                  <div className="settings-rows">
+                    <RangeRow label="Corner radius" help="Base roundness shared by windows, cards, and controls." value={settings.appearance.cornerRadius} min={6} max={36} suffix="px" onChange={(cornerRadius) => updateSettings({ appearance: { cornerRadius } })} />
+                    <RangeRow label="Glassiness" help="How translucent app surfaces are." value={settings.appearance.glassIntensity} onChange={(glassIntensity) => updateSettings({ appearance: { glassIntensity } })} />
+                    <RangeRow label="Blur" help="Background blur behind glass surfaces." value={settings.appearance.blurIntensity} onChange={(blurIntensity) => updateSettings({ appearance: { blurIntensity } })} />
+                    <RangeRow label="Glow" help="Accent light blooming around panels." value={settings.appearance.glowIntensity} onChange={(glowIntensity) => updateSettings({ appearance: { glowIntensity } })} />
+                    <RangeRow label="Borders" help="Visibility of surface outlines." value={settings.appearance.borderIntensity} onChange={(borderIntensity) => updateSettings({ appearance: { borderIntensity } })} />
+                    <RangeRow label="Shadow depth" help="Elevation shadows under floating surfaces." value={settings.appearance.shadowIntensity} onChange={(shadowIntensity) => updateSettings({ appearance: { shadowIntensity } })} />
+                    <RangeRow label="Gradients" help="Strength of color blends in the canvas atmosphere." value={settings.appearance.gradientIntensity} onChange={(gradientIntensity) => updateSettings({ appearance: { gradientIntensity } })} />
+                    <RangeRow label="Panel opacity" help="How opaque in-page panels and the address bar are." value={settings.appearance.panelOpacity} onChange={(panelOpacity) => updateSettings({ appearance: { panelOpacity } })} />
+                    <RangeRow label="Chrome opacity" help="How opaque the sidebar and window chrome are." value={settings.appearance.chromeOpacity} onChange={(chromeOpacity) => updateSettings({ appearance: { chromeOpacity } })} />
+                    <RangeRow label="Saturation" help="Color intensity of glass surfaces." value={settings.appearance.saturation} min={80} max={145} suffix="%" onChange={(saturation) => updateSettings({ appearance: { saturation } })} />
+                  </div>
+                </div>
               </div>
             </section>
 
             <section id="Advanced" className="settings-section" hidden={!sectionVisible('Advanced')}>
-              <h2>Advanced</h2>
-              <div className="settings-grid">
-                <label>
-                  <span>Compact UI density</span>
-                  <input type="checkbox" checked={settings.sidebarDensity === 'compact'} onChange={(event) => updateSettings({ sidebarDensity: event.target.checked ? 'compact' : 'comfortable' })} />
-                </label>
-                <label>
-                  <span>Memory target (best effort)</span>
-                  <input
-                    type="number"
-                    min={1024}
-                    max={32768}
-                    step={256}
-                    value={settings.advanced.ramLimitMb}
-                    onChange={(event) => updateSettings({ advanced: { ramLimitMb: clampRamLimitMb(Number(event.target.value) || DEFAULT_SETTINGS.advanced.ramLimitMb) } })}
-                  />
-                </label>
-                <label>
-                  <span>Hibernate after minutes</span>
-                  <input type="number" min={1} max={240} value={settings.advanced.hibernateAfterMinutes} onChange={(event) => updateSettings({ advanced: { hibernateAfterMinutes: Math.min(240, Math.max(1, Number(event.target.value) || 30)) } })} />
-                </label>
-                <label>
-                  <span>Discard after minutes</span>
-                  <input type="number" min={5} max={720} value={settings.advanced.discardAfterMinutes} onChange={(event) => updateSettings({ advanced: { discardAfterMinutes: Math.min(720, Math.max(5, Number(event.target.value) || 120)) } })} />
-                </label>
-                <label>
-                  <span>Keep pinned tabs awake</span>
-                  <input type="checkbox" checked={settings.advanced.keepPinnedTabsAwake} onChange={(event) => updateSettings({ advanced: { keepPinnedTabsAwake: event.target.checked } })} />
-                </label>
-                <label>
-                  <span>Confirm before closing many tabs</span>
-                  <input type="checkbox" checked={settings.advanced.confirmBeforeClosingManyTabs} onChange={(event) => updateSettings({ advanced: { confirmBeforeClosingManyTabs: event.target.checked } })} />
-                </label>
-                <label>
-                  <span>Confirm before deleting workspace</span>
-                  <input type="checkbox" checked={settings.advanced.confirmBeforeDeletingWorkspace} onChange={(event) => updateSettings({ advanced: { confirmBeforeDeletingWorkspace: event.target.checked } })} />
-                </label>
-                <label>
-                  <span>Show advanced More actions</span>
-                  <input type="checkbox" checked={settings.advanced.showAdvancedBrowserActions} onChange={(event) => updateSettings({ advanced: { showAdvancedBrowserActions: event.target.checked } })} />
-                </label>
-                <label>
-                  <span>Show internal pages in command palette</span>
-                  <input type="checkbox" checked={settings.advanced.showInternalPagesInCommandPalette} onChange={(event) => updateSettings({ advanced: { showInternalPagesInCommandPalette: event.target.checked } })} />
-                </label>
-                <label>
-                  <span>Experimental features</span>
-                  <input type="checkbox" checked={settings.advanced.experimentalFeatures} onChange={(event) => updateSettings({ advanced: { experimentalFeatures: event.target.checked } })} />
-                </label>
-                <label>
-                  <span>Developer Mode</span>
-                  <input type="checkbox" checked={settings.advanced.developerMode} onChange={(event) => updateSettings({ advanced: { developerMode: event.target.checked } })} />
-                </label>
+              <div className="settings-page-head">
+                <h2>Advanced</h2>
+              </div>
+              <div className="settings-rows">
+                <ToggleRow
+                  label="Compact UI density"
+                  help="Tighter spacing for tabs, lists, and panels."
+                  checked={settings.sidebarDensity === 'compact'}
+                  onChange={(compact) => updateSettings({ sidebarDensity: compact ? 'compact' : 'comfortable' })}
+                />
+                <TextRow
+                  label="Memory target (best effort)"
+                  help="Soft ceiling Vast aims to stay under by hibernating inactive tabs."
+                  type="number"
+                  min={1024}
+                  max={32768}
+                  step={256}
+                  value={settings.advanced.ramLimitMb}
+                  onChange={(event) => updateSettings({ advanced: { ramLimitMb: clampRamLimitMb(Number(event.target.value) || DEFAULT_SETTINGS.advanced.ramLimitMb) } })}
+                />
+                <TextRow
+                  label="Hibernate after minutes"
+                  help="Idle tabs sleep but keep their place in memory."
+                  type="number"
+                  min={1}
+                  max={240}
+                  value={settings.advanced.hibernateAfterMinutes}
+                  onChange={(event) => updateSettings({ advanced: { hibernateAfterMinutes: Math.min(240, Math.max(1, Number(event.target.value) || 30)) } })}
+                />
+                <TextRow
+                  label="Discard after minutes"
+                  help="Idle tabs are fully unloaded after this delay."
+                  type="number"
+                  min={5}
+                  max={720}
+                  value={settings.advanced.discardAfterMinutes}
+                  onChange={(event) => updateSettings({ advanced: { discardAfterMinutes: Math.min(720, Math.max(5, Number(event.target.value) || 120)) } })}
+                />
+                <ToggleRow label="Keep pinned tabs awake" checked={settings.advanced.keepPinnedTabsAwake} onChange={(keepPinnedTabsAwake) => updateSettings({ advanced: { keepPinnedTabsAwake } })} />
+                <ToggleRow label="Confirm before closing many tabs" checked={settings.advanced.confirmBeforeClosingManyTabs} onChange={(confirmBeforeClosingManyTabs) => updateSettings({ advanced: { confirmBeforeClosingManyTabs } })} />
+                <ToggleRow label="Confirm before deleting workspace" checked={settings.advanced.confirmBeforeDeletingWorkspace} onChange={(confirmBeforeDeletingWorkspace) => updateSettings({ advanced: { confirmBeforeDeletingWorkspace } })} />
+                <ToggleRow label="Show advanced More actions" checked={settings.advanced.showAdvancedBrowserActions} onChange={(showAdvancedBrowserActions) => updateSettings({ advanced: { showAdvancedBrowserActions } })} />
+                <ToggleRow label="Show internal pages in command palette" checked={settings.advanced.showInternalPagesInCommandPalette} onChange={(showInternalPagesInCommandPalette) => updateSettings({ advanced: { showInternalPagesInCommandPalette } })} />
+                <ToggleRow
+                  label="Experimental features"
+                  help="Unlocks early work such as the Purist layout. Expect rough edges."
+                  checked={settings.advanced.experimentalFeatures}
+                  onChange={(experimentalFeatures) => updateSettings({ advanced: { experimentalFeatures } })}
+                />
+                <ToggleRow label="Developer Mode" checked={settings.advanced.developerMode} onChange={(developerMode) => updateSettings({ advanced: { developerMode } })} />
               </div>
             </section>
 
             <section id="Labs" className="settings-section" hidden={!sectionVisible('Labs')}>
-              <h2>Labs</h2>
-              <div className="settings-grid">
+              <div className="settings-page-head">
+                <h2>Labs</h2>
+              </div>
+              <div className="settings-feature-grid">
                 <FeatureToggleSetting
                   label="Video & Audio"
                   checked={settings.labs.avidae}
@@ -864,12 +1026,6 @@ export function SettingsModal(): JSX.Element | null {
                   onChange={(automation) => updateSettings({ labs: { automation } })}
                 />
                 <FeatureToggleSetting
-                  label="Password Manager"
-                  checked={settings.labs.passwordManager}
-                  state={featureStateFor(VastFeatures.PasswordManager)}
-                  onChange={(passwordManager) => updateSettings({ labs: { passwordManager } })}
-                />
-                <FeatureToggleSetting
                   label="Diagnostics"
                   checked={settings.labs.advancedDiagnostics}
                   state={featureStateFor(VastFeatures.AdvancedDiagnostics)}
@@ -885,47 +1041,57 @@ export function SettingsModal(): JSX.Element | null {
             </section>
 
             <section id="Network" className="settings-section" hidden={!sectionVisible('Network')}>
-              <h2>Network Devices</h2>
-              <div className="settings-grid">
-                <label>
-                  <span>Enable Network Devices</span>
-                  <input type="checkbox" checked={settings.network.enabled} onChange={(event) => updateSettings({ network: { enabled: event.target.checked } })} />
-                </label>
-                <label>
-                  <span>Allow local scans</span>
-                  <input type="checkbox" checked={settings.network.allowScans} onChange={(event) => updateSettings({ network: { allowScans: event.target.checked } })} />
-                </label>
-                <label>
-                  <span>Passive mDNS / SSDP discovery</span>
-                  <input type="checkbox" checked={settings.network.passiveDiscovery} onChange={(event) => updateSettings({ network: { passiveDiscovery: event.target.checked } })} />
-                </label>
-                <label>
-                  <span>Active local probing</span>
-                  <input type="checkbox" checked={settings.network.activeProbing} onChange={(event) => updateSettings({ network: { activeProbing: event.target.checked } })} />
-                </label>
-                <label>
-                  <span>Remember devices</span>
-                  <input type="checkbox" checked={settings.network.rememberDevices} onChange={(event) => updateSettings({ network: { rememberDevices: event.target.checked } })} />
-                </label>
-                <label>
-                  <span>Show raw metadata</span>
-                  <input type="checkbox" checked={settings.network.showRawMetadata} onChange={(event) => updateSettings({ network: { showRawMetadata: event.target.checked } })} />
-                </label>
-                <label>
-                  <span>Probe timeout</span>
-                  <input type="number" min={250} max={3000} value={settings.network.probeTimeoutMs} onChange={(event) => updateSettings({ network: { probeTimeoutMs: Number(event.target.value) || 750 } })} />
-                </label>
-                <label>
-                  <span>Probe concurrency</span>
-                  <input type="number" min={1} max={32} value={settings.network.probeConcurrency} onChange={(event) => updateSettings({ network: { probeConcurrency: Number(event.target.value) || 16 } })} />
-                </label>
-                <button type="button" onClick={() => { runtime.openUrlInNewTab(INTERNAL_NETWORK_URL); setOpen(false) }} className="settings-action"><Wifi className="h-4 w-4" />Open Network Devices</button>
-                <button type="button" onClick={() => void window.vast.network.clearCache()} className="settings-action"><Eraser className="h-4 w-4" />Clear network cache</button>
+              <div className="settings-page-head">
+                <h2>Network Devices</h2>
+              </div>
+              <div className="settings-rows">
+                <ToggleRow label="Enable Network Devices" checked={settings.network.enabled} onChange={(enabled) => updateSettings({ network: { enabled } })} />
+                <ToggleRow label="Allow local scans" help="Permit scanning of the local network only." checked={settings.network.allowScans} onChange={(allowScans) => updateSettings({ network: { allowScans } })} />
+                <ToggleRow
+                  label="Passive mDNS / SSDP discovery"
+                  help="Listen for announcements devices already send."
+                  checked={settings.network.passiveDiscovery}
+                  onChange={(passiveDiscovery) => updateSettings({ network: { passiveDiscovery } })}
+                />
+                <ToggleRow
+                  label="Active local probing"
+                  help="Send requests to address ranges to find devices that stay silent."
+                  checked={settings.network.activeProbing}
+                  onChange={(activeProbing) => updateSettings({ network: { activeProbing } })}
+                />
+                <ToggleRow label="Remember devices" checked={settings.network.rememberDevices} onChange={(rememberDevices) => updateSettings({ network: { rememberDevices } })} />
+                <ToggleRow label="Show raw metadata" checked={settings.network.showRawMetadata} onChange={(showRawMetadata) => updateSettings({ network: { showRawMetadata } })} />
+                <TextRow
+                  label="Probe timeout"
+                  help="How long to wait for each device response."
+                  type="number"
+                  min={250}
+                  max={3000}
+                  value={settings.network.probeTimeoutMs}
+                  onChange={(event) => updateSettings({ network: { probeTimeoutMs: Number(event.target.value) || 750 } })}
+                />
+                <TextRow
+                  label="Probe concurrency"
+                  help="How many devices to probe at once."
+                  type="number"
+                  min={1}
+                  max={32}
+                  value={settings.network.probeConcurrency}
+                  onChange={(event) => updateSettings({ network: { probeConcurrency: Number(event.target.value) || 16 } })}
+                />
+                <ActionRow label="Network Devices" help="Open the local device list.">
+                  <VastButton variant="secondary" size="sm" onClick={() => { runtime.openUrlInNewTab(INTERNAL_NETWORK_URL); setOpen(false) }}><Wifi className="h-4 w-4" />Open</VastButton>
+                </ActionRow>
+                <ActionRow label="Network cache" help="Forget remembered devices and results.">
+                  <VastButton variant="secondary" size="sm" onClick={() => void window.vast.network.clearCache()}><Eraser className="h-4 w-4" />Clear</VastButton>
+                </ActionRow>
               </div>
             </section>
 
             <section id="Developer" className="settings-section" hidden={!sectionVisible('Developer')}>
-              <h2>Developer</h2>
+              <div className="settings-page-head">
+                <h2>Developer</h2>
+              </div>
               {!settings.advanced.developerMode ? (
                 <NotificationCard role="status" className="settings-developer-notification border border-vast-amber/20 bg-[#11100d] text-white shadow-lg">
                   <div className="flex items-start gap-3">
@@ -940,37 +1106,56 @@ export function SettingsModal(): JSX.Element | null {
                   </div>
                 </NotificationCard>
               ) : <>
-                <div className="settings-grid">
-                  <button type="button" onClick={runtime.toggleDevTools} className="settings-action"><Code2 className="h-4 w-4" />Open tab DevTools</button>
-                  <button type="button" onClick={runtime.reload} className="settings-action"><Activity className="h-4 w-4" />Reload active webview</button>
-                  <button type="button" onClick={() => window.location.reload()} className="settings-action"><Activity className="h-4 w-4" />Reload app chrome</button>
-                  <button type="button" onClick={() => void copyText(JSON.stringify({ appVersion, versions: window.vast.app.versions, platform: window.vast.app.platform, activeTab, activeWorkspace }, null, 2))} className="settings-action"><FileDown className="h-4 w-4" />Copy debug report</button>
-                  {diagnosticsState.available && <button type="button" onClick={() => { runtime.openUrlInNewTab(INTERNAL_DIAGNOSTICS_URL); setOpen(false) }} className="settings-action"><Activity className="h-4 w-4" />Open Diagnostics</button>}
-                  <button type="button" onClick={() => void copyText(JSON.stringify({ counts: { tabs: tabs.length, bookmarks: bookmarks.length, history: history.length, notes: notes.length, macros: macros.length }, versions: window.vast.app.versions }, null, 2))} className="settings-action"><FileDown className="h-4 w-4" />Copy diagnostics</button>
+                <div className="settings-rows">
+                  <ActionRow label="Tab DevTools" help="Inspect the active webview.">
+                    <VastButton variant="secondary" size="sm" onClick={runtime.toggleDevTools}><Code2 className="h-4 w-4" />Open</VastButton>
+                  </ActionRow>
+                  <ActionRow label="Reload active webview">
+                    <VastButton variant="secondary" size="sm" onClick={runtime.reload}><Activity className="h-4 w-4" />Reload</VastButton>
+                  </ActionRow>
+                  <ActionRow label="Reload app chrome">
+                    <VastButton variant="secondary" size="sm" onClick={() => window.location.reload()}><Activity className="h-4 w-4" />Reload</VastButton>
+                  </ActionRow>
+                  <ActionRow label="Debug report" help="Copy versions, platform, and active tab details.">
+                    <VastButton variant="secondary" size="sm" onClick={() => void copyText(JSON.stringify({ appVersion, versions: window.vast.app.versions, platform: window.vast.app.platform, activeTab, activeWorkspace }, null, 2))}><FileDown className="h-4 w-4" />Copy</VastButton>
+                  </ActionRow>
+                  {diagnosticsState.available && (
+                    <ActionRow label="Diagnostics">
+                      <VastButton variant="secondary" size="sm" onClick={() => { runtime.openUrlInNewTab(INTERNAL_DIAGNOSTICS_URL); setOpen(false) }}><Activity className="h-4 w-4" />Open</VastButton>
+                    </ActionRow>
+                  )}
+                  <ActionRow label="Diagnostics summary" help="Copy state counts and runtime versions.">
+                    <VastButton variant="secondary" size="sm" onClick={() => void copyText(JSON.stringify({ counts: { tabs: tabs.length, bookmarks: bookmarks.length, history: history.length, notes: notes.length, macros: macros.length }, versions: window.vast.app.versions }, null, 2))}><FileDown className="h-4 w-4" />Copy</VastButton>
+                  </ActionRow>
                 </div>
-                <div className="mt-3 grid gap-2 rounded-card border border-white/10 bg-white/[0.035] p-4 text-xs text-vast-soft md:grid-cols-2">
-                  <div>Vast: {appVersion}</div>
-                  <div>Electron: {window.vast.app.versions.electron}</div>
-                  <div>Chromium: {window.vast.app.versions.chrome}</div>
-                  <div>Node: {window.vast.app.versions.node}</div>
-                  <div>Platform: {window.vast.app.platform}</div>
-                  <div className="truncate">Active URL: {activeTab?.url ?? 'none'}</div>
-                  <div>Lifecycle: {activeTab?.lifecycle ?? 'n/a'} / {activeTab?.status ?? 'n/a'}</div>
-                  <div>Tabs: {tabs.length}</div>
-                  <div>Bookmarks: {bookmarks.length}</div>
-                  <div>Notes: {notes.length}</div>
-                  <div>Macros: {macros.length}</div>
+                <div className="settings-card mt-3">
+                  <h3 className="settings-card-title">Runtime</h3>
+                  <div className="grid gap-2 text-xs leading-5 text-vast-soft md:grid-cols-2">
+                    <div>Vast: {appVersion}</div>
+                    <div>Electron: {window.vast.app.versions.electron}</div>
+                    <div>Chromium: {window.vast.app.versions.chrome}</div>
+                    <div>Node: {window.vast.app.versions.node}</div>
+                    <div>Platform: {window.vast.app.platform}</div>
+                    <div className="truncate">Active URL: {activeTab?.url ?? 'none'}</div>
+                    <div>Lifecycle: {activeTab?.lifecycle ?? 'n/a'} / {activeTab?.status ?? 'n/a'}</div>
+                    <div>Tabs: {tabs.length}</div>
+                    <div>Bookmarks: {bookmarks.length}</div>
+                    <div>Notes: {notes.length}</div>
+                    <div>Macros: {macros.length}</div>
+                  </div>
                 </div>
               </>}
             </section>
 
             <section id="Privacy" className="settings-section" hidden={!sectionVisible('Privacy')}>
-              <h2>Privacy</h2>
-              <div className="mb-4 rounded-card border border-white/10 bg-white/[0.035] p-4">
+              <div className="settings-page-head">
+                <h2>Privacy</h2>
+              </div>
+              <div className="settings-card">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <div className="text-sm font-semibold text-white">Vast Services</div>
-                    <div className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-vast-soft">
+                    <div className="settings-card-title mb-1">Vast Services</div>
+                    <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-vast-soft">
                       Relay {relayStatusLabel}
                     </div>
                   </div>
@@ -980,94 +1165,88 @@ export function SettingsModal(): JSX.Element | null {
                   Official public builds use production Vast Relay for signed service and update notices. A check-in sends a random installation ID, the Vast version, cumulative launch count, and instance kind; Relay derives first-seen and last-seen times. It does not receive browsing history, visited URLs, searches, tabs, bookmarks, page content, passwords, cookies, account identity, device fingerprints, session duration, or notice interaction events. Cloudflare may process request IPs ephemerally for transport security and rate limiting; Vast does not store them in the Relay database.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <button type="button" className="settings-action settings-action-compact" onClick={() => { runtime.openUrlInNewTab('https://vastbrowser.com/privacy'); setOpen(false) }}><Shield className="h-4 w-4" />Privacy Notice</button>
-                  <button type="button" className="settings-action settings-action-compact" onClick={() => { runtime.openUrlInNewTab('https://vastbrowser.com/support'); setOpen(false) }}><Activity className="h-4 w-4" />Support</button>
-                  <button type="button" className="settings-action settings-action-compact" onClick={() => { runtime.openUrlInNewTab(INTERNAL_SITE_DATA_URL); setOpen(false) }}><Database className="h-4 w-4" />Review site data</button>
+                  <VastButton variant="secondary" size="sm" onClick={() => { runtime.openUrlInNewTab('https://vastbrowser.com/privacy'); setOpen(false) }}><Shield className="h-4 w-4" />Privacy Notice</VastButton>
+                  <VastButton variant="secondary" size="sm" onClick={() => { runtime.openUrlInNewTab('https://vastbrowser.com/support'); setOpen(false) }}><Activity className="h-4 w-4" />Support</VastButton>
+                  <VastButton variant="secondary" size="sm" onClick={() => { runtime.openUrlInNewTab(INTERNAL_SITE_DATA_URL); setOpen(false) }}><Database className="h-4 w-4" />Review site data</VastButton>
                 </div>
               </div>
-              <div className="settings-grid settings-privacy-grid">
-                <label>
-                  <span>Block common trackers</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.privacy.blockTrackers}
-                    onChange={(event) => updateSettings({ privacy: { blockTrackers: event.target.checked } })}
-                  />
-                </label>
-                <label><span>Clean tracking parameters while opening links</span><input type="checkbox" checked={settings.privacy.stripTrackingParameters} onChange={(event) => updateSettings({ privacy: { stripTrackingParameters: event.target.checked } })} /></label>
-                <label><span>Also remove affiliate parameters</span><input type="checkbox" checked={settings.privacy.stripAffiliateParameters} onChange={(event) => updateSettings({ privacy: { stripAffiliateParameters: event.target.checked } })} /></label>
-                <label><span>Block third-party cookies</span><input type="checkbox" checked={settings.privacy.blockThirdPartyCookies} onChange={(event) => updateSettings({ privacy: { blockThirdPartyCookies: event.target.checked } })} /></label>
-                <SettingsSelect label="Fingerprinting" size="long" value={settings.privacy.fingerprintingProtection} options={fingerprintingOptions} onChange={(value) => updateSettings({ privacy: { fingerprintingProtection: value } })} />
-                <SettingsSelect label="WebRTC" size="long" value={settings.privacy.webRtcPolicy} options={webRtcOptions} onChange={(value) => updateSettings({ privacy: { webRtcPolicy: value } })} />
-                <button type="button" className="settings-action" onClick={() => runtime.openUrlInNewTab('https://browserleaks.com/webrtc')}><Wifi className="h-4 w-4" />Open WebRTC leak test</button>
-                <label>
-                  <span>Fake browsing history</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.privacy.fakeHistoryEnabled}
-                    onChange={(event) => updateSettings({ privacy: { fakeHistoryEnabled: event.target.checked } })}
-                  />
-                </label>
-                <label>
-                  <span>Clear cookies/site data on exit</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.privacy.clearCookiesOnExit}
-                    onChange={(event) => updateSettings({ privacy: { clearCookiesOnExit: event.target.checked } })}
-                  />
-                </label>
-                <label>
-                  <span>Make new workspaces temporary by default</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.privacy.privateWorkspaceDefault}
-                    onChange={(event) => updateSettings({ privacy: { privateWorkspaceDefault: event.target.checked } })}
-                  />
-                </label>
-                <label>
-                  <span>Disable history globally</span>
-                  <input type="checkbox" checked={settings.privacy.disableHistory} onChange={(event) => updateSettings({ privacy: { disableHistory: event.target.checked } })} />
-                </label>
-                <label>
-                  <span>Disable recently closed tabs</span>
-                  <input type="checkbox" checked={settings.privacy.disableRecentlyClosedTabs} onChange={(event) => updateSettings({ privacy: { disableRecentlyClosedTabs: event.target.checked } })} />
-                </label>
-                <label>
-                  <span>Disable page text capture</span>
-                  <input type="checkbox" checked={settings.privacy.disablePageTextCapture} onChange={(event) => updateSettings({ privacy: { disablePageTextCapture: event.target.checked } })} />
-                </label>
-                <label>
-                  <span>Disable favicons</span>
-                  <input type="checkbox" checked={settings.privacy.disableFavicons} onChange={(event) => updateSettings({ privacy: { disableFavicons: event.target.checked } })} />
-                </label>
-                <button
-                  type="button"
-                  onClick={() => void window.vast.privacy.clearSiteData()}
-                  className="settings-action"
-                >
-                  <Eraser className="h-4 w-4" />
-                  Clear cookies/site data
-                </button>
-                <label className="settings-privacy-field"><span>Cookie/login exceptions (domains, comma-separated)</span><input value={settings.privacy.cookieExceptions.join(', ')} onChange={(event) => updateSettings({ privacy: { cookieExceptions: event.target.value.split(/[\n,]/).map((value) => value.trim()).filter(Boolean).slice(0, 100) } })} /></label>
-                <label className="settings-privacy-field"><span>Fingerprinting exceptions (domains, comma-separated)</span><input value={settings.privacy.fingerprintingExceptions.join(', ')} onChange={(event) => updateSettings({ privacy: { fingerprintingExceptions: event.target.value.split(/[\n,]/).map((value) => value.trim()).filter(Boolean).slice(0, 100) } })} /></label>
-                <label className="settings-privacy-field"><span>WebRTC exceptions (domains, comma-separated)</span><input value={settings.privacy.webRtcExceptions.join(', ')} onChange={(event) => updateSettings({ privacy: { webRtcExceptions: event.target.value.split(/[\n,]/).map((value) => value.trim()).filter(Boolean).slice(0, 100) } })} /></label>
+              <div className="settings-rows mt-3.5">
+                <ToggleRow
+                  label="Block common trackers"
+                  help="Filters known tracker requests before pages load."
+                  checked={settings.privacy.blockTrackers}
+                  onChange={(blockTrackers) => updateSettings({ privacy: { blockTrackers } })}
+                />
+                <ToggleRow
+                  label="Clean tracking parameters while opening links"
+                  help="Strips parameters such as utm_* from clicked links."
+                  checked={settings.privacy.stripTrackingParameters}
+                  onChange={(stripTrackingParameters) => updateSettings({ privacy: { stripTrackingParameters } })}
+                />
+                <ToggleRow label="Also remove affiliate parameters" checked={settings.privacy.stripAffiliateParameters} onChange={(stripAffiliateParameters) => updateSettings({ privacy: { stripAffiliateParameters } })} />
+                <ToggleRow
+                  label="Block third-party cookies"
+                  help="Cookies set by other sites are dropped."
+                  checked={settings.privacy.blockThirdPartyCookies}
+                  onChange={(blockThirdPartyCookies) => updateSettings({ privacy: { blockThirdPartyCookies } })}
+                />
+                <ToggleRow
+                  label="Fake browsing history"
+                  help="Decoy history entries hide what you actually visited."
+                  checked={settings.privacy.fakeHistoryEnabled}
+                  onChange={(fakeHistoryEnabled) => updateSettings({ privacy: { fakeHistoryEnabled } })}
+                />
+                <ToggleRow
+                  label="Clear cookies/site data on exit"
+                  checked={settings.privacy.clearCookiesOnExit}
+                  onChange={(clearCookiesOnExit) => updateSettings({ privacy: { clearCookiesOnExit } })}
+                />
+                <ToggleRow label="Make new workspaces temporary by default" checked={settings.privacy.privateWorkspaceDefault} onChange={(privateWorkspaceDefault) => updateSettings({ privacy: { privateWorkspaceDefault } })} />
+                <ToggleRow label="Disable history globally" checked={settings.privacy.disableHistory} onChange={(disableHistory) => updateSettings({ privacy: { disableHistory } })} />
+                <ToggleRow label="Disable recently closed tabs" checked={settings.privacy.disableRecentlyClosedTabs} onChange={(disableRecentlyClosedTabs) => updateSettings({ privacy: { disableRecentlyClosedTabs } })} />
+                <ToggleRow label="Disable page text capture" checked={settings.privacy.disablePageTextCapture} onChange={(disablePageTextCapture) => updateSettings({ privacy: { disablePageTextCapture } })} />
+                <ToggleRow label="Disable favicons" checked={settings.privacy.disableFavicons} onChange={(disableFavicons) => updateSettings({ privacy: { disableFavicons } })} />
+                <SelectRow label="Fingerprinting" help="How aggressively fingerprint surfaces are masked or noised." value={settings.privacy.fingerprintingProtection} options={fingerprintingOptions} onChange={(value) => updateSettings({ privacy: { fingerprintingProtection: value } })} />
+                <SelectRow label="WebRTC" help="Which network interfaces WebRTC may expose." value={settings.privacy.webRtcPolicy} options={webRtcOptions} onChange={(value) => updateSettings({ privacy: { webRtcPolicy: value } })} />
+                <ActionRow label="WebRTC leak test">
+                  <VastButton variant="secondary" size="sm" onClick={() => runtime.openUrlInNewTab('https://browserleaks.com/webrtc')}><Wifi className="h-4 w-4" />Open</VastButton>
+                </ActionRow>
+                <ActionRow label="Cookies and site data" help="Remove cookies and storage for all sites now.">
+                  <VastButton variant="danger" size="sm" onClick={() => void window.vast.privacy.clearSiteData()}><Eraser className="h-4 w-4" />Clear</VastButton>
+                </ActionRow>
+                <StackedTextRow
+                  label="Cookie/login exceptions (domains, comma-separated)"
+                  help="These domains keep default login behavior."
+                  value={settings.privacy.cookieExceptions.join(', ')}
+                  onChange={(event) => updateSettings({ privacy: { cookieExceptions: event.target.value.split(/[\n,]/).map((value) => value.trim()).filter(Boolean).slice(0, 100) } })}
+                />
+                <StackedTextRow
+                  label="Fingerprinting exceptions (domains, comma-separated)"
+                  value={settings.privacy.fingerprintingExceptions.join(', ')}
+                  onChange={(event) => updateSettings({ privacy: { fingerprintingExceptions: event.target.value.split(/[\n,]/).map((value) => value.trim()).filter(Boolean).slice(0, 100) } })}
+                />
+                <StackedTextRow
+                  label="WebRTC exceptions (domains, comma-separated)"
+                  value={settings.privacy.webRtcExceptions.join(', ')}
+                  onChange={(event) => updateSettings({ privacy: { webRtcExceptions: event.target.value.split(/[\n,]/).map((value) => value.trim()).filter(Boolean).slice(0, 100) } })}
+                />
               </div>
-              <div className="mt-4 grid gap-3 md:grid-cols-3">
-                <div className="rounded-card border border-white/10 bg-white/[0.04] p-3 text-sm"><div className="text-vast-soft">History</div><div className="mt-1 text-2xl font-semibold">{history.length}</div></div>
-                <div className="rounded-card border border-white/10 bg-white/[0.04] p-3 text-sm"><div className="text-vast-soft">Downloads</div><div className="mt-1 text-2xl font-semibold">{downloads.length}</div></div>
-                <div className="rounded-card border border-white/10 bg-white/[0.04] p-3 text-sm"><div className="text-vast-soft">Password vault</div><div className="mt-1 text-sm font-semibold">Local encrypted</div></div>
+              <div className="mt-3.5 grid gap-3 md:grid-cols-2">
+                <div className="settings-card p-3 text-sm"><div className="text-vast-soft">History</div><div className="mt-1 text-2xl font-semibold">{history.length}</div></div>
+                <div className="settings-card p-3 text-sm"><div className="text-vast-soft">Downloads</div><div className="mt-1 text-2xl font-semibold">{downloads.length}</div></div>
               </div>
             </section>
 
             <section id="Spoofing" className="settings-section" hidden={!sectionVisible('Spoofing')}>
-              <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="settings-page-head">
                 <div>
                   <h2>Spoofing</h2>
-                  <p className="text-xs leading-5 text-vast-soft">Best-effort privacy controls for requests, webviews, geolocation, and common fingerprint surfaces.</p>
+                  <p className="settings-page-sub">Best-effort privacy controls for requests, webviews, geolocation, and common fingerprint surfaces.</p>
                 </div>
-                <label className="flex w-fit items-center gap-3 rounded-control border border-white/10 bg-white/[0.035] px-3 py-2">
+                <label className="settings-inline-toggle">
                   <span>Enabled</span>
                   <input
+                    className="settings-switch"
                     type="checkbox"
                     checked={spoofingState.available && settings.spoofing.enabled}
                     title={spoofingState.available ? undefined : spoofingState.message}
@@ -1081,140 +1260,147 @@ export function SettingsModal(): JSX.Element | null {
                   />
                 </label>
               </div>
-
-              <div className="settings-grid">
-                <SettingsSelect
+              <div className="settings-rows">
+                <SelectRow
                   label="Browser brand"
+                  help="User agent and platform details pages read."
                   value={settings.spoofing.browserProfile}
                   options={spoofingProfiles}
                   onChange={(browserProfile) => updateSettings({ spoofing: { browserProfile } })}
                 />
-                <label>
-                  <span>Languages</span>
-                  <input
-                    value={settings.spoofing.languages.join(', ')}
-                    onChange={(event) => updateSettings({ spoofing: { languages: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) } })}
-                    placeholder="en-US, en"
-                  />
-                </label>
-                <SettingsSelect
+                <TextRow
+                  label="Languages"
+                  help="Language list reported to sites."
+                  value={settings.spoofing.languages.join(', ')}
+                  placeholder="en-US, en"
+                  onChange={(event) => updateSettings({ spoofing: { languages: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) } })}
+                />
+                <SelectRow
                   label="Timezone"
                   value={settings.spoofing.timezone}
                   options={timezoneSelectOptions}
                   onChange={(timezone) => updateSettings({ spoofing: { timezone } })}
                 />
-                <label>
-                  <span>Do Not Track</span>
-                  <input type="checkbox" checked={settings.spoofing.doNotTrack} onChange={(event) => updateSettings({ spoofing: { doNotTrack: event.target.checked } })} />
-                </label>
+                <ToggleRow label="Do Not Track" checked={settings.spoofing.doNotTrack} onChange={(doNotTrack) => updateSettings({ spoofing: { doNotTrack } })} />
                 {settings.spoofing.browserProfile === 'custom' && (
-                  <label className="md:col-span-2">
-                    <span>Custom user agent</span>
-                    <input value={settings.spoofing.customUserAgent} onChange={(event) => updateSettings({ spoofing: { customUserAgent: event.target.value } })} />
-                  </label>
+                  <StackedTextRow
+                    label="Custom user agent"
+                    value={settings.spoofing.customUserAgent}
+                    onChange={(event) => updateSettings({ spoofing: { customUserAgent: event.target.value } })}
+                  />
                 )}
-                <label>
-                  <span>CPU cores</span>
-                  <input type="number" min={2} max={32} value={settings.spoofing.hardwareConcurrency} onChange={(event) => updateSettings({ spoofing: { hardwareConcurrency: Number(event.target.value) } })} />
-                </label>
-                <label>
-                  <span>Device memory GB</span>
-                  <input type="number" min={1} max={32} value={settings.spoofing.deviceMemory} onChange={(event) => updateSettings({ spoofing: { deviceMemory: Number(event.target.value) } })} />
-                </label>
-                <label>
-                  <span>Touch points</span>
-                  <input type="number" min={0} max={10} value={settings.spoofing.maxTouchPoints} onChange={(event) => updateSettings({ spoofing: { maxTouchPoints: Number(event.target.value) } })} />
-                </label>
-                <label>
-                  <span>WebGL vendor</span>
-                  <input value={settings.spoofing.webglVendor} onChange={(event) => updateSettings({ spoofing: { webglVendor: event.target.value } })} />
-                </label>
-                <label className="md:col-span-2">
-                  <span>WebGL renderer</span>
-                  <input value={settings.spoofing.webglRenderer} onChange={(event) => updateSettings({ spoofing: { webglRenderer: event.target.value } })} />
-                </label>
-                <SettingsSelect
+                <TextRow label="CPU cores" help="CPU core count reported to scripts." type="number" min={2} max={32} value={settings.spoofing.hardwareConcurrency} onChange={(event) => updateSettings({ spoofing: { hardwareConcurrency: Number(event.target.value) } })} />
+                <TextRow label="Device Memory GB" help="Device memory reported to scripts." type="number" min={1} max={32} value={settings.spoofing.deviceMemory} onChange={(event) => updateSettings({ spoofing: { deviceMemory: Number(event.target.value) } })} />
+                <TextRow label="Touch points" help="Maximum touch points reported for input." type="number" min={0} max={10} value={settings.spoofing.maxTouchPoints} onChange={(event) => updateSettings({ spoofing: { maxTouchPoints: Number(event.target.value) } })} />
+                <TextRow label="WebGL vendor" value={settings.spoofing.webglVendor} onChange={(event) => updateSettings({ spoofing: { webglVendor: event.target.value } })} />
+                <TextRow label="WebGL renderer" value={settings.spoofing.webglRenderer} onChange={(event) => updateSettings({ spoofing: { webglRenderer: event.target.value } })} />
+                <SelectRow
                   label="Location"
                   value={settings.spoofing.location.mode}
                   options={spoofingLocationOptions}
                   onChange={(mode) => updateSettings({ spoofing: { location: { mode } } })}
                 />
-                <label>
-                  <span>Latitude</span>
-                  <input type="number" step="0.000001" min={-90} max={90} value={settings.spoofing.location.latitude} onChange={(event) => updateSettings({ spoofing: { location: { latitude: Number(event.target.value) } } })} />
-                </label>
-                <label>
-                  <span>Longitude</span>
-                  <input type="number" step="0.000001" min={-180} max={180} value={settings.spoofing.location.longitude} onChange={(event) => updateSettings({ spoofing: { location: { longitude: Number(event.target.value) } } })} />
-                </label>
-                <label>
-                  <span>Accuracy meters</span>
-                  <input type="number" min={1} max={50000} value={settings.spoofing.location.accuracy} onChange={(event) => updateSettings({ spoofing: { location: { accuracy: Number(event.target.value) } } })} />
-                </label>
-                <button
-                  type="button"
-                  onClick={() => updateSettings({ spoofing: DEFAULT_SETTINGS.spoofing })}
-                  className="settings-action"
-                >
-                  <Fingerprint className="h-4 w-4" />
-                  Reset spoofing
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!spoofingState.available) {
-                      setActiveSection('Labs')
-                      return
-                    }
-                    updateSettings({ spoofing: { enabled: true, location: { mode: 'fixed', latitude: 52.2297, longitude: 21.0122, accuracy: 25 }, timezone: 'Europe/Warsaw', languages: ['pl-PL', 'pl', 'en-US'] } })
-                  }}
-                  className="settings-action"
-                >
-                  <MapPin className="h-4 w-4" />
-                  Use Warsaw profile
-                </button>
+                <TextRow label="Latitude" type="number" step="0.000001" min={-90} max={90} value={settings.spoofing.location.latitude} onChange={(event) => updateSettings({ spoofing: { location: { latitude: Number(event.target.value) } } })} />
+                <TextRow label="Longitude" type="number" step="0.000001" min={-180} max={180} value={settings.spoofing.location.longitude} onChange={(event) => updateSettings({ spoofing: { location: { longitude: Number(event.target.value) } } })} />
+                <TextRow label="Accuracy meters" type="number" min={1} max={50000} value={settings.spoofing.location.accuracy} onChange={(event) => updateSettings({ spoofing: { location: { accuracy: Number(event.target.value) } } })} />
+                <ActionRow label="Spoofing profile" help="Restore default identity values.">
+                  <VastButton
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => updateSettings({ spoofing: DEFAULT_SETTINGS.spoofing })}
+                  >
+                    <Fingerprint className="h-4 w-4" />
+                    Reset
+                  </VastButton>
+                </ActionRow>
+                <ActionRow label="Warsaw profile" help="Polish locale, timezone, and fixed location.">
+                  <VastButton
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      if (!spoofingState.available) {
+                        setActiveSection('Labs')
+                        return
+                      }
+                      updateSettings({ spoofing: { enabled: true, location: { mode: 'fixed', latitude: 52.2297, longitude: 21.0122, accuracy: 25 }, timezone: 'Europe/Warsaw', languages: ['pl-PL', 'pl', 'en-US'] } })
+                    }}
+                  >
+                    <MapPin className="h-4 w-4" />
+                    Apply
+                  </VastButton>
+                </ActionRow>
               </div>
             </section>
 
             <section id="Security" className="settings-section" hidden={!sectionVisible('Security')}>
-              <h2>Security</h2>
-              <div className="settings-grid">
-                <label><span>HTTPS-only mode</span><input type="checkbox" checked={settings.security.httpsOnlyMode} onChange={(event) => updateSettings({ security: { ...settings.security, httpsOnlyMode: event.target.checked } })} /></label>
-                <label><span>External link confirmation</span><input type="checkbox" checked={settings.security.confirmExternalLinks} onChange={(event) => updateSettings({ security: { ...settings.security, confirmExternalLinks: event.target.checked } })} /></label>
-                <label><span>Dangerous download warnings</span><input type="checkbox" checked={settings.security.warnDangerousDownloads} onChange={(event) => updateSettings({ security: { ...settings.security, warnDangerousDownloads: event.target.checked } })} /></label>
-                <label><span>Always confirm autofill</span><input type="checkbox" checked={settings.security.alwaysConfirmAutofill} onChange={(event) => updateSettings({ security: { ...settings.security, alwaysConfirmAutofill: event.target.checked } })} /></label>
-                <button type="button" onClick={() => updateSettings({ security: { ...settings.security, httpsOnlyMode: false, confirmExternalLinks: false, warnDangerousDownloads: true, alwaysConfirmAutofill: true, sitePermissions: [] } })} className="settings-action"><Shield className="h-4 w-4" />Reset security settings</button>
+              <div className="settings-page-head">
+                <h2>Security</h2>
+              </div>
+              <div className="settings-rows">
+                <ToggleRow
+                  label="HTTPS-only mode"
+                  help="Prefer encrypted connections for site requests."
+                  checked={settings.security.httpsOnlyMode}
+                  onChange={(httpsOnlyMode) => updateSettings({ security: { ...settings.security, httpsOnlyMode } })}
+                />
+                <ToggleRow
+                  label="External link confirmation"
+                  help="Ask before opening links that launch other apps."
+                  checked={settings.security.confirmExternalLinks}
+                  onChange={(confirmExternalLinks) => updateSettings({ security: { ...settings.security, confirmExternalLinks } })}
+                />
+                <ToggleRow label="Dangerous download warnings" checked={settings.security.warnDangerousDownloads} onChange={(warnDangerousDownloads) => updateSettings({ security: { ...settings.security, warnDangerousDownloads } })} />
+                <ActionRow label="Security defaults" help="Restore the default security posture and clear per-site overrides.">
+                  <VastButton
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => updateSettings({ security: { ...settings.security, httpsOnlyMode: false, confirmExternalLinks: false, warnDangerousDownloads: true, sitePermissions: [] } })}
+                  >
+                    <Shield className="h-4 w-4" />
+                    Reset
+                  </VastButton>
+                </ActionRow>
               </div>
             </section>
 
             <section id="Site Data" className="settings-section" hidden={!sectionVisible('Site Data')}>
-              <h2>Site Data / Permissions</h2>
-              <div className="settings-grid">
-                <button type="button" onClick={() => runtime.openUrlInNewTab(INTERNAL_DIAGNOSTICS_URL)} className="settings-action"><Database className="h-4 w-4" />Open Diagnostics & Site Data</button>
-                <button type="button" onClick={() => void window.vast.privacy.clearSiteData()} className="settings-action"><Eraser className="h-4 w-4" />Clear cached site data</button>
-                <SettingsSelect label="Camera" value={settings.security.permissionCamera} onChange={(permissionCamera: PermissionSetting) => updateSettings({ security: { ...settings.security, permissionCamera } })} options={permissionOptions} />
-                <SettingsSelect label="Microphone" value={settings.security.permissionMicrophone} onChange={(permissionMicrophone: PermissionSetting) => updateSettings({ security: { ...settings.security, permissionMicrophone } })} options={permissionOptions} />
-                <SettingsSelect label="Location" value={settings.security.permissionLocation} onChange={(permissionLocation: PermissionSetting) => updateSettings({ security: { ...settings.security, permissionLocation } })} options={permissionOptions} />
-                <SettingsSelect label="Notifications" value={settings.security.permissionNotifications} onChange={(permissionNotifications: PermissionSetting) => updateSettings({ security: { ...settings.security, permissionNotifications } })} options={permissionOptions} />
-                <SettingsSelect label="Clipboard" value={settings.security.permissionClipboard} onChange={(permissionClipboard: PermissionSetting) => updateSettings({ security: { ...settings.security, permissionClipboard } })} options={permissionOptions} />
-                <SettingsSelect label="Fullscreen" value={settings.security.permissionFullscreen} onChange={(permissionFullscreen: PermissionSetting) => updateSettings({ security: { ...settings.security, permissionFullscreen } })} options={permissionOptions} />
+              <div className="settings-page-head">
+                <h2>Site Data / Permissions</h2>
               </div>
-              <div className="mt-4 rounded-card border border-white/10 bg-white/[0.035] p-4">
-                <div className="mb-3 text-sm font-semibold text-white">Per-site permissions</div>
+              <div className="settings-rows">
+                <ActionRow label="Diagnostics & Site Data" help="Inspect storage and permissions per site.">
+                  <VastButton variant="secondary" size="sm" onClick={() => runtime.openUrlInNewTab(INTERNAL_DIAGNOSTICS_URL)}><Database className="h-4 w-4" />Open</VastButton>
+                </ActionRow>
+                <ActionRow label="Cached site data" help="Remove caches and storage kept for sites.">
+                  <VastButton variant="secondary" size="sm" onClick={() => void window.vast.privacy.clearSiteData()}><Eraser className="h-4 w-4" />Clear</VastButton>
+                </ActionRow>
+                <SelectRow label="Camera" help="Default permission sites receive for the camera." value={settings.security.permissionCamera} onChange={(permissionCamera: PermissionSetting) => updateSettings({ security: { ...settings.security, permissionCamera } })} options={permissionOptions} />
+                <SelectRow label="Microphone" value={settings.security.permissionMicrophone} onChange={(permissionMicrophone: PermissionSetting) => updateSettings({ security: { ...settings.security, permissionMicrophone } })} options={permissionOptions} />
+                <SelectRow label="Location" value={settings.security.permissionLocation} onChange={(permissionLocation: PermissionSetting) => updateSettings({ security: { ...settings.security, permissionLocation } })} options={permissionOptions} />
+                <SelectRow label="Notifications" value={settings.security.permissionNotifications} onChange={(permissionNotifications: PermissionSetting) => updateSettings({ security: { ...settings.security, permissionNotifications } })} options={permissionOptions} />
+                <SelectRow label="Clipboard" value={settings.security.permissionClipboard} onChange={(permissionClipboard: PermissionSetting) => updateSettings({ security: { ...settings.security, permissionClipboard } })} options={permissionOptions} />
+                <SelectRow label="Fullscreen" value={settings.security.permissionFullscreen} onChange={(permissionFullscreen: PermissionSetting) => updateSettings({ security: { ...settings.security, permissionFullscreen } })} options={permissionOptions} />
+              </div>
+              <div className="settings-card mt-3.5">
+                <h3 className="settings-card-title">Per-site permissions</h3>
                 {(settings.security.sitePermissions ?? []).length === 0 ? (
                   <div className="text-xs leading-5 text-vast-soft">No per-site permission overrides saved.</div>
                 ) : (
-                  <div className="grid gap-2">
+                  <div className="settings-rows">
                     {(settings.security.sitePermissions ?? []).map((item) => (
-                      <div key={`${item.origin}-${item.workspaceId ?? 'shared'}-${item.permission}`} className="flex items-center justify-between gap-3 rounded-control border border-white/[0.08] bg-black/20 px-3 py-2 text-xs text-vast-soft">
-                        <span className="min-w-0 truncate">{item.origin} / {workspaces.find((workspace) => workspace.id === item.workspaceId)?.name ?? 'Shared'} / {item.permission}: <span className="font-semibold text-white">{item.setting}</span></span>
-                        <button
-                          type="button"
-                          className="text-vast-cyan"
-                          onClick={() => updateSettings({ security: { ...settings.security, sitePermissions: (settings.security.sitePermissions ?? []).filter((override) => !(override.origin === item.origin && override.permission === item.permission && override.workspaceId === item.workspaceId)) } })}
-                        >
-                          Revoke
-                        </button>
+                      <div key={`${item.origin}-${item.workspaceId ?? 'shared'}-${item.permission}`} className="settings-row">
+                        <span className="settings-row-label min-w-0 truncate">
+                          {item.origin} / {workspaces.find((workspace) => workspace.id === item.workspaceId)?.name ?? 'Shared'} / {item.permission}: <span className="font-semibold">{item.setting}</span>
+                        </span>
+                        <span className="settings-row-control">
+                          <VastButton
+                            variant="quiet"
+                            size="sm"
+                            onClick={() => updateSettings({ security: { ...settings.security, sitePermissions: (settings.security.sitePermissions ?? []).filter((override) => !(override.origin === item.origin && override.permission === item.permission && override.workspaceId === item.workspaceId)) } })}
+                          >
+                            Revoke
+                          </VastButton>
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -1223,17 +1409,19 @@ export function SettingsModal(): JSX.Element | null {
             </section>
 
             <section id="Search" className="settings-section" hidden={!sectionVisible('Search')}>
-              <h2>Search and Startup</h2>
-              <div className="settings-grid">
-                <SettingsSelect
+              <div className="settings-page-head">
+                <h2>Search and Startup</h2>
+              </div>
+              <div className="settings-rows">
+                <SelectRow
                   label="Search engine"
                   value={settings.defaultSearchEngine}
                   onChange={(defaultSearchEngine) => updateSettings({ defaultSearchEngine })}
                   options={SEARCH_ENGINES.map((engine) => ({ value: engine.id, label: engine.name }))}
                 />
-                <SettingsSelect
+                <SelectRow
                   label="Startup"
-                  size="short"
+                  help="What Vast shows when it launches."
                   value={settings.startupBehavior}
                   onChange={(startupBehavior) => updateSettings({ startupBehavior })}
                   options={[
@@ -1242,8 +1430,9 @@ export function SettingsModal(): JSX.Element | null {
                     { value: 'home', label: 'Home' }
                   ]}
                 />
-                <SettingsSelect
+                <SelectRow
                   label="New tab layout"
+                  help="Style of the page opened for new tabs."
                   value={settings.newTabBehavior}
                   onChange={(newTabBehavior) => updateSettings({ newTabBehavior })}
                   options={[
@@ -1252,10 +1441,7 @@ export function SettingsModal(): JSX.Element | null {
                     { value: 'blank', label: 'Minimalist' }
                   ]}
                 />
-                <label>
-                  <span>Compact dashboard cards</span>
-                  <input type="checkbox" checked={settings.newTab.compactCards} onChange={(event) => updateSettings({ newTab: { compactCards: event.target.checked } })} />
-                </label>
+                <ToggleRow label="Compact dashboard cards" checked={settings.newTab.compactCards} onChange={(compactCards) => updateSettings({ newTab: { compactCards } })} />
                 {([
                   ['showQuickLinks', 'Quick links'],
                   ['showRecentPages', 'Recent pages'],
@@ -1266,38 +1452,25 @@ export function SettingsModal(): JSX.Element | null {
                   ['showWorkspaceSummary', 'Workspace summary'],
                   ['showSessionTimeline', 'Session timeline']
                 ] as const).map(([key, label]) => (
-                  <label key={key}>
-                    <span>Show {label.toLowerCase()}</span>
-                    <input type="checkbox" checked={settings.newTab[key]} onChange={(event) => updateSettings({ newTab: { [key]: event.target.checked } })} />
-                  </label>
+                  <ToggleRow key={key} label={`Show ${label.toLowerCase()}`} checked={settings.newTab[key]} onChange={(checked) => updateSettings({ newTab: { [key]: checked } })} />
                 ))}
-                <label>
-                  <span>Restore previous session</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.restorePreviousSession}
-                    onChange={(event) => updateSettings({ restorePreviousSession: event.target.checked })}
-                  />
-                </label>
-                <label>
-                  <span>Hibernate inactive tabs</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.hibernateInactiveTabs}
-                    onChange={(event) => updateSettings({ hibernateInactiveTabs: event.target.checked })}
-                  />
-                </label>
+                <ToggleRow label="Restore previous session" checked={settings.restorePreviousSession} onChange={(restorePreviousSession) => updateSettings({ restorePreviousSession })} />
+                <ToggleRow label="Hibernate inactive tabs" checked={settings.hibernateInactiveTabs} onChange={(hibernateInactiveTabs) => updateSettings({ hibernateInactiveTabs })} />
               </div>
-              <div className="settings-default-browser-panel mt-4">
-                <button
-                  type="button"
-                  onClick={() => void openDefaultBrowserSetup()}
-                  disabled={settingDefaultBrowser || defaultBrowserStatus?.supported === false}
-                  className="settings-action"
-                >
-                  <MonitorCheck className="h-4 w-4" />
-                  <span>{settingDefaultBrowser ? 'Opening Windows Default Apps...' : 'set browser as default'}</span>
-                </button>
+              <div className="settings-default-browser-panel">
+                <div className="settings-rows">
+                  <ActionRow label="Default browser" help="Register Vast and pick it for web links in Windows.">
+                    <VastButton
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void openDefaultBrowserSetup()}
+                      disabled={settingDefaultBrowser || defaultBrowserStatus?.supported === false}
+                    >
+                      <MonitorCheck className="h-4 w-4" />
+                      <span>{settingDefaultBrowser ? 'Opening Windows Default Apps...' : 'set browser as default'}</span>
+                    </VastButton>
+                  </ActionRow>
+                </div>
                 <div className="settings-default-browser-note">
                   {defaultBrowserStatus?.supported === false
                     ? defaultBrowserStatus.message
@@ -1307,68 +1480,78 @@ export function SettingsModal(): JSX.Element | null {
             </section>
 
             <section id="Automation" className="settings-section" hidden={!sectionVisible('Automation')}>
-              <h2>Automation</h2>
-              <div className="settings-grid">
-                <button type="button" onClick={() => { runtime.openUrlInNewTab(INTERNAL_AUTOMATION_URL); setOpen(false) }} className="settings-action"><Sparkles className="h-4 w-4" />Open Automation</button>
-                <button type="button" onClick={() => runtime.runMacro(macros[0]?.id ?? '')} disabled={!macros[0]} className="settings-action"><Activity className="h-4 w-4" />Run first macro</button>
-                <label><span>Macros installed</span><input readOnly value={macros.length} /></label>
-                <label><span>Automation model</span><input readOnly value="Visible, local, user-controlled" /></label>
+              <div className="settings-page-head">
+                <h2>Automation</h2>
+              </div>
+              <div className="settings-rows">
+                <ActionRow label="Macro manager" help="Create and review browser macros.">
+                  <VastButton variant="secondary" size="sm" onClick={() => { runtime.openUrlInNewTab(INTERNAL_AUTOMATION_URL); setOpen(false) }}><Sparkles className="h-4 w-4" />Open</VastButton>
+                </ActionRow>
+                <ActionRow label="Run first macro">
+                  <VastButton variant="secondary" size="sm" onClick={() => runtime.runMacro(macros[0]?.id ?? '')} disabled={!macros[0]}><Activity className="h-4 w-4" />Run</VastButton>
+                </ActionRow>
+                <MetaRow label="Macros installed" value={macros.length} />
+                <MetaRow label="Automation model" value="Visible, local, user-controlled" />
               </div>
             </section>
 
             <section id="Workspaces" className="settings-section" hidden={!sectionVisible('Workspaces')}>
-              <div className="mb-3 flex items-center justify-between">
+              <div className="settings-page-head">
                 <h2>Workspaces</h2>
-                <button
-                  type="button"
-                  onClick={() =>
-                    openPromptDialog({
-                      title: 'New workspace',
-                      label: 'Workspace name',
-                      placeholder: 'Research, Travel, Side project',
-                      confirmLabel: 'Create workspace',
-                      onConfirm: (name) => createWorkspace(name, settings.accentColor, settings.privacy.privateWorkspaceDefault)
-                    })
-                  }
-                  className="settings-action settings-action-compact"
-                >
-                  <Plus className="h-4 w-4" />
-                  New workspace
-                </button>
+                <div className="settings-page-actions">
+                  <VastButton
+                    variant="secondary"
+                    size="sm"
+                    onClick={() =>
+                      openPromptDialog({
+                        title: 'New workspace',
+                        label: 'Workspace name',
+                        placeholder: 'Research, Travel, Side project',
+                        confirmLabel: 'Create workspace',
+                        onConfirm: (name) => createWorkspace(name, settings.accentColor, settings.privacy.privateWorkspaceDefault)
+                      })
+                    }
+                  >
+                    <Plus className="h-4 w-4" />
+                    New workspace
+                  </VastButton>
+                </div>
               </div>
-              <div className="space-y-2">
+              <div className="settings-stack">
                 {workspaces.map((workspace) => (
-                  <div key={workspace.id} className="rounded-card border border-white/10 bg-white/[0.045] p-3" data-workspace-settings-id={workspace.id}>
+                  <div key={workspace.id} className="settings-card" data-workspace-settings-id={workspace.id}>
                     <div className="flex items-center gap-3">
-                      <span className="grid h-9 w-9 place-items-center rounded-control" style={{ backgroundColor: `${workspace.color}22`, color: workspace.color }}>
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-control" style={{ backgroundColor: `${workspace.color}22`, color: workspace.color }}>
                         <WorkspaceIcon name={workspace.icon} className="h-4 w-4" />
                       </span>
                       <input
                         value={workspace.name}
                         aria-label={`Rename ${workspace.name} workspace`}
                         onChange={(event) => renameWorkspace(workspace.id, event.target.value)}
-                        className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-white outline-none"
+                        className="min-w-0 flex-1 rounded-control border border-transparent bg-transparent px-2 py-1 text-sm font-semibold text-white outline-none transition hover:border-white/10 focus:border-vast-cyan/40"
                       />
-                      <button
-                        type="button"
-                        title={`Customize ${workspace.name} workspace`}
+                      <IconButton
+                        variant={workspaceAppearanceId === workspace.id ? 'selected' : 'quiet'}
+                        size="sm"
+                        className="h-9 w-9 shrink-0"
+                        tooltip={`Customize ${workspace.name} workspace`}
+                        aria-label={`Customize ${workspace.name} workspace`}
                         aria-expanded={workspaceAppearanceId === workspace.id}
                         onClick={() => setWorkspaceAppearanceId((current) => current === workspace.id ? null : workspace.id)}
-                        className={`grid h-9 w-9 place-items-center rounded-control transition hover:bg-white/10 hover:text-white ${
-                          workspaceAppearanceId === workspace.id ? 'bg-white/[0.1] text-white' : 'text-vast-soft'
-                        }`}
                       >
                         <Palette className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        title={`Delete ${workspace.name} workspace`}
+                      </IconButton>
+                      <IconButton
+                        variant="quiet"
+                        size="sm"
+                        className="h-9 w-9 shrink-0"
+                        tooltip={`Delete ${workspace.name} workspace`}
+                        aria-label={`Delete ${workspace.name} workspace`}
                         disabled={workspaces.length <= 1}
                         onClick={() => deleteWorkspace(workspace.id)}
-                        className="grid h-9 w-9 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white disabled:opacity-30"
                       >
                         <Trash2 className="h-4 w-4" />
-                      </button>
+                      </IconButton>
                     </div>
                     {workspaceAppearanceId === workspace.id && (
                       <div className="mt-3">
@@ -1380,23 +1563,32 @@ export function SettingsModal(): JSX.Element | null {
                         />
                       </div>
                     )}
-                    <div className="mt-3 grid gap-2 md:grid-cols-2">
-                      <SettingsSelect
+                    <div className="settings-rows mt-3">
+                      <SelectRow
                         label="Identity"
-                        size="long"
                         value={workspace.identity?.sessionMode ?? (workspace.isPrivate ? 'ephemeral' : 'isolated')}
                         options={workspaceSessionOptions}
                         onChange={(sessionMode) => updateWorkspaceIdentity(workspace.id, { sessionMode })}
                       />
-                      <SettingsSelect
+                      <SelectRow
                         label="Network route"
                         value={workspace.identity?.proxyMode ?? 'system'}
                         options={workspaceProxyOptions}
                         onChange={(proxyMode) => updateWorkspaceIdentity(workspace.id, { proxyMode })}
                       />
                       {(workspace.identity?.proxyMode ?? 'system') === 'fixed' && <>
-                        <label><span>Proxy URL</span><input placeholder="socks5://127.0.0.1:9050" value={workspace.identity?.proxyServer ?? ''} onChange={(event) => updateWorkspaceIdentity(workspace.id, { proxyServer: event.target.value.slice(0, 2_048) })} /></label>
-                        <label><span>Proxy bypass rules</span><input placeholder="&lt;local&gt;" value={workspace.identity?.proxyBypassRules ?? '<local>'} onChange={(event) => updateWorkspaceIdentity(workspace.id, { proxyBypassRules: event.target.value.slice(0, 2_048) })} /></label>
+                        <TextRow
+                          label="Proxy URL"
+                          placeholder="socks5://127.0.0.1:9050"
+                          value={workspace.identity?.proxyServer ?? ''}
+                          onChange={(event) => updateWorkspaceIdentity(workspace.id, { proxyServer: event.target.value.slice(0, 2_048) })}
+                        />
+                        <TextRow
+                          label="Proxy bypass rules"
+                          placeholder="&lt;local&gt;"
+                          value={workspace.identity?.proxyBypassRules ?? '<local>'}
+                          onChange={(event) => updateWorkspaceIdentity(workspace.id, { proxyBypassRules: event.target.value.slice(0, 2_048) })}
+                        />
                       </>}
                     </div>
                   </div>
@@ -1405,147 +1597,148 @@ export function SettingsModal(): JSX.Element | null {
             </section>
 
             <section id="Shortcuts" className="settings-section" hidden={!sectionVisible('Shortcuts')}>
-              <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="settings-page-head">
                 <div>
                   <h2>Keyboard Shortcuts</h2>
-                  <p className="text-xs leading-5 text-vast-soft">Shortcuts are validated before they are applied.</p>
+                  <p className="settings-page-sub">Shortcuts are validated before they are applied.</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShortcutDrafts(DEFAULT_SHORTCUTS)
-                    updateSettings({ keyboardShortcuts: DEFAULT_SHORTCUTS })
-                  }}
-                  className="settings-action settings-action-compact"
-                >
-                  Reset shortcuts
-                </button>
+                <div className="settings-page-actions">
+                  <VastButton
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      setShortcutDrafts(DEFAULT_SHORTCUTS)
+                      updateSettings({ keyboardShortcuts: DEFAULT_SHORTCUTS })
+                    }}
+                  >
+                    Reset shortcuts
+                  </VastButton>
+                </div>
               </div>
-              <div className="grid gap-2 md:grid-cols-2">
+              <div className="settings-rows">
                 {Object.entries(shortcutDrafts).map(([name, shortcut]) => {
                   const error = shortcutErrors[name]
                   return (
-                  <div key={name} className={`rounded-control border px-3 py-2 ${error ? 'border-vast-amber/[0.35] bg-vast-amber/10' : 'border-white/[0.08] bg-white/[0.035]'}`}>
-                    <div className="flex items-center justify-between gap-3">
-                    <span className="min-w-0 truncate text-sm text-vast-soft">{name}</span>
-                    <div className="flex items-center gap-2">
-                    <input
-                      value={shortcut}
-                      onChange={(event) => setShortcutDrafts((drafts) => ({ ...drafts, [name]: event.target.value }))}
-                      onBlur={() => {
-                        const next = shortcutDrafts[name]?.trim()
-                        if (next && !shortcutErrors[name]) updateSettings({ keyboardShortcuts: { [name]: next } })
-                      }}
-                      className="w-36 rounded-control border border-white/10 bg-black/20 px-2 py-1 text-right text-xs text-white outline-none focus:border-vast-cyan/40"
-                    />
-                    <button
-                      type="button"
-                      title={`Reset ${name}`}
-                      onClick={() => {
-                        const next = DEFAULT_SHORTCUTS[name] ?? settings.keyboardShortcuts[name]
-                        setShortcutDrafts((drafts) => ({ ...drafts, [name]: next }))
-                        updateSettings({ keyboardShortcuts: { [name]: next } })
-                      }}
-                      className="grid h-8 w-8 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
+                    <div key={name} className="settings-row">
+                      <span className="settings-row-label">
+                        {name}
+                        {error && <span className="settings-row-sub text-vast-amber">{error}</span>}
+                      </span>
+                      <span className="settings-row-control">
+                        <input
+                          value={shortcut}
+                          aria-label={`Edit ${name} shortcut`}
+                          onChange={(event) => setShortcutDrafts((drafts) => ({ ...drafts, [name]: event.target.value }))}
+                          onBlur={() => {
+                            const next = shortcutDrafts[name]?.trim()
+                            if (next && !shortcutErrors[name]) updateSettings({ keyboardShortcuts: { [name]: next } })
+                          }}
+                          className="w-36 text-center"
+                        />
+                        <VastButton
+                          variant="ghost"
+                          size="sm"
+                          className="w-9 min-w-0 px-0"
+                          title={`Reset ${name}`}
+                          aria-label={`Reset ${name}`}
+                          onClick={() => {
+                            const next = DEFAULT_SHORTCUTS[name] ?? settings.keyboardShortcuts[name]
+                            setShortcutDrafts((drafts) => ({ ...drafts, [name]: next }))
+                            updateSettings({ keyboardShortcuts: { [name]: next } })
+                          }}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </VastButton>
+                      </span>
                     </div>
-                    </div>
-                    {error && <div className="mt-1 text-xs text-vast-amber">{error}</div>}
-                  </div>
-                )})}
+                  )
+                })}
               </div>
             </section>
 
             <section id="Data" className="settings-section" hidden={!sectionVisible('Data')}>
-              <h2>Data</h2>
-              <div className="mb-4 rounded-card border border-white/10 bg-white/[0.04] p-4">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-white">Current Vast data directory</div>
-                    <div className="mt-1 break-all rounded-control border border-white/[0.08] bg-black/20 px-3 py-2 text-xs text-vast-soft">
-                      {dataPathInfo?.currentDataPath ?? 'Loading...'}
-                    </div>
-                    <div className="mt-2 text-xs leading-5 text-vast-soft">
-                      {dataPathInfo?.customDataPathActive
-                        ? 'A custom data directory is active. The updater preserves this location.'
-                        : 'Using the default Vast profile directory. App files and user data are kept separate.'}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap gap-2">
-                    <button
-                      type="button"
-                      disabled={dataActionBusy === 'open'}
-                      onClick={() => void runDataAction('open', async () => {
-                        const result = await window.vast.dataPath.openDataFolder()
-                        return result.ok ? { ok: true, warnings: ['Opened current Vast data directory.'] } : result
-                      })}
-                      className="settings-action settings-action-compact"
-                    >
-                      <FolderOpen className="h-4 w-4" />
-                      Open data folder
-                    </button>
-                    <button
-                      type="button"
-                      disabled={dataActionBusy === 'change'}
-                      onClick={() => void runDataAction('change', () => window.vast.dataPath.changeDataDirectory())}
-                      className="settings-action settings-action-compact"
-                    >
-                      <Database className="h-4 w-4" />
-                      Change Vast data directory
-                    </button>
-                  </div>
+              <div className="settings-page-head">
+                <h2>Data</h2>
+              </div>
+              <div className="settings-card">
+                <div className="mb-3 text-sm font-semibold text-white">Current Vast data directory</div>
+                <div className="break-all rounded-control border border-white/[0.08] bg-black/20 px-3 py-2 text-xs text-vast-soft">
+                  {dataPathInfo?.currentDataPath ?? 'Loading...'}
+                </div>
+                <div className="mt-2 text-xs leading-5 text-vast-soft">
+                  {dataPathInfo?.customDataPathActive
+                    ? 'A custom data directory is active. The updater preserves this location.'
+                    : 'Using the default Vast profile directory. App files and user data are kept separate.'}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <VastButton
+                    variant="secondary"
+                    size="sm"
+                    disabled={dataActionBusy === 'open'}
+                    onClick={() => void runDataAction('open', async () => {
+                      const result = await window.vast.dataPath.openDataFolder()
+                      return result.ok ? { ok: true, warnings: ['Opened current Vast data directory.'] } : result
+                    })}
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                    Open data folder
+                  </VastButton>
+                  <VastButton
+                    variant="secondary"
+                    size="sm"
+                    disabled={dataActionBusy === 'change'}
+                    onClick={() => void runDataAction('change', () => window.vast.dataPath.changeDataDirectory())}
+                  >
+                    <Database className="h-4 w-4" />
+                    Change Vast data directory
+                  </VastButton>
                 </div>
               </div>
-              <div className="settings-grid">
-                <button type="button" onClick={clearHistory} className="settings-action">
-                  <Trash2 className="h-4 w-4" />
-                  Clear history
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    runtime.openUrlInNewTab(INTERNAL_SESSION_TIMELINE_URL)
-                    setOpen(false)
-                  }}
-                  className="settings-action"
-                >
-                  <History className="h-4 w-4" />
-                  Session timeline
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    runtime.openUrlInNewTab(INTERNAL_PASSWORDS_URL)
-                    setOpen(false)
-                  }}
-                  className="settings-action"
-                >
-                  <KeyRound className="h-4 w-4" />
-                  Password Manager
-                </button>
-                <button
-                  type="button"
-                  disabled={dataActionBusy === 'export'}
-                  onClick={() => void runDataAction('export', exportFullBackupFromSettings)}
-                  className="settings-action"
-                >
-                  <FileDown className="h-4 w-4" />
-                  Export all Vast data
-                </button>
-                <button
-                  type="button"
-                  disabled={dataActionBusy === 'import'}
-                  onClick={() => void runDataAction('import', () => window.vast.storage.importFullBackup())}
-                  className="settings-action"
-                >
-                  <FileUp className="h-4 w-4" />
-                  Import Vast data
-                </button>
+              <div className="settings-rows mt-3.5">
+                <ActionRow label="Browsing history" help="Remove saved history entries.">
+                  <VastButton variant="danger" size="sm" onClick={clearHistory}>
+                    <Trash2 className="h-4 w-4" />
+                    Clear history
+                  </VastButton>
+                </ActionRow>
+                <ActionRow label="Session timeline" help="Review browsing activity over time.">
+                  <VastButton
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      runtime.openUrlInNewTab(INTERNAL_SESSION_TIMELINE_URL)
+                      setOpen(false)
+                    }}
+                  >
+                    <History className="h-4 w-4" />
+                    Open
+                  </VastButton>
+                </ActionRow>
+                <ActionRow label="Full backup" help="Export every section of your Vast profile.">
+                  <VastButton
+                    variant="secondary"
+                    size="sm"
+                    disabled={dataActionBusy === 'export'}
+                    onClick={() => void runDataAction('export', exportFullBackupFromSettings)}
+                  >
+                    <FileDown className="h-4 w-4" />
+                    Export all Vast data
+                  </VastButton>
+                </ActionRow>
+                <ActionRow label="Restore backup" help="Import a previously exported Vast backup.">
+                  <VastButton
+                    variant="secondary"
+                    size="sm"
+                    disabled={dataActionBusy === 'import'}
+                    onClick={() => void runDataAction('import', () => window.vast.storage.importFullBackup())}
+                  >
+                    <FileUp className="h-4 w-4" />
+                    Import Vast data
+                  </VastButton>
+                </ActionRow>
               </div>
               {(dataMessage || migrationReport) && (
-                <div className="mt-4 rounded-card border border-white/10 bg-white/[0.04] p-4 text-xs leading-5 text-vast-soft">
+                <div className="settings-card mt-3.5 text-xs leading-5 text-vast-soft">
                   <div className="mb-2 text-sm font-semibold text-white">Backup report</div>
                   {dataMessage && <div>{dataMessage}</div>}
                   {migrationReport?.path && <div className="break-all">Backup path: {migrationReport.path}</div>}

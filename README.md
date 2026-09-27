@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logos/vasticon.png" alt="Vast Browser" width="96" />
+  <img src="assets/logos/vast.png" alt="Vast Browser" width="220" />
   <h1>Vast Browser</h1>
   <p><strong>A local-first desktop browser built for deep customization and fast workflows.</strong></p>
   <p>
@@ -13,9 +13,6 @@
 
 Vast combines Chromium page rendering through Electron with a React application shell built around workspaces, flexible tab layouts, local tools, privacy controls, and a deliberately configurable interface.
 
-> [!WARNING]
-> **Vast is beta software under active development.** Bugs, regressions, incomplete features, and unexpected behavior may occur. If you run into an issue, please report it so it can be investigated and improved.
-
 ## What Vast focuses on
 
 - Vertical, horizontal, and experimental Purist tab layouts
@@ -23,7 +20,6 @@ Vast combines Chromium page rendering through Electron with a React application 
 - Local bookmarks, history, notes, reading list, downloads, quick links, and session data
 - Command palette, editable shortcuts, search-engine shortcuts, Focus Reader, PDF viewing, and site-data controls
 - Chromium-compatible extensions, local `.vext` packages, the Vast Extensions Hub, and Vast Native API support
-- A local password vault protected through Electron `safeStorage`
 - Optional local tools for automation, LAN device discovery, diagnostics, and Video & Audio workflows
 - Export/import, storage backups, update verification, and hardened Windows packaging
 
@@ -47,7 +43,7 @@ The complete model is documented in [docs/PRIVACY.md](docs/PRIVACY.md).
 
 Vast is under active development. Windows x64 is the continuously exercised release target. macOS and Linux targets exist in the Electron configuration, but they are not currently release-supported or continuously verified.
 
-Optional Labs features are off on fresh profiles and require local opt-in. Current Labs surfaces include Video & Audio, Network Devices, Automation, Password Manager, Advanced Diagnostics, and Spoofing. Turning a Labs feature off hides and blocks that feature without deleting its local data.
+Optional Labs features are off on fresh profiles and require local opt-in. Current Labs surfaces include Video & Audio, Network Devices, Automation, Advanced Diagnostics, and Spoofing. Turning a Labs feature off hides and blocks that feature without deleting its local data.
 
 The repository also contains an experimental Chromium-port overlay under `chromium-port/`. It is a separate engineering track and is not the desktop package distributed from current releases.
 
@@ -138,4 +134,4 @@ Security-sensitive reports must follow [SECURITY.md](SECURITY.md). Do not put ex
 
 ## Licensing
 
-Vast-owned source code is licensed under the [MIT License](LICENSE). Third-party components and assets retain their own licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [docs/OPEN_SOURCE_LICENSE_AUDIT.md](docs/OPEN_SOURCE_LICENSE_AUDIT.md) for the maintained license and corresponding-source record.
+Vast-owned source code is licensed under [GNU GPL version 3 only](LICENSE) (`GPL-3.0-only`). Third-party components and assets retain their original licenses and copyright notices. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [docs/OPEN_SOURCE_LICENSE_AUDIT.md](docs/OPEN_SOURCE_LICENSE_AUDIT.md) for the maintained license and corresponding-source record.

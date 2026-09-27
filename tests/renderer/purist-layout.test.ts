@@ -12,7 +12,7 @@ const windowControlsSource = readFileSync(new URL('../../src/renderer/components
 const browserStageSource = readFileSync(new URL('../../src/renderer/components/browser/BrowserStage.tsx', import.meta.url), 'utf8')
 const webviewSurfaceSource = readFileSync(new URL('../../src/renderer/components/browser/WebviewSurface.tsx', import.meta.url), 'utf8')
 const browserRuntimeSource = `${browserStageSource}\n${webviewSurfaceSource}`
-const guestPreloadSource = readFileSync(new URL('../../src/preload/guest-autofill.ts', import.meta.url), 'utf8')
+const guestPreloadSource = readFileSync(new URL('../../src/preload/guest.ts', import.meta.url), 'utf8')
 const appSource = readFileSync(new URL('../../src/renderer/app/App.tsx', import.meta.url), 'utf8')
 const settingsSource = readFileSync(new URL('../../src/renderer/components/settings/SettingsModal.tsx', import.meta.url), 'utf8')
 

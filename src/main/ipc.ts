@@ -2,21 +2,18 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, screen, webContents, ty
 import { writeFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
+  BrowserImportRequest,
   BrowserSettings,
   DetachedTabPayload,
   PersistedData,
   Tab
 } from '../shared/types'
-import {
-  automaticPasswordCaptureOrigin,
-  sanitizeCredentialDocumentState,
-  sanitizeCredentialEvidenceReport,
-  sanitizeCredentialSubmissionCandidate,
-  sanitizeCredentialUsernameObservation
-} from '../shared/password-capture-policy'
 import { getDefaultBrowserStatus, openDefaultBrowserSettings } from './default-browser'
+import { discoverImportSources, runBrowserImport } from './browser-import'
+import { takeExtensionDocumentRules } from './extensions/extension-network-bridge'
 import {
   getGoogleAuthDiagnostics,
+  extensionDocumentRulesAllowed,
   isSafeWebUrl,
   openExternalUrl,
   privacyDocumentScriptForWebContents,
@@ -53,22 +50,14 @@ import { resolveExternalProtocolOpen } from './external-protocol'
 import {
   assertIpcFeatureAllowed,
   assertSensitiveIpcRegistrationComplete,
-  requiredFeatureForIpcChannel,
-  vaultAccessForIpcChannel
+  requiredFeatureForIpcChannel
 } from './ipc-feature-policy'
-import {
-  assertPasswordVaultIpcAccess,
-  lockPasswordVaultSession,
-  passwordVaultSessionStatus,
-  unlockPasswordVaultSession
-} from './password-vault-session'
 import { registerAvidaeIpc } from './ipc/avidae'
 import { registerDownloadsIpc } from './ipc/downloads'
 import { registerExtensionsIpc } from './ipc/extensions'
 import { registerNetworkIpc } from './ipc/network'
+import { registerNewTabBackgroundIpc } from './ipc/new-tab-background'
 import { registerNoticesIpc } from './ipc/notices'
-import { registerPasswordIpc } from './ipc/passwords'
-import { passwordCaptureCoordinator } from './password-capture-coordinator'
 import { registerPdfIpc } from './ipc/pdf'
 import { registerPrivacyIpc } from './ipc/privacy'
 import { fail, ok } from './ipc/registration'
@@ -149,6 +138,8 @@ export interface IpcServices {
   featureRegistrars?: IpcFeatureRegistrar[]
   relayService?: VastRelayService
   extensionManager?: ExtensionManager
+  storageDataForRenderer?: (data: PersistedData) => PersistedData
+  prepareStorageSave?: (current: PersistedData, incoming: PersistedData) => PersistedData
 }
 
 export type TrustedIpcHandlerRegistrar = <TArgs extends unknown[]>(
@@ -163,7 +154,17 @@ let ipcRegistered = false
 export function setupIpc(services: IpcServices = {}): void {
   if (ipcRegistered) throw new Error('Vast IPC handlers must be registered exactly once.')
   ipcRegistered = true
-  const { onDataSaved, onDetachTab, featureRegistrars = [], relayService, extensionManager } = services
+  const { onDataSaved, onDetachTab, featureRegistrars = [], relayService, extensionManager, storageDataForRenderer, prepareStorageSave } = services
+  ipcMain.on('vast:extensions:document-rules', (event, requestedUrl: unknown) => {
+    let rules: string[] = []
+    try {
+      if (typeof requestedUrl === 'string' && extensionDocumentRulesAllowed(event.sender, requestedUrl)) {
+        rules = takeExtensionDocumentRules(event.sender, requestedUrl, event.senderFrame)
+      }
+    } catch { /* Unavailable document rules must never prevent navigation. */ }
+    // Electron sends the synchronous reply when this setter is called.
+    event.returnValue = rules
+  })
   ipcMain.on('vast:privacy:document-script', (event, requestedUrl: unknown) => {
     const host = event.sender.hostWebContents
     const trustedHost = host && windowRegistry.vastWindowForWebContents(host)
@@ -182,94 +183,12 @@ export function setupIpc(services: IpcServices = {}): void {
     }
     event.returnValue = spoofingDocumentConfigForWebContents(event.sender, requestedUrl)
   })
-  const trustedPasswordCaptureGuest = (guest: Electron.WebContents): { owner: BrowserWindow; origin: string } | undefined => {
-    const host = guest.hostWebContents
-    const owner = host && windowRegistry.vastWindowForWebContents(host)
-    if (!owner || owner.isDestroyed() || guest.isDestroyed()) return undefined
-    try {
-      if (!guest.session.isPersistent()) return undefined
-    } catch {
-      return undefined
-    }
-    const origin = automaticPasswordCaptureOrigin(guest.getURL())
-    return origin ? { owner, origin } : undefined
-  }
-
-  const captureFeatureEnabled = async (): Promise<boolean> => {
-    try {
-      const data = await loadData()
-      assertIpcFeatureAllowed('vast:passwords:capture-status', data.settings)
-      return true
-    } catch {
-      return false
-    }
-  }
-
-  ipcMain.on('vast:password-capture:attempt', (event, input: unknown) => {
-    const guest = event.sender
-    void (async () => {
-      const context = trustedPasswordCaptureGuest(guest)
-      const candidate = sanitizeCredentialSubmissionCandidate(input)
-      if (!context) throw new Error('untrusted or non-persistent guest')
-      if (context.origin !== candidate.origin) throw new Error('guest origin changed before capture')
-      if (!await captureFeatureEnabled()) throw new Error('Password Manager feature is disabled')
-      const enabled = await (await import('./password-vault')).passwordCaptureEnabledForOrigin(context.owner, guest.id, candidate.origin)
-      if (!enabled) {
-        if (!guest.isDestroyed()) guest.send('vast:password-capture-result', { attemptId: candidate.attemptId, outcome: 'suppressed' })
-        return
-      }
-      passwordCaptureCoordinator.registerAttempt(context.owner, guest, candidate)
-    })().catch((error) => {
-      console.warn('[password-capture] Rejected credential attempt:', error instanceof Error ? error.message : 'unknown error')
-      const attemptId = input && typeof input === 'object' && typeof (input as { attemptId?: unknown }).attemptId === 'string'
-        ? (input as { attemptId: string }).attemptId
-        : undefined
-      if (!guest.isDestroyed() && attemptId) guest.send('vast:password-capture-result', { attemptId, outcome: 'invalid' })
-    })
-  })
-
-  ipcMain.on('vast:password-capture:evidence', (event, input: unknown) => {
-    const context = trustedPasswordCaptureGuest(event.sender)
-    if (!context) return
-    try {
-      const report = sanitizeCredentialEvidenceReport(input)
-      if (report.origin === context.origin) passwordCaptureCoordinator.recordEvidence(event.sender, report)
-    } catch {
-      // Invalid secret-free observations are ignored at the guest boundary.
-    }
-  })
-
-  ipcMain.on('vast:password-capture:username', (event, input: unknown) => {
-    const context = trustedPasswordCaptureGuest(event.sender)
-    if (!context) return
-    void captureFeatureEnabled().then((enabled) => {
-      if (!enabled) return
-      try {
-        const observation = sanitizeCredentialUsernameObservation(input)
-        if (observation.origin === context.origin) passwordCaptureCoordinator.observeUsername(context.owner, event.sender, observation)
-      } catch {
-        // Invalid observations never enter the username-first cache.
-      }
-    })
-  })
-
-  ipcMain.on('vast:password-capture:document-state', (event, input: unknown) => {
-    const context = trustedPasswordCaptureGuest(event.sender)
-    if (!context) return
-    try {
-      const state = sanitizeCredentialDocumentState(input)
-      if (state.origin === context.origin) passwordCaptureCoordinator.recordDocumentState(event.sender, state)
-    } catch {
-      // Document state contains no secret and is safe to drop when malformed.
-    }
-  })
   const registeredChannels = new Set<string>()
   const handle = <TArgs extends unknown[]>(
     channel: string,
     listener: (event: IpcMainInvokeEvent, ...args: TArgs) => unknown
   ): void => {
     const requiredFeature = requiredFeatureForIpcChannel(channel)
-    const vaultAccess = vaultAccessForIpcChannel(channel)
     registeredChannels.add(channel)
     ipcMain.handle(channel, async (event, ...args) => {
       assertTrustedIpcSender(event)
@@ -278,7 +197,6 @@ export function setupIpc(services: IpcServices = {}): void {
           const data = await loadData()
           assertIpcFeatureAllowed(channel, data.settings)
         }
-        assertPasswordVaultIpcAccess(vaultAccess)
       } catch (error) {
         return fail(error)
       }
@@ -289,15 +207,20 @@ export function setupIpc(services: IpcServices = {}): void {
   const persistRendererData = async (data: PersistedData): Promise<{ ok: true } | { ok: false; error: string }> => {
     try {
       if (!isPersistedData(data)) throw new Error('Invalid storage payload.')
-      await saveRendererData(data)
-      onDataSaved?.(data)
+      const current = await loadData()
+      const next = prepareStorageSave?.(current, data) ?? data
+      await saveRendererData(next)
+      onDataSaved?.(next)
       return ok()
     } catch (error) {
       return fail(error)
     }
   }
 
-  handle('vast:storage:load', async () => loadData())
+  handle('vast:storage:load', async () => {
+    const data = await loadData()
+    return storageDataForRenderer?.(data) ?? data
+  })
   for (const registerFeature of featureRegistrars) registerFeature(handle)
 
   handle('vast:storage:save', async (_event, data: PersistedData) => persistRendererData(data))
@@ -373,10 +296,15 @@ export function setupIpc(services: IpcServices = {}): void {
     }
   })
 
+  handle('vast:importer:discover', async () => discoverImportSources())
+
+  handle('vast:importer:run', async (_event, request: unknown) => runBrowserImport(request as BrowserImportRequest))
+
   registerAvidaeIpc(handle)
   registerDownloadsIpc(handle)
   if (extensionManager) registerExtensionsIpc(handle, senderWindowFor, extensionManager)
   registerNetworkIpc(handle, senderWindowFor)
+  registerNewTabBackgroundIpc(handle, senderWindowFor)
   registerNoticesIpc(handle)
   handle('vast:relay:state', (event) => {
     const snapshot = relayService?.snapshot() ?? {
@@ -395,11 +323,6 @@ export function setupIpc(services: IpcServices = {}): void {
   handle('vast:relay:action', async (_event, presentationId: unknown) => {
     if (!relayService || typeof presentationId !== 'string' || presentationId.length > 128) return fail('Invalid Relay presentation.')
     return relayService.performAction(presentationId)
-  })
-  registerPasswordIpc(handle, senderWindowFor, {
-    status: passwordVaultSessionStatus,
-    lock: () => lockPasswordVaultSession('manual'),
-    unlock: unlockPasswordVaultSession
   })
   registerPdfIpc(handle, senderWindowFor, resolveTrustedGuestWebContents, showRendererNotification)
   registerPrivacyIpc(handle)
@@ -531,6 +454,31 @@ export function setupIpc(services: IpcServices = {}): void {
     if (typeof text !== 'string' || text.length > 2 * 1024 * 1024) throw new Error('Invalid clipboard text.')
     clipboard.writeText(text)
     return ok()
+  })
+
+  handle('vast:extension-compat:confirm-tab', async (event, requestId: string, webContentsId: number) => {
+    try {
+      if (!extensionManager || typeof requestId !== 'string' || !/^[0-9a-f-]{36}$/i.test(requestId)) {
+        throw new Error('Invalid extension compatibility tab request.')
+      }
+      const target = resolveTrustedGuestWebContents(event.sender, webContentsId)
+      if (!extensionManager.confirmCompatibilityTab(requestId, target, senderWindowFor(event))) {
+        throw new Error('Extension compatibility tab request is unavailable.')
+      }
+      return ok()
+    } catch (error) {
+      return fail(error)
+    }
+  })
+
+  handle('vast:extension-compat:select-tab', async (event, webContentsId: number) => {
+    try {
+      if (!extensionManager) throw new Error('Extension manager is unavailable.')
+      extensionManager.selectCompatibilityTab(resolveTrustedGuestWebContents(event.sender, webContentsId))
+      return ok()
+    } catch (error) {
+      return fail(error)
+    }
   })
 
   handle('vast:browser:copy-image-at', async (event, webContentsId: number, x: number, y: number) => {

@@ -18,7 +18,6 @@ const runtimeSource = readFileSync(new URL('../../src/renderer/app/browser-runti
 const constantsSource = readFileSync(new URL('../../src/shared/constants.ts', import.meta.url), 'utf8')
 const labsPages = [
   'notes/NotesPage.tsx',
-  'passwords/PasswordsPage.tsx',
   'automation/AutomationPage.tsx',
   'avidae/AvidaePage.tsx',
   'diagnostics/DiagnosticsPage.tsx',
@@ -95,12 +94,13 @@ test('top chrome and Labs surfaces avoid white decorative gradients', () => {
   }
 })
 
-test('New Tab uses a flat canvas and neutral matching horizontal chrome dividers', () => {
+test('New Tab owns its canvas while horizontal chrome dividers remain neutral', () => {
   assert.match(appSource, /activeTabIsNewTab = activeTabUrl === INTERNAL_NEW_TAB_URL/)
   assert.match(appSource, /activeTabIsNewTab \? 'is-new-tab' : ''/)
-  assert.match(stylesSource, /\.app-shell\.is-new-tab \.app-main-surface\s*{[^}]*background:\s*var\(--vast-bg\) !important;/s)
+  assert.match(stylesSource, /\.app-shell\.is-new-tab \.app-main-surface,[\s\S]*?\.browser-stage\.is-new-tab \.browser-stage-pane\s*{[^}]*background:\s*transparent !important;/s)
   assert.match(stylesSource, /\.app-shell\.is-new-tab \.app-main-surface::before\s*{[^}]*display:\s*none;/)
-  assert.match(stylesSource, /\.browser-stage\.is-new-tab,[\s\S]*?\.browser-stage\.is-new-tab \.new-tab-page\s*{[^}]*background:\s*var\(--vast-bg\) !important;[^}]*background-image:\s*none !important;/)
+  assert.match(stylesSource, /\.new-tab-page\s*{[^}]*background-color:\s*#020202 !important;[^}]*background-image:\s*none !important;/s)
+  assert.match(stylesSource, /\.new-tab-page\[data-new-tab-background='custom'\]\s*{[^}]*background-image:\s*var\(--vast-new-tab-image, none\) !important;/s)
   assert.match(stylesSource, /\.horizontal-chrome\s*{[^}]*--horizontal-chrome-divider:\s*rgba\(255, 255, 255, 0\.055\);[^}]*background-image:\s*none !important;[^}]*border-bottom-color:\s*var\(--horizontal-chrome-divider\) !important;/s)
   assert.match(stylesSource, /\.horizontal-chrome \.address-bar-divider\s*{[^}]*border-top:\s*1px solid var\(--horizontal-chrome-divider\);[^}]*background:\s*none;/s)
   assert.match(stylesSource, /\.horizontal-bookmarks-bar:not\(\.purist-bookmarks-bar\)\s*{[^}]*border-top:\s*0 !important;/s)

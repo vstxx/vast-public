@@ -4,25 +4,19 @@ import { INTERNAL_AUTOMATION_URL, INTERNAL_NEW_TAB_URL } from '../../shared/cons
 import { getFeatureState, VastFeatures } from '../../shared/feature-gates'
 import { resolveLayoutMode } from '../../shared/layout-mode'
 import { mouseNavigationActionForButton, shouldTriggerMouseNavigation } from '../../shared/mouse-navigation'
-import { isOpeningAnimationEnabled, normalizeOpeningSoundVolume } from '../../shared/opening-startup'
 import { normalizeShortcutKey, parseShortcut } from '../../shared/shortcuts'
 import { shouldAutoDismissNotification } from '../../shared/notification-lifetime'
 import { isSensitiveAutomationUrl, macroActionUrl, macroContainsSensitiveTarget } from '../../shared/automation-policy'
+import { routeTopLevelNavigationUrl } from '../../shared/top-level-navigation-policy'
 import type {
-  BrowserSettings,
   DetachedTabPayload,
   DownloadItem,
   ID,
   MacroAction,
-  PasswordSavePromptAction,
-  PasswordSavePromptPayload,
   PersistedData,
   UiNotificationPayload,
   UiPromptPayload
 } from '../../shared/types'
-import vastLogo from '../../../assets/logos/vast.png'
-import { OPENING_AUDIO, OPENING_SEQUENCE, openingVolumeToGain, toSeconds } from './opening-sequence'
-import { OPENING_COMPLETE_MESSAGE } from '../../shared/opening-sequence'
 import { AddressBar } from '../components/browser/AddressBar'
 import type { BrowserStageHandle } from '../components/browser/BrowserStage'
 import { FindBar } from '../components/browser/FindBar'
@@ -32,9 +26,9 @@ import { ContextMenu } from '../components/ui/ContextMenu'
 import { ActionPromptModal, NotificationsOverlay } from '../components/ui/NotificationsOverlay'
 import { LocalErrorBoundary } from '../components/ui/LocalErrorBoundary'
 import { PromptDialog } from '../components/ui/PromptDialog'
-import { PasswordSavePrompt } from '../components/passwords/PasswordSavePrompt'
 import { WindowControls } from '../components/window/WindowControls'
 import { BrowserRuntimeContext, type BrowserRuntime } from './browser-runtime'
+import { appearanceStyle } from './appearance-style'
 import { clamp } from '../lib/format'
 import { handleBrowserTabOpenRequest } from '../lib/browser-tab-open'
 import {
@@ -94,51 +88,6 @@ function dispatchPdfCommand(type: string, tabId?: ID): boolean {
   return true
 }
 
-function appearanceStyle(settings: Pick<BrowserSettings, 'appearance' | 'accentColor'>): CSSProperties {
-  const appearance = settings.appearance
-  const radius = clamp(appearance.cornerRadius, 6, 36)
-  const glass = clamp(appearance.glassIntensity, 0, 100)
-  const blur = clamp(appearance.blurIntensity, 0, 100)
-  const glow = clamp(appearance.glowIntensity, 0, 100)
-  const border = clamp(appearance.borderIntensity, 0, 100)
-  const shadow = clamp(appearance.shadowIntensity, 0, 100)
-  const gradient = clamp(appearance.gradientIntensity, 0, 100)
-  const panel = clamp(appearance.panelOpacity, 0, 100)
-  const chrome = clamp(appearance.chromeOpacity, 0, 100)
-  const saturation = clamp(appearance.saturation, 80, 145)
-
-  return {
-    '--vast-accent': settings.accentColor,
-    '--vast-accent-secondary': appearance.secondaryAccentColor,
-    '--vast-bg-tint': appearance.backgroundTintColor,
-    '--vast-surface-tint': appearance.surfaceTintColor,
-    '--vast-radius-base': `${radius}px`,
-    '--vast-blur': `${Math.round(8 + blur * 0.32)}px`,
-    '--vast-saturation': `${(saturation / 100).toFixed(2)}`,
-    '--vast-panel-mix': `${Math.round(68 + panel * 0.3)}%`,
-    '--vast-address-panel-mix': `${Math.round(58 + panel * 0.28)}%`,
-    '--vast-focus-panel-mix': `${Math.round(52 + panel * 0.26)}%`,
-    '--vast-surface-mix': `${Math.round(34 + glass * 0.56)}%`,
-    '--vast-border-mix': `${Math.round(10 + border * 0.62)}%`,
-    '--vast-border-soft-mix': `${Math.round(7 + border * 0.42)}%`,
-    '--vast-address-border-mix': `${Math.round(6 + border * 0.42)}%`,
-    '--vast-focus-border-mix': `${Math.round(8 + border * 0.32)}%`,
-    '--vast-glow-mix': `${Math.round(2 + glow * 0.32)}%`,
-    '--vast-glow-soft-mix': `${Math.round(1 + glow * 0.14)}%`,
-    '--vast-focus-glow-mix': `${Math.round(4 + glow * 0.36)}%`,
-    '--vast-shadow-alpha': `${(0.08 + shadow * 0.0042).toFixed(3)}`,
-    '--vast-address-shadow-alpha': `${(0.06 + shadow * 0.0032).toFixed(3)}`,
-    '--vast-focus-shadow-alpha': `${(0.07 + shadow * 0.0037).toFixed(3)}`,
-    '--vast-gradient-mix': `${Math.round(gradient * 0.22)}%`,
-    '--vast-gradient-soft-mix': `${Math.round(gradient * 0.11)}%`,
-    '--vast-gradient-strong-mix': `${Math.round(8 + gradient * 0.26)}%`,
-    '--vast-chrome-alpha': `${(0.48 + chrome * 0.005).toFixed(3)}`,
-    '--vast-chrome-mix': `${Math.round(48 + chrome * 0.5)}%`,
-    '--vast-sheen-alpha': `${(0.014 + glass * 0.0007).toFixed(3)}`,
-    '--vast-sheen-soft-alpha': `${(0.01 + glass * 0.00038).toFixed(3)}`
-  } as CSSProperties
-}
-
 function matchesShortcut(event: KeyboardEvent, shortcut: string): boolean {
   const parts = parseShortcut(shortcut)
   if (!parts) return false
@@ -147,193 +96,6 @@ function matchesShortcut(event: KeyboardEvent, shortcut: string): boolean {
   if (parts.alt !== event.altKey) return false
   const eventKey = normalizeShortcutKey(event.key)
   return parts.key === eventKey || (parts.key === '+' && (eventKey === '=' || eventKey === '+'))
-}
-
-const OPENING_OVERLAY_STYLE = {
-  '--vast-opening-duration': `${OPENING_SEQUENCE.totalMs}ms`
-} as CSSProperties
-
-type VastOpeningWindow = Window &
-  typeof globalThis & {
-    __vastOpeningStartupEnabled?: boolean
-  }
-
-function playOpeningSerenitySound(volume: number): () => void {
-  const volumeGain = openingVolumeToGain(volume)
-  if (volumeGain <= 0) return () => undefined
-
-  const AudioContextCtor = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-  if (!AudioContextCtor) return () => undefined
-
-  let closed = false
-  const context = new AudioContextCtor()
-  const now = context.currentTime
-  const duration = toSeconds(OPENING_AUDIO.durationMs)
-  const master = context.createGain()
-  const compressor = context.createDynamicsCompressor()
-  const toneBus = context.createGain()
-  const filter = context.createBiquadFilter()
-  const highpass = context.createBiquadFilter()
-  const chorusDelay = context.createDelay()
-  const chorusGain = context.createGain()
-  const chorusLfo = context.createOscillator()
-  const chorusDepth = context.createGain()
-  const reverb = context.createConvolver()
-  const dry = context.createGain()
-  const wet = context.createGain()
-  const toneStops: AudioScheduledSourceNode[] = []
-
-  master.gain.setValueAtTime(0.0001, now)
-  master.gain.exponentialRampToValueAtTime(0.052 * volumeGain, now + 0.68)
-  master.gain.setTargetAtTime(0.068 * volumeGain, now + toSeconds(OPENING_AUDIO.masterPeakMs), 0.52)
-  master.gain.setTargetAtTime(0.031 * volumeGain, now + toSeconds(OPENING_AUDIO.fadeOutStartMs), 0.42)
-  master.gain.exponentialRampToValueAtTime(0.0001, now + duration)
-
-  toneBus.gain.value = 0.96
-
-  compressor.threshold.value = -24
-  compressor.knee.value = 18
-  compressor.ratio.value = 2.2
-  compressor.attack.value = 0.16
-  compressor.release.value = 0.78
-
-  highpass.type = 'highpass'
-  highpass.frequency.value = 76
-  highpass.Q.value = 0.28
-
-  filter.type = 'lowpass'
-  filter.frequency.setValueAtTime(820, now)
-  filter.frequency.exponentialRampToValueAtTime(OPENING_AUDIO.filterPeakHz, now + toSeconds(OPENING_AUDIO.filterPeakMs))
-  filter.frequency.exponentialRampToValueAtTime(OPENING_AUDIO.filterResolveHz, now + duration)
-  filter.Q.value = 0.14
-
-  chorusDelay.delayTime.value = 0.015
-  chorusGain.gain.value = 0.17
-  chorusLfo.type = 'sine'
-  chorusLfo.frequency.value = 0.09
-  chorusDepth.gain.value = 0.0038
-
-  dry.gain.value = 0.8
-  wet.gain.value = 0.18
-
-  const impulseLength = Math.floor(context.sampleRate * 2.6)
-  const impulse = context.createBuffer(2, impulseLength, context.sampleRate)
-  for (let channel = 0; channel < impulse.numberOfChannels; channel += 1) {
-    const data = impulse.getChannelData(channel)
-    for (let index = 0; index < impulseLength; index += 1) {
-      const decay = Math.pow(1 - index / impulseLength, 3.2)
-      data[index] = (Math.random() * 2 - 1) * decay * 0.045
-    }
-  }
-  reverb.buffer = impulse
-
-  toneBus.connect(highpass)
-  highpass.connect(filter)
-  filter.connect(dry)
-  filter.connect(chorusDelay)
-  chorusDelay.connect(chorusGain)
-  chorusGain.connect(dry)
-  filter.connect(reverb)
-  reverb.connect(wet)
-  dry.connect(compressor)
-  wet.connect(compressor)
-  compressor.connect(master)
-  master.connect(context.destination)
-  chorusLfo.connect(chorusDepth)
-  chorusDepth.connect(chorusDelay.delayTime)
-  chorusLfo.start(now)
-  chorusLfo.stop(now + duration)
-  toneStops.push(chorusLfo)
-
-  const addVoice = (voice: (typeof OPENING_AUDIO.voices)[number]): void => {
-    const oscillator = context.createOscillator()
-    const gain = context.createGain()
-    const startAt = now + toSeconds(voice.startMs)
-    const peakAt = startAt + toSeconds(voice.attackMs)
-    const releaseAt = now + toSeconds(voice.releaseMs)
-    oscillator.type = voice.type ?? 'sine'
-    oscillator.frequency.setValueAtTime(voice.frequency * 0.998, startAt)
-    oscillator.frequency.exponentialRampToValueAtTime(voice.frequency, Math.min(peakAt + 0.22, releaseAt))
-    oscillator.detune.value = voice.detune
-    gain.gain.setValueAtTime(0.0001, startAt)
-    gain.gain.exponentialRampToValueAtTime(voice.gain, peakAt)
-    gain.gain.setTargetAtTime(voice.gain * 0.84, peakAt, 0.72)
-    gain.gain.exponentialRampToValueAtTime(0.0001, releaseAt)
-    oscillator.connect(gain)
-    gain.connect(toneBus)
-    oscillator.start(startAt)
-    oscillator.stop(now + duration)
-    toneStops.push(oscillator)
-  }
-
-  const addBreath = (): void => {
-    const noiseBuffer = context.createBuffer(1, context.sampleRate * 2, context.sampleRate)
-    const data = noiseBuffer.getChannelData(0)
-    for (let index = 0; index < data.length; index += 1) {
-      data[index] = (Math.random() * 2 - 1) * 0.011
-    }
-    const source = context.createBufferSource()
-    const gain = context.createGain()
-    const airFilter = context.createBiquadFilter()
-    source.buffer = noiseBuffer
-    source.loop = true
-    airFilter.type = 'lowpass'
-    airFilter.frequency.value = 480
-    airFilter.Q.value = 0.12
-    gain.gain.setValueAtTime(0.0001, now)
-    gain.gain.exponentialRampToValueAtTime(0.012, now + toSeconds(OPENING_AUDIO.noisePeakMs))
-    gain.gain.setTargetAtTime(0.008, now + toSeconds(OPENING_AUDIO.noiseFadeOutStartMs), 0.58)
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration)
-    source.connect(airFilter)
-    airFilter.connect(gain)
-    gain.connect(filter)
-    source.start(now)
-    source.stop(now + duration)
-    toneStops.push(source)
-  }
-
-  for (const voice of OPENING_AUDIO.voices) addVoice(voice)
-  addBreath()
-
-  void context.resume().catch(() => undefined)
-  const closeTimer = window.setTimeout(() => {
-    if (!closed) void context.close().catch(() => undefined)
-    closed = true
-  }, OPENING_AUDIO.durationMs + OPENING_AUDIO.closeBufferMs)
-
-  return () => {
-    window.clearTimeout(closeTimer)
-    for (const source of toneStops) {
-      try {
-        source.stop()
-      } catch {
-        // Audio source may have already ended.
-      }
-    }
-    if (!closed) void context.close().catch(() => undefined)
-    closed = true
-  }
-}
-
-function VastOpeningAnimation({ visible }: { visible: boolean }): JSX.Element | null {
-  if (!visible) return null
-  return (
-    <div
-      className={`vast-opening-overlay platform-${window.vast.app.platform} pointer-events-none fixed inset-0 z-[80] grid place-items-center overflow-hidden bg-vast-black`}
-      style={{
-        ...OPENING_OVERLAY_STYLE,
-        '--vast-opening-delay': '0ms'
-      } as CSSProperties}
-    >
-      <div className="vast-opening-backdrop" />
-      <div className="vast-opening-core relative grid place-items-center">
-        <div className="vast-opening-logo-halo" aria-hidden="true" />
-        <span className="vast-opening-logo-frame relative" role="img" aria-label="Vast">
-          <img src={vastLogo} alt="" aria-hidden="true" draggable={false} decoding="async" className="vast-opening-logo select-none" />
-        </span>
-      </div>
-    </div>
-  )
 }
 
 function normalizeDetachedTabPayload(input: unknown): DetachedTabPayload | null {
@@ -435,25 +197,12 @@ export function App(): JSX.Element {
   const stageRef = useRef<BrowserStageHandle | null>(null)
   const automationRunRef = useRef<{ macroId: ID; cancelled: boolean; startedAt: number } | null>(null)
   const shellRef = useRef<HTMLDivElement | null>(null)
-  const startupOpeningEnabled = window.vast.app.startup.openingAnimationEnabled
-  const startupOpeningHandledBySplash = window.vast.app.startup.openingAnimationHandledBySplash
   const detachedStartupTab = useMemo(() => parseDetachedStartupTab(window.location.search), [])
   const detachedWindow = Boolean(detachedStartupTab)
-  const startupOpeningRunsInMain =
-    startupOpeningEnabled && (window as VastOpeningWindow).__vastOpeningStartupEnabled === true
-  const splashPlayedRef = useRef(startupOpeningEnabled || startupOpeningHandledBySplash)
-  const splashTimerRef = useRef<number | undefined>(undefined)
-  const splashSoundTimerRef = useRef<number | undefined>(undefined)
-  const openingSoundCleanupRef = useRef<(() => void) | undefined>(undefined)
   const wheelZoomAccumulatorRef = useRef(0)
   const lastWheelZoomRef = useRef(0)
   const applyingSiteMemoryRef = useRef(false)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [openingVisible, setOpeningVisible] = useState(startupOpeningEnabled)
-  const [openingSoundActive, setOpeningSoundActive] = useState(startupOpeningEnabled)
-  const [openingSoundVolume, setOpeningSoundVolume] = useState(() =>
-    normalizeOpeningSoundVolume(window.vast.app.startup.openingAnimationSoundVolume)
-  )
   const [htmlFullscreenSession, setHtmlFullscreenSession] = useState<{ tabId: ID; webContentsId: number } | null>(null)
   const hydrated = useBrowserStore((state) => state.hydrated)
   const focusMode = useBrowserStore((state) => state.focusMode)
@@ -498,13 +247,9 @@ export function App(): JSX.Element {
   useEffect(() => {
     if (!hydrated) return
     document.documentElement.style.setProperty('--vast-radius-base', visualRadius)
-    for (const guest of document.querySelectorAll('webview')) {
-      try { (guest as Electron.WebviewTag).send('vast:password-autofill-radius', Number.parseFloat(visualRadius)) } catch { /* Guest not ready yet; initial config carries the radius. */ }
-    }
   }, [visualRadius, hydrated])
   const [toasts, setToasts] = useState<Array<UiNotificationPayload & { createdAt: number }>>([])
   const [uiPromptQueue, setUiPromptQueue] = useState<UiPromptPayload[]>([])
-  const [passwordPrompts, setPasswordPrompts] = useState<Array<{ prompt: PasswordSavePromptPayload; tabId: ID; collapsed: boolean; busy: boolean }>>([])
   const toastTimersRef = useRef<Record<string, number>>({})
   const downloadStateRef = useRef(new Map<string, DownloadItem['state']>())
   const autosaveTimerRef = useRef<number | undefined>(undefined)
@@ -677,53 +422,6 @@ export function App(): JSX.Element {
 
   const activeUiPrompt = uiPromptQueue[0] ?? null
 
-  useEffect(() => {
-    const removePrompt = (attemptId: string): void => {
-      startTransition(() => setPasswordPrompts((current) => current.filter((entry) => entry.prompt.attemptId !== attemptId)))
-    }
-    const unsubscribePrompt = window.vast.passwords.onSavePrompt((prompt) => {
-      if (!prompt || prompt.expiresAt <= Date.now()) return
-      const add = (remainingRetries: number): void => {
-        const tabId = stageRef.current?.getTabIdForWebContents(prompt.webContentsId)
-        if (!tabId) {
-          if (remainingRetries > 0) window.setTimeout(() => add(remainingRetries - 1), 50)
-          return
-        }
-        startTransition(() => setPasswordPrompts((current) => [
-          ...current.filter((entry) => entry.prompt.attemptId !== prompt.attemptId),
-          { prompt, tabId, collapsed: false, busy: false }
-        ]))
-      }
-      add(4)
-    })
-    const unsubscribeCleared = window.vast.passwords.onSavePromptCleared(removePrompt)
-    const expiryTimer = window.setInterval(() => {
-      const now = Date.now()
-      setPasswordPrompts((current) => current.filter((entry) => entry.prompt.expiresAt > now))
-    }, 5_000)
-    return () => {
-      unsubscribePrompt()
-      unsubscribeCleared()
-      window.clearInterval(expiryTimer)
-    }
-  }, [])
-
-  const visiblePasswordPrompt = passwordPrompts.find((entry) => entry.tabId === activeTabId)
-  const resolvePasswordPrompt = (action: PasswordSavePromptAction): void => {
-    if (!visiblePasswordPrompt || visiblePasswordPrompt.busy) return
-    const attemptId = visiblePasswordPrompt.prompt.attemptId
-    setPasswordPrompts((current) => current.map((entry) => entry.prompt.attemptId === attemptId ? { ...entry, busy: true } : entry))
-    void window.vast.passwords.resolveSavePrompt(attemptId, action).then((result) => {
-      if (result.ok) return
-      setPasswordPrompts((current) => current.map((entry) => entry.prompt.attemptId === attemptId ? { ...entry, busy: false } : entry))
-      pushToastRef.current({
-        tone: 'error',
-        title: 'Password decision could not be applied',
-        message: result.error ?? 'The password prompt may have expired.'
-      })
-    })
-  }
-
   useEffect(
     () => () => {
       for (const timer of Object.values(toastTimersRef.current)) {
@@ -731,6 +429,17 @@ export function App(): JSX.Element {
       }
       toastTimersRef.current = {}
     },
+    []
+  )
+
+  useEffect(
+    () => window.vast.browser.onExtensionCompatibilityTabCommand((command) => {
+      const tabId = stageRef.current?.getTabIdForWebContents(command.webContentsId)
+      if (!tabId) return
+      const state = useBrowserStore.getState()
+      if (command.action === 'select') state.activateTab(tabId)
+      else state.closeTab(tabId)
+    }),
     []
   )
 
@@ -777,70 +486,23 @@ export function App(): JSX.Element {
         )
         if (startupLayout === 'purist') await loadPuristChrome()
         if (cancelled) return
-        const openingEnabled = !detachedWindow && isOpeningAnimationEnabled(startupData.settings)
-        if (openingEnabled && !splashPlayedRef.current) {
-          splashPlayedRef.current = true
-          setOpeningVisible(true)
-          setOpeningSoundActive(true)
-        } else if (!openingEnabled) {
-          setOpeningVisible(false)
-          setOpeningSoundActive(false)
-        }
-        setOpeningSoundVolume(normalizeOpeningSoundVolume(startupData.settings.openingAnimationSoundVolume))
         useBrowserStore.getState().hydrate(startupData)
       })
       .catch((error) => setLoadError(error instanceof Error ? error.message : String(error)))
     return () => {
       cancelled = true
-      window.clearTimeout(splashTimerRef.current)
-      window.clearTimeout(splashSoundTimerRef.current)
     }
   }, [detachedStartupTab, detachedWindow])
-
+  // The main process holds the primary window hidden until the renderer reports a
+  // hydrated, painted browser UI (or the storage error screen) via this signal.
+  const uiReadySentRef = useRef(false)
   useEffect(() => {
-    window.clearTimeout(splashTimerRef.current)
-    if (!openingVisible) return
-    const remainingMs = OPENING_SEQUENCE.overlayHideMs
-    splashTimerRef.current = window.setTimeout(() => {
-      if (startupOpeningRunsInMain) {
-        window.postMessage({ type: OPENING_COMPLETE_MESSAGE }, '*')
-        splashTimerRef.current = window.setTimeout(() => setOpeningVisible(false), 48)
-        return
-      }
-      setOpeningVisible(false)
-    }, remainingMs)
-    return () => window.clearTimeout(splashTimerRef.current)
-  }, [openingVisible, startupOpeningRunsInMain])
-
-  useEffect(() => {
-    window.clearTimeout(splashSoundTimerRef.current)
-    if (!openingSoundActive) return
-    const remainingMs = OPENING_SEQUENCE.overlayHideMs
-    splashSoundTimerRef.current = window.setTimeout(() => setOpeningSoundActive(false), remainingMs)
-    return () => window.clearTimeout(splashSoundTimerRef.current)
-  }, [openingSoundActive, startupOpeningRunsInMain])
-
-  useEffect(() => {
-    if (!openingSoundActive) {
-      openingSoundCleanupRef.current?.()
-      openingSoundCleanupRef.current = undefined
-      return
-    }
-
-    const cleanup = playOpeningSerenitySound(openingSoundVolume)
-    openingSoundCleanupRef.current = cleanup
-    return () => {
-      cleanup()
-      if (openingSoundCleanupRef.current === cleanup) openingSoundCleanupRef.current = undefined
-    }
-  }, [openingSoundActive, openingSoundVolume])
-
-  useEffect(() => {
-    return () => {
-      openingSoundCleanupRef.current?.()
-      openingSoundCleanupRef.current = undefined
-    }
-  }, [])
+    if (uiReadySentRef.current) return
+    if (!hydrated && !loadError) return
+    uiReadySentRef.current = true
+    const frame = window.requestAnimationFrame(() => window.vast.app.uiReady())
+    return () => window.cancelAnimationFrame(frame)
+  }, [hydrated, loadError])
 
   useEffect(() => {
     if (detachedWindow) return undefined
@@ -1112,7 +774,7 @@ export function App(): JSX.Element {
           getTabIdForWebContents: (webContentsId) => stageRef.current?.getTabIdForWebContents(webContentsId),
           getTabModel: () => useBrowserStore.getState(),
           isSafeUrl: isSafeLoadUrl,
-          routeUrl: (url) => url,
+          routeUrl: routeTopLevelNavigationUrl,
           titleForUrl: titleFromUrl
         })
       }),
@@ -1136,10 +798,6 @@ export function App(): JSX.Element {
       state.upsertSiteMemory(site.origin, { hostname: site.hostname, ...patch })
     }
 
-    const activeHttpOrigin = (): string | undefined => {
-      const active = getActiveTabSnapshot()
-      return active ? webOriginFor(active.url)?.origin : undefined
-    }
 
     const effectiveActiveUrl = (tab: { url: string }): string => getEffectiveTabUrl(tab.url)
 
@@ -1501,7 +1159,7 @@ export function App(): JSX.Element {
         const activeUrl = active ? effectiveActiveUrl(active) : ''
         const hasSensitiveContext = isSensitiveAutomationUrl(activeUrl) || macroContainsSensitiveTarget(macro.actions)
         if (hasSensitiveContext && !options.allowSensitive) {
-          const message = 'Blocked on authentication, payment, or vault content. Run it manually and approve the sensitive context.'
+          const message = 'Blocked on authentication, payment, or account content. Run it manually and approve the sensitive context.'
           useBrowserStore.getState().recordMacroRun({ macroId: macro.id, macroName: macro.name, status: 'error', message })
           return { ok: false, message }
         }
@@ -1549,69 +1207,6 @@ export function App(): JSX.Element {
       stopMacro: (macroId) => {
         const activeRun = automationRunRef.current
         if (activeRun && (!macroId || activeRun.macroId === macroId)) activeRun.cancelled = true
-      },
-      fillLoginForActive: async () => {
-        const webview = activeWebview()
-        const origin = activeHttpOrigin()
-        if (!webview || !origin) return
-        const result = await window.vast.passwords.fillAutofill(webview.getWebContentsId(), origin)
-        if (!result.ok) {
-          window.alert(result.error ?? 'Could not unlock the password vault.')
-          return
-        }
-        if (!result.filled) {
-          window.alert('No saved login matches this exact site origin.')
-        }
-      },
-      saveLoginForActive: async () => {
-        const active = getActiveTabSnapshot()
-        const webview = activeWebview()
-        const origin = activeHttpOrigin()
-        if (!active || !webview || !origin) return
-        const workspace = useBrowserStore.getState().workspaces.find((item) => item.id === active.workspaceId)
-        if (workspace?.isPrivate) {
-          window.alert('Private workspace logins are not saved to the password vault.')
-          return
-        }
-        const captured = (await webview.executeJavaScript(
-          `
-          (() => {
-            const passwordInput = document.querySelector('input[type="password"]:not([disabled]):not([readonly])');
-            if (!passwordInput || !passwordInput.value) return null;
-            const form = passwordInput.closest('form') || document;
-            const inputs = Array.from(form.querySelectorAll('input:not([disabled]):not([readonly])'));
-            const usernameInput =
-              inputs.find((input) => ['email', 'text', 'tel'].includes((input.getAttribute('type') || 'text').toLowerCase()) && input !== passwordInput) ||
-              inputs.find((input) => input !== passwordInput && !['hidden', 'submit', 'button', 'checkbox', 'radio'].includes((input.getAttribute('type') || 'text').toLowerCase()));
-            return {
-              username: usernameInput?.value || '',
-              password: passwordInput.value
-            };
-          })()
-          `,
-          false
-        )) as { username: string; password: string } | null
-        if (!captured?.password) {
-          window.alert('No filled password field was found on this page.')
-          return
-        }
-        useBrowserStore.getState().openPromptDialog({
-          title: 'Save password?',
-          description: `Save the filled credential for ${origin} in the encrypted Vast vault?`,
-          label: '',
-          hideInput: true,
-          allowEmpty: true,
-          confirmLabel: 'Save password',
-          onConfirm: () => {
-            void window.vast.passwords.saveCapturedLogin({
-              origin,
-              username: captured.username,
-              password: captured.password,
-              title: active.title,
-              favicon: active.favicon
-            }).then((result) => window.alert(result.ok ? 'Password saved in the encrypted Vast vault.' : result.error ?? 'Could not save password.'))
-          }
-        })
       },
       toggleSplitView: () => {
         const state = useBrowserStore.getState()
@@ -1864,7 +1459,7 @@ export function App(): JSX.Element {
   }
 
   if (!hydrated) {
-    return openingVisible ? <VastOpeningAnimation visible /> : <div className="h-screen bg-vast-black" />
+    return <div className="h-screen bg-vast-black" />
   }
 
   return (
@@ -1872,10 +1467,9 @@ export function App(): JSX.Element {
       <ExtensionRuntimeController />
       <div
         ref={shellRef}
-        className={`app-shell layout-${layoutMode} platform-${window.vast.app.platform} flex h-screen overflow-hidden bg-vast-black font-sans text-vast-bright ${htmlFullscreenSession ? 'is-html-fullscreen' : ''} ${activeTabIsNewTab ? 'is-new-tab' : ''} ${animations && !systemPrefersReducedMotion ? '' : 'no-motion'} ${constrainedGraphics ? 'low-effects' : ''} ${
+        className={`app-shell layout-${layoutMode} platform-${window.vast.app.platform} flex h-screen overflow-hidden bg-vast-black font-sans text-vast-bright ${htmlFullscreenSession ? 'is-html-fullscreen' : ''} ${activeTabIsNewTab ? 'is-new-tab' : ''} ${animations && !systemPrefersReducedMotion ? '' : 'no-motion'} ${constrainedGraphics ? 'low-effects' : ''} ${appearance.cleanToolbarIcons ? 'clean-toolbar-icons' : ''} ${
           resolvedTheme === 'light' ? 'light-theme' : resolvedTheme === 'dim' ? 'dim-theme' : 'dark-theme'
         }`}
-        data-appearance-bg={appearance.backgroundStyle}
         style={visualStyle}
       >
         {showSidebar && <Sidebar forcedCollapsed={autoCollapseSidebar} />}
@@ -1922,19 +1516,9 @@ export function App(): JSX.Element {
         {!htmlFullscreenSession && <PromptDialog />}
         {!htmlFullscreenSession && <ContextMenu />}
         {!htmlFullscreenSession && <NotificationsOverlay toasts={toasts} downloads={downloads} onDismiss={dismissToast} />}
-        {!htmlFullscreenSession && visiblePasswordPrompt && (
-          <PasswordSavePrompt
-            prompt={visiblePasswordPrompt.prompt}
-            collapsed={visiblePasswordPrompt.collapsed}
-            busy={visiblePasswordPrompt.busy}
-            onCollapse={(collapsed) => setPasswordPrompts((current) => current.map((entry) => entry.prompt.attemptId === visiblePasswordPrompt.prompt.attemptId ? { ...entry, collapsed } : entry))}
-            onAction={resolvePasswordPrompt}
-          />
-        )}
         {!htmlFullscreenSession && <ActionPromptModal prompt={activeUiPrompt} onResolve={(actionId) => activeUiPrompt && resolveUiPrompt(activeUiPrompt, actionId)} />}
         {!htmlFullscreenSession && <Suspense fallback={null}><RelayNoticeOverlay /></Suspense>}
       </div>
-      <VastOpeningAnimation visible={openingVisible} />
     </BrowserRuntimeContext.Provider>
   )
 }

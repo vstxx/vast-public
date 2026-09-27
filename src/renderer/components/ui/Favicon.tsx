@@ -1,4 +1,4 @@
-import { Activity, Database, FileText, Globe2, History, KeyRound, LayoutGrid, NotebookPen, Sparkles, Wifi } from 'lucide-react'
+import { Activity, Database, FileText, Globe2, History, LayoutGrid, NotebookPen, Sparkles, Wifi } from 'lucide-react'
 import type { ComponentType } from 'react'
 import {
   INTERNAL_AUTOMATION_URL,
@@ -8,7 +8,6 @@ import {
   INTERNAL_NOTES_URL,
   INTERNAL_NETWORK_URL,
   INTERNAL_PDF_VIEWER_URL,
-  INTERNAL_PASSWORDS_URL,
   INTERNAL_SESSION_TIMELINE_URL,
   INTERNAL_SITE_DATA_URL
 } from '../../../shared/constants'
@@ -60,10 +59,6 @@ export function getInternalTabMeta(url?: string): InternalTabMeta | null {
 
   if (url === INTERNAL_NETWORK_URL) {
     return internalMeta(Wifi, 'bg-[#44f6d8]/[0.12] text-[#8fffee] ring-1 ring-white/[0.08]', 'bg-[linear-gradient(135deg,rgba(68,246,216,0.044),rgba(255,255,255,0.022))]')
-  }
-
-  if (url === INTERNAL_PASSWORDS_URL) {
-    return internalMeta(KeyRound, 'bg-[#ffc772]/[0.13] text-[#ffe09d] ring-1 ring-white/[0.08]', 'bg-[linear-gradient(135deg,rgba(255,199,114,0.046),rgba(255,255,255,0.022))]')
   }
 
   if (url === INTERNAL_NOTES_URL) {

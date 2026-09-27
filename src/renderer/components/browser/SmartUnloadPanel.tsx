@@ -104,15 +104,15 @@ export function SmartUnloadPanel(): JSX.Element | null {
           </div>
 
           <div className="mt-3 grid gap-2">
-            <button type="button" onClick={() => runUnload('sleeping')} className="smart-unload-action">
+            <button type="button" onClick={() => runUnload('sleeping')} className="vast-button vast-button--secondary vast-button--sm">
               <Moon className="h-4 w-4 text-vast-cyan" />
               <span>Sleep inactive tabs</span>
             </button>
-            <button type="button" onClick={() => runUnload('discarded')} className="smart-unload-action">
+            <button type="button" onClick={() => runUnload('discarded')} className="vast-button vast-button--secondary vast-button--sm">
               <Snowflake className="h-4 w-4 text-vast-cyan" />
               <span>Deep discard inactive tabs</span>
             </button>
-            <button type="button" onClick={() => updateSettings({ hibernateInactiveTabs: !hibernateInactiveTabs })} className="smart-unload-action">
+            <button type="button" onClick={() => updateSettings({ hibernateInactiveTabs: !hibernateInactiveTabs })} className="vast-button vast-button--secondary vast-button--sm">
               <Power className="h-4 w-4 text-vast-cyan" />
               <span>{hibernateInactiveTabs ? 'Disable' : 'Enable'} automatic hibernation</span>
             </button>

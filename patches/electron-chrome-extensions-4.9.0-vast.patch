@@ -1,0 +1,1910 @@
+diff --git a/dist/chrome-extension-api.preload.js b/dist/chrome-extension-api.preload.js
+index 67d3be4..83d2afd 100644
+--- a/dist/chrome-extension-api.preload.js
++++ b/dist/chrome-extension-api.preload.js
+@@ -21,9 +21,6 @@
+     }
+     listenerMap.set(name, listenerCount + 1);
+     import_electron.ipcRenderer.addListener(formatIpcName(name), function(event, ...args) {
+-      if (true) {
+-        console.log(name, "(result)", ...args);
+-      }
+       callback(...args);
+     });
+   };
+@@ -44,9 +41,6 @@
+   var injectExtensionAPIs = () => {
+     const invokeExtension = async function(extensionId, fnName, options = {}, ...args) {
+       const callback = typeof args[args.length - 1] === "function" ? args.pop() : void 0;
+-      if (true) {
+-        console.log(fnName, args);
+-      }
+       if (options.noop) {
+         console.warn(`${fnName} is not yet implemented.`);
+         if (callback) callback(options.defaultResponse);
+@@ -59,12 +53,23 @@
+       try {
+         result = await import_electron2.ipcRenderer.invoke("crx-msg", extensionId, fnName, ...args);
+       } catch (e) {
+-        console.error(e);
++        if (options.rejectErrors) throw e;
++        const message = typeof e?.message === "string" ? e.message : "";
++        if (message.includes("Receiving end does not exist")) {
++          const sender = process.type === "service-worker" ? "service_worker" : "extension_page";
++          const receiver = fnName === "tabs.sendMessage" ? "tab_frame" : "extension";
++          const tabId = fnName === "tabs.sendMessage" && Number.isSafeInteger(args[0]) ? args[0] : -1;
++          const frameId = fnName === "tabs.sendMessage" && args[2] && Number.isSafeInteger(args[2].frameId) ? args[2].frameId : -1;
++          console.error(`[VastCompat] Receiving end does not exist method=${fnName} extension=${extensionId} sender=${sender} receiver=${receiver} tab=${tabId} frame=${frameId}`);
++        } else if (message.includes("Invalid guestInstanceId")) {
++          console.error("Invalid guestInstanceId");
++        } else if (message.includes("splitViewId")) {
++          console.error("splitViewId validation error");
++        } else {
++          console.error("Extension API request failed.");
++        }
+         result = void 0;
+       }
+-      if (true) {
+-        console.log(fnName, "(result)", result);
+-      }
+       if (callback) {
+         callback(result);
+       } else {
+@@ -75,19 +80,25 @@
+       const connectionId = import_electron2.contextBridge.executeInMainWorld({
+         func: () => crypto.randomUUID()
+       });
+-      invokeExtension(extensionId, "runtime.connectNative", {}, connectionId, application);
+-      const onMessage = (_event, message) => {
+-        receive(message);
++    const onMessage = (_event, message) => {
++      receive(message);
+       };
+-      import_electron2.ipcRenderer.on(`crx-native-msg-${connectionId}`, onMessage);
+-      import_electron2.ipcRenderer.once(`crx-native-msg-${connectionId}-disconnect`, () => {
+-        import_electron2.ipcRenderer.off(`crx-native-msg-${connectionId}`, onMessage);
+-        disconnect();
+-      });
+-      const send = (message) => {
+-        import_electron2.ipcRenderer.send(`crx-native-msg-${connectionId}`, message);
++      const messageChannel = `crx-native-msg-${connectionId}`;
++      const disconnectChannel = `crx-native-msg-${connectionId}-disconnect`;
++      const onDisconnect = (_event, errorMessage) => {
++        import_electron2.ipcRenderer.off(messageChannel, onMessage);
++        disconnect(errorMessage);
+       };
+-      callback(connectionId, send);
++      import_electron2.ipcRenderer.on(messageChannel, onMessage);
++      import_electron2.ipcRenderer.once(disconnectChannel, onDisconnect);
++    const send = (message) => {
++      import_electron2.ipcRenderer.send(`crx-native-msg-${connectionId}`, message);
++    };
++    invokeExtension(extensionId, "runtime.connectNative", { rejectErrors: true }, connectionId, application).then(() => callback(connectionId, send)).catch((error) => {
++      import_electron2.ipcRenderer.off(messageChannel, onMessage);
++      import_electron2.ipcRenderer.off(disconnectChannel, onDisconnect);
++      disconnect(error instanceof Error ? error.message : "Native messaging host failed to connect.");
++      });
+     };
+     const disconnectNative = (extensionId, connectionId) => {
+       invokeExtension(extensionId, "runtime.disconnectNative", {}, connectionId);
+@@ -140,12 +151,10 @@
+           throw new Error("Method not implemented.");
+         }
+       }
+-      class ChromeSetting {
++      class UnsupportedChromeSetting {
+         constructor() {
+-          this.onChange = {
+-            addListener: () => {
+-            }
+-          };
++          this.onChange = { addListener: () => {
++          } };
+         }
+         set() {
+         }
+@@ -173,42 +182,126 @@
+           }
+         }
+       }
++      class ChromeSetting {
++        constructor(key) {
++          this.key = key;
++          this.onChange = new ExtensionEvent(`privacy.onChange:${key}`);
++        }
++        _invoke(operation, request, callback) {
++          const promise = invokeExtension2(`privacy.${operation}`, { rejectErrors: true })({ key: this.key, ...request });
++          if (!callback) return promise;
++          promise.then((result) => callback(result), (error) => {
++            const runtime = chrome.runtime;
++            const previous = Object.getOwnPropertyDescriptor(runtime, "lastError");
++            try {
++              Object.defineProperty(runtime, "lastError", {
++                configurable: true,
++                value: { message: error instanceof Error ? error.message : String(error) }
++              });
++              callback();
++            } finally {
++              if (previous) Object.defineProperty(runtime, "lastError", previous);
++              else delete runtime.lastError;
++            }
++          });
++        }
++        set(details, callback) {
++          return this._invoke("set", { value: details?.value }, callback);
++        }
++        get(details, callback) {
++          if (typeof details === "function") return this._invoke("get", {}, details);
++          return this._invoke("get", {}, callback);
++        }
++        clear(details, callback) {
++          if (typeof details === "function") return this._invoke("clear", {}, details);
++          return this._invoke("clear", {}, callback);
++        }
++      }
++      const MAX_NATIVE_MESSAGE_TO_HOST = 64 * 1024 * 1024;
++      const MAX_QUEUED_NATIVE_MESSAGES = 64;
+       class NativePort {
+         constructor() {
+           this.connectionId = "";
+           this.connected = false;
++          this.disconnected = false;
+           this.pending = [];
++          this.pendingBytes = 0;
+           this.name = "";
+           this._init = (connectionId, send) => {
++            if (this.disconnected) {
++              electron.disconnectNative(extensionId, connectionId);
++              Object.defineProperty(this, "_init", { value: void 0 });
++              return;
++            }
+             this.connected = true;
+             this.connectionId = connectionId;
+             this._send = send;
+-            this.pending.forEach((msg) => this.postMessage(msg));
++            const pending = this.pending;
+             this.pending = [];
++            this.pendingBytes = 0;
++            pending.forEach((msg) => this.postMessage(msg));
+             Object.defineProperty(this, "_init", { value: void 0 });
+           };
+           this.onMessage = new Event();
+           this.onDisconnect = new Event();
+         }
+         _send(message) {
++          let serialized;
++          try {
++            serialized = JSON.stringify(message);
++          } catch {
++            throw new Error("Native messaging message is not JSON serializable.");
++          }
++          if (typeof serialized !== "string") {
++            throw new Error("Native messaging message is not JSON serializable.");
++          }
++          const messageBytes = new TextEncoder().encode(serialized).byteLength + 4;
++          if (messageBytes > MAX_NATIVE_MESSAGE_TO_HOST + 4) {
++            throw new Error("Native messaging message is larger than 64 MiB.");
++          }
++          if (this.pending.length >= MAX_QUEUED_NATIVE_MESSAGES || this.pendingBytes + messageBytes > MAX_NATIVE_MESSAGE_TO_HOST + 4) {
++            throw new Error("Native messaging pending queue limit exceeded.");
++          }
+           this.pending.push(message);
++          this.pendingBytes += messageBytes;
+         }
+         _receive(message) {
+           ;
+           this.onMessage._emit(message);
+         }
+-        _disconnect() {
+-          this.disconnect();
++        _disconnect(errorMessage) {
++          if (this.disconnected) return;
++          this.disconnected = true;
++          this.connected = false;
++          this.pending = [];
++          this.pendingBytes = 0;
++          if (typeof errorMessage !== "string" || !errorMessage) {
++            this.onDisconnect._emit();
++            return;
++          }
++          const runtime = chrome.runtime;
++          const previous = Object.getOwnPropertyDescriptor(runtime, "lastError");
++          try {
++            Object.defineProperty(runtime, "lastError", {
++              configurable: true,
++              value: { message: errorMessage }
++            });
++            this.onDisconnect._emit();
++          } finally {
++            if (previous) Object.defineProperty(runtime, "lastError", previous);
++            else delete runtime.lastError;
++          }
+         }
+         postMessage(message) {
++          if (this.disconnected) throw new Error("Attempting to use a disconnected port object.");
+           this._send(message);
+         }
+         disconnect() {
++          if (this.disconnected) return;
+           if (this.connected) {
+             electron.disconnectNative(extensionId, this.connectionId);
+-            this.onDisconnect._emit();
+-            this.connected = false;
+           }
++          this._disconnect();
+         }
+       }
+       const browserActionFactory = (base) => {
+@@ -414,16 +507,16 @@
+             return {
+               ...base,
+               network: {
+-                networkPredictionEnabled: new ChromeSetting(),
+-                webRTCIPHandlingPolicy: new ChromeSetting()
++                networkPredictionEnabled: new UnsupportedChromeSetting(),
++                webRTCIPHandlingPolicy: new UnsupportedChromeSetting()
+               },
+               services: {
+-                autofillAddressEnabled: new ChromeSetting(),
+-                autofillCreditCardEnabled: new ChromeSetting(),
+-                passwordSavingEnabled: new ChromeSetting()
++                autofillAddressEnabled: new ChromeSetting("services.autofillAddressEnabled"),
++                autofillCreditCardEnabled: new ChromeSetting("services.autofillCreditCardEnabled"),
++                passwordSavingEnabled: new ChromeSetting("services.passwordSavingEnabled")
+               },
+               websites: {
+-                hyperlinkAuditingEnabled: new ChromeSetting()
++                hyperlinkAuditingEnabled: new UnsupportedChromeSetting()
+               }
+             };
+           }
+@@ -566,11 +659,31 @@
+           configurable: true
+         });
+       });
++      // Vast compatibility experiment: keep Electron's partial browser alias
++      // in sync with the augmented chrome namespace. webextension-polyfill
++      // selects browser whenever browser.runtime.id exists.
++      const browser = globalThis.browser;
++      if (browser && browser.runtime?.id === extensionId) {
++        for (const apiName of Reflect.ownKeys(chrome)) {
++          if (typeof apiName !== "string") continue;
++          const chromeApi = chrome[apiName];
++          if (chromeApi === void 0) continue;
++          if (browser[apiName] === void 0) {
++            Object.defineProperty(browser, apiName, { value: chromeApi, enumerable: true, configurable: true });
++          } else if (chromeApi && typeof chromeApi === "object" && browser[apiName] && typeof browser[apiName] === "object") {
++            for (const member of Reflect.ownKeys(chromeApi)) {
++              if (typeof member !== "string" || browser[apiName][member] !== void 0) continue;
++              Object.defineProperty(browser[apiName], member, { value: chromeApi[member], enumerable: true, configurable: true });
++            }
++          }
++        }
++      }
+       delete globalThis.electron;
+-      Object.freeze(chrome);
++      // Chrome's API object is mutable. Freezing this proxy breaks ordinary
++      // wrapper invariants used by unmodified cross-browser extensions.
+     }
+     if (!process.contextIsolated) {
+-      console.warn(`injectExtensionAPIs: context isolation disabled in ${location.href}`);
++      console.warn("injectExtensionAPIs: context isolation disabled");
+       mainWorldScript();
+       return;
+     }
+@@ -585,13 +698,12 @@
+         import_electron2.webFrame.executeJavaScript(`(${mainWorldScript}());`);
+       }
+     } catch (error) {
+-      console.error(`injectExtensionAPIs error (${location.href})`);
+-      console.error(error);
++      console.error("injectExtensionAPIs failed.");
+     }
+   };
+ 
+   // src/preload.ts
+-  if (process.type === "service-worker" || location.href.startsWith("chrome-extension://")) {
++  if (process.type === "service-worker" || globalThis.chrome?.runtime?.id || location.href.startsWith("chrome-extension://")) {
+     injectExtensionAPIs();
+   }
+ })();
+diff --git a/dist/cjs/index.js b/dist/cjs/index.js
+index b4242b0..b73fd6c 100644
+--- a/dist/cjs/index.js
++++ b/dist/cjs/index.js
+@@ -149,6 +149,10 @@ var _PopupView = class _PopupView extends import_node_events.EventEmitter {
+       }
+     };
+     this.maybeClose = () => {
++      if (this.hidden) {
++        d("preventing close before popup is shown");
++        return;
++      }
+       if (!this.browserWindow?.isDestroyed() && this.browserWindow?.webContents.isDevToolsOpened()) {
+         d("preventing close due to DevTools being open");
+         return;
+@@ -319,23 +323,29 @@ var BrowserActionAPI = class {
+     this.actionMap = /* @__PURE__ */ new Map();
+     this.observers = /* @__PURE__ */ new Set();
+     this.queuedUpdate = false;
+-    this.openPopup = (event, options) => {
+-      const window = typeof options?.windowId === "number" ? this.ctx.store.getWindowById(options.windowId) : this.ctx.store.getCurrentWindow();
++    this.openPopup = async (event, options) => {
++      const senderTab = event.type === "frame" ? this.ctx.store.getTabById(event.sender.id) : void 0;
++      const senderWindow = senderTab ? this.ctx.store.tabToWindow.get(senderTab) : void 0;
++      const window = typeof options?.windowId === "number" ? this.ctx.store.getWindowById(options.windowId) : senderWindow ?? this.ctx.store.getCurrentWindow();
+       if (!window || window.isDestroyed()) {
+-        d2("openPopup: window %d destroyed", window?.id);
+-        return;
++        d2("openPopup: no available window for extension %s", event.extension.id);
++        throw new Error("No window is available for action popup.");
+       }
+       const activeTab = this.ctx.store.getActiveTabFromWindow(window);
+-      if (!activeTab) return;
++      if (!activeTab) {
++        d2("openPopup: no active tab in window %d for extension %s", window.id, event.extension.id);
++        throw new Error("No active tab is available for action popup.");
++      }
++      if (await this.ctx.store.openPopup(event.extension, activeTab, window)) return;
+       const [width] = window.getSize();
+       const anchorSize = 64;
+-      this.activateClick({
++      return this.activateClick({
+         eventType: "click",
+         extensionId: event.extension.id,
+         tabId: activeTab?.id,
+         // TODO(mv3): get anchor position
+         anchorRect: { x: width - anchorSize, y: 0, width: anchorSize, height: anchorSize }
+-      });
++      }, false);
+     };
+     const handle = this.ctx.router.apiHandler();
+     const getter = (propName) => ({ extension }, details = {}) => {
+@@ -351,6 +361,9 @@ var BrowserActionAPI = class {
+       } else {
+         result = action[propName];
+       }
++      if (propName === "popup" && typeof result === "string" && result) {
++        return getExtensionUrl(extension, result) || "";
++      }
+       return result;
+     };
+     const setDetails = ({ extension }, details, propName) => {
+@@ -429,6 +442,7 @@ var BrowserActionAPI = class {
+   }
+   setupSession(session2) {
+     const sessionExtensions = session2.extensions || session2;
++    sessionExtensions.getAllExtensions().forEach((extension) => this.processExtension(extension));
+     sessionExtensions.on("extension-loaded", (event, extension) => {
+       this.processExtension(extension);
+     });
+@@ -499,6 +513,10 @@ var BrowserActionAPI = class {
+     let action = this.actionMap.get(extensionId);
+     if (!action) {
+       action = { tabs: {} };
++      const sessionExtensions = this.ctx.session.extensions || this.ctx.session;
++      const extension = sessionExtensions.getExtension(extensionId);
++      const defaults = extension ? getBrowserActionDefaults(extension) : void 0;
++      if (defaults) Object.assign(action, defaults);
+       this.actionMap.set(extensionId, action);
+       this.onUpdate();
+     }
+@@ -576,13 +594,14 @@ var BrowserActionAPI = class {
+         console.debug(`Ignoring unknown browserAction.activate event '${eventType}'`);
+     }
+   }
+-  activateClick(details) {
++  activateClick(details, toggle = true) {
+     const { extensionId, tabId, anchorRect, alignment } = details;
+     if (this.popup) {
+-      const toggleExtension = !this.popup.isDestroyed() && this.popup.extensionId === extensionId;
++      const sameExtension = !this.popup.isDestroyed() && this.popup.extensionId === extensionId;
++      if (sameExtension && !toggle) return;
+       this.popup.destroy();
+       this.popup = void 0;
+-      if (toggleExtension) {
++      if (sameExtension) {
+         d2("skipping activate to close popup");
+         return;
+       }
+@@ -608,6 +627,9 @@ var BrowserActionAPI = class {
+       d2(`opened popup: ${popupUrl}`);
+       this.ctx.emit("browser-action-popup-created", this.popup);
+     } else {
++      if (!toggle) {
++        throw new Error("No popup is available for action.");
++      }
+       d2(`dispatching onClicked for ${extensionId}`);
+       const tabDetails = this.ctx.store.tabDetailsCache.get(tab.id);
+       this.ctx.router.sendEvent(extensionId, "browserAction.onClicked", tabDetails);
+@@ -1437,6 +1459,10 @@ var ExtensionStore = class extends import_node_events2.EventEmitter {
+     const activeTab = win && !win.isDestroyed() && this.windowToActiveTab.get(win);
+     return activeTab && !activeTab.isDestroyed() && activeTab || void 0;
+   }
++  async openPopup(extension, tab, window) {
++    if (typeof this.impl.openPopup !== "function") return false;
++    return await this.impl.openPopup(extension, tab, window) === true;
++  }
+   getActiveTabFromWebContents(wc) {
+     const win = this.tabToWindow.get(wc) || import_electron4.BrowserWindow.fromWebContents(wc);
+     const activeTab = win ? this.getActiveTabFromWindow(win) : void 0;
+@@ -1470,6 +1496,30 @@ var ExtensionStore = class extends import_node_events2.EventEmitter {
+     const result = await this.impl.requestPermissions(extension, permissions);
+     return typeof result === "boolean" ? result : false;
+   }
++  getGrantedPermissions(extension) {
++    if (typeof this.impl.getGrantedPermissions !== "function") {
++      return { permissions: [], origins: [] };
++    }
++    const result = this.impl.getGrantedPermissions(extension);
++    return result && typeof result === "object" ? result : { permissions: [], origins: [] };
++  }
++  async removePermissions(extension, permissions) {
++    if (typeof this.impl.removePermissions !== "function") return true;
++    const result = await this.impl.removePermissions(extension, permissions);
++    return typeof result === "boolean" ? result : false;
++  }
++  async getPrivacySetting(extension, request) {
++    if (typeof this.impl.getPrivacySetting !== "function") throw new Error("Chrome privacy settings are unavailable");
++    return await this.impl.getPrivacySetting(extension, request);
++  }
++  async setPrivacySetting(extension, request) {
++    if (typeof this.impl.setPrivacySetting !== "function") throw new Error("Chrome privacy settings are unavailable");
++    return await this.impl.setPrivacySetting(extension, request);
++  }
++  async clearPrivacySetting(extension, request) {
++    if (typeof this.impl.clearPrivacySetting !== "function") throw new Error("Chrome privacy settings are unavailable");
++    return await this.impl.clearPrivacySetting(extension, request);
++  }
+ };
+ 
+ // src/browser/api/context-menus.ts
+@@ -1738,12 +1788,12 @@ var import_debug7 = __toESM(require("debug"));
+ var import_child_process = require("child_process");
+ var import_debug6 = __toESM(require("debug"));
+ var d6 = (0, import_debug6.default)("electron-chrome-extensions:winreg");
+-function readRegistryKey(hive, path5, key) {
++function readRegistryKey(hive, path5, key, view) {
+   if (process.platform !== "win32") {
+     return Promise.reject("Unsupported platform");
+   }
+   return new Promise((resolve, reject) => {
+-    const args = ["query", `${hive}\\${path5}`, ...key ? ["/v", key] : []];
++    const args = ["query", `${hive}\\${path5}`, ...key ? ["/v", key] : [], ...view ? [`/reg:${view}`] : []];
+     d6("reg %s", args.join(" "));
+     const child = (0, import_child_process.spawn)("reg", args);
+     let output = "";
+@@ -1774,10 +1824,18 @@ function readRegistryKey(hive, path5, key) {
+ 
+ // src/browser/api/lib/native-messaging-host.ts
+ var d7 = (0, import_debug7.default)("electron-chrome-extensions:nativeMessaging");
++var MAX_NATIVE_MESSAGE_FROM_HOST = 1024 * 1024;
++var MAX_NATIVE_MESSAGE_TO_HOST = 64 * 1024 * 1024;
++var MAX_QUEUED_NATIVE_MESSAGES = 64;
++var MAX_QUEUED_NATIVE_MESSAGE_BYTES = MAX_NATIVE_MESSAGE_TO_HOST + 4;
++var NATIVE_MESSAGE_RESPONSE_TIMEOUT_MS = 6e4;
+ function isValidConfig(config) {
+-  return typeof config === "object" && config !== null && typeof config.name === "string" && typeof config.description === "string" && typeof config.path === "string" && config.type === "stdio" && Array.isArray(config.allowed_origins);
++  return typeof config === "object" && config !== null && typeof config.name === "string" && typeof config.description === "string" && typeof config.path === "string" && config.type === "stdio" && Array.isArray(config.allowed_origins) && config.allowed_origins.every((origin) => typeof origin === "string");
+ }
+ async function getConfigSearchPaths(application) {
++  if (!/^[a-z0-9_]+(?:\.[a-z0-9_]+)*$/.test(application)) {
++    throw new Error("Invalid native messaging host name.");
++  }
+   const appJson = `${application}.json`;
+   let searchPaths;
+   switch (process.platform) {
+@@ -1805,8 +1863,10 @@ async function getConfigSearchPaths(application) {
+       break;
+     case "win32": {
+       searchPaths = (await Promise.allSettled([
+-        readRegistryKey("HKLM", `Software\\Google\\Chrome\\NativeMessagingHosts\\${application}`),
+-        readRegistryKey("HKCU", `Software\\Google\\Chrome\\NativeMessagingHosts\\${application}`)
++        readRegistryKey("HKCU", `Software\\Google\\Chrome\\NativeMessagingHosts\\${application}`, void 0, "32"),
++        readRegistryKey("HKLM", `Software\\Google\\Chrome\\NativeMessagingHosts\\${application}`, void 0, "32"),
++        readRegistryKey("HKCU", `Software\\Google\\Chrome\\NativeMessagingHosts\\${application}`, void 0, "64"),
++        readRegistryKey("HKLM", `Software\\Google\\Chrome\\NativeMessagingHosts\\${application}`, void 0, "64")
+       ])).map((result) => result.status === "fulfilled" ? result.value : void 0).filter(Boolean);
+       break;
+     }
+@@ -1817,44 +1877,90 @@ async function getConfigSearchPaths(application) {
+ }
+ async function readNativeMessagingHostConfig(application) {
+   const searchPaths = await getConfigSearchPaths(application);
+-  d7("searching", searchPaths);
++  d7("searching for native messaging host %s", application);
+   for (const filePath of searchPaths) {
+     try {
+       const data = await import_node_fs2.promises.readFile(filePath);
+       const config = JSON.parse(data.toString());
+       if (isValidConfig(config)) {
+-        d7("read config in %s", filePath, config);
+-        return config;
++        if (config.name !== application) {
++          d7("native messaging manifest declared a different host name");
++          continue;
++        }
++        d7("read native messaging manifest for %s", application);
++        return { config, manifestPath: filePath };
+       } else {
+-        d7("%s contained invalid config", filePath, config);
++        d7("native messaging manifest for %s is invalid", application);
+       }
+     } catch (error) {
+       if (error?.code === "ENOENT") {
+-        d7("unable to read %s", filePath);
++        d7("native messaging manifest candidate for %s was not found", application);
+       } else {
+-        d7("unknown error", error);
++        d7("unable to read native messaging manifest for %s", application);
+       }
+       continue;
+     }
+   }
+ }
+ var NativeMessagingHost = class {
+-  constructor(extensionId, sender, connectionId, application, keepAlive = true) {
++  constructor(extensionId, sender, connectionId, application, keepAlive = true, onDestroyed, responseTimeoutMs = NATIVE_MESSAGE_RESPONSE_TIMEOUT_MS) {
+     this.connected = false;
++    this.pending = [];
++    this.writeQueue = [];
++    this.queuedMessageCount = 0;
++    this.queuedMessageBytes = 0;
++    this.writeBlocked = false;
+     this.receiveExtensionMessage = (_event, message) => {
+-      this.send(message);
++      try {
++        this.send(message);
++      } catch {
++        this.fail(new Error("Native messaging message could not be sent."));
++      }
++    };
++    this.receiveBuffer = Buffer.alloc(0);
++    this.flushWriteQueue = () => {
++      this.writeBlocked = false;
++      while (!this.writeBlocked && this.writeQueue.length > 0 && !this.destroyed) {
++        const frame = this.writeQueue.shift();
++        this.releaseQueuedFrame(frame);
++        this.writeFrame(frame);
++      }
+     };
+     this.receive = (data) => {
+-      const length = data.readUInt32LE(0);
+-      const message = JSON.parse(data.subarray(4, 4 + length).toString());
+-      d7("receive: %s", message);
+-      if (this.keepAlive && this.sender) {
+-        this.sender.send(`crx-native-msg-${this.connectionId}`, message);
+-      } else {
+-        this.resolveResponse?.(message);
++      this.receiveBuffer = Buffer.concat([this.receiveBuffer, data]);
++      while (this.receiveBuffer.length >= 4) {
++        const length = this.receiveBuffer.readUInt32LE(0);
++        if (length > MAX_NATIVE_MESSAGE_FROM_HOST) {
++          this.fail(new Error("Native messaging host sent a message larger than 1 MiB."));
++          return;
++        }
++        if (this.receiveBuffer.length < 4 + length) return;
++        const payload = this.receiveBuffer.subarray(4, 4 + length);
++        this.receiveBuffer = this.receiveBuffer.subarray(4 + length);
++        let message;
++        try {
++          const json = new TextDecoder("utf-8", { fatal: true }).decode(payload);
++          message = JSON.parse(json);
++        } catch {
++          this.fail(new Error("Native messaging host sent invalid JSON."));
++          return;
++        }
++        if (this.keepAlive && this.sender) {
++          this.sender.send(`crx-native-msg-${this.connectionId}`, message);
++        } else if (this.resolveResponse) {
++          const resolve = this.resolveResponse;
++          this.clearResponseTimer();
++          this.resolveResponse = void 0;
++          this.rejectResponse = void 0;
++          resolve(message);
++          this.destroy(false);
++          return;
++        }
+       }
+     };
+     this.keepAlive = keepAlive;
++    this.onDestroyed = onDestroyed;
++    this.responseTimeoutMs = responseTimeoutMs;
+     this.sender = sender;
+     if (keepAlive) {
+       this.sender.ipc.on(`crx-native-msg-${connectionId}`, this.receiveExtensionMessage);
+@@ -1862,117 +1968,246 @@ var NativeMessagingHost = class {
+     this.connectionId = connectionId;
+     this.ready = this.launch(application, extensionId);
+   }
+-  destroy() {
++  fail(error) {
++    this.clearResponseTimer();
++    if (this.rejectResponse) {
++      const reject = this.rejectResponse;
++      this.resolveResponse = void 0;
++      this.rejectResponse = void 0;
++      reject(error);
++    }
++    this.destroy(true, error.message);
++  }
++  destroy(notify = true, errorMessage) {
++    if (this.destroyed) return;
++    this.destroyed = true;
+     this.connected = false;
++    this.clearResponseTimer();
++    this.pending = [];
++    this.writeQueue = [];
++    this.queuedMessageCount = 0;
++    this.queuedMessageBytes = 0;
++    this.writeBlocked = false;
+     if (this.process) {
+-      this.process.kill();
++      try {
++        this.process.kill();
++      } catch {
++      }
+       this.process = void 0;
+     }
+     if (this.keepAlive && this.sender) {
+       this.sender.ipc.off(`crx-native-msg-${this.connectionId}`, this.receiveExtensionMessage);
+-      this.sender.send(`crx-native-msg-${this.connectionId}-disconnect`);
++      if (notify) {
++        this.sender.send(`crx-native-msg-${this.connectionId}-disconnect`, errorMessage);
++      }
+     }
+     this.sender = void 0;
++    const onDestroyed = this.onDestroyed;
++    this.onDestroyed = void 0;
++    onDestroyed?.();
+   }
+   async launch(application, extensionId) {
+-    const config = await readNativeMessagingHostConfig(application);
+-    if (!config) {
++    const host = await readNativeMessagingHostConfig(application);
++    if (!host) {
+       d7("launch: unable to find %s for %s", application, extensionId);
+-      this.destroy();
+-      return;
++      throw new Error(`Native messaging host ${application} was not found.`);
+     }
++    const { config, manifestPath } = host;
+     const extensionUrl = `chrome-extension://${extensionId}/`;
+     if (!config.allowed_origins?.includes(extensionUrl)) {
+       d7("launch: %s not in allowed origins", extensionId);
+-      this.destroy();
+-      return;
++      throw new Error(`Access to native messaging host ${application} is forbidden.`);
++    }
++    if (process.platform !== "win32" && !path2.isAbsolute(config.path)) {
++      throw new Error(`Native messaging host ${application} must use an absolute executable path.`);
+     }
++    const executablePath = process.platform === "win32" && !path2.isAbsolute(config.path) ? path2.resolve(path2.dirname(manifestPath), config.path) : config.path;
+     let isFile = false;
+     try {
+-      const stat = await import_node_fs2.promises.stat(config.path);
++      const stat = await import_node_fs2.promises.stat(executablePath);
+       isFile = stat.isFile();
+-    } catch (error) {
+-      d7("launch: unable to find %s", config.path, error);
++    } catch {
++      d7("launch: executable for %s was not found", application);
+     }
+     if (!isFile) {
+-      this.destroy();
+-      return;
+-    }
+-    d7("launch: spawning %s for %s", config.path, extensionId);
+-    this.process = (0, import_node_child_process.spawn)(config.path, [extensionUrl], {
+-      shell: false
++      throw new Error(`Native messaging host executable was not found for ${application}.`);
++    }
++    d7("launch: spawning host for %s", extensionId);
++    const args = process.platform === "win32" ? [extensionUrl, "--parent-window=0"] : [extensionUrl];
++    this.process = (0, import_node_child_process.spawn)(executablePath, args, {
++      cwd: path2.dirname(executablePath),
++      shell: false,
++      windowsHide: true
+     });
++    if (!this.process.stdin || !this.process.stdout || !this.process.stderr) {
++      throw new Error("Native messaging host did not provide stdio streams.");
++    }
+     this.process.stdout.on("data", this.receive);
+     this.process.stderr.on("data", (data) => {
+-      d7("stderr: %s", data.toString());
++      d7("native messaging host wrote %d bytes to stderr", data.length);
+     });
+-    this.process.on("error", (err) => {
+-      d7("error: %s", err);
+-      this.destroy();
++    this.process.stdin.on("error", () => {
++      if (!this.destroyed) this.fail(new Error("Native messaging host input stream failed."));
++    });
++    this.process.on("error", () => {
++      d7("native messaging host process error");
++      this.fail(new Error("Native messaging host failed to start."));
+     });
+     this.process.on("exit", (code) => {
+       d7("exited %d", code);
+-      this.destroy();
++      this.process = void 0;
++      if (!this.destroyed) this.fail(new Error("Native messaging host exited."));
+     });
+     this.connected = true;
+-    if (this.pending && this.pending.length > 0) {
++    if (this.pending.length > 0) {
+       d7("sending %d pending messages", this.pending.length);
+-      this.pending.forEach((msg) => this.send(msg));
+-      this.pending = [];
++      const pending = this.pending.splice(0);
++      for (const frame of pending) {
++        this.releaseQueuedFrame(frame);
++        this.writeFrame(frame);
++      }
+     }
+   }
+   send(json) {
+-    d7("send", json);
++    if (this.destroyed) throw new Error("Native messaging host is disconnected.");
++    const frame = this.encodeMessage(json);
+     if (!this.connected) {
+-      const pending = this.pending || (this.pending = []);
+-      pending.push(json);
++      this.queueFrame(this.pending, frame);
+       d7("send: pending");
+       return;
+     }
+-    const message = JSON.stringify(json);
+-    const buffer = Buffer.alloc(4 + message.length);
++    this.writeFrame(frame);
++  }
++  encodeMessage(json) {
++    let serialized;
++    try {
++      serialized = JSON.stringify(json);
++    } catch {
++      throw new Error("Native messaging message is not JSON serializable.");
++    }
++    if (typeof serialized !== "string") {
++      throw new Error("Native messaging message is not JSON serializable.");
++    }
++    const message = Buffer.from(serialized, "utf8");
++    if (message.length > MAX_NATIVE_MESSAGE_TO_HOST) {
++      throw new Error("Native messaging message is larger than 64 MiB.");
++    }
++    const buffer = Buffer.allocUnsafe(4 + message.length);
+     buffer.writeUInt32LE(message.length, 0);
+-    buffer.write(message, 4);
+-    this.process.stdin.write(buffer);
++    message.copy(buffer, 4);
++    return buffer;
++  }
++  queueFrame(queue, frame) {
++    if (this.queuedMessageCount >= MAX_QUEUED_NATIVE_MESSAGES || this.queuedMessageBytes + frame.length > MAX_QUEUED_NATIVE_MESSAGE_BYTES) {
++      throw new Error("Native messaging pending queue limit exceeded.");
++    }
++    queue.push(frame);
++    this.queuedMessageCount += 1;
++    this.queuedMessageBytes += frame.length;
++  }
++  releaseQueuedFrame(frame) {
++    this.queuedMessageCount -= 1;
++    this.queuedMessageBytes -= frame.length;
++  }
++  writeFrame(frame) {
++    if (this.writeBlocked) {
++      this.queueFrame(this.writeQueue, frame);
++      return;
++    }
++    const stdin = this.process?.stdin;
++    if (!stdin || stdin.destroyed) {
++      throw new Error("Native messaging host is disconnected.");
++    }
++    if (!stdin.write(frame)) {
++      this.writeBlocked = true;
++      stdin.once("drain", this.flushWriteQueue);
++    }
+   }
+-  sendAndReceive(message) {
+-    this.send(message);
+-    return new Promise((resolve) => {
++  async sendAndReceive(message) {
++    await this.ready;
++    if (this.destroyed || !this.connected) throw new Error("Native messaging host is disconnected.");
++    return new Promise((resolve, reject) => {
+       this.resolveResponse = resolve;
++      this.rejectResponse = reject;
++      this.responseTimer = setTimeout(() => {
++        this.fail(new Error("Native messaging host response timed out."));
++      }, this.responseTimeoutMs);
++      this.responseTimer.unref?.();
++      try {
++        this.send(message);
++      } catch (error) {
++        this.clearResponseTimer();
++        this.resolveResponse = void 0;
++        this.rejectResponse = void 0;
++        reject(error);
++      }
+     });
+   }
++  clearResponseTimer() {
++    if (this.responseTimer) {
++      clearTimeout(this.responseTimer);
++      this.responseTimer = void 0;
++    }
++  }
+ };
+ 
+ // src/browser/api/runtime.ts
++var MAX_NATIVE_HOST_CONNECTIONS = 16;
+ var RuntimeAPI = class extends import_node_events3.EventEmitter {
+   constructor(ctx) {
+     super();
+     this.ctx = ctx;
+     this.hostMap = {};
++    this.activeHosts = /* @__PURE__ */ new Set();
+     this.connectNative = async (event, connectionId, application) => {
+-      const host = new NativeMessagingHost(
++      if (this.hostMap[connectionId]) {
++        throw new Error("Native messaging connection already exists.");
++      }
++      const host = this.createNativeHost(
+         event.extension.id,
+         event.sender,
+         connectionId,
+         application
+       );
+       this.hostMap[connectionId] = host;
++      try {
++        await host.ready;
++      } catch (error) {
++        host.fail(error instanceof Error ? error : new Error("Native messaging host failed to start."));
++        throw error;
++      }
+     };
+     this.disconnectNative = (event, connectionId) => {
+       this.hostMap[connectionId]?.destroy();
+-      this.hostMap[connectionId] = void 0;
++      delete this.hostMap[connectionId];
+     };
+     this.sendNativeMessage = async (event, application, message) => {
+       const connectionId = (0, import_node_crypto.randomUUID)();
+-      const host = new NativeMessagingHost(
++      const host = this.createNativeHost(
+         event.extension.id,
+         event.sender,
+         connectionId,
+         application,
+         false
+       );
+-      await host.ready;
+-      return await host.sendAndReceive(message);
++      try {
++        return await host.sendAndReceive(message);
++      } finally {
++        host.destroy(false);
++      }
++    };
++    this.createNativeHost = (extensionId, sender, connectionId, application, keepAlive = true) => {
++      if (!sender) throw new Error("Native messaging sender is unavailable.");
++      if (this.activeHosts.size >= MAX_NATIVE_HOST_CONNECTIONS) {
++        throw new Error("Native messaging connection limit exceeded.");
++      }
++      let host;
++      host = new NativeMessagingHost(extensionId, sender, connectionId, application, keepAlive, () => {
++        this.activeHosts.delete(host);
++        if (this.hostMap[connectionId] === host) delete this.hostMap[connectionId];
++      });
++      this.activeHosts.add(host);
++      return host;
+     };
+     this.openOptionsPage = async ({ extension }) => {
+       const manifest = getExtensionManifest(extension);
+@@ -2614,49 +2849,86 @@ function readLoadedExtensionManifest(ctx, extension) {
+ }
+ 
+ // src/browser/api/permissions.ts
++function parsePermissionOriginPattern(pattern) {
++  if (pattern === "<all_urls>") return { all: true };
++  const match = /^(\*|https?|wss?):\/\/(\*|\*\.[^/]+|[^/*]+)(\/.*)$/.exec(pattern);
++  if (!match) return null;
++  return { all: false, scheme: match[1], host: match[2].toLowerCase(), path: match[3] };
++}
++function permissionOriginPatternCovers(grantedPattern, requestedPattern) {
++  if (grantedPattern === requestedPattern || grantedPattern === "<all_urls>") return true;
++  const granted = parsePermissionOriginPattern(grantedPattern);
++  const requested = parsePermissionOriginPattern(requestedPattern);
++  if (!granted || !requested || granted.all || requested.all) return false;
++  if (granted.scheme !== requested.scheme && !(granted.scheme === "*" && ["http", "https"].includes(requested.scheme))) return false;
++  const hostCovered = granted.host === "*" || granted.host === requested.host || (() => {
++    if (!granted.host.startsWith("*.")) return false;
++    const grantedBase = granted.host.slice(2);
++    const requestedBase = requested.host.startsWith("*.") ? requested.host.slice(2) : requested.host;
++    return requestedBase === grantedBase || requestedBase.endsWith("." + grantedBase);
++  })();
++  if (!hostCovered) return false;
++  return granted.path === "/*" || granted.path === requested.path;
++}
+ var PermissionsAPI = class {
+   constructor(ctx) {
+     this.ctx = ctx;
+     this.permissionMap = /* @__PURE__ */ new Map();
+-    this.contains = ({ extension }, permissions) => {
++    this.contains = ({ extension }, request) => {
+       const currentPermissions = this.permissionMap.get(extension.id);
+-      const hasPermissions = permissions.permissions ? permissions.permissions.every(
++      const hasPermissions = request.permissions ? request.permissions.every(
+         (permission) => currentPermissions.permissions.includes(permission)
+       ) : true;
+-      const hasOrigins = permissions.origins ? permissions.origins.every((origin) => currentPermissions.origins.includes(origin)) : true;
++      const hasOrigins = request.origins ? request.origins.every(
++        (origin) => currentPermissions.origins.some((granted) => permissionOriginPatternCovers(granted, origin))
++      ) : true;
+       return hasPermissions && hasOrigins;
+     };
+     this.getAll = ({ extension }) => {
+       return this.permissionMap.get(extension.id);
+     };
+-    this.remove = ({ extension }, permissions) => {
+-      return true;
++    this.remove = async ({ extension }, request) => {
++      const granted = this.permissionMap.get(extension.id);
++      if (!granted) return false;
++      const optionalPermissions = new Set(extension.manifest.optional_permissions || []);
++      const optionalOrigins = new Set(extension.manifest.optional_host_permissions || []);
++      const removed = { permissions: [], origins: [] };
++      for (const permission of request.permissions || []) {
++        if (!optionalPermissions.has(permission)) continue;
++        if (granted.permissions.includes(permission)) removed.permissions.push(permission);
++      }
++      for (const origin of request.origins || []) {
++        if (!optionalOrigins.has(origin)) continue;
++        if (granted.origins.includes(origin)) removed.origins.push(origin);
++      }
++      if (removed.permissions.length || removed.origins.length) {
++        if (!await this.ctx.store.removePermissions(extension, removed)) return false;
++        granted.permissions = granted.permissions.filter((permission) => !removed.permissions.includes(permission));
++        granted.origins = granted.origins.filter((origin) => !removed.origins.includes(origin));
++        this.ctx.router.sendEvent(extension.id, "permissions.onRemoved", removed);
++        return true;
++      }
++      return false;
+     };
+     this.request = async ({ extension }, request) => {
+-      const declaredPermissions = /* @__PURE__ */ new Set([
+-        ...extension.manifest.permissions || [],
+-        ...extension.manifest.optional_permissions || []
+-      ]);
+-      if (request.permissions && !request.permissions.every((p) => declaredPermissions.has(p))) {
+-        throw new Error("Permissions request includes undeclared permission");
+-      }
+-      const granted = await this.ctx.store.requestPermissions(extension, request);
+-      if (!granted) return false;
++      const optionalPermissions = new Set(extension.manifest.optional_permissions || []);
++      const optionalOrigins = new Set(extension.manifest.optional_host_permissions || []);
+       const permissions = this.permissionMap.get(extension.id);
+-      if (request.origins) {
+-        for (const origin of request.origins) {
+-          if (!permissions.origins.includes(origin)) {
+-            permissions.origins.push(origin);
+-          }
+-        }
++      const added = {
++        permissions: (request.permissions || []).filter((permission) => !permissions.permissions.includes(permission)),
++        origins: (request.origins || []).filter((origin) => !permissions.origins.some((granted) => permissionOriginPatternCovers(granted, origin)))
++      };
++      if (added.permissions.some((permission) => !optionalPermissions.has(permission))) {
++        throw new Error("Permissions request includes undeclared permission");
+       }
+-      if (request.permissions) {
+-        for (const permission of request.permissions) {
+-          if (!permissions.permissions.includes(permission)) {
+-            permissions.permissions.push(permission);
+-          }
+-        }
++      if (added.origins.some((origin) => ![...optionalOrigins].some((declared) => permissionOriginPatternCovers(declared, origin)))) {
++        throw new Error("Permissions request includes undeclared origin");
+       }
++      if (!added.permissions.length && !added.origins.length) return true;
++      if (!await this.ctx.store.requestPermissions(extension, added)) return false;
++      permissions.permissions.push(...added.permissions);
++      permissions.origins.push(...added.origins);
++      this.ctx.router.sendEvent(extension.id, "permissions.onAdded", added);
+       return true;
+     };
+     const handle = this.ctx.router.apiHandler();
+@@ -2675,13 +2947,65 @@ var PermissionsAPI = class {
+   }
+   processExtension(extension) {
+     const manifest = extension.manifest;
++    const persisted = this.ctx.store.getGrantedPermissions(extension);
++    const optionalPermissions = new Set(manifest.optional_permissions || []);
++    const optionalOrigins = new Set(manifest.optional_host_permissions || []);
+     this.permissionMap.set(extension.id, {
+-      permissions: manifest.permissions || [],
+-      origins: manifest.host_permissions || []
++      permissions: [
++        ...manifest.permissions || [],
++        ...(persisted.permissions || []).filter((permission) => optionalPermissions.has(permission))
++      ],
++      origins: [
++        ...manifest.host_permissions || [],
++        ...(persisted.origins || []).filter((origin) => [...optionalOrigins].some((declared) => permissionOriginPatternCovers(declared, origin)))
++      ]
+     });
+   }
+ };
+ 
++// src/browser/api/privacy.ts
++var PRIVACY_SERVICE_KEYS = /* @__PURE__ */ new Set([
++  "services.passwordSavingEnabled",
++  "services.autofillAddressEnabled",
++  "services.autofillCreditCardEnabled"
++]);
++var PrivacyAPI = class {
++  constructor(ctx) {
++    this.ctx = ctx;
++    const handle = this.ctx.router.apiHandler();
++    handle("privacy.get", this.get.bind(this));
++    handle("privacy.set", this.set.bind(this));
++    handle("privacy.clear", this.clear.bind(this));
++  }
++  validate(extension, request, requireValue = false) {
++    if (!request || typeof request !== "object" || !PRIVACY_SERVICE_KEYS.has(request.key)) {
++      throw new Error("Unsupported Chrome privacy setting");
++    }
++    if (requireValue && typeof request.value !== "boolean") {
++      throw new Error("Chrome privacy setting value must be a boolean");
++    }
++    const required = new Set(extension.manifest.permissions || []);
++    const persisted = this.ctx.store.getGrantedPermissions(extension);
++    if (!required.has("privacy") && !(persisted.permissions || []).includes("privacy")) {
++      throw new Error("Chrome privacy permission is not granted");
++    }
++  }
++  async get({ extension }, request) {
++    this.validate(extension, request);
++    return await this.ctx.store.getPrivacySetting(extension, { key: request.key });
++  }
++  async set({ extension }, request) {
++    this.validate(extension, request, true);
++    const details = await this.ctx.store.setPrivacySetting(extension, { key: request.key, value: request.value });
++    this.ctx.router.sendEvent(extension.id, `privacy.onChange:${request.key}`, details);
++  }
++  async clear({ extension }, request) {
++    this.validate(extension, request);
++    const details = await this.ctx.store.clearPrivacySetting(extension, { key: request.key });
++    this.ctx.router.sendEvent(extension.id, `privacy.onChange:${request.key}`, details);
++  }
++};
++
+ // src/browser/index.ts
+ function checkVersion() {
+   const electronVersion = process.versions.electron;
+@@ -2764,6 +3088,7 @@ var ElectronChromeExtensions = class _ElectronChromeExtensions extends import_no
+       cookies: new CookiesAPI(this.ctx),
+       notifications: new NotificationsAPI(this.ctx),
+       permissions: new PermissionsAPI(this.ctx),
++      privacy: new PrivacyAPI(this.ctx),
+       runtime: new RuntimeAPI(this.ctx),
+       tabs: new TabsAPI(this.ctx),
+       webNavigation: new WebNavigationAPI(this.ctx),
+diff --git a/dist/esm/index.mjs b/dist/esm/index.mjs
+index dc598ce..2fa09c1 100644
+--- a/dist/esm/index.mjs
++++ b/dist/esm/index.mjs
+@@ -112,6 +112,10 @@ var _PopupView = class _PopupView extends EventEmitter {
+       }
+     };
+     this.maybeClose = () => {
++      if (this.hidden) {
++        d("preventing close before popup is shown");
++        return;
++      }
+       if (!this.browserWindow?.isDestroyed() && this.browserWindow?.webContents.isDevToolsOpened()) {
+         d("preventing close due to DevTools being open");
+         return;
+@@ -282,23 +286,29 @@ var BrowserActionAPI = class {
+     this.actionMap = /* @__PURE__ */ new Map();
+     this.observers = /* @__PURE__ */ new Set();
+     this.queuedUpdate = false;
+-    this.openPopup = (event, options) => {
+-      const window = typeof options?.windowId === "number" ? this.ctx.store.getWindowById(options.windowId) : this.ctx.store.getCurrentWindow();
++    this.openPopup = async (event, options) => {
++      const senderTab = event.type === "frame" ? this.ctx.store.getTabById(event.sender.id) : void 0;
++      const senderWindow = senderTab ? this.ctx.store.tabToWindow.get(senderTab) : void 0;
++      const window = typeof options?.windowId === "number" ? this.ctx.store.getWindowById(options.windowId) : senderWindow ?? this.ctx.store.getCurrentWindow();
+       if (!window || window.isDestroyed()) {
+-        d2("openPopup: window %d destroyed", window?.id);
+-        return;
++        d2("openPopup: no available window for extension %s", event.extension.id);
++        throw new Error("No window is available for action popup.");
+       }
+       const activeTab = this.ctx.store.getActiveTabFromWindow(window);
+-      if (!activeTab) return;
++      if (!activeTab) {
++        d2("openPopup: no active tab in window %d for extension %s", window.id, event.extension.id);
++        throw new Error("No active tab is available for action popup.");
++      }
++      if (await this.ctx.store.openPopup(event.extension, activeTab, window)) return;
+       const [width] = window.getSize();
+       const anchorSize = 64;
+-      this.activateClick({
++      return this.activateClick({
+         eventType: "click",
+         extensionId: event.extension.id,
+         tabId: activeTab?.id,
+         // TODO(mv3): get anchor position
+         anchorRect: { x: width - anchorSize, y: 0, width: anchorSize, height: anchorSize }
+-      });
++      }, false);
+     };
+     const handle = this.ctx.router.apiHandler();
+     const getter = (propName) => ({ extension }, details = {}) => {
+@@ -314,6 +324,9 @@ var BrowserActionAPI = class {
+       } else {
+         result = action[propName];
+       }
++      if (propName === "popup" && typeof result === "string" && result) {
++        return getExtensionUrl(extension, result) || "";
++      }
+       return result;
+     };
+     const setDetails = ({ extension }, details, propName) => {
+@@ -392,6 +405,7 @@ var BrowserActionAPI = class {
+   }
+   setupSession(session2) {
+     const sessionExtensions = session2.extensions || session2;
++    sessionExtensions.getAllExtensions().forEach((extension) => this.processExtension(extension));
+     sessionExtensions.on("extension-loaded", (event, extension) => {
+       this.processExtension(extension);
+     });
+@@ -462,6 +476,10 @@ var BrowserActionAPI = class {
+     let action = this.actionMap.get(extensionId);
+     if (!action) {
+       action = { tabs: {} };
++      const sessionExtensions = this.ctx.session.extensions || this.ctx.session;
++      const extension = sessionExtensions.getExtension(extensionId);
++      const defaults = extension ? getBrowserActionDefaults(extension) : void 0;
++      if (defaults) Object.assign(action, defaults);
+       this.actionMap.set(extensionId, action);
+       this.onUpdate();
+     }
+@@ -539,13 +557,14 @@ var BrowserActionAPI = class {
+         console.debug(`Ignoring unknown browserAction.activate event '${eventType}'`);
+     }
+   }
+-  activateClick(details) {
++  activateClick(details, toggle = true) {
+     const { extensionId, tabId, anchorRect, alignment } = details;
+     if (this.popup) {
+-      const toggleExtension = !this.popup.isDestroyed() && this.popup.extensionId === extensionId;
++      const sameExtension = !this.popup.isDestroyed() && this.popup.extensionId === extensionId;
++      if (sameExtension && !toggle) return;
+       this.popup.destroy();
+       this.popup = void 0;
+-      if (toggleExtension) {
++      if (sameExtension) {
+         d2("skipping activate to close popup");
+         return;
+       }
+@@ -571,6 +590,9 @@ var BrowserActionAPI = class {
+       d2(`opened popup: ${popupUrl}`);
+       this.ctx.emit("browser-action-popup-created", this.popup);
+     } else {
++      if (!toggle) {
++        throw new Error("No popup is available for action.");
++      }
+       d2(`dispatching onClicked for ${extensionId}`);
+       const tabDetails = this.ctx.store.tabDetailsCache.get(tab.id);
+       this.ctx.router.sendEvent(extensionId, "browserAction.onClicked", tabDetails);
+@@ -1400,6 +1422,10 @@ var ExtensionStore = class extends EventEmitter2 {
+     const activeTab = win && !win.isDestroyed() && this.windowToActiveTab.get(win);
+     return activeTab && !activeTab.isDestroyed() && activeTab || void 0;
+   }
++  async openPopup(extension, tab, window) {
++    if (typeof this.impl.openPopup !== "function") return false;
++    return await this.impl.openPopup(extension, tab, window) === true;
++  }
+   getActiveTabFromWebContents(wc) {
+     const win = this.tabToWindow.get(wc) || BrowserWindow3.fromWebContents(wc);
+     const activeTab = win ? this.getActiveTabFromWindow(win) : void 0;
+@@ -1433,6 +1459,30 @@ var ExtensionStore = class extends EventEmitter2 {
+     const result = await this.impl.requestPermissions(extension, permissions);
+     return typeof result === "boolean" ? result : false;
+   }
++  getGrantedPermissions(extension) {
++    if (typeof this.impl.getGrantedPermissions !== "function") {
++      return { permissions: [], origins: [] };
++    }
++    const result = this.impl.getGrantedPermissions(extension);
++    return result && typeof result === "object" ? result : { permissions: [], origins: [] };
++  }
++  async removePermissions(extension, permissions) {
++    if (typeof this.impl.removePermissions !== "function") return true;
++    const result = await this.impl.removePermissions(extension, permissions);
++    return typeof result === "boolean" ? result : false;
++  }
++  async getPrivacySetting(extension, request) {
++    if (typeof this.impl.getPrivacySetting !== "function") throw new Error("Chrome privacy settings are unavailable");
++    return await this.impl.getPrivacySetting(extension, request);
++  }
++  async setPrivacySetting(extension, request) {
++    if (typeof this.impl.setPrivacySetting !== "function") throw new Error("Chrome privacy settings are unavailable");
++    return await this.impl.setPrivacySetting(extension, request);
++  }
++  async clearPrivacySetting(extension, request) {
++    if (typeof this.impl.clearPrivacySetting !== "function") throw new Error("Chrome privacy settings are unavailable");
++    return await this.impl.clearPrivacySetting(extension, request);
++  }
+ };
+ 
+ // src/browser/api/context-menus.ts
+@@ -1701,12 +1751,12 @@ import debug7 from "debug";
+ import { spawn } from "child_process";
+ import debug6 from "debug";
+ var d6 = debug6("electron-chrome-extensions:winreg");
+-function readRegistryKey(hive, path5, key) {
++function readRegistryKey(hive, path5, key, view) {
+   if (process.platform !== "win32") {
+     return Promise.reject("Unsupported platform");
+   }
+   return new Promise((resolve, reject) => {
+-    const args = ["query", `${hive}\\${path5}`, ...key ? ["/v", key] : []];
++    const args = ["query", `${hive}\\${path5}`, ...key ? ["/v", key] : [], ...view ? [`/reg:${view}`] : []];
+     d6("reg %s", args.join(" "));
+     const child = spawn("reg", args);
+     let output = "";
+@@ -1737,10 +1787,18 @@ function readRegistryKey(hive, path5, key) {
+ 
+ // src/browser/api/lib/native-messaging-host.ts
+ var d7 = debug7("electron-chrome-extensions:nativeMessaging");
++var MAX_NATIVE_MESSAGE_FROM_HOST = 1024 * 1024;
++var MAX_NATIVE_MESSAGE_TO_HOST = 64 * 1024 * 1024;
++var MAX_QUEUED_NATIVE_MESSAGES = 64;
++var MAX_QUEUED_NATIVE_MESSAGE_BYTES = MAX_NATIVE_MESSAGE_TO_HOST + 4;
++var NATIVE_MESSAGE_RESPONSE_TIMEOUT_MS = 6e4;
+ function isValidConfig(config) {
+-  return typeof config === "object" && config !== null && typeof config.name === "string" && typeof config.description === "string" && typeof config.path === "string" && config.type === "stdio" && Array.isArray(config.allowed_origins);
++  return typeof config === "object" && config !== null && typeof config.name === "string" && typeof config.description === "string" && typeof config.path === "string" && config.type === "stdio" && Array.isArray(config.allowed_origins) && config.allowed_origins.every((origin) => typeof origin === "string");
+ }
+ async function getConfigSearchPaths(application) {
++  if (!/^[a-z0-9_]+(?:\.[a-z0-9_]+)*$/.test(application)) {
++    throw new Error("Invalid native messaging host name.");
++  }
+   const appJson = `${application}.json`;
+   let searchPaths;
+   switch (process.platform) {
+@@ -1768,8 +1826,10 @@ async function getConfigSearchPaths(application) {
+       break;
+     case "win32": {
+       searchPaths = (await Promise.allSettled([
+-        readRegistryKey("HKLM", `Software\\Google\\Chrome\\NativeMessagingHosts\\${application}`),
+-        readRegistryKey("HKCU", `Software\\Google\\Chrome\\NativeMessagingHosts\\${application}`)
++        readRegistryKey("HKCU", `Software\\Google\\Chrome\\NativeMessagingHosts\\${application}`, void 0, "32"),
++        readRegistryKey("HKLM", `Software\\Google\\Chrome\\NativeMessagingHosts\\${application}`, void 0, "32"),
++        readRegistryKey("HKCU", `Software\\Google\\Chrome\\NativeMessagingHosts\\${application}`, void 0, "64"),
++        readRegistryKey("HKLM", `Software\\Google\\Chrome\\NativeMessagingHosts\\${application}`, void 0, "64")
+       ])).map((result) => result.status === "fulfilled" ? result.value : void 0).filter(Boolean);
+       break;
+     }
+@@ -1780,44 +1840,90 @@ async function getConfigSearchPaths(application) {
+ }
+ async function readNativeMessagingHostConfig(application) {
+   const searchPaths = await getConfigSearchPaths(application);
+-  d7("searching", searchPaths);
++  d7("searching for native messaging host %s", application);
+   for (const filePath of searchPaths) {
+     try {
+       const data = await fs2.readFile(filePath);
+       const config = JSON.parse(data.toString());
+       if (isValidConfig(config)) {
+-        d7("read config in %s", filePath, config);
+-        return config;
++        if (config.name !== application) {
++          d7("native messaging manifest declared a different host name");
++          continue;
++        }
++        d7("read native messaging manifest for %s", application);
++        return { config, manifestPath: filePath };
+       } else {
+-        d7("%s contained invalid config", filePath, config);
++        d7("native messaging manifest for %s is invalid", application);
+       }
+     } catch (error) {
+       if (error?.code === "ENOENT") {
+-        d7("unable to read %s", filePath);
++        d7("native messaging manifest candidate for %s was not found", application);
+       } else {
+-        d7("unknown error", error);
++        d7("unable to read native messaging manifest for %s", application);
+       }
+       continue;
+     }
+   }
+ }
+ var NativeMessagingHost = class {
+-  constructor(extensionId, sender, connectionId, application, keepAlive = true) {
++  constructor(extensionId, sender, connectionId, application, keepAlive = true, onDestroyed, responseTimeoutMs = NATIVE_MESSAGE_RESPONSE_TIMEOUT_MS) {
+     this.connected = false;
++    this.pending = [];
++    this.writeQueue = [];
++    this.queuedMessageCount = 0;
++    this.queuedMessageBytes = 0;
++    this.writeBlocked = false;
+     this.receiveExtensionMessage = (_event, message) => {
+-      this.send(message);
++      try {
++        this.send(message);
++      } catch {
++        this.fail(new Error("Native messaging message could not be sent."));
++      }
++    };
++    this.receiveBuffer = Buffer.alloc(0);
++    this.flushWriteQueue = () => {
++      this.writeBlocked = false;
++      while (!this.writeBlocked && this.writeQueue.length > 0 && !this.destroyed) {
++        const frame = this.writeQueue.shift();
++        this.releaseQueuedFrame(frame);
++        this.writeFrame(frame);
++      }
+     };
+     this.receive = (data) => {
+-      const length = data.readUInt32LE(0);
+-      const message = JSON.parse(data.subarray(4, 4 + length).toString());
+-      d7("receive: %s", message);
+-      if (this.keepAlive && this.sender) {
+-        this.sender.send(`crx-native-msg-${this.connectionId}`, message);
+-      } else {
+-        this.resolveResponse?.(message);
++      this.receiveBuffer = Buffer.concat([this.receiveBuffer, data]);
++      while (this.receiveBuffer.length >= 4) {
++        const length = this.receiveBuffer.readUInt32LE(0);
++        if (length > MAX_NATIVE_MESSAGE_FROM_HOST) {
++          this.fail(new Error("Native messaging host sent a message larger than 1 MiB."));
++          return;
++        }
++        if (this.receiveBuffer.length < 4 + length) return;
++        const payload = this.receiveBuffer.subarray(4, 4 + length);
++        this.receiveBuffer = this.receiveBuffer.subarray(4 + length);
++        let message;
++        try {
++          const json = new TextDecoder("utf-8", { fatal: true }).decode(payload);
++          message = JSON.parse(json);
++        } catch {
++          this.fail(new Error("Native messaging host sent invalid JSON."));
++          return;
++        }
++        if (this.keepAlive && this.sender) {
++          this.sender.send(`crx-native-msg-${this.connectionId}`, message);
++        } else if (this.resolveResponse) {
++          const resolve = this.resolveResponse;
++          this.clearResponseTimer();
++          this.resolveResponse = void 0;
++          this.rejectResponse = void 0;
++          resolve(message);
++          this.destroy(false);
++          return;
++        }
+       }
+     };
+     this.keepAlive = keepAlive;
++    this.onDestroyed = onDestroyed;
++    this.responseTimeoutMs = responseTimeoutMs;
+     this.sender = sender;
+     if (keepAlive) {
+       this.sender.ipc.on(`crx-native-msg-${connectionId}`, this.receiveExtensionMessage);
+@@ -1825,117 +1931,246 @@ var NativeMessagingHost = class {
+     this.connectionId = connectionId;
+     this.ready = this.launch(application, extensionId);
+   }
+-  destroy() {
++  fail(error) {
++    this.clearResponseTimer();
++    if (this.rejectResponse) {
++      const reject = this.rejectResponse;
++      this.resolveResponse = void 0;
++      this.rejectResponse = void 0;
++      reject(error);
++    }
++    this.destroy(true, error.message);
++  }
++  destroy(notify = true, errorMessage) {
++    if (this.destroyed) return;
++    this.destroyed = true;
+     this.connected = false;
++    this.clearResponseTimer();
++    this.pending = [];
++    this.writeQueue = [];
++    this.queuedMessageCount = 0;
++    this.queuedMessageBytes = 0;
++    this.writeBlocked = false;
+     if (this.process) {
+-      this.process.kill();
++      try {
++        this.process.kill();
++      } catch {
++      }
+       this.process = void 0;
+     }
+     if (this.keepAlive && this.sender) {
+       this.sender.ipc.off(`crx-native-msg-${this.connectionId}`, this.receiveExtensionMessage);
+-      this.sender.send(`crx-native-msg-${this.connectionId}-disconnect`);
++      if (notify) {
++        this.sender.send(`crx-native-msg-${this.connectionId}-disconnect`, errorMessage);
++      }
+     }
+     this.sender = void 0;
++    const onDestroyed = this.onDestroyed;
++    this.onDestroyed = void 0;
++    onDestroyed?.();
+   }
+   async launch(application, extensionId) {
+-    const config = await readNativeMessagingHostConfig(application);
+-    if (!config) {
++    const host = await readNativeMessagingHostConfig(application);
++    if (!host) {
+       d7("launch: unable to find %s for %s", application, extensionId);
+-      this.destroy();
+-      return;
++      throw new Error(`Native messaging host ${application} was not found.`);
+     }
++    const { config, manifestPath } = host;
+     const extensionUrl = `chrome-extension://${extensionId}/`;
+     if (!config.allowed_origins?.includes(extensionUrl)) {
+       d7("launch: %s not in allowed origins", extensionId);
+-      this.destroy();
+-      return;
++      throw new Error(`Access to native messaging host ${application} is forbidden.`);
++    }
++    if (process.platform !== "win32" && !path2.isAbsolute(config.path)) {
++      throw new Error(`Native messaging host ${application} must use an absolute executable path.`);
+     }
++    const executablePath = process.platform === "win32" && !path2.isAbsolute(config.path) ? path2.resolve(path2.dirname(manifestPath), config.path) : config.path;
+     let isFile = false;
+     try {
+-      const stat = await fs2.stat(config.path);
++      const stat = await fs2.stat(executablePath);
+       isFile = stat.isFile();
+-    } catch (error) {
+-      d7("launch: unable to find %s", config.path, error);
++    } catch {
++      d7("launch: executable for %s was not found", application);
+     }
+     if (!isFile) {
+-      this.destroy();
+-      return;
+-    }
+-    d7("launch: spawning %s for %s", config.path, extensionId);
+-    this.process = spawn2(config.path, [extensionUrl], {
+-      shell: false
++      throw new Error(`Native messaging host executable was not found for ${application}.`);
++    }
++    d7("launch: spawning host for %s", extensionId);
++    const args = process.platform === "win32" ? [extensionUrl, "--parent-window=0"] : [extensionUrl];
++    this.process = spawn2(executablePath, args, {
++      cwd: path2.dirname(executablePath),
++      shell: false,
++      windowsHide: true
+     });
++    if (!this.process.stdin || !this.process.stdout || !this.process.stderr) {
++      throw new Error("Native messaging host did not provide stdio streams.");
++    }
+     this.process.stdout.on("data", this.receive);
+     this.process.stderr.on("data", (data) => {
+-      d7("stderr: %s", data.toString());
++      d7("native messaging host wrote %d bytes to stderr", data.length);
+     });
+-    this.process.on("error", (err) => {
+-      d7("error: %s", err);
+-      this.destroy();
++    this.process.stdin.on("error", () => {
++      if (!this.destroyed) this.fail(new Error("Native messaging host input stream failed."));
++    });
++    this.process.on("error", () => {
++      d7("native messaging host process error");
++      this.fail(new Error("Native messaging host failed to start."));
+     });
+     this.process.on("exit", (code) => {
+       d7("exited %d", code);
+-      this.destroy();
++      this.process = void 0;
++      if (!this.destroyed) this.fail(new Error("Native messaging host exited."));
+     });
+     this.connected = true;
+-    if (this.pending && this.pending.length > 0) {
++    if (this.pending.length > 0) {
+       d7("sending %d pending messages", this.pending.length);
+-      this.pending.forEach((msg) => this.send(msg));
+-      this.pending = [];
++      const pending = this.pending.splice(0);
++      for (const frame of pending) {
++        this.releaseQueuedFrame(frame);
++        this.writeFrame(frame);
++      }
+     }
+   }
+   send(json) {
+-    d7("send", json);
++    if (this.destroyed) throw new Error("Native messaging host is disconnected.");
++    const frame = this.encodeMessage(json);
+     if (!this.connected) {
+-      const pending = this.pending || (this.pending = []);
+-      pending.push(json);
++      this.queueFrame(this.pending, frame);
+       d7("send: pending");
+       return;
+     }
+-    const message = JSON.stringify(json);
+-    const buffer = Buffer.alloc(4 + message.length);
++    this.writeFrame(frame);
++  }
++  encodeMessage(json) {
++    let serialized;
++    try {
++      serialized = JSON.stringify(json);
++    } catch {
++      throw new Error("Native messaging message is not JSON serializable.");
++    }
++    if (typeof serialized !== "string") {
++      throw new Error("Native messaging message is not JSON serializable.");
++    }
++    const message = Buffer.from(serialized, "utf8");
++    if (message.length > MAX_NATIVE_MESSAGE_TO_HOST) {
++      throw new Error("Native messaging message is larger than 64 MiB.");
++    }
++    const buffer = Buffer.allocUnsafe(4 + message.length);
+     buffer.writeUInt32LE(message.length, 0);
+-    buffer.write(message, 4);
+-    this.process.stdin.write(buffer);
++    message.copy(buffer, 4);
++    return buffer;
++  }
++  queueFrame(queue, frame) {
++    if (this.queuedMessageCount >= MAX_QUEUED_NATIVE_MESSAGES || this.queuedMessageBytes + frame.length > MAX_QUEUED_NATIVE_MESSAGE_BYTES) {
++      throw new Error("Native messaging pending queue limit exceeded.");
++    }
++    queue.push(frame);
++    this.queuedMessageCount += 1;
++    this.queuedMessageBytes += frame.length;
++  }
++  releaseQueuedFrame(frame) {
++    this.queuedMessageCount -= 1;
++    this.queuedMessageBytes -= frame.length;
++  }
++  writeFrame(frame) {
++    if (this.writeBlocked) {
++      this.queueFrame(this.writeQueue, frame);
++      return;
++    }
++    const stdin = this.process?.stdin;
++    if (!stdin || stdin.destroyed) {
++      throw new Error("Native messaging host is disconnected.");
++    }
++    if (!stdin.write(frame)) {
++      this.writeBlocked = true;
++      stdin.once("drain", this.flushWriteQueue);
++    }
+   }
+-  sendAndReceive(message) {
+-    this.send(message);
+-    return new Promise((resolve) => {
++  async sendAndReceive(message) {
++    await this.ready;
++    if (this.destroyed || !this.connected) throw new Error("Native messaging host is disconnected.");
++    return new Promise((resolve, reject) => {
+       this.resolveResponse = resolve;
++      this.rejectResponse = reject;
++      this.responseTimer = setTimeout(() => {
++        this.fail(new Error("Native messaging host response timed out."));
++      }, this.responseTimeoutMs);
++      this.responseTimer.unref?.();
++      try {
++        this.send(message);
++      } catch (error) {
++        this.clearResponseTimer();
++        this.resolveResponse = void 0;
++        this.rejectResponse = void 0;
++        reject(error);
++      }
+     });
+   }
++  clearResponseTimer() {
++    if (this.responseTimer) {
++      clearTimeout(this.responseTimer);
++      this.responseTimer = void 0;
++    }
++  }
+ };
+ 
+ // src/browser/api/runtime.ts
++var MAX_NATIVE_HOST_CONNECTIONS = 16;
+ var RuntimeAPI = class extends EventEmitter3 {
+   constructor(ctx) {
+     super();
+     this.ctx = ctx;
+     this.hostMap = {};
++    this.activeHosts = /* @__PURE__ */ new Set();
+     this.connectNative = async (event, connectionId, application) => {
+-      const host = new NativeMessagingHost(
++      if (this.hostMap[connectionId]) {
++        throw new Error("Native messaging connection already exists.");
++      }
++      const host = this.createNativeHost(
+         event.extension.id,
+         event.sender,
+         connectionId,
+         application
+       );
+       this.hostMap[connectionId] = host;
++      try {
++        await host.ready;
++      } catch (error) {
++        host.fail(error instanceof Error ? error : new Error("Native messaging host failed to start."));
++        throw error;
++      }
+     };
+     this.disconnectNative = (event, connectionId) => {
+       this.hostMap[connectionId]?.destroy();
+-      this.hostMap[connectionId] = void 0;
++      delete this.hostMap[connectionId];
+     };
+     this.sendNativeMessage = async (event, application, message) => {
+       const connectionId = randomUUID();
+-      const host = new NativeMessagingHost(
++      const host = this.createNativeHost(
+         event.extension.id,
+         event.sender,
+         connectionId,
+         application,
+         false
+       );
+-      await host.ready;
+-      return await host.sendAndReceive(message);
++      try {
++        return await host.sendAndReceive(message);
++      } finally {
++        host.destroy(false);
++      }
++    };
++    this.createNativeHost = (extensionId, sender, connectionId, application, keepAlive = true) => {
++      if (!sender) throw new Error("Native messaging sender is unavailable.");
++      if (this.activeHosts.size >= MAX_NATIVE_HOST_CONNECTIONS) {
++        throw new Error("Native messaging connection limit exceeded.");
++      }
++      let host;
++      host = new NativeMessagingHost(extensionId, sender, connectionId, application, keepAlive, () => {
++        this.activeHosts.delete(host);
++        if (this.hostMap[connectionId] === host) delete this.hostMap[connectionId];
++      });
++      this.activeHosts.add(host);
++      return host;
+     };
+     this.openOptionsPage = async ({ extension }) => {
+       const manifest = getExtensionManifest(extension);
+@@ -2577,49 +2812,86 @@ function readLoadedExtensionManifest(ctx, extension) {
+ }
+ 
+ // src/browser/api/permissions.ts
++function parsePermissionOriginPattern(pattern) {
++  if (pattern === "<all_urls>") return { all: true };
++  const match = /^(\*|https?|wss?):\/\/(\*|\*\.[^/]+|[^/*]+)(\/.*)$/.exec(pattern);
++  if (!match) return null;
++  return { all: false, scheme: match[1], host: match[2].toLowerCase(), path: match[3] };
++}
++function permissionOriginPatternCovers(grantedPattern, requestedPattern) {
++  if (grantedPattern === requestedPattern || grantedPattern === "<all_urls>") return true;
++  const granted = parsePermissionOriginPattern(grantedPattern);
++  const requested = parsePermissionOriginPattern(requestedPattern);
++  if (!granted || !requested || granted.all || requested.all) return false;
++  if (granted.scheme !== requested.scheme && !(granted.scheme === "*" && ["http", "https"].includes(requested.scheme))) return false;
++  const hostCovered = granted.host === "*" || granted.host === requested.host || (() => {
++    if (!granted.host.startsWith("*.")) return false;
++    const grantedBase = granted.host.slice(2);
++    const requestedBase = requested.host.startsWith("*.") ? requested.host.slice(2) : requested.host;
++    return requestedBase === grantedBase || requestedBase.endsWith("." + grantedBase);
++  })();
++  if (!hostCovered) return false;
++  return granted.path === "/*" || granted.path === requested.path;
++}
+ var PermissionsAPI = class {
+   constructor(ctx) {
+     this.ctx = ctx;
+     this.permissionMap = /* @__PURE__ */ new Map();
+-    this.contains = ({ extension }, permissions) => {
++    this.contains = ({ extension }, request) => {
+       const currentPermissions = this.permissionMap.get(extension.id);
+-      const hasPermissions = permissions.permissions ? permissions.permissions.every(
++      const hasPermissions = request.permissions ? request.permissions.every(
+         (permission) => currentPermissions.permissions.includes(permission)
+       ) : true;
+-      const hasOrigins = permissions.origins ? permissions.origins.every((origin) => currentPermissions.origins.includes(origin)) : true;
++      const hasOrigins = request.origins ? request.origins.every(
++        (origin) => currentPermissions.origins.some((granted) => permissionOriginPatternCovers(granted, origin))
++      ) : true;
+       return hasPermissions && hasOrigins;
+     };
+     this.getAll = ({ extension }) => {
+       return this.permissionMap.get(extension.id);
+     };
+-    this.remove = ({ extension }, permissions) => {
+-      return true;
++    this.remove = async ({ extension }, request) => {
++      const granted = this.permissionMap.get(extension.id);
++      if (!granted) return false;
++      const optionalPermissions = new Set(extension.manifest.optional_permissions || []);
++      const optionalOrigins = new Set(extension.manifest.optional_host_permissions || []);
++      const removed = { permissions: [], origins: [] };
++      for (const permission of request.permissions || []) {
++        if (!optionalPermissions.has(permission)) continue;
++        if (granted.permissions.includes(permission)) removed.permissions.push(permission);
++      }
++      for (const origin of request.origins || []) {
++        if (!optionalOrigins.has(origin)) continue;
++        if (granted.origins.includes(origin)) removed.origins.push(origin);
++      }
++      if (removed.permissions.length || removed.origins.length) {
++        if (!await this.ctx.store.removePermissions(extension, removed)) return false;
++        granted.permissions = granted.permissions.filter((permission) => !removed.permissions.includes(permission));
++        granted.origins = granted.origins.filter((origin) => !removed.origins.includes(origin));
++        this.ctx.router.sendEvent(extension.id, "permissions.onRemoved", removed);
++        return true;
++      }
++      return false;
+     };
+     this.request = async ({ extension }, request) => {
+-      const declaredPermissions = /* @__PURE__ */ new Set([
+-        ...extension.manifest.permissions || [],
+-        ...extension.manifest.optional_permissions || []
+-      ]);
+-      if (request.permissions && !request.permissions.every((p) => declaredPermissions.has(p))) {
+-        throw new Error("Permissions request includes undeclared permission");
+-      }
+-      const granted = await this.ctx.store.requestPermissions(extension, request);
+-      if (!granted) return false;
++      const optionalPermissions = new Set(extension.manifest.optional_permissions || []);
++      const optionalOrigins = new Set(extension.manifest.optional_host_permissions || []);
+       const permissions = this.permissionMap.get(extension.id);
+-      if (request.origins) {
+-        for (const origin of request.origins) {
+-          if (!permissions.origins.includes(origin)) {
+-            permissions.origins.push(origin);
+-          }
+-        }
++      const added = {
++        permissions: (request.permissions || []).filter((permission) => !permissions.permissions.includes(permission)),
++        origins: (request.origins || []).filter((origin) => !permissions.origins.some((granted) => permissionOriginPatternCovers(granted, origin)))
++      };
++      if (added.permissions.some((permission) => !optionalPermissions.has(permission))) {
++        throw new Error("Permissions request includes undeclared permission");
+       }
+-      if (request.permissions) {
+-        for (const permission of request.permissions) {
+-          if (!permissions.permissions.includes(permission)) {
+-            permissions.permissions.push(permission);
+-          }
+-        }
++      if (added.origins.some((origin) => ![...optionalOrigins].some((declared) => permissionOriginPatternCovers(declared, origin)))) {
++        throw new Error("Permissions request includes undeclared origin");
+       }
++      if (!added.permissions.length && !added.origins.length) return true;
++      if (!await this.ctx.store.requestPermissions(extension, added)) return false;
++      permissions.permissions.push(...added.permissions);
++      permissions.origins.push(...added.origins);
++      this.ctx.router.sendEvent(extension.id, "permissions.onAdded", added);
+       return true;
+     };
+     const handle = this.ctx.router.apiHandler();
+@@ -2638,13 +2910,65 @@ var PermissionsAPI = class {
+   }
+   processExtension(extension) {
+     const manifest = extension.manifest;
++    const persisted = this.ctx.store.getGrantedPermissions(extension);
++    const optionalPermissions = new Set(manifest.optional_permissions || []);
++    const optionalOrigins = new Set(manifest.optional_host_permissions || []);
+     this.permissionMap.set(extension.id, {
+-      permissions: manifest.permissions || [],
+-      origins: manifest.host_permissions || []
++      permissions: [
++        ...manifest.permissions || [],
++        ...(persisted.permissions || []).filter((permission) => optionalPermissions.has(permission))
++      ],
++      origins: [
++        ...manifest.host_permissions || [],
++        ...(persisted.origins || []).filter((origin) => [...optionalOrigins].some((declared) => permissionOriginPatternCovers(declared, origin)))
++      ]
+     });
+   }
+ };
+ 
++// src/browser/api/privacy.ts
++var PRIVACY_SERVICE_KEYS = /* @__PURE__ */ new Set([
++  "services.passwordSavingEnabled",
++  "services.autofillAddressEnabled",
++  "services.autofillCreditCardEnabled"
++]);
++var PrivacyAPI = class {
++  constructor(ctx) {
++    this.ctx = ctx;
++    const handle = this.ctx.router.apiHandler();
++    handle("privacy.get", this.get.bind(this));
++    handle("privacy.set", this.set.bind(this));
++    handle("privacy.clear", this.clear.bind(this));
++  }
++  validate(extension, request, requireValue = false) {
++    if (!request || typeof request !== "object" || !PRIVACY_SERVICE_KEYS.has(request.key)) {
++      throw new Error("Unsupported Chrome privacy setting");
++    }
++    if (requireValue && typeof request.value !== "boolean") {
++      throw new Error("Chrome privacy setting value must be a boolean");
++    }
++    const required = new Set(extension.manifest.permissions || []);
++    const persisted = this.ctx.store.getGrantedPermissions(extension);
++    if (!required.has("privacy") && !(persisted.permissions || []).includes("privacy")) {
++      throw new Error("Chrome privacy permission is not granted");
++    }
++  }
++  async get({ extension }, request) {
++    this.validate(extension, request);
++    return await this.ctx.store.getPrivacySetting(extension, { key: request.key });
++  }
++  async set({ extension }, request) {
++    this.validate(extension, request, true);
++    const details = await this.ctx.store.setPrivacySetting(extension, { key: request.key, value: request.value });
++    this.ctx.router.sendEvent(extension.id, `privacy.onChange:${request.key}`, details);
++  }
++  async clear({ extension }, request) {
++    this.validate(extension, request);
++    const details = await this.ctx.store.clearPrivacySetting(extension, { key: request.key });
++    this.ctx.router.sendEvent(extension.id, `privacy.onChange:${request.key}`, details);
++  }
++};
++
+ // src/browser/index.ts
+ function checkVersion() {
+   const electronVersion = process.versions.electron;
+@@ -2727,6 +3051,7 @@ var ElectronChromeExtensions = class _ElectronChromeExtensions extends EventEmit
+       cookies: new CookiesAPI(this.ctx),
+       notifications: new NotificationsAPI(this.ctx),
+       permissions: new PermissionsAPI(this.ctx),
++      privacy: new PrivacyAPI(this.ctx),
+       runtime: new RuntimeAPI(this.ctx),
+       tabs: new TabsAPI(this.ctx),
+       webNavigation: new WebNavigationAPI(this.ctx),
+diff --git a/dist/types/browser/impl.d.ts b/dist/types/browser/impl.d.ts
+index 28dcab4..d2cb81d 100644
+--- a/dist/types/browser/impl.d.ts
++++ b/dist/types/browser/impl.d.ts
+@@ -1,9 +1,14 @@
+ /// <reference types="chrome" />
+ /** App-specific implementation details for extensions. */
++export interface ChromePrivacySettingDetails {
++    value: boolean;
++    levelOfControl: 'controllable_by_this_extension' | 'controlled_by_this_extension' | 'controlled_by_other_extensions';
++}
+ export interface ChromeExtensionImpl {
+     createTab?(details: chrome.tabs.CreateProperties): Promise<[Electron.WebContents, Electron.BaseWindow]>;
+     selectTab?(tab: Electron.WebContents, window: Electron.BaseWindow): void;
+     removeTab?(tab: Electron.WebContents, window: Electron.BaseWindow): void;
++    openPopup?(extension: Electron.Extension, tab: Electron.WebContents, window: Electron.BaseWindow): Promise<boolean>;
+     /**
+      * Populate additional details to a tab descriptor which gets passed back to
+      * background pages and content scripts.
+@@ -12,4 +17,16 @@ export interface ChromeExtensionImpl {
+     createWindow?(details: chrome.windows.CreateData): Promise<Electron.BaseWindow>;
+     removeWindow?(window: Electron.BaseWindow): void;
+     requestPermissions?(extension: Electron.Extension, permissions: chrome.permissions.Permissions): Promise<boolean>;
++    getGrantedPermissions?(extension: Electron.Extension): chrome.permissions.Permissions;
++    removePermissions?(extension: Electron.Extension, permissions: chrome.permissions.Permissions): Promise<boolean>;
++    getPrivacySetting?(extension: Electron.Extension, request: {
++        key: string;
++    }): Promise<ChromePrivacySettingDetails>;
++    setPrivacySetting?(extension: Electron.Extension, request: {
++        key: string;
++        value: boolean;
++    }): Promise<ChromePrivacySettingDetails>;
++    clearPrivacySetting?(extension: Electron.Extension, request: {
++        key: string;
++    }): Promise<ChromePrivacySettingDetails>;
+ }

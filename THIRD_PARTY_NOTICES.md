@@ -1,6 +1,6 @@
 # Third-party notices
 
-The root MIT License covers source owned by VastProductions. It does not replace or override third-party licenses. Release builders must preserve the license and notice files supplied with every bundled component.
+Vast-owned source is licensed under GNU GPL version 3 only (`GPL-3.0-only`). This does not replace, erase, or relicense the upstream terms or copyright notices of third-party components. Release builders must preserve every required third-party license and notice. The combined Vast Browser distribution is provided under GPL-3.0-only where the GPL applies, while each third-party component remains available under its own upstream terms.
 
 ## Desktop JavaScript runtime
 
@@ -10,6 +10,7 @@ The locked npm dependency tree contains permissive licenses including MIT, ISC, 
 | --- | --- | --- |
 | Electron | MIT, plus Chromium and bundled third-party notices | Retain Electron's license and Chromium's generated third-party credits in binary distributions. |
 | Chromium within Electron | BSD-style plus many component-specific licenses | Retain the Chromium license and bundled credits/notices. |
+| `electron-chrome-extensions` 4.9.0 | GPL-3.0 | Vast selects the upstream GPL-3.0 licensing path. Retain the upstream GPL text, copyright attribution, exact version/source identity, and Vast's modification patch/source. No Patron/commercial license path is used. |
 | `pdfjs-dist` | Apache-2.0 | Retain its license and applicable notices. |
 | React / React DOM / Zustand / Electron Toolkit / electron-updater | MIT | Retain copyright and license notices. |
 | Lucide React / semver | ISC | Retain copyright and license notices. |
@@ -39,6 +40,6 @@ FFmpeg's GPL terms apply to the self-built FFmpeg executables; they do not chang
 
 ## Chromium-port overlay
 
-`chromium-port/` contains Vast-authored patches and tooling for an experimental open Chromium build. Applying those patches creates a combined Chromium source/build tree governed by Chromium's BSD-style license and the many third-party licenses recorded by Chromium, in addition to the MIT terms for Vast-owned additions. A staged Chromium package must include `LICENSE.chromium.txt` and Chromium's generated credits.
+`chromium-port/` contains Vast-authored patches and tooling for an experimental open Chromium build. Applying those patches creates a combined Chromium source/build tree governed by Chromium's BSD-style license and the many third-party licenses recorded by Chromium, in addition to GPL-3.0-only for Vast-owned additions. A staged Chromium package must include `LICENSE.chromium.txt` and Chromium's generated credits.
 
 See [docs/OPEN_SOURCE_LICENSE_AUDIT.md](docs/OPEN_SOURCE_LICENSE_AUDIT.md) for the decision record and current blockers.

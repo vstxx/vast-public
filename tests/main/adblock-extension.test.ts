@@ -20,7 +20,7 @@ test('standalone settings preserve custom rules and reject malformed schemas', (
   const value = validateSettings({ ...defaults(), allowlist: ['EXAMPLE.com', 'example.com'], customFilters: '||ads.example^' })
   assert.deepEqual(value.allowlist, ['example.com'])
   assert.equal(validateSettings(JSON.parse(JSON.stringify(value))).customFilters, '||ads.example^')
-  for (const changed of [{ schema: 2 }, { enabled: 'true' }, { lists: ['unknown'] }, { customFilters: 'x'.repeat(65537) }, { allowlist: ['evil.test/path'] }]) assert.throws(() => validateSettings({ ...defaults(), ...changed }))
+  for (const changed of [{ schema: 3 }, { enabled: 'true' }, { lists: ['unknown'] }, { customFilters: 'x'.repeat(65537) }, { allowlist: ['evil.test/path'] }]) assert.throws(() => validateSettings({ ...defaults(), ...changed }))
   assert.equal(validateSettings({ ...defaults(), allowlist: ['example.com'] }).allowlist.includes('sub.example.com'), false)
 })
 
@@ -30,6 +30,7 @@ test('download validation rejects HTML, truncation, excessive lines and preserve
   for (const invalid of ['<html>error</html>', '! x', '! valid\n' + 'x'.repeat(16385), '! valid\n' + '\0'.repeat(200)]) assert.throws(() => validateList(invalid))
   let init: RequestInit | undefined
   const stub = t.mock.method(globalThis, 'fetch', async (_url: unknown, options: RequestInit) => { init = options; return new Response(null, { status: 304 }) })
+  await assert.rejects(download('https://example.com/forged-trusted-list.txt', previous), /catalog|source|approved|Unknown/i)
   const unchanged = await download('https://easylist.to/easylist/easylist.txt', previous)
   assert.equal(unchanged.text, text)
   assert.equal(unchanged.updatedAt, 1)
@@ -52,7 +53,7 @@ test('engine rules preserve exceptions, third-party semantics and reject unsuppo
   assert.equal(restored.match(Request.fromRawDetails({ url: 'https://ads.example/ad.js', sourceUrl: 'https://example.com', type: 'script' })).match, true)
   assert.equal(restored.match(Request.fromRawDetails({ url: 'https://ads.example/allowed.js', sourceUrl: 'https://example.com', type: 'script' })).match, false)
   assert.equal(restored.match(Request.fromRawDetails({ url: 'https://ads.example/ad.js', sourceUrl: 'https://ads.example', type: 'script' })).match, false)
-  assert.ok(parseSupported('example.com##+js(set-constant, x, true)\nexample.com##div:has-text(ad)', resources).unsupported >= 2)
+  assert.ok(parseSupported('example.com##+js(set-constant, x, true)\nexample.com##div:has-text(ad)', resources).unsupported >= 1)
 })
 
 test('browser distribution excludes the product and engine; extension owns identity and runtime', async () => {

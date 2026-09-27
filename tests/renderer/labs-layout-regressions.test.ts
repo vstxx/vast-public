@@ -7,7 +7,6 @@ function source(path: string): string {
 }
 
 const notesSource = source('notes/NotesPage.tsx')
-const passwordsSource = source('passwords/PasswordsPage.tsx')
 const automationSource = source('automation/AutomationPage.tsx')
 const avidaeSource = source('avidae/AvidaePage.tsx')
 const diagnosticsSource = source('diagnostics/DiagnosticsPage.tsx')
@@ -15,7 +14,6 @@ const timelineSource = source('session-timeline/SessionTimelinePage.tsx')
 const networkSource = source('network/NetworkPage.tsx')
 
 test('Labs pages do not render decorative eyebrow captions above their headings', () => {
-  assert.doesNotMatch(passwordsSource, /Local encrypted vault - no Google sync/)
   assert.doesNotMatch(automationSource, />Labs<\/div>/)
   assert.doesNotMatch(avidaeSource, /Labs · local companion process/)
   assert.doesNotMatch(diagnosticsSource, /eyebrow="Diagnostics"/)
@@ -30,12 +28,9 @@ test('Notes actions use two complete equal-column rows instead of wrapping', () 
   assert.match(notesSource, /<Trash2 className="h-4 w-4" \/>Delete/)
 })
 
-test('Password Manager and Automation action bars keep deliberate equal-column grids', () => {
-  assert.match(passwordsSource, /grid w-full grid-cols-2 gap-2 sm:grid-cols-3 lg:w-\[33rem\]/)
-  assert.match(passwordsSource, /data-testid="password-entry-actions"/)
-  assert.match(passwordsSource, /md:grid-cols-4/)
+test('Automation action bars keep deliberate equal-column grids', () => {
   assert.match(automationSource, /className="mt-3 grid grid-cols-4 gap-2" data-testid="automation-primary-actions"/)
-  assert.match(automationSource, /vault-danger-button mt-2 w-full justify-center/)
+  assert.match(automationSource, /vast-button--danger vast-button--sm mt-2 w-full justify-center/)
 })
 
 test('remaining Labs primary actions have explicit symmetric layouts', () => {

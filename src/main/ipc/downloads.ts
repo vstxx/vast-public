@@ -1,11 +1,23 @@
+import {
+  cancelDownload,
+  clearCompletedDownloadHistory,
+  listCurrentDownloads,
+  openDownloadedFile,
+  pauseDownload,
+  resumeDownload,
+  retryDownload,
+  showInFolder
+} from '../downloads'
 import { assertNonEmptyString, fail, ok, type IpcHandle } from './registration'
 
+const downloadOperations = { pauseDownload, resumeDownload, cancelDownload }
+
 export function registerDownloadsIpc(handle: IpcHandle): void {
-  handle('vast:downloads:list-current', async () => (await import('../downloads')).listCurrentDownloads())
+  handle('vast:downloads:list-current', async () => listCurrentDownloads())
   handle('vast:downloads:show-in-folder', async (_event, path: string) => {
     try {
       assertNonEmptyString(path, 'path', 32_768)
-      await (await import('../downloads')).showInFolder(path)
+      await showInFolder(path)
       return ok()
     } catch (error) {
       return fail(error)
@@ -15,7 +27,7 @@ export function registerDownloadsIpc(handle: IpcHandle): void {
   handle('vast:downloads:open-file', async (_event, path: string) => {
     try {
       assertNonEmptyString(path, 'path', 32_768)
-      await (await import('../downloads')).openDownloadedFile(path)
+      await openDownloadedFile(path)
       return ok()
     } catch (error) {
       return fail(error)
@@ -30,8 +42,7 @@ export function registerDownloadsIpc(handle: IpcHandle): void {
     handle(channel, async (_event, id: string) => {
       try {
         assertNonEmptyString(id, 'download id', 512)
-        const downloads = await import('../downloads')
-        downloads[operation](id)
+        downloadOperations[operation](id)
         return ok()
       } catch (error) {
         return fail(error)
@@ -42,7 +53,7 @@ export function registerDownloadsIpc(handle: IpcHandle): void {
   handle('vast:downloads:retry', async (_event, id: string) => {
     try {
       assertNonEmptyString(id, 'download id', 512)
-      await (await import('../downloads')).retryDownload(id)
+      await retryDownload(id)
       return ok()
     } catch (error) {
       return fail(error)
@@ -51,7 +62,7 @@ export function registerDownloadsIpc(handle: IpcHandle): void {
 
   handle('vast:downloads:clear-completed', async () => {
     try {
-      await (await import('../downloads')).clearCompletedDownloadHistory()
+      await clearCompletedDownloadHistory()
       return ok()
     } catch (error) {
       return fail(error)

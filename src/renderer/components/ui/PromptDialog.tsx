@@ -2,6 +2,7 @@ import { X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useBrowserStore } from '../../store/browser-store'
 import { ModalShell } from './ModalShell'
+import { VastButton } from './VastButton'
 
 export function PromptDialog(): JSX.Element | null {
   const dialog = useBrowserStore((state) => state.promptDialog)
@@ -45,7 +46,7 @@ export function PromptDialog(): JSX.Element | null {
           <button
             type="button"
             onClick={cancel}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white"
+            className="vast-icon-button vast-icon-button--quiet grid place-items-center h-9 w-9 shrink-0 rounded-control"
           >
             <X className="h-4 w-4" />
           </button>
@@ -71,20 +72,12 @@ export function PromptDialog(): JSX.Element | null {
         </label>}
 
         <div className="mt-5 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={cancel}
-            className="rounded-control border border-white/10 bg-white/[0.045] px-4 py-2 text-sm font-medium text-vast-soft hover:bg-white/[0.08] hover:text-white"
-          >
+          <VastButton variant="secondary" onClick={cancel}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={!canSubmit}
-            className="rounded-control bg-vast-cyan px-4 py-2 text-sm font-semibold text-black hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
-          >
+          </VastButton>
+          <VastButton type="submit" variant="primary" disabled={!canSubmit}>
             {dialog.confirmLabel ?? 'Create'}
-          </button>
+          </VastButton>
         </div>
       </form>
     </ModalShell>

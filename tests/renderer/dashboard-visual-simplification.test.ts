@@ -7,7 +7,7 @@ const stylesSource = readFileSync(new URL('../../src/renderer/styles/index.css',
 const browserStageSource = readFileSync(new URL('../../src/renderer/components/browser/BrowserStage.tsx', import.meta.url), 'utf8')
 
 test('dashboard surfaces use restrained solid backgrounds instead of stacked decorative gradients', () => {
-  assert.match(dashboardSource, /min-h-full overflow-auto bg-vast-bg/)
+  assert.match(dashboardSource, /new-tab-page min-h-full overflow-auto/)
   assert.match(dashboardSource, /bg-\[#090a0e\]/)
   assert.doesNotMatch(dashboardSource, /vast-hero-aura/)
   assert.doesNotMatch(dashboardSource, /bg-\[radial-gradient/)
@@ -15,7 +15,7 @@ test('dashboard surfaces use restrained solid backgrounds instead of stacked dec
 
 test('search-only new tab removes every descendant gradient and shadow', () => {
   assert.match(dashboardSource, /new-tab-flat-search/)
-  const ruleStart = stylesSource.indexOf('.new-tab-flat-search,')
+  const ruleStart = stylesSource.indexOf('.new-tab-flat-search *')
   assert.notEqual(ruleStart, -1)
   const rule = stylesSource.slice(ruleStart, stylesSource.indexOf('}', ruleStart) + 1)
   assert.match(rule, /background-image: none !important/)
@@ -23,6 +23,7 @@ test('search-only new tab removes every descendant gradient and shadow', () => {
   assert.match(rule, /text-shadow: none !important/)
   assert.match(rule, /filter: none !important/)
   assert.match(rule, /backdrop-filter: none !important/)
+  assert.doesNotMatch(stylesSource, /\.new-tab-flat-search,\s*\n/)
 })
 
 test('the former product-upgrade page and route are absent', () => {

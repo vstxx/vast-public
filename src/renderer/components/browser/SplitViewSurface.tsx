@@ -48,7 +48,7 @@ export function SplitPaneHeader({
           type="button"
           onClick={onSwap}
           title="Swap split panes"
-          className="grid h-7 w-7 place-items-center rounded-control text-white/35 transition hover:bg-white/[0.07] hover:text-white"
+          className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control"
         >
           <ArrowLeftRight className="h-3.5 w-3.5" />
         </button>
@@ -57,7 +57,7 @@ export function SplitPaneHeader({
         type="button"
         onClick={onExit}
         title="Exit split view"
-        className="grid h-7 w-7 place-items-center rounded-control text-white/35 transition hover:bg-white/[0.07] hover:text-white"
+        className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control"
       >
         <X className="h-3.5 w-3.5" />
       </button>

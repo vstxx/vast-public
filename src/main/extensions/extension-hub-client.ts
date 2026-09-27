@@ -7,7 +7,7 @@ import {
   type VastHubCatalogResult,
   type VastHubExtensionDetails
 } from '../../shared/extension-marketplace.ts'
-import { sha256Hex, VEXT_EXTENSION_ID, VEXT_LIMITS, type VextTrustedKey } from '../../shared/vext-format.ts'
+import { sha256Hex, VEXT_EXTENSION_ID, VEXT_LIMITS, VEXT_VERSION, type VextTrustedKey } from '../../shared/vext-format.ts'
 
 const MAX_JSON_BYTES = 1024 * 1024
 const REQUEST_TIMEOUT_MS = 10_000
@@ -50,10 +50,12 @@ function publicError(status: number): Error {
 export class ExtensionHubClient {
   private readonly origin: string
   private readonly trustedKeys: readonly VextTrustedKey[]
+  private readonly vastVersion: string
 
-  constructor(origin: string, trustedKeys: readonly VextTrustedKey[]) {
+  constructor(origin: string, trustedKeys: readonly VextTrustedKey[], vastVersion: string) {
     this.origin = origin
     this.trustedKeys = trustedKeys
+    this.vastVersion = VEXT_VERSION.test(vastVersion) ? vastVersion : '0.0.0'
   }
 
   async catalog(input: { query?: string; category?: string; page?: number; sort?: 'popular' | 'updated' }): Promise<VastHubCatalogResult> {
@@ -103,7 +105,9 @@ export class ExtensionHubClient {
   private async fetchWithTimeout(url: URL, timeoutMs: number, init: RequestInit): Promise<Response> {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), timeoutMs)
-    try { return await fetch(url, { ...init, redirect: 'error', signal: controller.signal, credentials: 'omit', cache: 'no-store' }) }
+    const headers = new Headers(init.headers)
+    headers.set('x-vast-version', this.vastVersion)
+    try { return await fetch(url, { ...init, headers, redirect: 'error', signal: controller.signal, credentials: 'omit', cache: 'no-store' }) }
     catch { throw new Error('Vast Extensions is currently unavailable.') }
     finally { clearTimeout(timeout) }
   }

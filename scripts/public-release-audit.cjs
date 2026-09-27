@@ -5,6 +5,7 @@ const root = join(__dirname, '..')
 const fail = (message) => { throw new Error(`Public source audit failed: ${message}`) }
 const assert = (condition, message) => { if (!condition) fail(message) }
 const read = (path) => readFileSync(join(root, path), 'utf8')
+const compatibilityManifest = JSON.parse(read('patches/extension-compatibility-runtime.json'))
 
 const walk = (relativeDir) => {
   const absoluteDir = join(root, relativeDir)
@@ -39,7 +40,17 @@ const required = [
   'docs/SECURITY_ARCHITECTURE.md',
   'docs/IPC_SECURITY.md',
   'docs/OPEN_SOURCE_LICENSE_AUDIT.md',
-  'docs/RELEASE_CHECKLIST.md'
+  'docs/RELEASE_CHECKLIST.md',
+  'scripts/check-gpl-release-compliance.cjs',
+  'scripts/prepare-extension-compat-runtime.cjs',
+  'scripts/prepare-patched-electron-dist.cjs',
+  'scripts/verify-extension-compat-runtime.cjs',
+  'patches/extension-compatibility-runtime.json',
+  'patches/electron-chrome-extensions-4.9.0-vast.patch',
+  'experiments/electron-chrome-extensions-4.9.0/README.md',
+  'experiments/electron-chrome-extensions-4.9.0/upstream-lock.json',
+  'experiments/electron-chrome-extensions-4.9.0/0001-vast-browser-compatibility.patch',
+  ...compatibilityManifest.electron.patches.map((entry) => entry.path)
 ]
 
 for (const path of required) assert(existsSync(join(root, path)), `required public file is missing: ${path}`)
@@ -106,6 +117,7 @@ assert(workflow.includes('paths-ignore:'), 'public Windows CI should skip docume
 assert(workflow.includes("if: github.event_name != 'pull_request'"), 'expensive packaging should not run on ordinary pull requests')
 
 const pkg = JSON.parse(read('package.json'))
+assert(pkg.license === 'GPL-3.0-only', 'package license must be GPL-3.0-only')
 assert(pkg.repository?.url === 'git+https://github.com/vstxx/vast-public.git', 'package repository metadata must point to vast-public')
 assert(pkg.homepage === 'https://vastbrowser.com', 'package homepage must point to vastbrowser.com')
 assert(pkg.scripts?.['release:audit'] === 'node scripts/public-release-audit.cjs', 'public release:audit must use the public snapshot audit')

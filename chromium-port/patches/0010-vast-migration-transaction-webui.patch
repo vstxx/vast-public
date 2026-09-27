@@ -108,8 +108,8 @@ index 2e6180a03b73fe5295e4a980996a68e37a468ae2..64228a24cb0f8a9c5659f8e00538f3da
          'migration-details',
          `${preview.workspaces} workspace(s), ${preview.tabs} tab(s), ` +
 @@ -43,6 +54,74 @@ async function initialize() {
-                  'Password vault detected but excluded from preview.' :
-                  'No password vault detected.'));
+                  'Legacy metadata detected but excluded from preview.' :
+                  'No legacy metadata detected.'));
      document.documentElement.dataset['migrationPreview'] = 'compatible';
 +
 +    if (info.migrationFixtureCommitEnabled) {

@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Adblocker for Vast",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Block ads and trackers locally, with site controls, custom filters and cosmetic filtering.",
   "permissions": [
     "storage",
@@ -40,5 +40,6 @@
   ],
   "content_security_policy": "default-src 'self'; script-src 'self'; object-src 'none'; style-src 'self'; worker-src 'self'; connect-src 'self' https://easylist.to https://raw.githubusercontent.com https://secure.fanboy.co.nz; img-src 'self' data:; base-uri 'none'",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmm/GiKl9MgY4jaM5fSMHQeth3e0sDDJe1cN6AyylHTyylE3d1WIsR2UbUjD2CsQygkMQ32UDl+tGVVDaaXc/gAMCwBRMs3w8pRazzb/38WyE4UhLe7UtvPUHUHzOk22utiWFvNOoQWrhAy6SwPShJeCLI4LfZpIymCOtB9wMlEuapoNO+a1OH23PQMrIKG0dsvfCwQ4gp9asRiEtdj2xAjFKVImvbRc44/93/TS9f7MRMG7NgXY6yXkzBuCaZVwbPxtjTLDgnfvpErBjjjxf59HKy0Aa2a/Wy9o5O/skgrcucUxuHppp+aaoEsvodHu5fYTPW4Plqimwm7urYCgciQIDAQAB",
-  "vast_network": 1
+  "vast_network": 1,
+  "vast_document_rules": 1
 }

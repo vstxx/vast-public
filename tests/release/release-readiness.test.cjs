@@ -15,7 +15,7 @@ test('resuming requires identical version, source, channel, signature mode and e
 test('snapshot audit rejects internal paths and credentials anywhere in the tree', () => {
   const directory = fs.mkdtempSync(path.join(tmpdir(), 'vast-snapshot-audit-test-'))
   try {
-    const files = ['README.md','SECURITY.md','CONTRIBUTING.md','LICENSE','THIRD_PARTY_NOTICES.md','RELEASE.md','ROADMAP.md','docs/README.md','docs/PRIVACY.md','docs/FEATURE_STATUS.md','docs/SECURITY_ARCHITECTURE.md','docs/IPC_SECURITY.md','docs/OPEN_SOURCE_LICENSE_AUDIT.md','docs/RELEASE_CHECKLIST.md','scripts/public-release-audit.cjs']
+    const files = ['README.md','SECURITY.md','CONTRIBUTING.md','LICENSE','THIRD_PARTY_NOTICES.md','RELEASE.md','ROADMAP.md','docs/README.md','docs/PRIVACY.md','docs/FEATURE_STATUS.md','docs/SECURITY_ARCHITECTURE.md','docs/IPC_SECURITY.md','docs/OPEN_SOURCE_LICENSE_AUDIT.md','docs/RELEASE_CHECKLIST.md','scripts/public-release-audit.cjs','scripts/check-gpl-release-compliance.cjs','scripts/prepare-extension-compat-runtime.cjs','scripts/prepare-patched-electron-dist.cjs','scripts/verify-extension-compat-runtime.cjs','patches/extension-compatibility-runtime.json','patches/electron-chrome-extensions-4.9.0-vast.patch','experiments/electron-chrome-extensions-4.9.0/README.md','experiments/electron-chrome-extensions-4.9.0/upstream-lock.json','experiments/electron-chrome-extensions-4.9.0/0001-vast-browser-compatibility.patch','experiments/electron-44-patches/0004-electron-composed-webrequest-lifecycle.patch','experiments/electron-44-patches/0005-chromium-lifecycle-auth-support.patch','experiments/electron-44-patches/0006-electron-messaging-split-view-compat.patch','experiments/electron-44-patches/0007-electron-action-open-popup-event.patch','experiments/electron-44-patches/0008-electron-extensions-reload-api.patch']
     for (const file of files) { fs.mkdirSync(path.dirname(path.join(directory, file)), { recursive: true }); fs.copyFileSync(path.join(root, file), path.join(directory, file)) }
     const pkg = structuredClone(require('../../package.json')); pkg.scripts['release:audit'] = 'node scripts/public-release-audit.cjs'
     fs.writeFileSync(path.join(directory, 'package.json'), JSON.stringify(pkg))
@@ -52,6 +52,19 @@ test('release workflows default to candidate-only, guard every publication and p
     const publish = steps.findIndex(step => /publish-source-snapshot/.test(step.run || ''))
     assert.ok(restore >= 0 && restore < verifyPackage && verifyPackage < publish)
     assert.ok(steps.some(step => /export-public-source-snapshot/.test(step.run || '') && !step.if))
+    if (name === 'public-unsigned-beta') {
+      const reconstruct = steps.findIndex(step => step.name === 'Reconstruct verified runtime from the original update ZIP')
+      const restage = steps.findIndex(step => step.name === 'Stage canonical updater sources for resumed release audit')
+      assert.ok(reconstruct > restore && restage > reconstruct && restage < verifyPackage)
+      assert.equal(steps[restage].if, "inputs.resume_run_id != ''")
+      assert.equal(steps[restage].run, 'npm run updater:stage')
+      const publication = steps.find(step => /publish-release-assets/.test(step.run || ''))
+      assert.match(publication.run, /Get-Content -Raw -Encoding utf8 'docs\/PUBLIC_RELEASE_0\.4\.0\.md'/)
+      assert.match(publication.run, /\$releaseDetails/)
+      const notes = fs.readFileSync(path.join(root, 'docs/PUBLIC_RELEASE_0.4.0.md'), 'utf8')
+      assert.match(notes, /exhaustive formal password-manager gate is still open/)
+      assert.match(notes, /intentionally unsigned|unsigned direct/i)
+    }
   }
   assert.match(fs.readFileSync(path.join(root, 'scripts/build-release.cjs'), 'utf8'), /'electron-builder', '--publish', 'never'/)
 })
@@ -64,11 +77,14 @@ test('narrow Gitleaks exceptions still detect a new token in an allowlisted file
     const scan = () => spawnSync(process.execPath, [path.join(root, 'scripts/secret-scan.cjs'), directory], { cwd: root, encoding: 'utf8' })
     assert.equal(scan().status, 0, 'install pinned Gitleaks with node scripts/setup-gitleaks.cjs')
     const manifest = JSON.parse(fs.readFileSync(target, 'utf8'))
-    manifest.accidentalCredential = ['gh', 'p_', require('node:crypto').randomBytes(18).toString('hex')].join('')
+    // Use stable synthetic values: randomly generated base64 fixtures can
+    // occasionally miss the pinned rule and make this security test flaky.
+    const { createHash } = require('node:crypto')
+    manifest.accidentalCredential = ['gh', 'p_', createHash('sha256').update('vast-gitleaks-gh-token-fixture').digest('hex').slice(0, 36)].join('')
     fs.writeFileSync(target, JSON.stringify(manifest, null, 2))
     assert.equal(scan().status, 1, 'a public-key exception must not allow a different secret in the same file')
     delete manifest.accidentalCredential
-    manifest.api_key = require('node:crypto').randomBytes(24).toString('base64')
+    manifest.api_key = createHash('sha256').update('vast-gitleaks-generic-api-key-fixture').digest('hex')
     fs.writeFileSync(target, JSON.stringify(manifest, null, 2))
     assert.equal(scan().status, 1, 'the same generic-api-key rule must still detect another key in the allowlisted file')
   } finally { fs.rmSync(directory, { recursive: true, force: true }) }

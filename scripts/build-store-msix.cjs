@@ -9,6 +9,8 @@ const {
   root
 } = require('./store-msix-config.cjs')
 const { windowsSdkTool } = require('./store-msix-tools.cjs')
+const compatibilityManifest = require('../patches/extension-compatibility-runtime.json')
+const { defaultOutputPath } = require('./prepare-patched-electron-dist.cjs')
 
 const development = process.argv.includes('--development')
 const identity = identityFromEnv(process.env, development)
@@ -61,10 +63,20 @@ if (process.platform !== 'win32') throw new Error('Vast Store MSIX packaging mus
 if (process.arch !== 'x64') throw new Error(`Vast Store MSIX packaging requires an x64 build host; received ${process.arch}.`)
 
 if (!development) run(process.execPath, ['scripts/release-store-check.cjs', '--prebuild'])
+run(process.execPath, ['scripts/prepare-patched-electron-dist.cjs'])
+env.VAST_PATCHED_ELECTRON_DIST = defaultOutputPath(compatibilityManifest)
+run(process.execPath, [
+  'scripts/verify-extension-compat-runtime.cjs',
+  ...(development ? [] : ['--release', '--write', 'out/extension-compatibility-runtime-fingerprint.json'])
+])
+if (!development) {
+  env.VAST_EXTENSION_COMPATIBILITY_FINGERPRINT_REQUIRED = '1'
+}
 run(process.execPath, ['scripts/build-app.cjs'])
 if (!development) {
   run(process.execPath, ['scripts/obfuscate-build.cjs'])
   run(process.execPath, ['scripts/check-performance-budget.cjs'])
+  run(process.execPath, ['scripts/write-release-build-metadata.cjs'])
 }
 run(process.execPath, [
   require.resolve('electron-builder/cli.js'), '--dir', '--win', '--x64', '--config', 'scripts/electron-builder-store.cjs'

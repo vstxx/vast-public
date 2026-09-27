@@ -8,13 +8,15 @@ import { chromeExtensionId, validateExtensionManifest } from '../../src/main/ext
 import type { ExtensionSessionLike } from '../../src/main/extensions/extension-types.ts'
 import type { Workspace } from '../../src/shared/types.ts'
 import { createVextPackage } from '../../src/shared/vext-format.ts'
+import type { ExtensionCompatibilityRuntime } from '../../src/main/extensions/extension-compatibility-runtime.ts'
+import { ICLOUD_PASSWORDS_EXTENSION_ID, type ICloudUpstreamClient } from '../../src/main/extensions/icloud-upstream.ts'
 
 const fixturePath = resolve('tests/fixtures/extensions/content-script-basic')
 const managedId = 'abcdefghijklmnopabcdefghijklmnop'
 
-async function writeManagedPackage(root: string, version: string): Promise<string> {
+async function writeManagedPackage(root: string, version: string, manifestPatch: Record<string, unknown> = {}): Promise<string> {
   const manifest = JSON.parse(await readFile(join(fixturePath, 'manifest.json'), 'utf8')) as Record<string, unknown>
-  manifest.version = version
+  Object.assign(manifest, manifestPatch, { version })
   const bytes = await createVextPackage({ extensionId: managedId, version, publisherId: null, files: new Map([
     ['content.js', new Uint8Array(await readFile(join(fixturePath, 'content.js')))],
     ['manifest.json', new TextEncoder().encode(JSON.stringify(manifest))]
@@ -27,6 +29,9 @@ async function writeManagedPackage(root: string, version: string): Promise<strin
 interface FakeExtensionRuntime extends ExtensionSessionLike {
   loadCalls: string[]
   removeCalls: string[]
+  reloadCalls: string[]
+  loadedIds: string[]
+  storageByExtensionId: Map<string, Map<string, unknown>>
 }
 
 function workspace(
@@ -46,12 +51,17 @@ function fakeRuntime(): FakeExtensionRuntime {
   const runtime: FakeExtensionRuntime = {
     loadCalls: [],
     removeCalls: [],
+    reloadCalls: [],
+    loadedIds: [],
+    storageByExtensionId: new Map(),
     isPersistent: () => true,
     extensions: {
       async loadExtension(path) {
         runtime.loadCalls.push(path)
         const validated = await validateExtensionManifest(path)
         const id = chromeExtensionId(validated.rootPath, validated.manifest.key)
+        runtime.loadedIds.push(id)
+        if (!runtime.storageByExtensionId.has(id)) runtime.storageByExtensionId.set(id, new Map())
         const extension = { id, name: validated.manifest.name, version: validated.manifest.version, path } as Electron.Extension
         loaded.set(id, extension)
         return extension
@@ -68,7 +78,13 @@ function fakeRuntime(): FakeExtensionRuntime {
   return runtime
 }
 
-async function managerHarness(): Promise<{
+function enableNativeReload(runtime: FakeExtensionRuntime): void {
+  ;(runtime.extensions as typeof runtime.extensions & { reloadExtension(id: string): void }).reloadExtension = (id) => {
+    runtime.reloadCalls.push(id)
+  }
+}
+
+async function managerHarness(compatibilityRuntime?: ExtensionCompatibilityRuntime): Promise<{
   root: string
   extensionPath: string
   sessions: Map<string, FakeExtensionRuntime>
@@ -80,6 +96,7 @@ async function managerHarness(): Promise<{
   const sessions = new Map<string, FakeExtensionRuntime>()
   const manager = new ExtensionManager({
     userDataRoot: root,
+    compatibilityRuntime,
     sessionProvider: (partition) => {
       let runtime = sessions.get(partition)
       if (!runtime) {
@@ -91,6 +108,78 @@ async function managerHarness(): Promise<{
   })
   return { root, extensionPath, sessions, manager }
 }
+
+test('explicit disable and uninstall clear privacy control while reload preserves it', async () => {
+  const removed: string[] = []
+  const compatibilityRuntime = {
+    enabled: true,
+    prepareSession: async () => undefined,
+    removePrivacyControl: async (extensionId: string) => { removed.push(extensionId) }
+  } as unknown as ExtensionCompatibilityRuntime
+  const harness = await managerHarness(compatibilityRuntime)
+  try {
+    await harness.manager.initialize([workspace('one')])
+    const installed = await harness.manager.installUnpacked(harness.extensionPath)
+
+    await harness.manager.reload(installed.id)
+    assert.deepEqual(removed, [])
+    await harness.manager.disable(installed.id)
+    assert.deepEqual(removed, [installed.id])
+    await harness.manager.enable(installed.id)
+    await harness.manager.remove(installed.id)
+    assert.deepEqual(removed, [installed.id, installed.id])
+  } finally {
+    await rm(harness.root, { recursive: true, force: true })
+  }
+})
+
+test('a disabled compatibility gate never loads Chrome extensions into Electron sessions', async () => {
+  const compatibilityRuntime = {
+    enabled: false,
+    reason: 'internal rollback switch is on',
+    prepareSession: async () => { throw new Error('must not initialize') }
+  } as unknown as ExtensionCompatibilityRuntime
+  const harness = await managerHarness(compatibilityRuntime)
+  try {
+    await harness.manager.initialize([workspace('one')])
+    const installed = await harness.manager.installUnpacked(harness.extensionPath)
+
+    assert.equal(installed.runtimeState, 'error')
+    assert.equal([...harness.sessions.values()].reduce((sum, session) => sum + session.loadCalls.length, 0), 0)
+    assert.match(installed.error ?? '', /compatibility is disabled/i)
+  } finally {
+    await rm(harness.root, { recursive: true, force: true })
+  }
+})
+
+test('a compatibility failure in a later session unloads an already loaded Chrome extension', async () => {
+  let prepares = 0
+  const compatibilityRuntime = {
+    enabled: true,
+    reason: 'validated test runtime',
+    prepareSession: async () => {
+      prepares += 1
+      if (prepares === 2) {
+        compatibilityRuntime.enabled = false
+        compatibilityRuntime.reason = 'disabled after compatibility runtime initialization failure'
+        throw new Error('second session failed')
+      }
+    }
+  } as unknown as ExtensionCompatibilityRuntime
+  const harness = await managerHarness(compatibilityRuntime)
+  try {
+    await harness.manager.initialize([workspace('one'), workspace('two')])
+    const installed = await harness.manager.installUnpacked(harness.extensionPath)
+    const sessions = [...harness.sessions.values()]
+
+    assert.equal(installed.runtimeState, 'error')
+    assert.equal(sessions.reduce((sum, session) => sum + session.loadCalls.length, 0), 1)
+    assert.equal(sessions.reduce((sum, session) => sum + session.removeCalls.length, 0), 1)
+    assert.equal(compatibilityRuntime.enabled, false)
+  } finally {
+    await rm(harness.root, { recursive: true, force: true })
+  }
+})
 
 test('derives only persistent website partitions and never private/default UI sessions', () => {
   const partitions = extensionPartitionsForWorkspaces([
@@ -223,6 +312,79 @@ test('restores enabled installations after manager restart and serializes concur
   }
 })
 
+test('reload uses Electron native reload without uninstalling or loading the extension again', async () => {
+  const harness = await managerHarness()
+  try {
+    await harness.manager.initialize([workspace('one')])
+    const installed = await harness.manager.installUnpacked(harness.extensionPath)
+    const runtime = [...harness.sessions.values()][0]
+    enableNativeReload(runtime)
+
+    const reloaded = await harness.manager.reload(installed.id)
+
+    assert.equal(reloaded.runtimeState, 'loaded')
+    assert.deepEqual(runtime.reloadCalls, [installed.id])
+    assert.equal(runtime.removeCalls.length, 0)
+    assert.equal(runtime.loadCalls.length, 1)
+  } finally {
+    await rm(harness.root, { recursive: true, force: true })
+  }
+})
+
+test('persists optional Chrome grants per extension and rejects undeclared grants', async () => {
+  const harness = await managerHarness()
+  try {
+    const firstManifestPath = join(harness.extensionPath, 'manifest.json')
+    const firstManifest = JSON.parse(await readFile(firstManifestPath, 'utf8')) as Electron.Extension['manifest']
+    firstManifest.optional_permissions = ['notifications']
+    firstManifest.optional_host_permissions = ['https://accounts.example.test/*']
+    await writeFile(firstManifestPath, JSON.stringify(firstManifest), 'utf8')
+
+    const secondPath = join(harness.root, 'fixture-two')
+    await cp(fixturePath, secondPath, { recursive: true })
+    const secondManifestPath = join(secondPath, 'manifest.json')
+    const secondManifest = JSON.parse(await readFile(secondManifestPath, 'utf8')) as Electron.Extension['manifest']
+    secondManifest.name = 'Independent extension'
+    secondManifest.optional_permissions = ['notifications']
+    await writeFile(secondManifestPath, JSON.stringify(secondManifest), 'utf8')
+
+    await harness.manager.initialize([workspace('one')])
+    const first = await harness.manager.installUnpacked(harness.extensionPath)
+    const second = await harness.manager.installUnpacked(secondPath)
+    const firstRuntime = { id: first.id, path: harness.extensionPath, manifest: firstManifest }
+    const secondRuntime = { id: second.id, path: secondPath, manifest: secondManifest }
+
+    assert.equal(await harness.manager.addChromePermissionGrants(firstRuntime, {
+      permissions: ['notifications'],
+      origins: ['https://accounts.example.test/*']
+    }), true)
+    assert.equal(await harness.manager.addChromePermissionGrants(firstRuntime, { permissions: ['tabs'] }), false)
+    assert.deepEqual(harness.manager.getChromePermissionGrants(firstRuntime), {
+      permissions: ['notifications'],
+      origins: ['https://accounts.example.test/*']
+    })
+    assert.deepEqual(harness.manager.getChromePermissionGrants(secondRuntime), { permissions: [], origins: [] })
+
+    const restarted = new ExtensionManager({
+      userDataRoot: harness.root,
+      sessionProvider: () => fakeRuntime()
+    })
+    await restarted.initialize([workspace('one')])
+    assert.deepEqual(restarted.getChromePermissionGrants(firstRuntime), {
+      permissions: ['notifications'],
+      origins: ['https://accounts.example.test/*']
+    })
+    assert.deepEqual(restarted.getChromePermissionGrants(secondRuntime), { permissions: [], origins: [] })
+    assert.equal(await restarted.removeChromePermissionGrants(firstRuntime, { permissions: ['notifications'] }), true)
+    assert.deepEqual(restarted.getChromePermissionGrants(firstRuntime), {
+      permissions: [],
+      origins: ['https://accounts.example.test/*']
+    })
+  } finally {
+    await rm(harness.root, { recursive: true, force: true })
+  }
+})
+
 test('keeps a missing unpacked directory installed but reports an actionable runtime error', async () => {
   const harness = await managerHarness()
   try {
@@ -282,7 +444,7 @@ test('installs a local .vext into the managed store with a stable logical identi
     assert.equal(installed.id, managedId)
     assert.equal(installed.source, 'local-vext')
     assert.equal(installed.runtimeState, 'loaded')
-    assert.match(installed.path, /Extensions[\\/]Managed[\\/]abcdefghijklmnopabcdefghijklmnop[\\/]versions[\\/]1\.0\.0$/)
+    assert.match(installed.path, /Extensions[\\/]Managed[\\/]abcdefghijklmnopabcdefghijklmnop[\\/]current$/)
 
     const restarted = new ExtensionManager({ userDataRoot: harness.root, sessionProvider: () => fakeRuntime() })
     await restarted.initialize([workspace('one')])
@@ -305,13 +467,225 @@ test('rolls back the registry, runtime, and candidate directory when a managed u
     await manager.initialize([workspace('one')])
     const first = await manager.prepareLocalPackage(await writeManagedPackage(root, '1.0.0'))
     await manager.installPrepared(first.token)
+    const originalRuntimeId = runtime.loadedIds.at(-1)
+    assert.ok(originalRuntimeId)
+    runtime.storageByExtensionId.get(originalRuntimeId)?.set('persisted-secret', 'survives-rollback')
     const update = await manager.prepareLocalPackage(await writeManagedPackage(root, '2.0.0'))
     await assert.rejects(manager.installPrepared(update.token), /previous version was restored.*Simulated candidate startup failure/)
     const restored = (await manager.list())[0]
     assert.equal(restored?.id, managedId)
     assert.equal(restored?.version, '1.0.0')
     assert.equal(restored?.runtimeState, 'loaded')
-    await assert.rejects(stat(join(root, 'Extensions', 'Managed', managedId, 'versions', '2.0.0')), /ENOENT/)
+    assert.equal(runtime.loadedIds.at(-1), originalRuntimeId)
+    assert.equal(runtime.storageByExtensionId.get(originalRuntimeId)?.get('persisted-secret'), 'survives-rollback')
+    assert.match(restored?.path ?? '', /Extensions[\\/]Managed[\\/]abcdefghijklmnopabcdefghijklmnop[\\/]current$/)
+    await assert.rejects(stat(join(root, 'Extensions', 'Managed', managedId, 'releases', '2.0.0')), /ENOENT/)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('managed updates keep the Electron extension ID, origin, and chrome.storage identity', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'vast-extension-stable-runtime-'))
+  const runtime = fakeRuntime()
+  const manager = new ExtensionManager({ userDataRoot: root, sessionProvider: () => runtime })
+  try {
+    await manager.initialize([workspace('one')])
+    const v1 = await manager.prepareLocalPackage(await writeManagedPackage(root, '1.0.0'))
+    await manager.installPrepared(v1.token)
+    const runtimeIdV1 = runtime.loadedIds.at(-1)
+    assert.ok(runtimeIdV1)
+    runtime.storageByExtensionId.get(runtimeIdV1)?.set('account', { email: 'saved@example.test' })
+
+    const v2 = await manager.prepareLocalPackage(await writeManagedPackage(root, '2.0.0'))
+    const updated = await manager.installPrepared(v2.token)
+    const runtimeIdV2 = runtime.loadedIds.at(-1)
+    assert.equal(runtimeIdV2, runtimeIdV1)
+    assert.equal(`chrome-extension://${runtimeIdV2}`, `chrome-extension://${runtimeIdV1}`)
+    assert.deepEqual(runtime.storageByExtensionId.get(runtimeIdV2)?.get('account'), { email: 'saved@example.test' })
+    assert.equal(updated.version, '2.0.0')
+    assert.match(updated.path, /Extensions[\\/]Managed[\\/]abcdefghijklmnopabcdefghijklmnop[\\/]current$/)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('managed releases reject downgrade and same-version replay before activation', async () => {
+  const harness = await managerHarness()
+  try {
+    await harness.manager.initialize([workspace('one')])
+    const initial = await harness.manager.prepareLocalPackage(await writeManagedPackage(harness.root, '2.0.0'))
+    await harness.manager.installPrepared(initial.token)
+    await assert.rejects(
+      harness.manager.prepareLocalPackage(await writeManagedPackage(harness.root, '2.0.0')),
+      /same-version replay/
+    )
+    await assert.rejects(
+      harness.manager.prepareLocalPackage(await writeManagedPackage(harness.root, '1.9.9')),
+      /downgrade/
+    )
+    assert.equal((await harness.manager.list())[0]?.version, '2.0.0')
+  } finally { await rm(harness.root, { recursive: true, force: true }) }
+})
+
+test('Hub package verification compares signed required permissions without treating optional grants as tampering', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'vast-extension-hub-required-permissions-'))
+  try {
+    await writeFile(join(root, 'manifest.json'), JSON.stringify({
+      manifest_version: 3,
+      name: 'Hub permission fixture',
+      version: '1.0.0',
+      permissions: ['storage'],
+      optional_permissions: ['privacy', 'nativeMessaging']
+    }), 'utf8')
+    const validated = await validateExtensionManifest(root)
+    const manager = new ExtensionManager({ userDataRoot: root, sessionProvider: () => fakeRuntime() })
+    const internals = manager as unknown as {
+      assertPreparedPackage: (pending: unknown, staged: unknown, validatedManifest: typeof validated) => void
+    }
+    const packageSha256 = 'a'.repeat(64)
+    const descriptor = {
+      descriptor: {
+        schema: 1,
+        extension_id: managedId,
+        publisher_id: 'publisher_test',
+        version: '1.0.0',
+        package_url: `https://extensions.vastbrowser.com/packages/${managedId}/1.0.0/${packageSha256}.vext`,
+        sha256: packageSha256,
+        key_id: 'vast-hub-2026-02',
+        permissions: { chrome: ['storage'], hosts: [], vast: [] },
+        published_at: '2026-09-25T00:00:00.000Z'
+      },
+      signature: { signature_version: 1, algorithm: 'Ed25519', key_id: 'vast-hub-2026-02', signature: 'test' }
+    }
+    const staged = {
+      source: 'hub',
+      parsed: {
+        verifiedKeyId: 'vast-hub-2026-02',
+        packageSha256,
+        metadata: { extension_id: managedId, publisher_id: 'publisher_test', version: '1.0.0' }
+      }
+    }
+
+    const permissions = { chrome: ['storage'], hosts: [], vast: [] }
+    const pending = {
+      token: 'prepared-token',
+      expiresAt: Date.now() + 60_000,
+      preview: {
+        token: 'prepared-token',
+        extensionId: managedId,
+        name: 'Hub permission fixture',
+        version: '1.0.0',
+        publisherName: 'Test Publisher',
+        source: 'hub',
+        trust: 'reviewed',
+        kind: 'chrome',
+        permissions,
+        isUpdate: false,
+        permissionEscalation: permissions
+      },
+      descriptor
+    }
+
+    assert.doesNotThrow(() => internals.assertPreparedPackage(pending, staged, validated))
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('Hub permission escalation waits for explicit approval before downloading an update', async () => {
+  const harness = await managerHarness()
+  try {
+    await harness.manager.initialize([workspace('one')])
+    const initial = await harness.manager.prepareLocalPackage(await writeManagedPackage(harness.root, '1.0.0', { optional_permissions: ['tabs'] }))
+    await harness.manager.installPrepared(initial.token)
+    const internals = harness.manager as unknown as {
+      registry: { patch: (id: string, patch: Record<string, unknown>) => Promise<unknown> }
+      hubClient: { descriptor: (id: string) => Promise<unknown>; download: () => Promise<Uint8Array> }
+    }
+    await internals.registry.patch(managedId, { source: 'hub', publisherId: 'vast-test-publisher', publisherName: 'Vast Test Publisher' })
+    let downloads = 0
+    internals.hubClient = {
+      descriptor: async () => ({
+        descriptor: {
+          schema: 1, extension_id: managedId, publisher_id: 'vast-test-publisher', version: '2.0.0',
+          package_url: `https://extensions.vastbrowser.com/packages/${managedId}/2.0.0/${'a'.repeat(64)}.vext`,
+          sha256: 'a'.repeat(64), key_id: 'vast-hub-2026-02', published_at: '2026-09-15T00:00:00.000Z',
+          permissions: { chrome: ['storage', 'tabs'], hosts: ['http://127.0.0.1/*', 'http://localhost/*'], vast: [] }
+        },
+        signature: { signature_version: 1, algorithm: 'Ed25519', key_id: 'vast-hub-2026-02', signature: 'test' }
+      }),
+      download: async () => { downloads += 1; throw new Error('approval reached download') }
+    }
+
+    const [pending] = await harness.manager.checkForUpdates(managedId)
+    assert.equal(pending?.version, '1.0.0')
+    assert.equal(pending?.update.state, 'pending-approval')
+    assert.equal(pending?.update.availableVersion, '2.0.0')
+    assert.equal(downloads, 0)
+    await assert.rejects(harness.manager.approveUpdate(managedId), /approval reached download/)
+    assert.equal(downloads, 1)
+  } finally { await rm(harness.root, { recursive: true, force: true }) }
+})
+
+test('iCloud upstream install preserves identity across restart and updates from the same narrow channel', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'vast-extension-icloud-upstream-'))
+  const manifestKey = 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAk4xPYZla5XqlDN0PPiLCQAYRqdaR06jSl3sntEE5jHoe7XldFqhsdBSp4L8mozwjCwi6z5YtEpTV1L2k4WYmDuiwoH7YKGlQD/YbC8QMcPvGLWOr8WYfXWtECKv0Nx7Tahk8nCIDWgJVm8YmPIDhPv4o5VVrq6aUveCKvTOskHWFyRzSTC2VKpzIVX7F65UzqqOmqLfMpo6lfaLcKSC7G6oQLA/wS7hcGZEwZ11si6XWR4o/hDuUSt6zdacy/sc7H80eH3lMnEmvb6HoB7+KvxfGIU7dqRmhA/w/X0qkiIJYeoo4tZrNxBj7TTLz9hnHUbMRwJqsoIU+pkoprgFWDQIDAQAB'
+  const upstreamPackage = (version: string, hash: string) => ({
+    extensionId: ICLOUD_PASSWORDS_EXTENSION_ID,
+    version,
+    packageSha256: hash.repeat(64),
+    files: new Map([['manifest.json', new TextEncoder().encode(JSON.stringify({ manifest_version: 3, name: 'Synthetic iCloud identity fixture', version, key: manifestKey, permissions: ['storage'] }))]])
+  })
+  const details = {
+    id: ICLOUD_PASSWORDS_EXTENSION_ID,
+    slug: 'icloud-passwords',
+    name: 'iCloud Passwords',
+    summary: 'Install directly from the original upstream channel.',
+    description: 'Synthetic Hub metadata used by the manager test.',
+    publisher: { id: 'publisher_upstreamappleinc', name: 'Apple', verified: false },
+    category: 'password-managers',
+    kind: 'chrome',
+    version: '3.3.0',
+    updatedAt: '2026-09-25T00:00:00.000Z',
+    downloads: 0,
+    distribution: 'upstream',
+    sourceRef: `Chrome Web Store ${ICLOUD_PASSWORDS_EXTENSION_ID}`,
+    dataPractice: 'external-processing',
+    screenshots: [],
+    permissions: { chrome: ['storage'], hosts: [], vast: [] },
+    installed: false
+  }
+  const setHubDetails = (manager: ExtensionManager) => {
+    const internals = manager as unknown as { hubClient: { details: () => Promise<typeof details> } }
+    internals.hubClient = { details: async () => details }
+  }
+  try {
+    const firstRuntime = fakeRuntime()
+    const firstUpstream = { latest: async () => upstreamPackage('3.3.0', 'a') } as unknown as ICloudUpstreamClient
+    const firstManager = new ExtensionManager({ userDataRoot: root, sessionProvider: () => firstRuntime, upstreamClient: firstUpstream })
+    await firstManager.initialize([workspace('one')])
+    setHubDetails(firstManager)
+    const preview = await firstManager.prepareHubInstall(ICLOUD_PASSWORDS_EXTENSION_ID)
+    assert.equal(preview.source, 'upstream')
+    assert.equal(preview.trust, 'upstream')
+    const installed = await firstManager.installPrepared(preview.token)
+    assert.equal(installed.id, ICLOUD_PASSWORDS_EXTENSION_ID)
+    assert.equal(installed.version, '3.3.0')
+    assert.equal(installed.source, 'upstream')
+    assert.equal(firstRuntime.loadedIds.at(-1), ICLOUD_PASSWORDS_EXTENSION_ID)
+
+    const restartedRuntime = fakeRuntime()
+    const updateUpstream = {
+      latest: async (currentVersion?: string) => currentVersion === '3.3.0' ? upstreamPackage('3.4.0', 'b') : upstreamPackage('3.3.0', 'a')
+    } as unknown as ICloudUpstreamClient
+    const restarted = new ExtensionManager({ userDataRoot: root, sessionProvider: () => restartedRuntime, upstreamClient: updateUpstream })
+    await restarted.initialize([workspace('one')])
+    const [restored] = await restarted.list()
+    assert.equal(restored?.id, ICLOUD_PASSWORDS_EXTENSION_ID)
+    assert.equal(restored?.source, 'upstream')
+    assert.equal(restored?.trust, 'upstream')
+    assert.equal(restartedRuntime.loadedIds.at(-1), ICLOUD_PASSWORDS_EXTENSION_ID)
+
+    const [updated] = await restarted.checkForUpdates(ICLOUD_PASSWORDS_EXTENSION_ID)
+    assert.equal(updated?.version, '3.4.0')
+    assert.equal(updated?.source, 'upstream')
+    assert.equal(updated?.update.state, 'up-to-date')
+    assert.equal(restartedRuntime.loadedIds.at(-1), ICLOUD_PASSWORDS_EXTENSION_ID)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 

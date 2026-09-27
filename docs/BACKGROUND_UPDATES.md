@@ -12,7 +12,7 @@
 
 Eligible installed Windows builds check approximately 10 seconds after shell load. Full NSIS installers download automatically; web installers and downgrades are disabled. Stable builds exclude prereleases. Opt-out environment variables remain available. Microsoft Store retains Store-managed updates.
 
-The existing electron-updater transport verifies SHA-512 and the configured publisher before declaring a download ready. Its native cache validates a previous download on a later check. Vast copies the packaged feed configuration, preserving repository/publisher settings and replacing only the cache namespace with a hash of the installation and profile paths. Separate installs/profiles cannot overwrite each other's pending files. No changes are made to workspace partitions, cookies, vault encryption or durable renderer autosave.
+The existing electron-updater transport verifies SHA-512 and the configured publisher before declaring a download ready. Its native cache validates a previous download on a later check. Vast copies the packaged feed configuration, preserving repository/publisher settings and replacing only the cache namespace with a hash of the installation and profile paths. Separate installs/profiles cannot overwrite each other's pending files. No changes are made to workspace partitions, cookies, or durable renderer autosave.
 
 Errors are surfaced and retried with backoff from 1 to 15 minutes. Successful no-update checks recur after 4 hours. A ready Windows download is recorded atomically with its version, exact executable, cache file and verified SHA-512. Renderer subscriptions recover the last event through the existing status IPC; progress is deduplicated by whole percentage and is never written into browser state.
 

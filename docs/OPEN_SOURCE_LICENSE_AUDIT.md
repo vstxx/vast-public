@@ -1,14 +1,16 @@
 # Open-source license audit
 
-Audit date: 2026-08-24
+Audit date: 2026-09-19
 
 This is a repository engineering audit, not legal advice. It records the license evidence available in the repository, installed package metadata, and upstream project notices.
 
 ## Decision for Vast-owned source
 
-**MIT is appropriate for Vast-owned source.** The root `LICENSE` applies the MIT License with `Copyright (c) 2026 VastProductions`.
+**Vast-owned source is licensed under GPL-3.0-only.** The root `LICENSE` contains the canonical GNU General Public License version 3 text. The project intentionally selected the version-3-only SPDX form so the desktop application can distribute `electron-chrome-extensions` through its GPL-3.0 path.
 
-No reviewed dependency requires Vast's independently written TypeScript, React, Python, PowerShell, C#, documentation, or build scripts to be relicensed as GPL. Copyleft components remain independently licensed and carry their own obligations. The root MIT License does not cover third-party assets or code merely because they are stored in this repository.
+This project-level relicensing does not claim ownership of third-party assets or code. Electron, Chromium, permissive dependencies, MPL files, GPL filter assets, FFmpeg, fonts, and other vendored/generated inputs retain their upstream licenses and notices. Their inclusion in a GPL-covered combined distribution does not change their upstream license grants.
+
+Git history contains commits under the `vstxx`/`vstxx0` identities and one local Codex checkpoint made for the same repository owner. No separate external contributor identity was found. Existing third-party material is recorded by provenance rather than treated as Vast-owned. No CLA or copyright assignment system is required by the reviewed history; future contributions are accepted for inclusion under GPL-3.0-only as stated in `CONTRIBUTING.md`.
 
 ## JavaScript and desktop runtime
 
@@ -18,6 +20,7 @@ Key shipped components:
 
 - Electron: MIT. Its binary includes Chromium and third-party code whose notices must remain available.
 - Chromium: BSD-style core license plus component-specific third-party licenses and generated credits.
+- `electron-chrome-extensions@4.9.0`: Vast uses the upstream GPL-3.0 option. The exact GPL text and modification/source record must ship with public binaries and corresponding source.
 - `pdfjs-dist@6.2.108`: Apache-2.0.
 - React, React DOM, Zustand, Electron Toolkit, and electron-updater: MIT.
 - Lucide React and semver: ISC.
@@ -87,7 +90,7 @@ license guidance is available at <https://ffmpeg.org/legal.html>.
 
 ## Experimental Chromium port
 
-The repository stores a patch overlay, not a Chromium source checkout or staged Chromium binary. Vast-owned patch additions can be MIT-licensed, while an applied/staged Chromium distribution remains subject to Chromium's BSD-style license and its generated third-party credits. Existing tooling already requires `LICENSE.chromium.txt` in staged output.
+The repository stores a patch overlay, not a Chromium source checkout or staged Chromium binary. Vast-owned patch additions are GPL-3.0-only, while an applied/staged Chromium distribution remains subject to Chromium's BSD-style license and its generated third-party credits. Existing tooling requires `LICENSE.chromium.txt` in staged output.
 
 ## Release-blocking asset provenance
 
@@ -95,8 +98,9 @@ The previously bundled unlicensed pixel-art asset (Cat Addon) has been removed f
 
 ## Result
 
-- Vast-owned source license: **PASS — MIT**
+- Vast-owned source license: **PASS — GPL-3.0-only**
 - Node/Electron/pdf.js compatibility: **PASS**
 - Python/Playwright/PyInstaller compatibility: **PASS with notice preservation**
 - FFmpeg binary obligations: **PASS — self-built GPLv3 runtime, complete corresponding source and hard release gates**
-- Overall third-party publication readiness: **PASS**
+- ECE GPL source/notice packaging: **PASS only when the maintained release compliance gate and corresponding-source snapshot pass**
+- Overall third-party publication readiness: **CONDITIONAL PASS — every public binary must have a matching public source tag and license bundle**

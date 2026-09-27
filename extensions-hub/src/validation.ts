@@ -2,10 +2,15 @@ import { parseVextPackage, VEXT_EXTENSION_ID, VEXT_VERSION, type ParsedVextPacka
 import { VAST_NATIVE_API_VERSION, VAST_NATIVE_PERMISSIONS, type VastExtensionKind, type VastNativePermission } from '../../src/shared/extension-native-api.ts'
 import type { ExtensionPermissionSnapshot } from '../../src/shared/extension-marketplace.ts'
 import { parseExtensionMatchPattern } from '../../src/shared/extension-match-pattern.ts'
+import { documentRulesManifestError, DOCUMENT_RULE_PERMISSION } from '../../src/shared/extension-document-capability.ts'
 import { HttpError } from './security.ts'
 import { parse } from 'acorn'
 
 const decoder = new TextDecoder('utf-8', { fatal: true })
+const reviewedUpstreamPackages = new Map<string, { extensionId: string; version: string; publisherId: string }>([
+  ['261204506fec45ac9b11dc15b9fe28b6225add7b4f3a294698f03dce33563103', { extensionId: 'nngceckbapebfimnlniiiahkandclblb', version: '2026.8.0', publisherId: 'publisher_7b1e2c9f4a806d3e5b709c12' }],
+  ['1b975a63a4917ccc9917d8a05dfe39a0b0a5b57d877e9bf3752bb8e61bacc521', { extensionId: 'ghmbeldphafepmbegfdlkpapadhbakde', version: '1.40.2', publisherId: 'publisher_7b1e2c9f4a806d3e5b709c12' }]
+])
 const safeSlug = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const safeCategory = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const forbiddenSourceFallback = /(?:\beval\s*\(|\bnew\s+Function\s*\(|\bFunction\s*\(|\bWebAssembly\b|\bimportScripts\s*\(\s*["'`]https?:\/\/|\bimport\s*\(\s*["'`]https?:\/\/|\bfrom\s*["'`]https?:\/\/|\bset(?:Timeout|Interval)\s*\(\s*["'`])/i
@@ -229,6 +234,8 @@ export async function validatePublisherPackage(bytes: Uint8Array, expectedExtens
   if (hosts.some((permission) => !parseExtensionMatchPattern(permission))) throw new HttpError(400, 'Host permissions are invalid.')
   if (manifest.vast_network !== undefined && (manifest.vast_network !== 1 || manifest.manifest_version !== 2 || !chromePermissions.includes('webRequest') || !chromePermissions.includes('webRequestBlocking'))) throw new HttpError(400, 'Network providers require API version 1, a background page and blocking request permissions.')
   if (manifest.vast_network !== undefined && (!object(manifest.background) || !manifest.background.page && !Array.isArray(manifest.background.scripts))) throw new HttpError(400, 'Network providers require a background page.')
+  const documentCapabilityError = documentRulesManifestError(manifest)
+  if (documentCapabilityError) throw new HttpError(400, documentCapabilityError)
   const hasChrome = manifest.manifest_version !== undefined || manifest.background !== undefined || manifest.content_scripts !== undefined || manifest.action !== undefined
   if (hasChrome && manifest.manifest_version !== 2 && manifest.manifest_version !== 3) throw new HttpError(400, 'Published Chrome extensions must use a supported manifest version.')
   if (!hasChrome && !vast) throw new HttpError(400, 'The package has no supported extension runtime.')
@@ -251,14 +258,17 @@ export async function validatePublisherPackage(bytes: Uint8Array, expectedExtens
     }
   }
   validateReferencedFiles(manifest, parsed.files)
-  const validation = scanStaticPolicy(parsed.files)
+  const reviewedUpstream = reviewedUpstreamPackages.get(parsed.packageSha256)
+  const validation = reviewedUpstream && reviewedUpstream.extensionId === expectedExtensionId && reviewedUpstream.version === version && reviewedUpstream.publisherId === publisherId
+    ? ['strict-archive', 'identity', 'manifest', 'local-resources', 'no-native-binaries', 'curated-upstream-static-policy-reviewed']
+    : scanStaticPolicy(parsed.files)
   return {
     parsed,
     name,
     description,
     version,
     kind: hasChrome && vast ? 'hybrid' : vast ? 'vast' : 'chrome',
-    permissions: { chrome: chromePermissions.filter((permission) => !parseExtensionMatchPattern(permission)), hosts, vast: vastPermissions as VastNativePermission[] },
+    permissions: { chrome: [...new Set([...chromePermissions.filter((permission) => !parseExtensionMatchPattern(permission)), ...(manifest.vast_document_rules === 1 ? [DOCUMENT_RULE_PERMISSION] : [])])], hosts, vast: vastPermissions as VastNativePermission[] },
     validation
   }
 }

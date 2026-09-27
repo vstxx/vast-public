@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { DEFAULT_DATA, FAKE_HISTORY_SEEDS, INTERNAL_NEW_TAB_URL } from '../../shared/constants'
+import { DEFAULT_DATA, FAKE_HISTORY_SEEDS, INTERNAL_NEW_TAB_URL, INTERNAL_ONBOARDING_URL } from '../../shared/constants'
 import { resolveLayoutMode } from '../../shared/layout-mode'
 import type {
   Bookmark,
@@ -30,8 +30,13 @@ import { displayUrl, getSearchEngine, isInternalUrl, titleFromUrl, webOriginFor 
 import { isInactiveTabUnloadCandidate, restoredTabLifecycle } from './tab-lifecycle'
 import { cleanTrackingUrl } from '../../shared/url-cleaning'
 import { DEFAULT_WORKSPACE_IDENTITY } from '../../shared/workspace-identity'
+import { routeTopLevelNavigationUrl, sanitizeRestoredTopLevelUrl } from '../../shared/top-level-navigation-policy'
+import { shouldRestoreTabsOnStartup } from '../../shared/startup-recovery'
+import type { BrowserImportRunResult } from '../../shared/browser-import'
+import { mergeImportedEntries, type ImportedDataMergeCounts } from './imported-data-merge'
+import { applyOnboardingStart } from './onboarding-hydration'
 
-type SettingsPatch = Omit<Partial<BrowserSettings>, 'appearance' | 'advanced' | 'privacy' | 'spoofing' | 'security' | 'network' | 'labs' | 'newTab' | 'sidePanel' | 'commandPalette' | 'keyboardShortcuts'> & {
+type SettingsPatch = Omit<Partial<BrowserSettings>, 'appearance' | 'advanced' | 'privacy' | 'spoofing' | 'security' | 'network' | 'labs' | 'newTab' | 'sidePanel' | 'extensionMenu' | 'commandPalette' | 'keyboardShortcuts'> & {
   appearance?: Partial<BrowserSettings['appearance']>
   advanced?: Partial<BrowserSettings['advanced']>
   privacy?: Partial<BrowserSettings['privacy']>
@@ -43,6 +48,7 @@ type SettingsPatch = Omit<Partial<BrowserSettings>, 'appearance' | 'advanced' | 
   labs?: Partial<BrowserSettings['labs']>
   newTab?: Partial<BrowserSettings['newTab']>
   sidePanel?: Partial<BrowserSettings['sidePanel']>
+  extensionMenu?: Partial<BrowserSettings['extensionMenu']>
   commandPalette?: Partial<BrowserSettings['commandPalette']>
   keyboardShortcuts?: Partial<BrowserSettings['keyboardShortcuts']>
 }
@@ -153,6 +159,8 @@ interface BrowserState extends PersistedData {
   updateTodo: (todoId: ID, patch: Partial<Pick<TodoItem, 'title' | 'completed'>>) => void
   removeTodo: (todoId: ID) => void
   recordCommand: (commandId: string) => void
+  completeOnboarding: () => void
+  mergeImportedData: (result: Pick<BrowserImportRunResult, 'bookmarks' | 'history'>) => ImportedDataMergeCounts
 }
 
 export interface PromptDialogState {
@@ -242,8 +250,12 @@ function splitViewAfterTabActivation(state: BrowserState, target: Tab): Persiste
 }
 
 function normalizeTab(tab: Tab): Tab {
+  const url = sanitizeRestoredTopLevelUrl(tab.url)
   return {
     ...tab,
+    url,
+    title: url === tab.url ? tab.title : titleFromUrl(url),
+    displayUrl: displayUrl(url),
     status: tab.status === 'loading' ? 'idle' : tab.status,
     lifecycle: tab.lifecycle ?? 'sleeping',
     progress: 0,
@@ -259,7 +271,7 @@ function normalizeRestoredTab(tab: Tab, active: boolean): Tab {
   return {
     ...normalized,
     lifecycle: restoredTabLifecycle(active),
-    status: isInternalUrl(tab.url) ? 'idle' : active ? normalized.status : 'idle'
+    status: isInternalUrl(normalized.url) ? 'idle' : active ? normalized.status : 'idle'
   }
 }
 
@@ -401,7 +413,8 @@ function withoutVolatileState(state: BrowserState): PersistedData {
     siteMemory: state.siteMemory.slice(0, 250),
     todos: state.todos,
     recentCommandIds: state.recentCommandIds.slice(0, 12),
-    settings: state.settings
+    settings: state.settings,
+    onboarding: state.onboarding
   }
 }
 
@@ -419,7 +432,12 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
   keepAwakeTabIds: [],
 
   hydrate: (data) => {
-    const shouldRestore = data.settings.startupBehavior === 'restore' && data.settings.restorePreviousSession
+    const shouldRestore = shouldRestoreTabsOnStartup(data)
+    // A profile that has not finished onboarding lands on vast://onboarding
+    // instead of a normal browsing session. Existing profiles are migrated
+    // with completed: true, so only genuinely fresh (or interrupted)
+    // first runs take this path.
+    const onboardingPending = !data.onboarding?.completed
     const isolatedWorkspaceIds = new Set(data.workspaces.filter((workspace) => workspace.isPrivate).map((workspace) => workspace.id))
     const activeWorkspace = data.workspaces.find((workspace) => workspace.id === data.activeWorkspaceId)
     const priorityTabIds = new Set([
@@ -427,11 +445,15 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
       data.splitView.enabled ? data.splitView.primaryTabId : undefined,
       data.splitView.enabled ? data.splitView.secondaryTabId : undefined
     ].filter((id): id is string => Boolean(id)))
-    const restoredTabs = shouldRestore
+    let restoredTabs = shouldRestore
       ? data.tabs
           .filter((tab) => !isolatedWorkspaceIds.has(tab.workspaceId))
           .map((tab) => normalizeRestoredTab(tab, priorityTabIds.has(tab.id)))
       : []
+    restoredTabs = applyOnboardingStart(restoredTabs, {
+      activeWorkspace,
+      onboardingCompleted: data.onboarding?.completed === true
+    })
     const restoredSplitView = (() => {
       if (!data.splitView.enabled) return disabledSplitView(data.splitView.ratio)
       const primaryTabId = data.splitView.primaryTabId ?? activeWorkspace?.activeTabId
@@ -458,7 +480,13 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
       hydrated: true
     })
     if (restoredTabs.length === 0 || !activeTabInWorkspace(get(), data.activeWorkspaceId)) {
-      get().createTab({ workspaceId: data.activeWorkspaceId, url: defaultNewTabUrl(data.settings), activate: true })
+      get().createTab({
+        workspaceId: data.activeWorkspaceId,
+        url: onboardingPending && !restoredTabs.some((tab) => tab.url === INTERNAL_ONBOARDING_URL)
+          ? INTERNAL_ONBOARDING_URL
+          : defaultNewTabUrl(data.settings),
+        activate: true
+      })
     }
     if (shouldRestore && restoredTabs.length > 0) {
       const snapshot = buildSessionSnapshot(get(), data.activeWorkspaceId, undefined, 'startup')
@@ -679,7 +707,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
     const activeTab = state.tabs.find((item) => item.id === workspace?.activeTabId && item.workspaceId === workspaceId)
     const workspaceGroups = state.tabGroups.filter((group) => group.workspaceId === workspaceId)
     const groupId = options.groupId ?? activeTab?.groupId ?? workspaceGroups[0]?.id
-    const requestedUrl = options.url ?? INTERNAL_NEW_TAB_URL
+    const requestedUrl = routeTopLevelNavigationUrl(options.url ?? INTERNAL_NEW_TAB_URL)
     const url = state.settings.privacy.stripTrackingParameters
       ? cleanTrackingUrl(requestedUrl, state.settings.privacy.stripAffiliateParameters).url
       : requestedUrl
@@ -816,9 +844,10 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
 
   navigateTab: (tabId, url, title) => {
     set((state) => {
+      const routedUrl = routeTopLevelNavigationUrl(url)
       const cleanUrl = state.settings.privacy.stripTrackingParameters
-        ? cleanTrackingUrl(url, state.settings.privacy.stripAffiliateParameters).url
-        : url
+        ? cleanTrackingUrl(routedUrl, state.settings.privacy.stripAffiliateParameters).url
+        : routedUrl
       return {
       tabs: state.tabs.map((tab) =>
         tab.id === tabId
@@ -1408,6 +1437,10 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
         ...state.settings.sidePanel,
         ...patch.sidePanel
       }
+      const extensionMenu = {
+        ...state.settings.extensionMenu,
+        ...patch.extensionMenu
+      }
       const commandPalette = {
         ...state.settings.commandPalette,
         ...patch.commandPalette
@@ -1427,6 +1460,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
           labs,
           newTab,
           sidePanel,
+          extensionMenu,
           commandPalette,
           keyboardShortcuts
         },
@@ -1519,6 +1553,25 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
     set((state) => ({
       recentCommandIds: [commandId, ...state.recentCommandIds.filter((id) => id !== commandId)].slice(0, 12)
     }))
+  },
+
+  completeOnboarding: () => set({ onboarding: { completed: true } }),
+
+  mergeImportedData: (result) => {
+    const next = mergeImportedEntries(
+      { bookmarks: get().bookmarks, bookmarkFolders: get().bookmarkFolders, history: get().history },
+      { bookmarks: result.bookmarks, history: result.history }
+    )
+    set({
+      bookmarks: next.bookmarks,
+      bookmarkFolders: next.bookmarkFolders,
+      history: next.history
+    })
+    return {
+      bookmarksAdded: next.bookmarksAdded,
+      foldersCreated: next.foldersCreated,
+      historyAdded: next.historyAdded
+    }
   }
 }))
 

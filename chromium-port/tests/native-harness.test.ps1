@@ -60,7 +60,7 @@ foreach ($required in @(
   'root-selection.json',
   'FatalWaitError',
   '--browser-logs',
-  'Password vault detected but excluded from preview.',
+  'Legacy metadata detected but excluded from preview.',
   'Page.captureScreenshot',
   'newTabRouteVerified',
   'workspaceProjectionRenderedAfterRestart',
@@ -85,7 +85,7 @@ $migrationPatchSource = Get-Content -LiteralPath $migrationPatch -Raw
 foreach ($required in @(
   'kMaxStorageBytes = 8 * 1024 * 1024',
   'vast-migration-fixture',
-  'password_vault_present',
+  'legacy_metadata_present',
   'ThreadPool::PostTaskAndReplyWithResult',
   'base::MayBlock()',
   'GetMigrationPreview'
@@ -105,7 +105,7 @@ foreach ($required in @(
 $migrationTestPatchSource = Get-Content -LiteralPath $migrationTestPatch -Raw
 foreach ($required in @(
   'test("vast_data_unittests")',
-  'ReadsDefaultRootAndOnlyDetectsVault',
+  'ReadsDefaultRootAndOnlyDetectsLegacyMetadata',
   'ResolvesAbsoluteCustomDataRoot',
   'RejectsRelativeCustomDataRoot',
   'RejectsMalformedVastData',
@@ -161,7 +161,7 @@ foreach ($required in @(
   'temporaryDataCleaned',
   'DeletePathRecursively',
   'verifiedFiles',
-  'passwordVaultPresent'
+  'legacyMetadataPresent'
 )) {
   if ($backupAuditPatchSource -notmatch [regex]::Escape($required)) { throw "Vast native backup audit patch is missing: $required" }
 }

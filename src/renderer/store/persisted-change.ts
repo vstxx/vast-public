@@ -26,6 +26,7 @@ type PersistedChangeState = {
   todos: unknown[]
   recentCommandIds: unknown[]
   settings: unknown
+  onboarding?: unknown
 }
 
 function persistedTabSignature(tabs: Tab[], workspaces: Workspace[]): string {
@@ -64,7 +65,7 @@ function referenceId(value: unknown): number {
 export function persistedStateChangeToken(state: PersistedChangeState): string {
   const references: Array<keyof PersistedChangeState> = [
     'workspaces', 'tabGroups', 'recentlyClosedTabs', 'bookmarks', 'bookmarkFolders', 'history', 'notes',
-    'readingList', 'macros', 'macroLogs', 'sessionSnapshots', 'quickLinks', 'siteMemory', 'todos', 'recentCommandIds', 'settings'
+    'readingList', 'macros', 'macroLogs', 'sessionSnapshots', 'quickLinks', 'siteMemory', 'todos', 'recentCommandIds', 'settings', 'onboarding'
   ]
   return [
     state.schemaVersion,
@@ -89,7 +90,8 @@ export function hasPersistedStateChanged(current: PersistedChangeState, previous
     current.sidebarCollapsed !== previous.sidebarCollapsed ||
     current.focusMode !== previous.focusMode ||
     current.splitView !== previous.splitView ||
-    current.settings !== previous.settings
+    current.settings !== previous.settings ||
+    current.onboarding !== previous.onboarding
   ) return true
 
   const referenceCollections: Array<keyof PersistedChangeState> = [

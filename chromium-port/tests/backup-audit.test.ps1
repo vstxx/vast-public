@@ -36,7 +36,7 @@ try {
     skippedFileCount = 0
     includedSections = @('Vast profile JSON')
     vastDataIncluded = $true
-    passwordVaultIncluded = $false
+    legacyMetadataIncluded = $false
     checksums = [ordered]@{
       'data/vast-data.json' = [ordered]@{
         sizeBytes = $profileBytes.Length

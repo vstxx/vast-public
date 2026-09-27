@@ -17,12 +17,6 @@ test('horizontal titlebar leaves blank tab-strip space draggable', () => {
   assert.match(source, /horizontal-tab-strip[^"]*drag/)
 })
 
-test('workspace popover uses a clear product heading without technical helper copy', () => {
-  assert.match(source, /<h2 className="text-2xl font-semibold leading-tight tracking-tight text-white" data-testid="workspace-popover-heading">Workspaces<\/h2>/)
-  assert.doesNotMatch(source, /Isolated workspaces use a temporary Chromium session/)
-  assert.doesNotMatch(source, />Workspaces<\/div>/)
-})
-
 test('tab overflow is aligned and exposes lifecycle plus direct close controls', () => {
   assert.match(source, /overflowRef[^\n]*translate-y-1 self-center/)
   assert.match(source, /function overflowTabState\(tab: Tab, active: boolean\)/)

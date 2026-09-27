@@ -32,7 +32,6 @@ test('renderer uses the shared Vast dropdown instead of native selects', () => {
     'automation/AutomationPage.tsx',
     'notes/NotesPage.tsx',
     'new-tab/NewTabPage.tsx',
-    'passwords/PasswordsPage.tsx',
     'side-panel/SidePanel.tsx',
     'tabs/TabRow.tsx',
     'pdf/PdfViewerPage.tsx'
@@ -79,17 +78,16 @@ test('Vast dropdown exposes exactly three deliberate control lengths', () => {
   assert.match(stylesSource, /\.vast-select-size-short\s*\{[^}]*width:\s*min\(100%, 9rem\)/s)
   assert.match(stylesSource, /\.vast-select-size-medium\s*\{[^}]*width:\s*min\(100%, 12rem\)/s)
   assert.match(stylesSource, /\.vast-select-size-long\s*\{[^}]*width:\s*min\(100%, 16rem\)/s)
-  assert.match(settingsSource, /label="Layout"\s+size="short"/)
-  assert.match(settingsSource, /label="Fingerprinting"\s+size="long"/)
-  assert.match(settingsSource, /size = 'medium'/)
+  assert.match(settingsSource, /label="Sidebar density"/)
+  assert.match(settingsSource, /label="Fingerprinting"/)
 })
 
 test('settings dropdown titles stay concise and on one line', () => {
-  assert.match(settingsSource, /className="settings-select-title" title=\{label\}/)
+  assert.match(settingsSource, /className="settings-row-label settings-select-title" title=\{label\}/)
   assert.match(stylesSource, /\.settings-select-title\s*\{[^}]*white-space:\s*nowrap/)
-  assert.match(stylesSource, /\.settings-grid label,\s*\.settings-select-label,\s*\.settings-grid-action\s*\{/)
-  assert.match(stylesSource, /\.settings-grid label:hover,\s*\.settings-select-label:hover,\s*\.settings-grid-action:hover\s*\{/)
-  assert.match(stylesSource, /\.light-theme \.settings-grid label,\s*\.light-theme \.settings-select-label\s*\{/)
+  assert.match(stylesSource, /\.settings-rows\s*\{/)
+  assert.match(stylesSource, /\.settings-row:hover\s*\{/)
+  assert.match(stylesSource, /\.light-theme \.settings-rows,\s*\.light-theme \.settings-card,\s*\.light-theme \.settings-feature\s*\{/)
   for (const longLabel of [
     'Fingerprinting protection',
     'Microphone permission',
@@ -99,6 +97,12 @@ test('settings dropdown titles stay concise and on one line', () => {
   ]) {
     assert.doesNotMatch(settingsSource, new RegExp(`label="${longLabel}"`))
   }
+})
+
+test('all primary settings labels use the shared row-label font size', () => {
+  assert.doesNotMatch(stylesSource, /\.settings-color-item \.settings-row-label\s*\{[^}]*font-size:/)
+  assert.match(stylesSource, /\.settings-row-label\s*\{[^}]*font-size:\s*0\.84rem/)
+  assert.match(stylesSource, /\.settings-feature-label\s*\{[^}]*font-size:\s*0\.84rem/)
 })
 
 test('legacy one-off settings and PDF dropdown styles are gone', () => {

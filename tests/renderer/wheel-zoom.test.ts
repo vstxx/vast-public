@@ -6,7 +6,7 @@ const appSource = readFileSync(new URL('../../src/renderer/app/App.tsx', import.
 const stageSource = readFileSync(new URL('../../src/renderer/components/browser/BrowserStage.tsx', import.meta.url), 'utf8')
 const stylesSource = readFileSync(new URL('../../src/renderer/styles/index.css', import.meta.url), 'utf8')
 const webviewSource = readFileSync(new URL('../../src/renderer/components/browser/WebviewSurface.tsx', import.meta.url), 'utf8')
-const guestPreloadSource = readFileSync(new URL('../../src/preload/guest-autofill.ts', import.meta.url), 'utf8')
+const guestPreloadSource = readFileSync(new URL('../../src/preload/guest.ts', import.meta.url), 'utf8')
 
 test('Ctrl+wheel crosses the webview boundary and targets the hovered external tab', () => {
   assert.match(guestPreloadSource, /event\.preventDefault\(\)[\s\S]*event\.deltaMode === 1[\s\S]*sendToHost\('vast:wheel-zoom', event\.deltaY \* scale\)/)

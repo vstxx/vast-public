@@ -16,8 +16,7 @@ const maxCompressionRatio = 250
 const retryBackoffMs = [50, 150, 350, 750]
 const retryableFileErrorCodes = new Set(['EBUSY', 'EPERM', 'EACCES', 'ENOENT'])
 const criticalVastDataUnavailableMessage = 'Could not export Vast profile data because vast-data.json is locked or unavailable.'
-const passwordVaultKeyUnavailableMessage = 'Could not export the password vault because its matching Local State encryption key is locked or unavailable. No backup was created.'
-const legacyProductMetadataFiles = new Set(['license-cache.json', 'license-device.json'])
+const retiredProductFiles = new Set(['license-cache.json', 'license-device.json', 'password-vault.json'])
 const volatileDirectoryNames = new Set([
   'cache',
   'cachestorage',
@@ -64,7 +63,6 @@ export interface VastBackupManifest {
   skippedFileCount: number
   skippedFiles: VastBackupSkippedFile[]
   vastDataIncluded: boolean
-  passwordVaultIncluded: boolean
   checksums: Record<string, VastBackupChecksum>
   warnings: string[]
 }
@@ -100,7 +98,6 @@ export interface CreateVastBackupReport {
   skippedFileCount: number
   skippedFileDetails: VastBackupSkippedFile[]
   vastDataIncluded: boolean
-  passwordVaultIncluded: boolean
   manifest: VastBackupManifest
 }
 
@@ -187,9 +184,9 @@ function shouldSkipDataFile(relativePath: string): boolean {
   return parts.some((part) => volatileDirectoryNames.has(part.toLowerCase()))
 }
 
-function isLegacyProductMetadataPath(relativePath: string): boolean {
+function isRetiredProductFilePath(relativePath: string): boolean {
   const normalized = normalizeArchivePath(relativePath).toLowerCase()
-  return legacyProductMetadataFiles.has(normalized) || [...legacyProductMetadataFiles].some((name) => normalized === `data/${name}`)
+  return retiredProductFiles.has(normalized) || [...retiredProductFiles].some((name) => normalized === `data/${name}`)
 }
 
 function isUpdaterProfileBackup(relativePath: string): boolean {
@@ -415,7 +412,6 @@ function parseZipEntries(buffer: Buffer): Array<{ path: string; data: Buffer }> 
 function sectionForPath(pathname: string): string {
   const lower = pathname.toLowerCase()
   if (lower === 'vast-data.json') return 'Vast profile JSON'
-  if (lower === 'password-vault.json') return 'Password vault'
   if (lower.startsWith('storage-backups/')) return 'Storage backups'
   if (lower === 'vast-network-devices.json') return 'Network Devices'
   if (lower.startsWith('avidae/')) return 'Video & Audio data'
@@ -516,7 +512,7 @@ async function stageDataRootForBackup(
       const normalized = normalizeArchivePath(relativePath)
       const lower = normalized.toLowerCase()
       if (lower === 'vast-data.json') continue
-      if (isLegacyProductMetadataPath(normalized)) continue
+      if (isRetiredProductFilePath(normalized)) continue
       if (isUpdaterProfileBackup(relativePath)) {
         addSkippedFile(
           skippedFileDetails,
@@ -649,9 +645,8 @@ function backupReadme(manifest: VastBackupManifest): string {
     `Included files: ${manifest.includedFileCount}`,
     `Skipped files: ${manifest.skippedFileCount}`,
     `vast-data.json included: ${manifest.vastDataIncluded ? 'yes' : 'no'}`,
-    `password-vault.json included: ${manifest.passwordVaultIncluded ? 'yes' : 'no'}`,
     '',
-    'This archive contains Vast-owned local profile data. Password vault and website session data can be machine-bound by the operating system and may not transfer to another computer or OS account.',
+    'This archive contains Vast-owned local profile data. Website session data can be machine-bound by the operating system and may not transfer to another computer or OS account.',
     '',
     'Included sections:',
     ...manifest.includedSections.map((section) => `- ${section}`),
@@ -673,15 +668,10 @@ function shouldWarnForSkippedFile(item: VastBackupSkippedFile): boolean {
     && !item.reason.startsWith('Updater profile backups are skipped')
 }
 
-function defaultWarnings(includedFiles: string[], skippedFiles: VastBackupSkippedFile[]): string[] {
+function defaultWarnings(skippedFiles: VastBackupSkippedFile[]): string[] {
   const warnings = [
     'Website cookies and Chromium session storage may not transfer perfectly across computers or OS accounts.'
   ]
-  if (includedFiles.includes('password-vault.json')) {
-    warnings.push('The password vault is OS-encrypted and may only decrypt on the same OS account unless the matching browser encryption state is portable.')
-  } else if (skippedFiles.some((item) => item.path === 'password-vault.json')) {
-    warnings.push('password-vault.json could not be included because it was locked or unavailable; saved website passwords may not migrate.')
-  }
   const actionableSkipped = skippedFiles.filter(shouldWarnForSkippedFile)
   if (actionableSkipped.length > 0) {
     warnings.push(`${actionableSkipped.length} non-critical profile file${actionableSkipped.length === 1 ? '' : 's'} were skipped because they were locked, unavailable, or not safe to export.`)
@@ -704,13 +694,6 @@ export function validateBackupManifest(manifest: unknown): { ok: true } | { ok: 
   }
   if (value.vastDataIncluded !== true || !checksums['data/vast-data.json']) {
     return { ok: false, error: 'Backup does not contain the required Vast data file.' }
-  }
-  const passwordVaultIncluded = Boolean(checksums['data/password-vault.json'])
-  if (value.passwordVaultIncluded !== passwordVaultIncluded) {
-    return { ok: false, error: 'Backup password vault metadata does not match its files.' }
-  }
-  if (passwordVaultIncluded && !checksums['data/Local State']) {
-    return { ok: false, error: 'Backup contains a password vault without its matching Local State encryption key.' }
   }
   for (const [path, checksum] of Object.entries(checksums)) {
     if (!path.startsWith('data/') || path === 'data/' || !checksum || typeof checksum !== 'object') {
@@ -743,10 +726,6 @@ export async function createVastBackupArchive(options: CreateVastBackupOptions):
     ]
     const vastDataIncluded = collected.includedFiles.includes('vast-data.json')
     if (!vastDataIncluded) throw new Error(criticalVastDataUnavailableMessage)
-    const passwordVaultIncluded = collected.includedFiles.includes('password-vault.json')
-    if (passwordVaultIncluded && !collected.includedFiles.includes('Local State')) {
-      throw new Error(passwordVaultKeyUnavailableMessage)
-    }
     const manifest: VastBackupManifest = {
       product: 'Vast',
       appId: options.appId,
@@ -760,9 +739,8 @@ export async function createVastBackupArchive(options: CreateVastBackupOptions):
       skippedFileCount: skippedFiles.length,
       skippedFiles: sortedSkippedFileDetails,
       vastDataIncluded,
-      passwordVaultIncluded,
       checksums: collected.checksums,
-      warnings: defaultWarnings(collected.includedFiles, sortedSkippedFileDetails)
+      warnings: defaultWarnings(sortedSkippedFileDetails)
     }
     options.manifestTransformForTests?.(manifest)
     const manifestData = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
@@ -809,7 +787,6 @@ export async function createVastBackupArchive(options: CreateVastBackupOptions):
       skippedFileCount: skippedFiles.length,
       skippedFileDetails: sortedSkippedFileDetails,
       vastDataIncluded,
-      passwordVaultIncluded,
       manifest
     }
   } finally {
@@ -877,7 +854,7 @@ export async function extractVastBackupArchive(
         const parsed = JSON.parse(data.toString('utf8')) as unknown
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Imported Vast data is invalid.')
       }
-      if (isLegacyProductMetadataPath(entry.path)) continue
+      if (isRetiredProductFilePath(entry.path)) continue
       await mkdir(dirname(destination), { recursive: true })
       await writeFile(destination, data)
       extractedFiles.push(entry.path)

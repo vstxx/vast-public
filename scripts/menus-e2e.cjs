@@ -18,7 +18,24 @@ async function until(expression) {
     if (await cdp.evaluate(`(async () => Boolean(await (${expression})))()`).catch(() => false)) return
     await wait(100)
   }
-  throw new Error('Timed out: ' + expression)
+  const diagnostic = await cdp.evaluate(`(async () => {
+    const data = await window.vast?.storage?.load?.().catch(() => null);
+    return {
+      shell: Boolean(document.querySelector('.horizontal-chrome')),
+      activeWorkspaceId: data?.activeWorkspaceId ?? null,
+      activeTabId: data?.workspaces?.find(w => w.id === data.activeWorkspaceId)?.activeTabId ?? null,
+      tabCount: data?.tabs?.length ?? null,
+      stage: Boolean(document.querySelector('.browser-stage')),
+      paneCount: document.querySelectorAll('.browser-stage-pane').length,
+      bodyText: document.body.innerText.slice(0, 400),
+      webviews: [...document.querySelectorAll('webview')].map(v => {
+        const r = v.getBoundingClientRect();
+        const url = v.getURL();
+        return { url: url.startsWith('http://127.0.0.1:') ? new URL(url).pathname : '(other)', width: r.width, height: r.height };
+      })
+    };
+  })()`).catch(() => ({ unavailable: true }))
+  throw new Error(`Timed out: ${expression}; fixture state: ${JSON.stringify(diagnostic)}`)
 }
 function check(name) { report.checks.push(name); console.log('PASS', name) }
 async function click(expression, button = 'left') {
@@ -52,6 +69,7 @@ async function main() {
   data.settings.openingAnimation = false
   data.settings.advanced.confirmBeforeClosingManyTabs = false
   data.settings.advanced.developerMode = true
+  data.onboarding.completed = true
   const workspace = data.workspaces[0]
   workspace.activeTabId = 'menu-0'
   data.activeWorkspaceId = workspace.id

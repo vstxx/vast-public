@@ -21,10 +21,11 @@ function toneStyles(tone: UiNotificationPayload['tone']): string {
 }
 
 function promptActionStyles(tone: NonNullable<UiPromptPayload['actions'][number]['tone']> | undefined): string {
-  if (tone === 'primary') return 'border-transparent bg-vast-cyan text-black hover:bg-white'
-  if (tone === 'success') return 'border-transparent bg-emerald-300 text-black hover:bg-emerald-200'
-  if (tone === 'danger') return 'border-rose-400/20 bg-rose-500/12 text-rose-100 hover:bg-rose-500/18'
-  return 'border-white/10 bg-white/[0.045] text-vast-soft hover:bg-white/[0.08] hover:text-white'
+  if (tone === 'primary') return 'vast-button vast-button--primary vast-button--sm'
+  // Success keeps its semantic green fill; the control system has no success variant.
+  if (tone === 'success') return 'vast-button vast-button--sm border border-transparent bg-emerald-300 text-black hover:bg-emerald-200'
+  if (tone === 'danger') return 'vast-button vast-button--danger vast-button--sm'
+  return 'vast-button vast-button--secondary vast-button--sm'
 }
 
 export function NotificationsOverlay({
@@ -99,7 +100,7 @@ export function NotificationsOverlay({
                 <button
                   type="button"
                   onClick={() => onDismiss(toast.id)}
-                  className="grid h-8 w-8 shrink-0 place-items-center rounded-control text-vast-soft transition hover:bg-white/10 hover:text-white"
+                  className="vast-icon-button vast-icon-button--quiet grid place-items-center h-8 w-8 shrink-0 rounded-control"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -115,7 +116,7 @@ export function NotificationsOverlay({
                     <button
                       key={action.label}
                       type="button"
-                      className="rounded-control border border-vast-cyan/25 bg-vast-cyan/10 px-3 py-1.5 text-xs font-semibold text-vast-cyan transition-colors hover:bg-vast-cyan/20"
+                      className="vast-button vast-button--selected vast-button--xs px-3 py-1.5 text-xs"
                       onClick={action.action}
                     >
                       {action.label}
@@ -190,7 +191,7 @@ export function ActionPromptModal({
                   <button
                     type="button"
                     onClick={() => onResolve(choice.alternateAction!.id)}
-                    className="mx-3 mb-3 w-[calc(100%-1.5rem)] rounded-control border border-white/10 bg-white/[0.045] px-3 py-2 text-xs font-medium text-vast-soft transition hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vast-cyan/70"
+                    className="vast-button vast-button--secondary vast-button--xs mx-3 mb-3 w-[calc(100%-1.5rem)] justify-center text-xs"
                   >
                     {choice.alternateAction.label}
                   </button>
@@ -206,7 +207,7 @@ export function ActionPromptModal({
               key={action.id}
               type="button"
               onClick={() => onResolve(action.id)}
-              className={`rounded-control border px-4 py-2 text-sm font-medium transition ${promptActionStyles(action.tone)}`}
+              className={promptActionStyles(action.tone)}
             >
               {action.label}
             </button>

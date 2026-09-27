@@ -27,7 +27,7 @@ const server = http.createServer((request, response) => {
     return
   }
   response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store', 'Set-Cookie': `identity=${url.searchParams.get('identity') || 'A'}; Path=/; Max-Age=3600; HttpOnly; SameSite=Lax` })
-  response.end('<!doctype html><title>Production fixture</title><main>Authenticated download fixture</main><input autocomplete="username"><input type="password" autocomplete="current-password">')
+  response.end('<!doctype html><title>Production fixture</title><main>Authenticated download fixture</main>')
 })
 async function until(expression, timeout = 30000) {
   const deadline = Date.now() + timeout
@@ -85,8 +85,6 @@ async function radiusChecks() {
   await until('document.querySelector(".settings-nav-item")')
   await cdp.evaluate(`[...document.querySelectorAll('.settings-nav-item')].find(b => b.textContent.includes('Appearance')).click()`)
   await until(`[...document.querySelectorAll('label')].some(l=>l.textContent.startsWith('Corner radius'))`)
-  await cdp.evaluate(`${guest()}.send('vast:password-autofill-config', {enabled:true,suggestions:[{id:'test',username:'radius-fixture',title:'Fixture'}],theme:'dark',accent:'#aabbcc',radius:21})`)
-  await until(`${guest()}?.executeJavaScript('Boolean(document.getElementById("__vast_af_root"))')`)
   const guestIds = await cdp.evaluate(`[...document.querySelectorAll('webview')].map(v => v.getWebContentsId())`)
   const factors = { micro: .16, checkbox: .28, swatch: .28, control: .54, card: 1, panel: 1.15, modal: 1.3 }
   for (const radius of [6, 21, 36]) {
@@ -105,9 +103,7 @@ async function radiusChecks() {
     // Checkbox semantic probe is measured separately from browser-specific slider pseudo styles.
     for (const [token, factor] of Object.entries(factors)) assert.ok(Math.abs(samples[token] - radius * factor) < .06, `${token} at ${radius}: ${samples[token]}`)
     assert.ok(Math.abs(samples.iconButton - radius * .54) < .06)
-    const autofill = await cdp.evaluate(`${guest()}.executeJavaScript('(() => { const root=document.getElementById("__vast_af_root"); return {radius:parseFloat(getComputedStyle(root).borderTopLeftRadius),closed:root.shadowRoot === null}; })()')`)
-    assert.ok(autofill.closed && Math.abs(autofill.radius - radius * .54) < .06, 'Closed autofill host did not follow radius bridge')
-    report.radius.push({ radius, samples, autofill })
+    report.radius.push({ radius, samples })
     const screenshot = await cdp.send('Page.captureScreenshot', {format:'png'}); fs.writeFileSync(path.join(output, `production-radius-${radius}.png`), Buffer.from(screenshot.data,'base64'))
     assert.deepEqual(await cdp.evaluate(`[...document.querySelectorAll('webview')].map(v => v.getWebContentsId())`), guestIds, 'Changing radius recreated a guest')
   }

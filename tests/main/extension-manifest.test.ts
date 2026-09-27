@@ -26,11 +26,112 @@ test('validates a deterministic MV3 content-script extension fixture', async () 
   assert.deepEqual(validated.permissions, ['storage'])
   assert.deepEqual(validated.hostPermissions, ['http://127.0.0.1/*', 'http://localhost/*'])
   assert.match(chromeExtensionId(validated.rootPath), /^[a-p]{32}$/)
-  assert.deepEqual(analyzeExtensionCompatibility(validated), {
-    compatibility: 'compatible',
-    summary: 'Content scripts and documented Electron extension APIs were detected.',
-    warnings: []
-  })
+  const compatibility = analyzeExtensionCompatibility(validated)
+  assert.equal(compatibility.compatibility, 'compatible')
+  assert.equal(compatibility.summary, 'Content scripts run in website tabs; all detected capabilities are supported.')
+  assert.deepEqual(compatibility.warnings, [])
+  assert.ok(compatibility.capabilities.every((capability) => capability.status === 'supported'))
+})
+
+test('keeps required install permissions separate from optional runtime grants', async () => {
+  const root = await temporaryDirectory()
+  try {
+    await writeFile(join(root, 'content.js'), '', 'utf8')
+    await writeFile(join(root, 'manifest.json'), JSON.stringify({
+      manifest_version: 3,
+      name: 'Required and optional permissions',
+      version: '1.0.0',
+      permissions: ['storage'],
+      optional_permissions: ['privacy', 'nativeMessaging'],
+      host_permissions: ['https://required.example/*'],
+      optional_host_permissions: ['https://optional.example/*'],
+      content_scripts: [{ matches: ['https://content.example/*'], js: ['content.js'] }]
+    }), 'utf8')
+
+    const validated = await validateExtensionManifest(root)
+    assert.deepEqual(validated.requiredPermissions, ['storage'])
+    assert.deepEqual(validated.permissions, ['storage', 'privacy', 'nativeMessaging'])
+    assert.deepEqual(validated.requiredHostPermissions, ['https://required.example/*', 'https://content.example/*'])
+    assert.deepEqual(validated.hostPermissions, ['https://required.example/*', 'https://optional.example/*', 'https://content.example/*'])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('resolves localized Chromium manifest metadata without modifying the extension', async () => {
+  const root = await temporaryDirectory()
+  try {
+    await mkdir(join(root, '_locales', 'en'), { recursive: true })
+    await writeFile(join(root, '_locales', 'en', 'messages.json'), JSON.stringify({
+      extName: { message: 'Localized Password Manager' },
+      EXTDESCRIPTION: { message: 'Localized description.' }
+    }), 'utf8')
+    await writeFile(join(root, 'manifest.json'), JSON.stringify({
+      manifest_version: 3,
+      name: '__MSG_extName__',
+      description: '__MSG_extDescription__',
+      default_locale: 'en',
+      version: '1.0.0'
+    }), 'utf8')
+
+    const validated = await validateExtensionManifest(root)
+    assert.equal(validated.manifest.name, 'Localized Password Manager')
+    assert.equal(validated.manifest.description, 'Localized description.')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('keeps manifest localization tokens when locale resources are unavailable', async () => {
+  const root = await temporaryDirectory()
+  try {
+    await writeFile(join(root, 'manifest.json'), JSON.stringify({
+      manifest_version: 3,
+      name: '__MSG_extName__',
+      default_locale: 'en',
+      version: '1.0.0'
+    }), 'utf8')
+    const validated = await validateExtensionManifest(root)
+    assert.equal(validated.manifest.name, '__MSG_extName__')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('keeps MV3 as the default and limits MV2 to explicit Vast network providers', async () => {
+  const ordinaryMv2 = await temporaryDirectory()
+  const providerMv2 = await temporaryDirectory()
+  try {
+    await writeFile(join(ordinaryMv2, 'background.js'), '', 'utf8')
+    await writeFile(join(ordinaryMv2, 'manifest.json'), JSON.stringify({
+      manifest_version: 2, name: 'Legacy ordinary extension', version: '1.0.0',
+      background: { persistent: true, scripts: ['background.js'] }, permissions: ['storage']
+    }), 'utf8')
+    await assert.rejects(validateExtensionManifest(ordinaryMv2), /Manifest V2 is restricted/)
+
+    await writeFile(join(providerMv2, 'background.js'), '', 'utf8')
+    await writeFile(join(providerMv2, 'manifest.json'), JSON.stringify({
+      manifest_version: 2, name: 'Legacy network provider', version: '1.0.0', vast_network: 1,
+      background: { persistent: true, scripts: ['background.js'] },
+      permissions: ['webRequest', 'webRequestBlocking', 'https://*/*']
+    }), 'utf8')
+    const validated = await validateExtensionManifest(providerMv2)
+    assert.equal(validated.manifest.manifest_version, 2)
+
+    for (const invalid of [
+      { vast_network: 0 },
+      { permissions: ['webRequest'] },
+      { background: { persistent: false, scripts: ['background.js'] } }
+    ]) {
+      const base = JSON.parse(await (await import('node:fs/promises')).readFile(join(providerMv2, 'manifest.json'), 'utf8'))
+      await writeFile(join(providerMv2, 'manifest.json'), JSON.stringify({ ...base, ...invalid }), 'utf8')
+      await assert.rejects(validateExtensionManifest(providerMv2), /Manifest V2 is restricted/)
+      await writeFile(join(providerMv2, 'manifest.json'), JSON.stringify(base), 'utf8')
+    }
+  } finally {
+    await rm(ordinaryMv2, { recursive: true, force: true })
+    await rm(providerMv2, { recursive: true, force: true })
+  }
 })
 
 test('recognizes Vast-native and hybrid manifests without merging their permission layers', async () => {
@@ -64,11 +165,12 @@ test('validates Chrome and Vast custom popup and options surfaces', async () => 
       popup: { runtime: 'chrome', path: 'popup.html' },
       options: { runtime: 'chrome', path: 'options.html' }
     })
-    assert.deepEqual(analyzeExtensionCompatibility(chrome), {
-      compatibility: 'compatible',
-      summary: 'The extension provides a supported popup or options page.',
-      warnings: []
-    })
+    const compatibility = analyzeExtensionCompatibility(chrome)
+    assert.equal(compatibility.compatibility, 'partial')
+    assert.equal(compatibility.summary, 'The extension UI is available; some requested features have measured gaps.')
+    assert.match(compatibility.warnings.join(' '), /does not expose internal pages to Chrome extensions/)
+    assert.match(compatibility.warnings.join(' '), /open_in_tab is not honored/)
+    assert.deepEqual(compatibility.capabilities.map((capability) => capability.id).sort(), ['surface:action.popup', 'surface:options'])
 
     await writeFile(join(nativeRoot, 'background.js'), '', 'utf8')
     await writeFile(join(nativeRoot, 'popup.html'), '<!doctype html><title>Native popup</title>', 'utf8')
@@ -117,7 +219,7 @@ test('rejects unknown Vast permissions and unsafe background paths for the nativ
   const root = await temporaryDirectory()
   try {
     await writeFile(join(root, 'background.js'), '', 'utf8')
-    await writeFile(join(root, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Unknown permission', version: '1.0.0', vast: { api_version: 1, background: 'background.js', permissions: ['vast.passwords'] } }), 'utf8')
+    await writeFile(join(root, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Unknown permission', version: '1.0.0', vast: { api_version: 1, background: 'background.js', permissions: ['vast.shell'] } }), 'utf8')
     const validated = await validateExtensionManifest(root)
     assert.match(validated.nativeCompatibilityError ?? '', /Unknown Vast permission/)
     await writeFile(join(root, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Traversal', version: '1.0.0', vast: { api_version: 1, background: '../outside.js', permissions: [] } }), 'utf8')
@@ -173,7 +275,7 @@ test('classifies supported, partial, and unsupported manifests explicitly', asyn
   partial.manifest.action = { default_title: 'No toolbar surface in Vast yet' }
   assert.equal(analyzeExtensionCompatibility(partial).compatibility, 'partial')
   assert.match(analyzeExtensionCompatibility(partial).warnings.join(' '), /tabs.*partially supported/i)
-  assert.match(analyzeExtensionCompatibility(partial).warnings.join(' '), /cookies.*not in Electron/i)
+  assert.match(analyzeExtensionCompatibility(partial).warnings.join(' '), /cookies is not provided by the current runtime/i)
 
   const unsupported = structuredClone(supported)
   unsupported.manifest.content_scripts = []

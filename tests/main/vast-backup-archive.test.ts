@@ -30,7 +30,8 @@ test('full Vast backup creates a .vastbackup zip with manifest, checksums, and e
     await mkdir(join(dataRoot, 'Backups', 'Vast-1.0.11', 'user-data-1'), { recursive: true })
     await mkdir(join(dataRoot, 'avidae'), { recursive: true })
     await writeFile(join(dataRoot, 'vast-data.json'), '{"schemaVersion":1,"notes":[{"id":"n1"}]}', 'utf8')
-    await writeFile(join(dataRoot, 'password-vault.json'), '{"schemaVersion":1,"records":[]}', 'utf8')
+    await writeFile(join(dataRoot, 'legacy-user-state.bin'), 'preserve-unknown-user-data', 'utf8')
+    await writeFile(join(dataRoot, 'password-vault.json'), 'retired-vault-must-remain-untouched', 'utf8')
     await writeFile(join(dataRoot, 'license-cache.json'), '{"state":"active","signature":"signed"}', 'utf8')
     await writeFile(join(dataRoot, 'license-device.json'), '{"deviceId":"legacy"}', 'utf8')
     await writeFile(join(dataRoot, 'Local State'), '{"os_crypt":{}}', 'utf8')
@@ -54,7 +55,8 @@ test('full Vast backup creates a .vastbackup zip with manifest, checksums, and e
     assert.equal(report.ok, true)
     assert.equal(report.path, archivePath)
     assert.equal(report.includedFiles.includes('vast-data.json'), true)
-    assert.equal(report.includedFiles.includes('password-vault.json'), true)
+    assert.equal(report.includedFiles.includes('legacy-user-state.bin'), true)
+    assert.equal(report.includedFiles.includes('password-vault.json'), false)
     assert.equal(report.includedFiles.includes('license-cache.json'), false)
     assert.equal(report.includedFiles.includes('license-device.json'), false)
     assert.equal(report.includedFiles.includes('Local Storage/leveldb.txt'), true)
@@ -69,14 +71,14 @@ test('full Vast backup creates a .vastbackup zip with manifest, checksums, and e
     assert.equal(report.includedFileCount, report.includedFiles.length)
     assert.equal(report.skippedFileCount, report.skippedFiles.length)
     assert.equal(report.vastDataIncluded, true)
-    assert.equal(report.passwordVaultIncluded, true)
     assert.equal(report.manifest.sourceDataPath, undefined)
 
     const entries = await listZipEntries(archivePath)
     assert.equal(entries.includes('manifest.json'), true)
     assert.equal(entries.includes('README.md'), true)
     assert.equal(entries.includes('data/vast-data.json'), true)
-    assert.equal(entries.includes('data/password-vault.json'), true)
+    assert.equal(entries.includes('data/legacy-user-state.bin'), true)
+    assert.equal(entries.includes('data/password-vault.json'), false)
     assert.equal(entries.includes('data/license-cache.json'), false)
     assert.equal(entries.includes('data/license-device.json'), false)
     assert.equal(entries.includes('data/avidae/memory.json'), true)
@@ -93,12 +95,11 @@ test('full Vast backup creates a .vastbackup zip with manifest, checksums, and e
     assert.equal(extracted.manifest.includedFileCount, report.includedFiles.length)
     assert.equal(extracted.manifest.skippedFileCount, report.skippedFiles.length)
     assert.equal(extracted.manifest.vastDataIncluded, true)
-    assert.equal(extracted.manifest.passwordVaultIncluded, true)
     assert.equal(extracted.manifest.includedSections.includes('Video & Audio data'), true)
     assert.equal(extracted.manifest.skippedFiles.some((item) => item.path === 'Cache/ignored.bin' && item.reason), true)
-    assert.match(extracted.manifest.warnings.join('\n'), /password vault/i)
     assert.doesNotMatch(extracted.manifest.warnings.join('\n'), /license|reactivat/i)
     assert.equal(await readFile(join(tempRoot, 'Extracted', 'data', 'vast-data.json'), 'utf8'), '{"schemaVersion":1,"notes":[{"id":"n1"}]}')
+    assert.equal(await readFile(join(dataRoot, 'password-vault.json'), 'utf8'), 'retired-vault-must-remain-untouched')
   } finally {
     await rm(tempRoot, { recursive: true, force: true })
   }
@@ -109,7 +110,8 @@ test('legacy backup metadata verifies but is not restored', async () => {
   try {
     const legacyEntries = {
       'data/license-cache.json': '{"state":"active","signature":"legacy"}',
-      'data/license-device.json': '{"deviceId":"legacy"}'
+      'data/license-device.json': '{"deviceId":"legacy"}',
+      'data/password-vault.json': 'retired-vault-must-not-be-restored'
     }
     const archivePath = await createMinimalBackup(tempRoot, {
       extraEntriesForTests: Object.entries(legacyEntries).map(([path, data]) => ({ path, data })),
@@ -126,11 +128,13 @@ test('legacy backup metadata verifies but is not restored', async () => {
     const destination = join(tempRoot, 'Extracted')
     const extracted = await extractVastBackupArchive(archivePath, destination)
 
-    assert.equal(extracted.manifest.includedFileCount, 3)
+    assert.equal(extracted.manifest.includedFileCount, 4)
     assert.equal(extracted.extractedFiles.includes('data/license-cache.json'), false)
     assert.equal(extracted.extractedFiles.includes('data/license-device.json'), false)
+    assert.equal(extracted.extractedFiles.includes('data/password-vault.json'), false)
     await assert.rejects(() => readFile(join(destination, 'data', 'license-cache.json')), /ENOENT/)
     await assert.rejects(() => readFile(join(destination, 'data', 'license-device.json')), /ENOENT/)
+    await assert.rejects(() => readFile(join(destination, 'data', 'password-vault.json')), /ENOENT/)
   } finally {
     await rm(tempRoot, { recursive: true, force: true })
   }
@@ -177,71 +181,7 @@ test('full Vast backup skips locked non-critical files and records the reason', 
   }
 })
 
-test('full Vast backup skips locked password vault with a warning instead of failing', async () => {
-  const tempRoot = await mkdtemp(join(tmpdir(), 'vast-backup-vault-locked-'))
-  try {
-    const dataRoot = join(tempRoot, 'Data')
-    const archivePath = join(tempRoot, 'profile.vastbackup')
-    await mkdir(dataRoot, { recursive: true })
-    await writeFile(join(dataRoot, 'vast-data.json'), '{"schemaVersion":1,"tabs":[]}', 'utf8')
-    await writeFile(join(dataRoot, 'password-vault.json'), '{"schemaVersion":1,"records":[{"id":"p1"}]}', 'utf8')
 
-    const report = await createVastBackupArchive({
-      dataRoot,
-      destinationPath: archivePath,
-      appVersion: '1.0.9',
-      appId: 'app.vast.browser',
-      platform: 'win32',
-      fileOperationHooksForTests: {
-        beforeCopy: (relativePath) => {
-          if (relativePath === 'password-vault.json') throw errno('EACCES')
-        }
-      }
-    })
-
-    assert.equal(report.ok, true)
-    assert.equal(report.vastDataIncluded, true)
-    assert.equal(report.passwordVaultIncluded, false)
-    assert.equal(report.skippedFiles.includes('password-vault.json'), true)
-    assert.match(report.manifest.warnings.join('\n'), /password-vault\.json could not be included/i)
-  } finally {
-    await rm(tempRoot, { recursive: true, force: true })
-  }
-})
-
-test('full Vast backup refuses to separate a password vault from its Local State key', async () => {
-  for (const locked of [false, true]) {
-    const tempRoot = await mkdtemp(join(tmpdir(), `vast-backup-vault-key-${locked ? 'locked' : 'missing'}-`))
-    try {
-      const dataRoot = join(tempRoot, 'Data')
-      const archivePath = join(tempRoot, 'profile.vastbackup')
-      await mkdir(dataRoot, { recursive: true })
-      await writeFile(join(dataRoot, 'vast-data.json'), '{"schemaVersion":1,"tabs":[]}', 'utf8')
-      await writeFile(join(dataRoot, 'password-vault.json'), '{"schemaVersion":2,"records":[{"id":"p1","encryptedPassword":"ciphertext"}]}', 'utf8')
-      if (locked) await writeFile(join(dataRoot, 'Local State'), '{"os_crypt":{}}', 'utf8')
-
-      await assert.rejects(
-        () => createVastBackupArchive({
-          dataRoot,
-          destinationPath: archivePath,
-          appVersion: '0.1.4',
-          appId: 'app.vast.browser',
-          platform: 'win32',
-          fileOperationHooksForTests: locked
-            ? {
-                beforeCopy: (relativePath) => {
-                  if (relativePath === 'Local State') throw errno('EBUSY')
-                }
-              }
-            : undefined
-        }),
-        /matching Local State encryption key is locked or unavailable/
-      )
-    } finally {
-      await rm(tempRoot, { recursive: true, force: true })
-    }
-  }
-})
 
 test('full Vast backup fails clearly when vast-data.json is missing', async () => {
   const tempRoot = await mkdtemp(join(tmpdir(), 'vast-backup-missing-critical-'))
@@ -334,30 +274,6 @@ async function createMinimalBackup(tempRoot: string, options: Parameters<typeof 
   return archivePath
 }
 
-test('backup extraction rejects legacy password vault archives that omitted Local State', async () => {
-  const tempRoot = await mkdtemp(join(tmpdir(), 'vast-backup-vault-without-key-'))
-  try {
-    const vault = '{"schemaVersion":1,"records":[]}'
-    const archivePath = await createMinimalBackup(tempRoot, {
-      extraEntriesForTests: [{ path: 'data/password-vault.json', data: vault }],
-      manifestTransformForTests: (manifest) => {
-        manifest.passwordVaultIncluded = true
-        manifest.checksums['data/password-vault.json'] = {
-          sha256: createHash('sha256').update(vault).digest('hex'),
-          sizeBytes: Buffer.byteLength(vault)
-        }
-        manifest.includedFileCount += 1
-      }
-    })
-
-    await assert.rejects(
-      () => extractVastBackupArchive(archivePath, join(tempRoot, 'Extracted')),
-      /password vault without its matching Local State encryption key/
-    )
-  } finally {
-    await rm(tempRoot, { recursive: true, force: true })
-  }
-})
 
 test('backup extraction verifies SHA-256, declared size, and expected files', async () => {
   const cases: Array<{ name: string; options: Partial<Parameters<typeof createVastBackupArchive>[0]>; expected: RegExp }> = [

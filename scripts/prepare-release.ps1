@@ -362,7 +362,7 @@ https://github.com/vstxx/vast-public/releases/download/v1.1.0/update-manifest.js
 - Downloads the manifest and update bundle into `%LOCALAPPDATA%\Vast\UpdaterDownloads\1.1.0`.
 - Verifies the downloaded bundle SHA-256 before extraction.
 - Extracts to a temporary folder and runs the downloaded `VastUpdater.ps1`.
-- The downloaded updater detects install paths, backs up critical user data, preserves profiles/settings/bookmarks/password vault data, repairs same-version runtime drift, and rolls back failed file copies. Use `-BackupRoot` to place the backup on another drive.
+- The downloaded updater detects install paths, backs up critical user data, preserves profiles/settings/bookmarks, repairs same-version runtime drift, and rolls back failed file copies. Use `-BackupRoot` to place the backup on another drive.
 - The downloaded updater reads `%APPDATA%\Vast\data-root.json` and preserves a configured custom Vast data directory before falling back to default/legacy data roots.
 - Writes bootstrapper logs to `%LOCALAPPDATA%\Vast\UpdaterLogs\VastUpdaterBootstrapper-1.1.0.log`.
 - The production updater writes logs to `%LOCALAPPDATA%\Vast\UpdaterLogs\VastUpdater-1.1.0.log`.
@@ -426,9 +426,11 @@ Changes since 1.0.11:
 
 - Added the experimental Purist layout with a compact Topbar Island, functional tab strip, shared browser controls, and browser-owned overscroll space.
 - Made experimental layout choices disappear completely while Experimental features is disabled, with safe fallback to Horizontal for stale Purist profiles.
+- Added the audited Chrome extension compatibility runtime and Extension Hub installation paths for Bitwarden, Proton Pass, and upstream iCloud Passwords.
+- Added the standalone Adblocker for Vast extension and resizable extension menus.
 - Updated Smart Unload to use dedicated Dark, Dim, and Light surfaces; Dark now matches Vast's near-black canvas.
 - Hardened production packages with verified Electron Fuses, fail-closed public signing checks, selective obfuscation evidence, and stricter release verification.
-- Strengthened Labs IPC enforcement, password-vault session locking, guest autofill isolation, and runtime feature policy checks.
+- Strengthened Labs IPC enforcement and runtime feature policy checks.
 - Added a passive, signed Vast Notices feed configuration that remains disabled unless a dedicated HTTPS origin and pinned Ed25519 key are supplied.
 - Improved split-view behavior, Purist window controls, local privacy-list matching, and final interface polish.
 - Refreshed the installer, portable build, standalone updater, update bundle, manifests, release notes, and checksums for 1.1.0.
@@ -437,17 +439,17 @@ Changes since 1.0.11:
 @'
 # Vast Browser 1.1.0 Release Notes
 
-Vast 1.1.0 is a layout, interface-polish, and release-hardening update. It introduces the optional Purist layout, tightens experimental-feature visibility, and makes Smart Unload follow Dark, Dim, and Light themes directly.
+Vast 1.1.0 adds the audited extension compatibility runtime, Extension Hub password-manager installation paths, and the standalone Adblocker for Vast. It also introduces the optional Purist layout, tightens experimental-feature visibility, and makes Smart Unload follow Dark, Dim, and Light themes directly.
 
-The release also strengthens Electron Fuse verification, Labs IPC gates, password-vault session locking, guest autofill isolation, updater verification, and opt-in signed notice-feed handling. Purist remains hidden unless Experimental features is enabled and falls back safely when that setting is turned off.
+The release also strengthens Electron Fuse verification, Labs IPC gates, updater verification, and opt-in signed notice-feed handling. Purist remains hidden unless Experimental features is enabled and falls back safely when that setting is turned off.
 
-The public updater is a small online standalone updater for the single Vast payload. It downloads `update-manifest.json` and `Vast-1.1.0-update.zip`, verifies SHA-256, and applies the safe runtime update while preserving user data. Public stable Windows executables are required to carry a valid timestamped Authenticode signature.
+The public updater is a small online standalone updater for the single Vast payload. It downloads `update-manifest.json` and `Vast-1.1.0-update.zip`, verifies SHA-256, and applies the safe runtime update while preserving user data. The exact signature policy is recorded in the release manifest.
 
 Update behavior remains focused on preserving user data. Existing website logins continue to use the pre-update cookie store, and the updater backs up critical user data before runtime files are replaced.
 
-Existing full-profile `.vastbackup` export/import and custom data directory migration remain compatible. Existing Electron profile data is reused in place by a normal update. Password-vault encryption and website session portability remain operating-system and browser-runtime dependent.
+Existing full-profile `.vastbackup` export/import and custom data directory migration remain compatible. Existing Electron profile data is reused in place by a normal update. Website session portability remains operating-system and browser-runtime dependent.
 
-This package is generated as an internal unsigned beta only when `npm run release:internal` is used. Public beta and stable packages both require the complete signing and verification gate.
+The release manifest records the distribution channel and signature policy. For an unsigned public release, see `PUBLIC-UNSIGNED-RELEASE.md` and verify the published checksums before running the Windows executables.
 '@ | Set-Content -LiteralPath (Join-Path $ReleaseRoot 'release-notes.md') -Encoding UTF8
 
 @'

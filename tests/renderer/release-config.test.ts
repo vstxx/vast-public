@@ -59,11 +59,10 @@ test('Windows package and runtime window use the dedicated Vast app icon', () =>
   assert.doesNotMatch(brandMarkSource, />Vast<\/div>/)
 })
 
-test('opening startup intent is captured before the React root without prematurely starting its timeline', () => {
-  const timelineIndex = indexHtml.indexOf('__vastOpeningStartupEnabled')
+test('the first renderer document carries no opening timeline of its own', () => {
+  // Opening presentation moved to a standalone splash window; the browser
+  // renderer boots straight into (hidden) app initialization.
+  assert.doesNotMatch(indexHtml, /__vastOpeningStartupEnabled|__vastOpeningStartedAt|vast-static-opening/)
   const rootIndex = indexHtml.indexOf('id="root"')
-  assert.ok(timelineIndex > -1)
-  assert.ok(rootIndex > timelineIndex)
-  assert.doesNotMatch(indexHtml, /__vastOpeningStartedAt/)
-  assert.doesNotMatch(indexHtml, /vast-static-opening/)
+  assert.ok(rootIndex > -1)
 })

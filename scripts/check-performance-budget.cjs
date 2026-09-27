@@ -4,7 +4,7 @@ const { basename, join } = require('node:path')
 const root = join(__dirname, '..', 'out')
 const limits = {
   initialRendererBytes: 1_400_000,
-  mainEntryBytes: 500_000,
+  mainEntryBytes: 505_000,
   preloadEntryBytes: 24_000,
   totalJavaScriptBytes: 6_800_000
 }

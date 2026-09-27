@@ -43,6 +43,10 @@ export default defineConfig({
       outDir: 'out/main',
       sourcemap: false,
       rollupOptions: {
+        // Keep ECE external to the main bundle so the exact patched package
+        // remains independently hash-verifiable. electron-builder packages the
+        // pinned production dependency after the compatibility gates pass.
+        external: ['electron-chrome-extensions'],
         input: resolve(__dirname, 'src/main/main.ts')
       }
     }
@@ -56,7 +60,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/preload/index.ts'),
-          'guest-autofill': resolve(__dirname, 'src/preload/guest-autofill.ts'),
+          guest: resolve(__dirname, 'src/preload/guest.ts'),
           'extension-host': resolve(__dirname, 'src/preload/extension-host.ts')
         }
       }

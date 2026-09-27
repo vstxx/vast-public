@@ -1,4 +1,3 @@
-import { INTERNAL_PASSWORDS_URL } from './constants.ts'
 import { isAuthSensitiveUrl } from './auth-compatibility-policy.ts'
 import type { MacroAction } from './types'
 
@@ -6,7 +5,6 @@ const SENSITIVE_PATH = /(?:^|\/)(?:billing|checkout|pay|payment|payments|purchas
 
 export function isSensitiveAutomationUrl(input: string): boolean {
   if (!input) return false
-  if (input === INTERNAL_PASSWORDS_URL || input.startsWith(`${INTERNAL_PASSWORDS_URL}?`)) return true
   if (isAuthSensitiveUrl(input)) return true
   try {
     const parsed = new URL(input)

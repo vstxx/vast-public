@@ -1,0 +1,8 @@
+{
+  "manifest_version": 3,
+  "name": "Vast Native Messaging Fixture",
+  "version": "1.0.0",
+  "description": "Deterministic Chromium Native Messaging compatibility fixture.",
+  "permissions": ["nativeMessaging"],
+  "background": { "service_worker": "background.js" }
+}

@@ -34,13 +34,15 @@ Use `npm run test:app` for browser-shell or Electron integration changes. Update
 
 ## Security-sensitive changes
 
-Treat IPC, preload APIs, webview/session policy, navigation, updater/release verification, password storage/autofill, Relay signing, notices, Video & Audio process execution, and network discovery as security-sensitive. Explain the trust boundary in the pull request and add a regression test for any changed boundary.
+Treat IPC, preload APIs, webview/session policy, navigation, updater/release verification, Relay signing, notices, Video & Audio process execution, and network discovery as security-sensitive. Explain the trust boundary in the pull request and add a regression test for any changed boundary.
 
 Never commit secrets, certificates, private keys, tokens, passwords, private customer data, local profiles, absolute personal paths, or generated build/test output. Use documented environment variables, GitHub Actions secrets, and Cloudflare Secrets. Example values must be unmistakable placeholders.
 
 ## Dependencies and licenses
 
 Keep dependencies pinned through their lockfiles. Explain why a new dependency is needed, check its maintenance and vulnerability status, and verify that its license is compatible with the intended source and binary distribution. Any vendored code, media, font, model, or executable needs recorded provenance and its required license/notice files before merge.
+
+Vast-owned code is distributed under `GPL-3.0-only`. By submitting a contribution, you agree that your contribution may be included and distributed under GPL-3.0-only and you confirm that you have the right to submit it on those terms. Preserve copyright and license notices for code derived from third parties; identify its source and license in the pull request. The project does not require copyright assignment or a Contributor License Agreement.
 
 ## Pull requests
 

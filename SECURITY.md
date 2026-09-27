@@ -24,7 +24,7 @@ Allow reasonable time for confirmation, remediation, release coordination, and u
 
 ## Security architecture
 
-Vast deliberately separates trusted application chrome from untrusted web content. The maintained technical model covers renderer/preload isolation, webviews, navigation policy, IPC, the password vault, extensions, Relay, Labs features, Electron Fuses, dependency gates, and release verification.
+Vast deliberately separates trusted application chrome from untrusted web content. The maintained technical model covers renderer/preload isolation, webviews, navigation policy, IPC, extensions, Relay, Labs features, Electron Fuses, dependency gates, and release verification.
 
 See [docs/SECURITY_ARCHITECTURE.md](docs/SECURITY_ARCHITECTURE.md) for that architecture and [docs/IPC_SECURITY.md](docs/IPC_SECURITY.md) for focused IPC notes.
 

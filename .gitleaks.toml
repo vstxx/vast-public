@@ -28,16 +28,32 @@ regexes = ['''^942ef2bb4bd1752b214d5c903dd46e67e4634f09$''', '''^934912b3e760e06
 
 [[allowlists]]
 targetRules = ["generic-api-key"]
-description = "Synthetic fixture produced and asserted by audit/local-proofs.cjs; never exported publicly"
-condition = "AND"
-paths = ['''^audit/fixture-92A6Z9/password-vault\.json$''']
-regexTarget = "secret"
-regexes = ['''^U3ludGhldGljLUF1ZGl0LVBhc3N3b3JkLU9ubHkh$''']
-
-[[allowlists]]
-targetRules = ["generic-api-key"]
 description = "Public Cloudflare Access application audience identifiers; authentication still requires a signed JWT"
 condition = "AND"
 paths = ['''^relay/(?:admin-configuration\.d\.ts|admin/wrangler\.jsonc|tests/helpers\.ts)$''']
 regexTarget = "secret"
 regexes = ['''^d57429a0aa7ef593c1a7eac956cfce93eb284f518625454b55b6a25787ef0866$''', '''^c17baacc642c0b105daaed3561596520d3702e60dac54876d000fc672e9690d3$''']
+
+[[allowlists]]
+targetRules = ["generic-api-key"]
+description = "Apple iCloud Passwords DER/SPKI public extension identity key (not a private key)"
+condition = "AND"
+paths = ['''^tests/main/extension-manager\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAk4xPYZla5XqlDN0PPiLCQAYRqdaR06jSl3sntEE5jHoe7XldFqhsdBSp4L8mozwjCwi6z5YtEpTV1L2k4WYmDuiwoH7YKGlQD/YbC8QMcPvGLWOr8WYfXWtECKv0Nx7Tahk8nCIDWgJVm8YmPIDhPv4o5VVrq6aUveCKvTOskHWFyRzSTC2VKpzIVX7F65UzqqOmqLfMpo6lfaLcKSC7G6oQLA/wS7hcGZEwZ11si6XWR4o/hDuUSt6zdacy/sc7H80eH3lMnEmvb6HoB7\+KvxfGIU7dqRmhA/w/X0qkiIJYeoo4tZrNxBj7TTLz9hnHUbMRwJqsoIU\+pkoprgFWDQIDAQAB$''']
+
+[[allowlists]]
+targetRules = ["generic-api-key"]
+description = "Synthetic CRX public-key fixture encoded as Base64"
+condition = "AND"
+paths = ['''^tests/main/password-manager-gate-config\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^Zml4dHVyZS1wdWJsaWMta2V5$''']
+
+[[allowlists]]
+targetRules = ["generic-api-key"]
+description = "Deleted internal audit fixture containing only the explicit Synthetic-Audit-Password-Only test value"
+condition = "AND"
+paths = ['''^audit/fixture-92A6Z9/password-vault\.json$''']
+regexTarget = "secret"
+regexes = ['''^U3ludGhldGljLUF1ZGl0LVBhc3N3b3JkLU9ubHkh$''']

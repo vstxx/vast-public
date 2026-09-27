@@ -7,6 +7,8 @@ const structural = new Map([
   ['.vast-opening-logo-halo', '50%'],
   ['.vast-geometry-circle', '50%'],
   ['.vast-opening-overlay', '0'],
+  // The standalone opening splash clips its macOS corners to the user's corner radius.
+  ['.vast-opening-overlay.platform-darwin', '${Math.round(cornerRadius)'],
   ['.side-panel-slot.is-docked .side-panel', '0'],
   ['html.vast-pdf-printing .pdf-print-preview-overlay > div', '0 !important']
 ])
@@ -14,7 +16,7 @@ function radiusViolations(text, file = 'fixture.css') {
     const failures = []
     const report = (index, value) => failures.push(`${path.relative(root, file)}:${text.slice(0, index).split('\n').length}: ${value}`)
     for (const match of text.matchAll(/\brounded-(?:[a-z0-9-]+|(?:[a-z]+-)?\[[^\]]+\])(?=[\s'"`.,}])/g)) {
-      if (!/^rounded-(micro|checkbox|swatch|control|card|panel|modal)$/.test(match[0])) report(match.index, match[0])
+      if (!/^rounded-(micro|checkbox|swatch|control|tile|card|panel|modal)$/.test(match[0])) report(match.index, match[0])
     }
     for (const match of text.matchAll(/border(?:-(?:(?:top|bottom)-(?:left|right)|(?:start|end)-(?:start|end)))?-radius\s*:\s*([^;}'"]+)/g)) {
       const value = match[1].trim()

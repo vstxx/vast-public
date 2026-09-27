@@ -193,18 +193,18 @@ export function NotesPage(): JSX.Element {
         <section className="vast-glass-panel rounded-panel p-5">
           <div className="mb-5 flex items-start justify-between gap-3">
             <h1 className="text-3xl font-semibold">Notes</h1>
-            <button type="button" onClick={() => createNote(false)} className="grid h-11 w-11 place-items-center rounded-card bg-vast-cyan text-black" title="Create note">
+            <button type="button" onClick={() => createNote(false)} className="vast-button vast-button--primary vast-button--md h-11 w-11 justify-center rounded-card px-0" title="Create note">
               <Plus className="h-5 w-5" />
             </button>
           </div>
           <div className="relative mb-3">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-vast-soft" />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search notes, pages, tags" className="h-11 w-full rounded-card border border-white/10 bg-black/20 pl-10 pr-3 text-sm text-white outline-none focus:border-vast-cyan/[0.35]" data-testid="notes-search-input" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search notes, pages, tags" className="h-11 w-full rounded-card border border-white/10 bg-black/20 pl-10 pr-3 text-sm text-white outline-none" data-testid="notes-search-input" />
           </div>
           <div className="mb-4 flex flex-wrap gap-2">
-            <button type="button" onClick={() => setShowArchived((value) => !value)} className={`rounded-control border px-3 py-1.5 text-xs ${showArchived ? 'border-vast-cyan/[0.35] text-vast-cyan' : 'border-white/10 text-vast-soft'}`}>Archived</button>
+            <button type="button" onClick={() => setShowArchived((value) => !value)} className={`vast-button ${showArchived ? 'vast-button--selected' : 'vast-button--ghost'} vast-button--xs`}>Archived</button>
             {allTags.slice(0, 8).map((tag) => (
-              <button key={tag} type="button" onClick={() => setTagFilter((value) => (value === tag ? '' : tag))} className={`rounded-control border px-3 py-1.5 text-xs ${tagFilter === tag ? 'border-vast-cyan/[0.35] text-vast-cyan' : 'border-white/10 text-vast-soft'}`}>#{tag}</button>
+              <button key={tag} type="button" onClick={() => setTagFilter((value) => (value === tag ? '' : tag))} className={`vast-button ${tagFilter === tag ? 'vast-button--selected' : 'vast-button--ghost'} vast-button--xs`}>#{tag}</button>
             ))}
           </div>
           <div className="space-y-2">
@@ -235,15 +235,15 @@ export function NotesPage(): JSX.Element {
                 </div>
                 <div className="mb-3 space-y-2" data-testid="notes-action-toolbar">
                   <div className="grid grid-cols-4 gap-2" data-testid="notes-primary-actions">
-                    <button type="button" onClick={undoBody} disabled={!revisionHistory[selected.id]?.past.length} className="vault-action-button min-w-0 justify-center px-2"><Undo2 className="h-4 w-4" />Undo</button>
-                    <button type="button" onClick={redoBody} disabled={!revisionHistory[selected.id]?.future.length} className="vault-action-button min-w-0 justify-center px-2"><Redo2 className="h-4 w-4" />Redo</button>
-                    <button type="button" onClick={() => updateAdvancedNote({ pinned: !selected.pinned })} className="vault-action-button min-w-0 justify-center px-2"><Pin className="h-4 w-4" />{selected.pinned ? 'Unpin' : 'Pin'}</button>
-                    <button type="button" onClick={() => updateAdvancedNote({ favorite: !selected.favorite })} className="vault-action-button min-w-0 justify-center px-2"><Star className="h-4 w-4" />{selected.favorite ? 'Unfavorite' : 'Favorite'}</button>
+                    <button type="button" onClick={undoBody} disabled={!revisionHistory[selected.id]?.past.length} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2"><Undo2 className="h-4 w-4" />Undo</button>
+                    <button type="button" onClick={redoBody} disabled={!revisionHistory[selected.id]?.future.length} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2"><Redo2 className="h-4 w-4" />Redo</button>
+                    <button type="button" onClick={() => updateAdvancedNote({ pinned: !selected.pinned })} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2"><Pin className="h-4 w-4" />{selected.pinned ? 'Unpin' : 'Pin'}</button>
+                    <button type="button" onClick={() => updateAdvancedNote({ favorite: !selected.favorite })} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2"><Star className="h-4 w-4" />{selected.favorite ? 'Unfavorite' : 'Favorite'}</button>
                   </div>
                   <div className="grid grid-cols-3 gap-2" data-testid="notes-secondary-actions">
-                    <button type="button" onClick={() => updateAdvancedNote({ archived: !selected.archived })} className="vault-action-button min-w-0 justify-center px-2"><Archive className="h-4 w-4" />{selected.archived ? 'Unarchive' : 'Archive'}</button>
-                    <button type="button" onClick={() => void window.vast.notes.exportMarkdown(selected.title, selected.body)} className="vault-action-button min-w-0 justify-center" title="Export as Markdown (.md)" aria-label="Export note as Markdown"><Download className="h-4 w-4" />Export</button>
-                    <button type="button" onClick={removeSelected} className="vault-danger-button min-w-0 justify-center"><Trash2 className="h-4 w-4" />Delete</button>
+                    <button type="button" onClick={() => updateAdvancedNote({ archived: !selected.archived })} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2"><Archive className="h-4 w-4" />{selected.archived ? 'Unarchive' : 'Archive'}</button>
+                    <button type="button" onClick={() => void window.vast.notes.exportMarkdown(selected.title, selected.body)} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center" title="Export as Markdown (.md)" aria-label="Export note as Markdown"><Download className="h-4 w-4" />Export</button>
+                    <button type="button" onClick={removeSelected} className="vast-button vast-button--danger vast-button--sm min-w-0 justify-center"><Trash2 className="h-4 w-4" />Delete</button>
                   </div>
                 </div>
                 <textarea value={selected.body} onChange={(event) => updateBody(event.target.value)} placeholder="Write Markdown. Use # headings, **bold**, lists, quotes, links, and fenced code." className="min-h-[420px] flex-1 resize-none rounded-panel border border-white/10 bg-black/[0.22] p-5 text-base leading-8 text-white outline-none focus:border-vast-cyan/[0.35]" data-testid="note-body-input" />
@@ -256,7 +256,7 @@ export function NotesPage(): JSX.Element {
                 <div className="rounded-panel border border-white/10 bg-white/[0.035] p-4">
                   <div className="mb-2 flex items-center gap-2 text-sm font-semibold"><Link2 className="h-4 w-4 text-vast-cyan" />Linked page</div>
                   <input value={selected.url ?? ''} onChange={(event) => updateAdvancedNote({ url: event.target.value || undefined })} placeholder="https://..." className="h-10 w-full rounded-control border border-white/10 bg-black/20 px-3 text-sm text-white outline-none" />
-                  <button type="button" onClick={createLinkedNote} className="mt-3 w-full rounded-control border border-white/10 bg-white/[0.06] px-3 py-2 text-sm hover:bg-white/[0.09]">New note for active page</button>
+                  <button type="button" onClick={createLinkedNote} className="vast-button vast-button--secondary vast-button--sm mt-3 w-full justify-center">New note for active page</button>
                   <div className="mt-3 block text-[13px] text-vast-soft">
                     <span>Workspace</span>
                     <VastSelect
@@ -291,7 +291,7 @@ export function NotesPage(): JSX.Element {
             </div>
           ) : (
             <div className="grid h-full place-items-center text-center">
-              <div><FileText className="mx-auto mb-4 h-10 w-10 text-vast-cyan" /><div className="text-xl font-semibold">No notes yet</div><button type="button" onClick={() => createNote(false)} className="mt-4 rounded-card bg-vast-cyan px-4 py-2 text-sm font-semibold text-black">Create note</button></div>
+              <div><FileText className="mx-auto mb-4 h-10 w-10 text-vast-cyan" /><div className="text-xl font-semibold">No notes yet</div><button type="button" onClick={() => createNote(false)} className="vast-button vast-button--primary vast-button--md mt-4 justify-center rounded-card">Create note</button></div>
             </div>
           )}
         </section>
@@ -299,8 +299,8 @@ export function NotesPage(): JSX.Element {
       {lastDeleted && (
         <NotificationCard role="status" className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 border border-white/10 bg-[#0b0c11]/95 text-sm text-white shadow-glass">
           <span>“{lastDeleted.title}” deleted</span>
-          <button type="button" className="font-semibold text-vast-cyan" onClick={() => { restoreNote(lastDeleted); setSelectedId(lastDeleted.id); setLastDeleted(null) }}>Undo</button>
-          <button type="button" className="text-vast-soft" aria-label="Dismiss undo" onClick={() => setLastDeleted(null)}>×</button>
+          <button type="button" className="vast-button vast-button--quiet vast-button--xs font-semibold" onClick={() => { restoreNote(lastDeleted); setSelectedId(lastDeleted.id); setLastDeleted(null) }}>Undo</button>
+          <button type="button" className="vast-button vast-button--quiet vast-button--xs px-1 text-vast-soft" aria-label="Dismiss undo" onClick={() => setLastDeleted(null)}>×</button>
         </NotificationCard>
       )}
     </div>

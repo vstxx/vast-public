@@ -1,0 +1,38 @@
+diff --git a/shell/browser/extensions/electron_messaging_delegate.cc b/shell/browser/extensions/electron_messaging_delegate.cc
+index 74c6d6c..7080202 100644
+--- a/shell/browser/extensions/electron_messaging_delegate.cc
++++ b/shell/browser/extensions/electron_messaging_delegate.cc
+@@ -50,6 +50,11 @@ std::optional<base::DictValue> ElectronMessagingDelegate::MaybeGetTabInfo(
+       tab.url = api_contents->GetURL().spec();
+       tab.title = base::UTF16ToUTF8(api_contents->GetTitle());
+       tab.audible = api_contents->IsCurrentlyAudible();
++      // Electron does not implement Chromium split views. Keep the runtime
++      // messaging sender compatible with the current tabs.Tab schema instead
++      // of omitting the field and terminating the extension renderer during
++      // onMessageExternal validation.
++      tab.split_view_id = -1;
+       return tab.ToValue();
+     }
+   }
+diff --git a/shell/common/extensions/api/tabs.json b/shell/common/extensions/api/tabs.json
+index 0891483..b5f3b05 100644
+--- a/shell/common/extensions/api/tabs.json
++++ b/shell/common/extensions/api/tabs.json
+@@ -43,7 +43,7 @@
+           },
+           "reason": {
+             "$ref": "MutedInfoReason",
+-            "optional": true,
++            "optional": "true",
+             "description": "The reason the tab was muted or unmuted. Not set if the tab's mute state has never been changed."
+           },
+           "extensionId": {
+@@ -64,7 +64,7 @@
+           "splitViewId": {
+             "type": "integer",
+             "minimum": -1,
+-            "optional": "true",
++            "optional": true,
+             "description": "The ID of the Split View that the tab belongs to.",
+             // TODO(crbug.com/433273595): Enable documentation when ready for launch.
+             "nodoc": true

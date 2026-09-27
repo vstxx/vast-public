@@ -9,7 +9,6 @@ import {
   Gauge,
   Globe2,
   History,
-  KeyRound,
   Link2Off,
   LockKeyhole,
   Moon,
@@ -36,7 +35,6 @@ import {
   INTERNAL_NEW_TAB_URL,
   INTERNAL_NOTES_URL,
   INTERNAL_NETWORK_URL,
-  INTERNAL_PASSWORDS_URL,
   INTERNAL_SESSION_TIMELINE_URL
 } from '../../../shared/constants'
 import { getFeatureState, VastFeatures, type FeatureId, type FeatureState } from '../../../shared/feature-gates'
@@ -131,15 +129,6 @@ export function CommandPalette(): JSX.Element | null {
         featureId: VastFeatures.Avidae,
         keywords: ['media', 'video', 'audio', 'record', 'convert', 'ffmpeg', 'download', 'avidae'],
         perform: () => runtime.openUrlInNewTab(INTERNAL_AVIDAE_URL)
-      },
-      {
-        id: 'password-manager',
-        title: 'Open Password Manager',
-        subtitle: 'Local encrypted Vast password vault',
-        section: 'Actions',
-        featureId: VastFeatures.PasswordManager,
-        keywords: ['passwords', 'logins', 'vault', 'credentials', 'manager'],
-        perform: () => runtime.openUrlInNewTab(INTERNAL_PASSWORDS_URL)
       },
       {
         id: 'automation',
@@ -618,7 +607,7 @@ export function CommandPalette(): JSX.Element | null {
           <button
             type="button"
             onClick={() => setOpen(false)}
-            className="grid h-9 w-9 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white"
+            className="vast-icon-button vast-icon-button--quiet grid place-items-center h-9 w-9 rounded-control"
           >
             <X className="h-4 w-4" />
           </button>
@@ -700,7 +689,6 @@ function CommandGlyph({
   if (command.id === 'search-web') return <Search className={className} />
   if (command.id === 'new-tab') return <Plus className={className} />
   if (command.id === 'avidae') return <VideoAudioMark className={className} />
-  if (command.id === 'password-manager') return <KeyRound className={className} />
   if (command.id === 'automation' || command.id === 'create-macro' || command.id.startsWith('macro-')) return <Sparkles className={className} />
   if (command.id === 'network-devices' || command.id === 'scan-network' || command.id === 'show-cast-devices') return <Wifi className={className} />
   if (command.id === 'notes-page' || command.id === 'create-note') return <FileText className={className} />

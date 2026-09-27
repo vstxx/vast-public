@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -38,10 +38,15 @@ test('stages only verified files and atomically activates a stable managed ident
     const staged = await store.stagePackage(await packageFor('1.0.0'), 'local-vext', [])
     assert.equal(await stat(join(staged.contentRoot, 'manifest.json')).then((value) => value.isFile()), true)
     const installedPath = await store.commit(staged)
+    const transaction = await store.prepareRuntime(id, '1.0.0')
+    const runtimePath = await store.swapRuntime(transaction)
     const state = await store.activate(staged)
+    await store.commitRuntime(transaction)
     assert.equal(state.extensionId, id)
     assert.equal(state.activeVersion, '1.0.0')
     assert.equal(installedPath, store.versionRoot(id, '1.0.0'))
+    assert.equal(runtimePath, store.currentRoot(id))
+    assert.equal(await stat(join(runtimePath, 'manifest.json')).then((value) => value.isFile()), true)
     assert.equal((await store.readState(id))?.activeVersion, '1.0.0')
   } finally { await rm(root, { recursive: true, force: true }) }
 })
@@ -60,10 +65,66 @@ test('keeps a rollback version, prunes stale immutable versions, and removes man
     assert.equal(state?.activeVersion, '1.3.0')
     assert.equal(state?.previousVersion, '1.2.0')
     assert.deepEqual(state?.versions.map((version) => version.version), ['1.3.0', '1.2.0', '1.1.0'])
-    assert.deepEqual((await readdir(join(store.managedRoot, id, 'versions'))).sort(), ['1.1.0', '1.2.0', '1.3.0'])
+    assert.deepEqual((await readdir(join(store.managedRoot, id, 'releases'))).sort(), ['1.1.0', '1.2.0', '1.3.0'])
     assert.equal((await store.restoreActive(id, '1.2.0'))?.activeVersion, '1.2.0')
     await store.remove(id)
     await assert.rejects(stat(join(store.managedRoot, id)), /ENOENT/)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('startup recovers an interrupted runtime swap according to the atomically committed state', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'vast-managed-runtime-recovery-'))
+  try {
+    const store = new ExtensionManagedStore(root)
+    await store.initialize()
+    const v1 = await store.stagePackage(await packageFor('1.0.0'), 'local-vext', [])
+    await store.commit(v1)
+    const first = await store.prepareRuntime(id, '1.0.0')
+    await store.swapRuntime(first)
+    await store.activate(v1)
+    await store.commitRuntime(first)
+
+    const v2 = await store.stagePackage(await packageFor('2.0.0'), 'local-vext', [])
+    await store.commit(v2)
+    const interrupted = await store.prepareRuntime(id, '2.0.0')
+    await store.swapRuntime(interrupted)
+    await new ExtensionManagedStore(root).initialize()
+    const rolledBack = JSON.parse(await readFile(join(store.currentRoot(id), 'manifest.json'), 'utf8')) as { version: string }
+    assert.equal(rolledBack.version, '1.0.0')
+
+    const committed = await store.prepareRuntime(id, '2.0.0')
+    await store.swapRuntime(committed)
+    await store.activate(v2)
+    await new ExtensionManagedStore(root).initialize()
+    const retained = JSON.parse(await readFile(join(store.currentRoot(id), 'manifest.json'), 'utf8')) as { version: string }
+    assert.equal(retained.version, '2.0.0')
+    await assert.rejects(stat(join(store.managedRoot, id, 'current.previous')), /ENOENT/)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('keyless legacy installs keep their original physical runtime path across updates', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'vast-managed-legacy-runtime-'))
+  try {
+    const store = new ExtensionManagedStore(root)
+    await store.initialize()
+    const v1 = await store.stagePackage(await packageFor('1.0.0'), 'local-vext', [])
+    const releaseV1 = await store.commit(v1)
+    const legacyRuntime = join(store.managedRoot, id, 'versions', '1.0.0')
+    await mkdir(join(store.managedRoot, id, 'versions'), { recursive: true })
+    await rename(releaseV1, legacyRuntime)
+    await store.activate(v1)
+    assert.equal(await store.adoptLegacyRuntimePath(id, legacyRuntime), legacyRuntime)
+
+    const v2 = await store.stagePackage(await packageFor('2.0.0'), 'local-vext', [])
+    await store.commit(v2)
+    const update = await store.prepareRuntime(id, '2.0.0')
+    assert.equal(update.currentRoot, legacyRuntime)
+    assert.equal(await store.swapRuntime(update), legacyRuntime)
+    await store.activate(v2)
+    await store.commitRuntime(update)
+    const manifest = JSON.parse(await readFile(join(legacyRuntime, 'manifest.json'), 'utf8')) as { version: string }
+    assert.equal(manifest.version, '2.0.0')
+    assert.equal(await stat(store.versionRoot(id, '1.0.0')).then((entry) => entry.isDirectory()), true)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 

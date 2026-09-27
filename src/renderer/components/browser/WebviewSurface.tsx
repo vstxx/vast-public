@@ -3,7 +3,6 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { mouseNavigationActionForButton, shouldTriggerMouseNavigation } from '../../../shared/mouse-navigation'
 import type { ID, PdfCaptureEvent, Tab, WorkspaceIdentitySettings } from '../../../shared/types'
 import { GuestNavigationUrlQueue, shouldAcceptWebviewNavigationEvent, webviewNavigationUrl } from '../../../shared/webview-navigation'
-import { automaticPasswordCaptureOrigin } from '../../../shared/password-capture-policy'
 import { isLikelyCallUrl } from '../../../shared/call-protection'
 import { cleanTrackingUrl, hostMatchesList, siteDomain } from '../../../shared/url-cleaning'
 import { resolveWorkspaceIdentity } from '../../../shared/workspace-identity'
@@ -12,10 +11,12 @@ import { createPdfViewerUrl, displayUrl, isInternalUrl, isSafeLoadUrl, webOrigin
 import { takePendingInitialNavigation } from '../../lib/pending-initial-navigation.ts'
 import { useBrowserRuntime } from '../../app/browser-runtime'
 import { getExtensionContributions } from '../../extensions/extension-runtime'
+import { completePendingExtensionCompatibilityTab, pendingExtensionCompatibilityTab } from '../../lib/extension-compatibility-tabs'
 
 interface WebviewSurfaceProps {
   tab: Tab
   visible: boolean
+  selected: boolean
   isPrivate: boolean
   identity: WorkspaceIdentitySettings
   partition: string
@@ -68,17 +69,9 @@ function fallbackDownloadName(sourceUrl: string, suggestedFilename?: string, med
 }
 
 
-function hasHttpOrigin(url: string): boolean {
-  try {
-    const parsed = new URL(url)
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
-  } catch {
-    return false
-  }
-}
 
 
-function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition, identitySeed, register, setMediaActive, onFocused, puristSafeSpace }: WebviewSurfaceProps): JSX.Element {
+function WebviewSurfaceComponent({ tab, visible, selected, isPrivate, identity, partition, identitySeed, register, setMediaActive, onFocused, puristSafeSpace }: WebviewSurfaceProps): JSX.Element {
   const ref = useRef<Electron.WebviewTag | null>(null)
   const visibleRef = useRef(visible)
   const puristSafeSpaceRef = useRef(puristSafeSpace)
@@ -142,6 +135,7 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
   const wheelZoomAccumulatorRef = useRef(0)
   const lastWheelZoomRef = useRef(0)
   const lastMouseNavigationRef = useRef({ action: '', at: 0 })
+  const compatibilityConfirmationRef = useRef<string | undefined>(undefined)
   const updateTab = useBrowserStore((state) => state.updateTab)
   const privacySettings = useBrowserStore((state) => state.settings.privacy)
   const upsertSiteMemory = useBrowserStore((state) => state.upsertSiteMemory)
@@ -163,6 +157,17 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
   }, [visible])
 
   useEffect(() => {
+    if (!selected) return
+    const webview = ref.current
+    if (!webview) return
+    try {
+      void window.vast.browser.selectExtensionCompatibilityTab(webview.getWebContentsId()).catch(() => undefined)
+    } catch {
+      // The guest id is assigned after attachment; dom-ready reports it below.
+    }
+  }, [selected])
+
+  useEffect(() => {
     puristSafeSpaceRef.current = puristSafeSpace
     if (!puristSafeSpace) setPuristSafeSpaceVisible(false)
   }, [puristSafeSpace])
@@ -181,6 +186,18 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
     } catch {
       webContentsIdRef.current = undefined
     }
+
+    const confirmCompatibilityTab = (): void => {
+      const requestId = pendingExtensionCompatibilityTab(tab.id)
+      const webContentsId = webContentsIdRef.current
+      if (!requestId || !webContentsId || compatibilityConfirmationRef.current === requestId) return
+      compatibilityConfirmationRef.current = requestId
+      void window.vast.browser.confirmExtensionCompatibilityTab(requestId, webContentsId).then((result) => {
+        if (result.ok) completePendingExtensionCompatibilityTab(tab.id, requestId)
+        else compatibilityConfirmationRef.current = undefined
+      }).catch(() => { compatibilityConfirmationRef.current = undefined })
+    }
+    confirmCompatibilityTab()
 
     const updateNavigationFlags = (): void => {
       updateTab(tab.id, {
@@ -218,37 +235,6 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
       })
     }
 
-    const sendToGuest = (channel: string, payload: unknown): boolean => {
-      if (!domReadyRef.current || !(webview as HTMLElement).isConnected) return false
-      try {
-        webview.send(channel, payload)
-        return true
-      } catch {
-        // Electron can detach a webview between the connection check and send().
-        return false
-      }
-    }
-
-    const configurePasswordCapture = (): void => {
-      const currentUrl = webview.getURL() || latestTabRef.current.url
-      const origin = automaticPasswordCaptureOrigin(currentUrl)
-      const locallyEnabled = useBrowserStore.getState().settings.labs.passwordManager === true
-      if (isPrivate || !origin || !locallyEnabled) {
-        sendToGuest('vast:password-capture-config', { enabled: false })
-        return
-      }
-      // Attach interaction listeners immediately so a fast type-and-Enter after
-      // dom-ready is not missed. Main remains authoritative and rejects a
-      // disabled, suppressed, foreign, non-persistent, or mismatched guest.
-      sendToGuest('vast:password-capture-config', { enabled: true })
-      const webContentsId = webview.getWebContentsId()
-      void window.vast.passwords.captureStatus(webContentsId, origin).then((result) => {
-        if (!(webview as HTMLElement).isConnected) return
-        const latestOrigin = automaticPasswordCaptureOrigin(webview.getURL() || latestTabRef.current.url)
-        sendToGuest('vast:password-capture-config', { enabled: result.ok && result.enabled === true && latestOrigin === origin })
-      }).catch(() => sendToGuest('vast:password-capture-config', { enabled: false }))
-    }
-
     const onDomReady = (): void => {
       domReadyRef.current = true
       register(tab.id, webview)
@@ -256,6 +242,8 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
       const currentUrl = webview.getURL() || latestTabRef.current.url
       lastKnownUrlRef.current = currentUrl
       webContentsIdRef.current = webview.getWebContentsId()
+      confirmCompatibilityTab()
+      if (visibleRef.current) void window.vast.browser.selectExtensionCompatibilityTab(webContentsIdRef.current).catch(() => undefined)
       void window.vast.privacy.configureIdentity(webContentsIdRef.current, identityRef.current, currentUrl, identitySeedRef.current).catch(() => undefined)
       const latestTab = latestTabRef.current
       const audioWebview = webview as Electron.WebviewTag & { setAudioMuted?: (muted: boolean) => void }
@@ -265,51 +253,17 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
         pendingUrlRef.current = null
         loadRequestedUrl(pendingUrl)
       }
-      sendToGuest('vast:password-autofill-config', { enabled: false })
-      configurePasswordCapture()
     }
 
     const onStart = (): void => {
       setPuristSafeSpaceVisible(false)
-      sendToGuest('vast:password-autofill-config', { enabled: false })
       updateTab(tab.id, {
         status: 'loading',
         progress: 0.18,
-        error: undefined,
-        loginFormDetected: false
+        error: undefined
       })
     }
 
-    const configureAutofill = (): void => {
-      const currentUrl = webview.getURL() || latestTabRef.current.url
-      const origin = automaticPasswordCaptureOrigin(currentUrl)
-      if (!origin || isPrivate) {
-        updateTab(tab.id, { loginFormDetected: false })
-        sendToGuest('vast:password-autofill-config', { enabled: false })
-        return
-      }
-      updateTab(tab.id, { loginFormDetected: true })
-      const webContentsId = webview.getWebContentsId()
-      void window.vast.passwords.getAutofillSuggestions(webContentsId, origin).then((result) => {
-        if (!(webview as HTMLElement).isConnected) return
-        const latestOrigin = automaticPasswordCaptureOrigin(webview.getURL() || latestTabRef.current.url)
-        if (latestOrigin !== origin || !result.ok || !result.suggestions?.length) {
-          sendToGuest('vast:password-autofill-config', { enabled: false })
-          return
-        }
-        const settings = useBrowserStore.getState().settings
-        const theme = settings.theme === 'system'
-          ? window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
-          : settings.theme
-        sendToGuest('vast:password-autofill-config', {
-          enabled: true,
-          suggestions: result.suggestions,
-          theme,
-          accent: settings.accentColor,
-          radius: Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--vast-radius-base')) || settings.appearance.cornerRadius
-        })
-      }).catch(() => sendToGuest('vast:password-autofill-config', { enabled: false }))
-    }
     const onStop = (): void => {
       updateTab(tab.id, {
         status: 'idle',
@@ -458,20 +412,6 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
         const action = message.args?.[0]
         if (action !== 'show' && action !== 'hide') return
         setPuristSafeSpaceVisible(action === 'show' && puristSafeSpaceRef.current && visibleRef.current)
-        return
-      }
-      if (message.channel === 'vast:login-form-available') {
-        configureAutofill()
-        return
-      }
-      if (message.channel === 'vast:autofill-select') {
-        const credentialId = message.args?.[0]
-        const requestId = message.args?.[1]
-        if (typeof credentialId !== 'string' || !credentialId || typeof requestId !== 'string' || !/^[a-f0-9]{32}$/i.test(requestId) || isPrivate) return
-        const currentUrl = webview.getURL() || latestTabRef.current.url
-        if (!hasHttpOrigin(currentUrl)) return
-        const origin = new URL(currentUrl).origin
-        void window.vast.passwords.fillById(credentialId, webview.getWebContentsId(), origin, requestId).catch(() => undefined)
         return
       }
       return
@@ -772,18 +712,6 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
         shortcut: 'Ctrl/Cmd+P',
         action: runtime.printActive
       })
-      if (latestTab.loginFormDetected) {
-        pushContextItem(items, {
-          id: 'fill-login',
-          label: 'Fill login',
-          action: runtime.fillLoginForActive
-        })
-        pushContextItem(items, {
-          id: 'save-password',
-          label: 'Save password',
-          action: runtime.saveLoginForActive
-        })
-      }
 
       pushContextSeparator(items, 'advanced-separator')
       pushContextItem(items, {
@@ -1044,7 +972,7 @@ function WebviewSurfaceComponent({ tab, visible, isPrivate, identity, partition,
       <div className="purist-scroll-safe-space" aria-hidden="true" />
       <webview
         ref={mountWebview}
-        preload={window.vast.app.guestAutofillPreloadUrl}
+        preload={window.vast.app.guestPreloadUrl}
         partition={partition}
         webpreferences="transparent=no"
         className="browser-webview"

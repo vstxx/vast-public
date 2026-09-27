@@ -11,7 +11,17 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vast-extension-e2e-pr
 const fixturePath = path.join(userDataDir, 'extension-fixture')
 const artifactsDirectory = path.join(root, '.vast-test-artifacts')
 const packagedExecutable = process.env.VAST_E2E_EXECUTABLE ? path.resolve(process.env.VAST_E2E_EXECUTABLE) : undefined
-const electronExecutable = packagedExecutable ?? require('electron')
+const patchedElectronDist = process.env.VAST_PATCHED_ELECTRON_DIST
+  ? path.resolve(process.env.VAST_PATCHED_ELECTRON_DIST)
+  : undefined
+const patchedElectronExecutable = patchedElectronDist
+  ? path.join(patchedElectronDist, process.platform === 'win32' ? 'electron.exe' : 'electron')
+  : undefined
+const electronExecutable = packagedExecutable ?? patchedElectronExecutable
+if (!electronExecutable || !fs.existsSync(electronExecutable)) {
+  throw new Error('Extensions E2E requires VAST_E2E_EXECUTABLE or a verified VAST_PATCHED_ELECTRON_DIST.')
+}
+const verifyCompatibilityTabs = process.env.VAST_E2E_VERIFY_COMPAT_TABS === '1'
 let appProcess
 let pageServer
 
@@ -22,9 +32,10 @@ const fixtureManifestPath = path.join(fixturePath, 'manifest.json')
 const fixtureManifest = JSON.parse(fs.readFileSync(fixtureManifestPath, 'utf8'))
 fixtureManifest.action = { default_popup: 'popup.html' }
 fixtureManifest.options_ui = { page: 'options.html', open_in_tab: false }
+if (verifyCompatibilityTabs) fixtureManifest.permissions = [...new Set([...(fixtureManifest.permissions || []), 'tabs'])]
 fs.writeFileSync(fixtureManifestPath, `${JSON.stringify(fixtureManifest, null, 2)}\n`, 'utf8')
-fs.writeFileSync(path.join(fixturePath, 'popup.html'), '<!doctype html><html><head><meta charset="utf-8"><title>Fixture popup</title><style>body{margin:0;padding:20px;background:#0b0c11;color:#f5f7fa;font:14px system-ui}</style></head><body data-vast-toolbar-popup="ready"><strong>Custom extension popup</strong><p id="storage">Checking storage</p><script src="popup.js"></script></body></html>', 'utf8')
-fs.writeFileSync(path.join(fixturePath, 'popup.js'), "chrome.storage.local.get('vastExtensionFixtureStorage', (value) => { document.querySelector('#storage').textContent = value.vastExtensionFixtureStorage === 'storage-round-trip' ? 'Storage connected' : 'Storage ready' })\n", 'utf8')
+fs.writeFileSync(path.join(fixturePath, 'popup.html'), `<!doctype html><html><head><meta charset="utf-8"><title>Fixture popup</title><style>body{margin:0;padding:20px;background:#0b0c11;color:#f5f7fa;font:14px system-ui}</style></head><body data-vast-toolbar-popup="ready"><strong>Custom extension popup</strong><p id="storage">Checking storage</p>${verifyCompatibilityTabs ? '<p id="tabs">Checking tabs</p>' : ''}<script src="popup.js"></script></body></html>`, 'utf8')
+fs.writeFileSync(path.join(fixturePath, 'popup.js'), `chrome.storage.local.get('vastExtensionFixtureStorage', (value) => { document.querySelector('#storage').textContent = value.vastExtensionFixtureStorage === 'storage-round-trip' ? 'Storage connected' : 'Storage ready' })\n${verifyCompatibilityTabs ? "chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => { const tab = tabs[0]; document.querySelector('#tabs').textContent = tab && typeof tab.id === 'number' && tab.url ? 'Tabs connected' : `Tabs unavailable: ${chrome.runtime.lastError?.message || 'no active tab'}` })\n" : ''}`, 'utf8')
 fs.writeFileSync(path.join(fixturePath, 'options.html'), '<!doctype html><html><head><meta charset="utf-8"><title>Fixture options</title></head><body data-vast-toolbar-options="ready">Fixture options</body></html>', 'utf8')
 
 function extensionId(extensionPath) {
@@ -123,12 +134,17 @@ class CdpSession {
   }
 
   async evaluate(expression) {
-    const response = await this.send('Runtime.evaluate', {
-      expression,
-      returnByValue: true,
-      awaitPromise: true,
-      userGesture: true
-    })
+    let response
+    try {
+      response = await this.send('Runtime.evaluate', {
+        expression,
+        returnByValue: true,
+        awaitPromise: true,
+        userGesture: true
+      })
+    } catch (error) {
+      throw new Error(`CDP evaluation failed for ${expression.slice(0, 180)}: ${error instanceof Error ? error.message : String(error)}`)
+    }
     if (response.exceptionDetails) {
       throw new Error(response.exceptionDetails.exception?.description || response.exceptionDetails.text)
     }
@@ -168,6 +184,28 @@ async function waitFor(session, expression, label, timeout = assertionTimeout) {
   }
   const body = await session.evaluate('document.body.innerText').catch(() => '')
   throw new Error(`Timed out waiting for ${label}. Body: ${String(body).slice(0, 800)}`)
+}
+
+async function completeOnboardingIfPresent(session) {
+  await waitFor(
+    session,
+    `document.querySelector('[data-testid="onboarding-page"]') || document.querySelector('[data-testid="new-tab-identity"]')`,
+    'initial application route'
+  )
+  const onboardingVisible = await session.evaluate(`Boolean(document.querySelector('[data-testid="onboarding-page"]'))`)
+  if (!onboardingVisible) return
+  await session.evaluate(`document.querySelector('[data-testid="onboarding-use-defaults"]')?.click()`)
+  await waitFor(
+    session,
+    `document.querySelector('[data-testid="onboarding-enter-vast"]')`,
+    'onboarding defaults summary'
+  )
+  await session.evaluate(`document.querySelector('[data-testid="onboarding-enter-vast"]')?.click()`)
+  await waitFor(
+    session,
+    `!document.querySelector('[data-testid="onboarding-page"]')`,
+    'test-profile onboarding completion'
+  )
 }
 
 async function setAddress(session, value) {
@@ -255,8 +293,14 @@ function launch(remotePort, hubOrigin) {
     env: launchEnvironment,
     stdio: ['ignore', 'pipe', 'pipe']
   })
-  child.stdout.on('data', (chunk) => stdout.push(String(chunk)))
-  child.stderr.on('data', (chunk) => stderr.push(String(chunk)))
+  child.stdout.on('data', (chunk) => {
+    stdout.push(String(chunk))
+    if (process.env.VAST_E2E_VERBOSE === '1') process.stdout.write(chunk)
+  })
+  child.stderr.on('data', (chunk) => {
+    stderr.push(String(chunk))
+    if (process.env.VAST_E2E_VERBOSE === '1') process.stderr.write(chunk)
+  })
   appProcess = child
   return { child, stdout, stderr }
 }
@@ -296,6 +340,7 @@ async function runFirstLaunch(origin) {
   const remotePort = 9700 + Math.floor(Math.random() * 200)
   const launchState = launch(remotePort, origin)
   const session = await connectToRenderer(remotePort)
+  await completeOnboardingIfPresent(session)
   await waitFor(session, `Boolean(document.querySelector('[data-testid="new-tab-identity"]'))`, 'initial new tab')
   const welcomeVisible = await session.evaluate(`Boolean(document.querySelector('[data-testid="relay-notice-dismiss"]'))`)
   if (welcomeVisible) {
@@ -329,6 +374,9 @@ async function runFirstLaunch(origin) {
   await waitFor(session, `Boolean(document.querySelector('webview.extension-toolbar-surface'))`, 'custom extension popup webview')
   await waitForExtensionSurface(session, `document.body.dataset.vastToolbarPopup === 'ready' && typeof chrome?.storage?.local?.get === 'function'`, 'custom Chrome popup and extension API')
   assert(await executeInExtensionSurface(session, `document.querySelector('#storage')?.textContent === 'Storage connected'`), 'Custom popup did not share the extension workspace storage.')
+  if (verifyCompatibilityTabs) {
+    await waitForExtensionSurface(session, `document.querySelector('#tabs')?.textContent === 'Tabs connected'`, 'ECE chrome.tabs bridge and active Vast tab')
+  }
   await session.screenshot('extensions-toolbar-popup.png')
   await session.evaluate(`document.querySelector('button[aria-label="Back to extensions"]').click()`)
   await waitFor(session, `!document.querySelector('webview.extension-toolbar-surface')`, 'return from custom extension popup')

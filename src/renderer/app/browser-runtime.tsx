@@ -28,8 +28,6 @@ export interface BrowserRuntime {
   copyCurrentTitle: () => Promise<void>
   saveCurrentToReadingList: () => void
   addCurrentBookmark: () => void
-  fillLoginForActive: () => Promise<void>
-  saveLoginForActive: () => Promise<void>
   createNoteForActive: (quote?: string) => void
   runMacro: (macroId: ID, options?: { dryRun?: boolean; allowSensitive?: boolean }) => Promise<{ ok: boolean; message: string }>
   stopMacro: (macroId?: ID) => void

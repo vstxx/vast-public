@@ -30,7 +30,7 @@ export function FeatureGatePage({
         description={description}
         actions={
           disabledByFlag ? (
-            <button type="button" className="settings-action" onClick={openFeatureSettings}>
+            <button type="button" className="vast-button vast-button--secondary vast-button--sm w-full" onClick={openFeatureSettings}>
               <Settings className="h-4 w-4" />
               Open Settings
             </button>

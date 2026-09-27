@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { INTERNAL_PASSWORDS_URL } from '../../src/shared/constants.ts'
 import {
   isSensitiveAutomationUrl,
   macroContainsSensitiveTarget,
@@ -8,11 +7,10 @@ import {
 } from '../../src/shared/automation-policy.ts'
 import type { MacroAction } from '../../src/shared/types.ts'
 
-test('automation blocks auth, payment and password-vault targets without overmatching normal pages', () => {
+test('automation blocks auth and payment targets without overmatching normal pages', () => {
   assert.equal(isSensitiveAutomationUrl('https://accounts.google.com/v3/signin/identifier'), true)
   assert.equal(isSensitiveAutomationUrl('https://shop.example/checkout/confirm'), true)
   assert.equal(isSensitiveAutomationUrl('https://service.example/account/billing'), true)
-  assert.equal(isSensitiveAutomationUrl(INTERNAL_PASSWORDS_URL), true)
   assert.equal(isSensitiveAutomationUrl('https://example.com/articles/payment-history-explained'), false)
   assert.equal(isSensitiveAutomationUrl('https://accounts.google.com.evil.test/home'), false)
 })

@@ -1,8 +1,9 @@
 import { VAST_NATIVE_PERMISSIONS, type VastExtensionKind, type VastNativePermission } from './extension-native-api.ts'
 import { canonicalJson, verifyEd25519Signature, VEXT_EXTENSION_ID, VEXT_PUBLISHER_ID, VEXT_VERSION, type VextTrustedKey } from './vext-format.ts'
 
-export type ExtensionInstallSource = 'unpacked' | 'local-vext' | 'hub' | 'bundled'
-export type ExtensionTrustLevel = 'developer' | 'local' | 'official'
+export type ExtensionInstallSource = 'unpacked' | 'local-vext' | 'hub' | 'upstream' | 'bundled'
+export type ExtensionTrustLevel = 'developer' | 'local' | 'reviewed' | 'upstream' | 'official'
+export type ExtensionDistribution = 'hub' | 'upstream'
 export type ExtensionUpdateState = 'not-applicable' | 'up-to-date' | 'checking' | 'available' | 'updating' | 'pending-approval' | 'failed'
 
 export interface ExtensionPermissionSnapshot {
@@ -39,6 +40,9 @@ export interface VastHubCatalogItem {
   updatedAt: string
   downloads: number
   iconUrl?: string
+  distribution: ExtensionDistribution
+  license?: string
+  sourceRef?: string
   installed: boolean
 }
 
@@ -146,6 +150,9 @@ function parseCatalogItem(value: unknown): VastHubCatalogItem {
     version: String(value.version),
     updatedAt,
     downloads,
+    distribution: value.distribution === 'upstream' ? 'upstream' : 'hub',
+    ...(typeof value.license === 'string' && value.license.length <= 128 ? { license: value.license } : {}),
+    ...(typeof value.sourceRef === 'string' && value.sourceRef.length <= 256 ? { sourceRef: value.sourceRef } : {}),
     ...(optionalHttps(value.iconUrl, 'icon URL') ? { iconUrl: optionalHttps(value.iconUrl, 'icon URL') } : {}),
     installed: value.installed === true
   }

@@ -16,6 +16,10 @@ const METHOD_PERMISSION: Record<string, VastNativePermission | undefined> = {
   'contextMenus.create': 'vast.contextMenus', 'contextMenus.remove': 'vast.contextMenus', 'notifications.create': 'vast.notifications'
 }
 
+export function requiredNativePermission(method: string): VastNativePermission | undefined {
+  return METHOD_PERMISSION[method]
+}
+
 const SAFE_TAB_URL = /^https?:\/\//i
 const RESERVED_SHORTCUTS = new Set(['CTRL+L', 'CTRL+T', 'CTRL+W', 'CMD+L', 'CMD+T', 'CMD+W', 'CTRL+SHIFT+P', 'CMD+SHIFT+P'])
 
@@ -57,7 +61,7 @@ export class ExtensionCapabilityBroker {
     if (!authority || authority.sender.id !== sender.id || sender.isDestroyed()) throw new Error('Unauthorized extension host.')
     const method = typeof methodValue === 'string' && methodValue.length <= 80 ? methodValue : ''
     const args = argsArray(argsValue)
-    const permission = METHOD_PERMISSION[method]
+    const permission = requiredNativePermission(method)
     if (!method.startsWith('runtime.') && !permission) throw new Error('Unknown Vast extension API method.')
     if (permission && (!authority.manifest.vast?.permissions.includes(permission) || !authority.record.grantedPermissions.includes(permission))) throw new Error(`Permission denied: ${permission}`)
     const active = this.calls.get(authority.record.id) ?? 0

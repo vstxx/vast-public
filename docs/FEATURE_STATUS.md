@@ -19,7 +19,6 @@ Labs is disabled on fresh profiles and requires explicit local opt-in. Individua
 - Video & Audio
 - Network Devices
 - Automation
-- Password Manager
 - Advanced Diagnostics
 - Spoofing tools
 
@@ -45,6 +44,5 @@ The `chromium-port/` tree is experimental engineering work and is not the curren
 
 - JSON remains part of the current product-storage model; storage changes must preserve recovery and export/import compatibility.
 - Focus Reader is a browser reading/focus treatment, not a claim of perfect article extraction or offline archiving.
-- Electron `safeStorage` is OS-backed encryption, not an independent cross-platform master-password or biometric system.
 - Experimental Labs features carry narrower support guarantees than the default browser surface.
 - Code-signature status depends on the specific release route; users should follow the signature and verification note attached to the release they download.

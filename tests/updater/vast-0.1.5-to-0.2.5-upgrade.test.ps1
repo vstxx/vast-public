@@ -49,7 +49,6 @@ try {
   $installId = [Guid]::NewGuid().ToString()
   $sentinels = @{
     'vast-data.json' = '{"schemaVersion":8,"bookmarks":[{"title":"preserve-0.1.5"}],"tabs":[{"url":"https://example.test"}]}'
-    'password-vault.json' = '{"schemaVersion":1,"records":[{"id":"preserve-vault"}]}'
     'vast-relay-state.json' = "{`"schema_version`":1,`"install_id`":`"$installId`",`"launch_count`":17,`"dismissed`":[]}"
     'Local State' = '{"os_crypt":{"encrypted_key":"preserve-key"}}'
     'Network\Cookies' = 'preserve-default-cookie'

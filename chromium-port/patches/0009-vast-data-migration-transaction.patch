@@ -172,7 +172,7 @@ index 0000000000000000000000000000000000000000..d53660ba04c503e6efea279f12190478
 +constexpr size_t kMaxMigrationDepth = 32;
 +
 +constexpr std::array<std::string_view, 4> kAllowlistedFiles = {
-+    "vast-data.json", "password-vault.json", "vast-network-devices.json",
++    "vast-data.json", "legacy-metadata.json", "vast-network-devices.json",
 +    "integrations.json",
 +};
 +
@@ -750,8 +750,8 @@ index 0000000000000000000000000000000000000000..6e75927824fd345c680327d7ee94c9cb
 +  const base::FilePath destination =
 +      transactions.Append(FILE_PATH_LITERAL("Vast2Data"));
 +  Write(source.Append(FILE_PATH_LITERAL("vast-data.json")), kValidVastData);
-+  Write(source.Append(FILE_PATH_LITERAL("password-vault.json")),
-+        "opaque encrypted vault fixture");
++  Write(source.Append(FILE_PATH_LITERAL("legacy-metadata.json")),
++        "opaque legacy metadata fixture");
 +  Write(source.Append(FILE_PATH_LITERAL("storage-backups/previous.json")),
 +        "storage backup fixture");
 +  Write(source.Append(FILE_PATH_LITERAL("avidae/memory.json")),
@@ -774,8 +774,8 @@ index 0000000000000000000000000000000000000000..6e75927824fd345c680327d7ee94c9cb
 +  EXPECT_EQ(Read(source.Append(FILE_PATH_LITERAL("vast-data.json"))),
 +            source_before);
 +  EXPECT_EQ(Read(transaction.safety_backup_root.Append(
-+                FILE_PATH_LITERAL("password-vault.json"))),
-+            "opaque encrypted vault fixture");
++                FILE_PATH_LITERAL("legacy-metadata.json"))),
++            "opaque legacy metadata fixture");
 +  EXPECT_FALSE(base::PathExists(
 +      transaction.safety_backup_root.Append(FILE_PATH_LITERAL("Cookies"))));
 +  EXPECT_FALSE(base::PathExists(

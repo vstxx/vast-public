@@ -1,43 +1,7 @@
 {
   "schema": 1,
-  "preparedAt": "2026-09-05T08:47:02.826Z",
+  "preparedAt": "2026-09-14T09:10:19.699Z",
   "files": [
-    {
-      "name": "easylist.txt",
-      "url": "https://easylist.to/easylist/easylist.txt",
-      "license": "GPL-3.0-or-later OR CC-BY-SA-3.0",
-      "bytes": 2136892,
-      "sha256": "031df29eec32ad1647267d5ce4dfb1e05d91cf2cfab6510df2348afaebbb6de6"
-    },
-    {
-      "name": "easyprivacy.txt",
-      "url": "https://easylist.to/easylist/easyprivacy.txt",
-      "license": "GPL-3.0-or-later OR CC-BY-SA-3.0",
-      "bytes": 1501315,
-      "sha256": "074b902f67de00c1c9ae135b0fc3b8ebd845a4862fd50785d743c6f043ddf3c5"
-    },
-    {
-      "name": "ublock.txt",
-      "url": "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/filters.txt",
-      "license": "GPL-3.0",
-      "bytes": 471764,
-      "sha256": "b6a5a08f20b9b6ea16646f681a70f0f8bcc50c94e988be9514597d22668283a6"
-    },
-    {
-      "name": "cookies.txt",
-      "url": "https://secure.fanboy.co.nz/fanboy-cookiemonster.txt",
-      "license": "CC-BY-3.0",
-      "bytes": 891382,
-      "sha256": "077d934fd51d4fbc9bb8ce4b1ef06abaaad1218393a6ab0a04c33509226ba001"
-    },
-    {
-      "name": "resources.json",
-      "url": "https://github.com/gorhill/uBlock/tree/6dd2d95e50d134a477a4e183343c0b26e9147123",
-      "license": "GPL-3.0",
-      "bytes": 295848,
-      "sha256": "8f942f32bf4756e59698f0ab24b4523a87b1563c09765126816e401dbc5b411f",
-      "generatedBy": "source/compile-adblock-resources.mjs"
-    },
     {
       "name": "MPL-2.0.txt",
       "url": "https://raw.githubusercontent.com/ghostery/adblocker/ff8ed92b3648bdf49ba884b7d90c46d3dda4c366/LICENSE",
@@ -58,6 +22,71 @@
       "license": "CC-BY-3.0",
       "bytes": 19467,
       "sha256": "e6bc9e9c474700b708f568bac9e5a8a9bcb2b1dad53442f5ba449fcb848b8e76"
+    },
+    {
+      "name": "resources-safe.json",
+      "license": "GPL-3.0",
+      "url": "https://github.com/gorhill/uBlock/tree/6dd2d95e50d134a477a4e183343c0b26e9147123",
+      "generatedBy": "source/compile-adblock-resources.mjs",
+      "bytes": 298400,
+      "sha256": "29b010458baebe45f975d9fe6b72eb37090d51960abf0c2121e2ca95a6bae1df"
+    },
+    {
+      "name": "resources-trusted.json",
+      "license": "GPL-3.0",
+      "url": "https://github.com/gorhill/uBlock/tree/6dd2d95e50d134a477a4e183343c0b26e9147123",
+      "generatedBy": "source/compile-adblock-resources.mjs",
+      "bytes": 247702,
+      "sha256": "02626f707ad90eae9ed896aeee55bad865e02147f1c705705afaa5edbd0efa0b"
+    },
+    {
+      "name": "easylist.txt",
+      "url": "https://easylist.to/easylist/easylist.txt",
+      "license": "GPL-3.0-or-later OR CC-BY-SA-3.0",
+      "bytes": 2122794,
+      "sha256": "08ea7e3751e06bcbabe3a7e5065af6da50658ea85cafca28016abb9d2570daa4"
+    },
+    {
+      "name": "easyprivacy.txt",
+      "url": "https://easylist.to/easylist/easyprivacy.txt",
+      "license": "GPL-3.0-or-later OR CC-BY-SA-3.0",
+      "bytes": 1502417,
+      "sha256": "c92df12c205676f64a8f55077666a39f462b132314bf6148b6adda129338fbe1"
+    },
+    {
+      "name": "ublock.txt",
+      "url": "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/filters.txt",
+      "license": "GPL-3.0",
+      "bytes": 471021,
+      "sha256": "8899ddd89e88999bb5b95023edb706feac0ea336b017d6e9cfb36e8a79775d1d"
+    },
+    {
+      "name": "quick-fixes.txt",
+      "url": "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/quick-fixes.txt",
+      "license": "GPL-3.0",
+      "bytes": 76072,
+      "sha256": "723339d9cf5ac007fee67f2011b55f2047a240a0136b5d67104333bf49ac8368"
+    },
+    {
+      "name": "unbreak.txt",
+      "url": "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/unbreak.txt",
+      "license": "GPL-3.0",
+      "bytes": 279840,
+      "sha256": "d17744c97afd2f481d70bee564ad5db36d8724f938112773a28d5b4f62876f2e"
+    },
+    {
+      "name": "ublock-privacy.txt",
+      "url": "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/privacy.txt",
+      "license": "GPL-3.0",
+      "bytes": 182502,
+      "sha256": "c203a41323e064b205d467ebd274aed82ccf996c7b91ce1666a87eb3741a2438"
+    },
+    {
+      "name": "cookies.txt",
+      "url": "https://secure.fanboy.co.nz/fanboy-cookiemonster.txt",
+      "license": "CC-BY-3.0",
+      "bytes": 892321,
+      "sha256": "3e648990a72378772084d838e5fd1c86a655075471e91e039ce8e8ac1057530c"
     }
   ]
 }

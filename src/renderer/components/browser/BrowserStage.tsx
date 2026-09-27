@@ -17,7 +17,6 @@ import {
   INTERNAL_NEW_TAB_URL,
   INTERNAL_NOTES_URL,
   INTERNAL_NETWORK_URL,
-  INTERNAL_PASSWORDS_URL,
   INTERNAL_SESSION_TIMELINE_URL,
   INTERNAL_SITE_DATA_URL
 } from '../../../shared/constants'
@@ -207,11 +206,6 @@ export const BrowserStage = forwardRef<BrowserStageHandle, BrowserStageProps>(fu
             action: () => runtime.openUrlInNewTab(INTERNAL_AVIDAE_URL)
           },
           {
-            id: 'passwords',
-            label: 'Open Password Manager',
-            action: () => runtime.openUrlInNewTab(INTERNAL_PASSWORDS_URL)
-          },
-          {
             id: 'automation',
             label: 'Open Automation',
             action: () => runtime.openUrlInNewTab(INTERNAL_AUTOMATION_URL)
@@ -375,6 +369,7 @@ export const BrowserStage = forwardRef<BrowserStageHandle, BrowserStageProps>(fu
                 key={`${tab.id}:${identityPartition}`}
                 tab={tab}
                 visible={visible}
+                selected={activeTab?.id === tab.id}
                 isPrivate={identityWorkspace ? resolveWorkspaceIdentity(identityWorkspace).sessionMode === 'ephemeral' : Boolean(workspace?.isPrivate)}
                 identity={identityWorkspace?.identity ?? DEFAULT_WORKSPACE_IDENTITY}
                 partition={identityPartition}

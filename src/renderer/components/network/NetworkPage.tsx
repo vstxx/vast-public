@@ -237,11 +237,11 @@ export function NetworkPage(): JSX.Element {
                 <div className="mt-3 text-xs text-vast-soft">Last scan: {lastScanAt ? formatRelativeTime(lastScanAt) : 'Never'} · Sources: ARP table, mDNS and SSDP; active port probes are separately disabled by default.</div>
               </div>
               <div className="grid w-full grid-cols-2 gap-2 sm:w-auto lg:w-52 lg:grid-cols-1" data-testid="network-primary-actions">
-                <button type="button" onClick={() => void refresh()} className="vault-action-button justify-center" disabled={loading || scanning}>
+                <button type="button" onClick={() => void refresh()} className="vast-button vast-button--secondary vast-button--sm justify-center" disabled={loading || scanning}>
                   <RefreshCw className="h-4 w-4" />
                   Refresh
                 </button>
-                <button type="button" onClick={() => void scan()} className="vault-action-button justify-center bg-vast-cyan text-black" disabled={scanning} data-testid="network-scan-button">
+                <button type="button" onClick={() => void scan()} className="vast-button vast-button--primary vast-button--sm justify-center" disabled={scanning} data-testid="network-scan-button">
                   <Activity className={`h-4 w-4 ${scanning ? 'animate-spin' : ''}`} />
                   {scanning ? 'Scanning...' : 'Scan local network'}
                 </button>
@@ -251,7 +251,7 @@ export function NetworkPage(): JSX.Element {
             {!networkSettings.enabled && (
               <div className="mt-4 flex flex-col gap-3 rounded-card border border-vast-amber/25 bg-vast-amber/[0.08] p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div><div className="text-sm font-semibold">Local discovery is off</div><div className="mt-1 text-xs leading-5 text-vast-soft">Enabling it does not scan automatically. Windows Firewall may ask about local-network access when you start the first scan.</div></div>
-                <button type="button" onClick={() => updateSettings({ network: { enabled: true, allowScans: false } })} className="vault-action-button shrink-0">Enable discovery</button>
+                <button type="button" onClick={() => updateSettings({ network: { enabled: true, allowScans: false } })} className="vast-button vast-button--secondary vast-button--sm shrink-0">Enable discovery</button>
               </div>
             )}
           </header>
@@ -399,11 +399,11 @@ export function NetworkPage(): JSX.Element {
               </div>
 
               <div className="grid grid-cols-2 gap-2">
-                <button type="button" disabled={!selected.webUrls.length && !selected.presentationUrl} onClick={() => void openWebPanel(selected)} className="vault-action-button justify-center disabled:opacity-40">
+                <button type="button" disabled={!selected.webUrls.length && !selected.presentationUrl} onClick={() => void openWebPanel(selected)} className="vast-button vast-button--secondary vast-button--sm justify-center">
                   <ExternalLink className="h-4 w-4" />
                   Open panel
                 </button>
-                <button type="button" onClick={() => selected.primaryIp && void copyText(selected.primaryIp)} className="vault-action-button justify-center">
+                <button type="button" onClick={() => selected.primaryIp && void copyText(selected.primaryIp)} className="vast-button vast-button--secondary vast-button--sm justify-center">
                   <Copy className="h-4 w-4" />
                   Copy IP
                 </button>
@@ -434,7 +434,7 @@ export function NetworkPage(): JSX.Element {
                 </div>
               </div>
 
-              <button type="button" onClick={() => void forgetDevice(selected.id)} className="vault-danger-button w-full justify-center">
+              <button type="button" onClick={() => void forgetDevice(selected.id)} className="vast-button vast-button--danger vast-button--sm w-full justify-center">
                 <Trash2 className="h-4 w-4" />
                 Forget device
               </button>
@@ -467,11 +467,11 @@ export function NetworkPage(): JSX.Element {
                 {logs.length ? logs.map((log) => <div key={log}>{log}</div>) : 'No scan log yet.'}
               </div>
               <div className="space-y-2">
-                <button type="button" onClick={() => void copyText(JSON.stringify({ devices, logs }, null, 2))} className="settings-action settings-action-compact w-full justify-center">
+                <button type="button" onClick={() => void copyText(JSON.stringify({ devices, logs }, null, 2))} className="vast-button vast-button--secondary vast-button--sm w-full justify-center">
                   <Copy className="h-4 w-4" />
                   Copy diagnostics
                 </button>
-                <button type="button" onClick={() => void window.vast.network.exportInventory()} className="settings-action settings-action-compact w-full justify-center">
+                <button type="button" onClick={() => void window.vast.network.exportInventory()} className="vast-button vast-button--secondary vast-button--sm w-full justify-center">
                   <Download className="h-4 w-4" />
                   Export inventory
                 </button>
@@ -483,7 +483,7 @@ export function NetworkPage(): JSX.Element {
                     setDevices([])
                     setLogs([])
                   }}
-                  className="vault-danger-button w-full justify-center"
+                  className="vast-button vast-button--danger vast-button--sm w-full justify-center"
                 >
                   <Trash2 className="h-4 w-4" />
                   Clear network cache
@@ -516,7 +516,7 @@ function InfoRow({ label, value, copyValue }: { label: string; value: string; co
       <span className="flex min-w-0 items-center justify-end gap-2 text-right text-sm font-semibold">
         <span className="min-w-0 truncate" title={value}>{value}</span>
         {copyValue && (
-          <button type="button" onClick={() => void copyText(copyValue)} className="shrink-0 text-vast-cyan transition hover:text-white" title={`Copy ${label}`}>
+          <button type="button" onClick={() => void copyText(copyValue)} className="vast-button vast-button--quiet vast-button--xs shrink-0" title={`Copy ${label}`}>
             <Copy className="h-3.5 w-3.5" />
           </button>
         )}

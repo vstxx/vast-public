@@ -1,5 +1,6 @@
 import type { BrowserTabOpenRequest, ID, Tab } from '../../shared/types'
 import { setPendingInitialNavigation } from './pending-initial-navigation.ts'
+import { setPendingExtensionCompatibilityTab } from './extension-compatibility-tabs.ts'
 
 interface BrowserTabModel {
   tabs: Tab[]
@@ -10,6 +11,7 @@ interface BrowserTabModel {
     groupId?: ID
     activate: boolean
   }) => Tab
+  navigateTab: (tabId: ID, url: string, title?: string) => void
 }
 
 export interface BrowserTabOpenContext {
@@ -33,6 +35,11 @@ export function handleBrowserTabOpenRequest(
     : undefined
   const sourceTab = sourceTabId ? model.tabs.find((tab) => tab.id === sourceTabId) : undefined
 
+  if (request.disposition === 'current-tab' && sourceTab) {
+    model.navigateTab(sourceTab.id, routedUrl, context.titleForUrl(routedUrl))
+    return sourceTab
+  }
+
   const tab = model.createTab({
     url: routedUrl,
     title: context.titleForUrl(routedUrl),
@@ -43,5 +50,6 @@ export function handleBrowserTabOpenRequest(
   // Referrer and POST metadata replay the navigation Chromium would have made;
   // it lives only until the new tab's first webview load commits.
   setPendingInitialNavigation(tab.id, request.navigation)
+  setPendingExtensionCompatibilityTab(tab.id, request.compatibilityRequestId)
   return tab
 }

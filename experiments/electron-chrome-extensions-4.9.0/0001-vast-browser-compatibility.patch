@@ -1,0 +1,1062 @@
+diff --git a/packages/electron-chrome-extensions/src/browser/api/browser-action.ts b/packages/electron-chrome-extensions/src/browser/api/browser-action.ts
+index 0592089..eea752a 100644
+--- a/packages/electron-chrome-extensions/src/browser/api/browser-action.ts
++++ b/packages/electron-chrome-extensions/src/browser/api/browser-action.ts
+@@ -95,6 +95,9 @@ export class BrowserActionAPI {
+           result = action[propName]
+         }
+ 
++        if (propName === 'popup' && typeof result === 'string' && result) {
++          return getExtensionUrl(extension, result) || ''
++        }
+         return result
+       }
+ 
+@@ -203,6 +206,7 @@ export class BrowserActionAPI {
+ 
+   private setupSession(session: Electron.Session) {
+     const sessionExtensions = session.extensions || session
++    sessionExtensions.getAllExtensions().forEach((extension) => this.processExtension(extension))
+     sessionExtensions.on('extension-loaded', (event, extension) => {
+       this.processExtension(extension)
+     })
+@@ -287,6 +291,10 @@ export class BrowserActionAPI {
+     let action = this.actionMap.get(extensionId)
+     if (!action) {
+       action = { tabs: {} }
++      const sessionExtensions = this.ctx.session.extensions || this.ctx.session
++      const extension = sessionExtensions.getExtension(extensionId)
++      const defaults = extension ? getBrowserActionDefaults(extension) : undefined
++      if (defaults) Object.assign(action, defaults)
+       this.actionMap.set(extensionId, action)
+       this.onUpdate()
+     }
+@@ -385,14 +393,15 @@ export class BrowserActionAPI {
+     }
+   }
+ 
+-  private activateClick(details: ActivateDetails) {
++  private activateClick(details: ActivateDetails, toggle = true) {
+     const { extensionId, tabId, anchorRect, alignment } = details
+ 
+     if (this.popup) {
+-      const toggleExtension = !this.popup.isDestroyed() && this.popup.extensionId === extensionId
++      const sameExtension = !this.popup.isDestroyed() && this.popup.extensionId === extensionId
++      if (sameExtension && !toggle) return
+       this.popup.destroy()
+       this.popup = undefined
+-      if (toggleExtension) {
++      if (sameExtension) {
+         d('skipping activate to close popup')
+         return
+       }
+@@ -425,6 +434,9 @@ export class BrowserActionAPI {
+ 
+       this.ctx.emit('browser-action-popup-created', this.popup)
+     } else {
++      if (!toggle) {
++        throw new Error('No popup is available for action.')
++      }
+       d(`dispatching onClicked for ${extensionId}`)
+ 
+       const tabDetails = this.ctx.store.tabDetailsCache.get(tab.id)
+@@ -494,29 +506,37 @@ export class BrowserActionAPI {
+     })
+   }
+ 
+-  private openPopup = (event: ExtensionEvent, options?: chrome.action.OpenPopupOptions) => {
++  private openPopup = async (event: ExtensionEvent, options?: chrome.action.OpenPopupOptions) => {
++    const senderTab =
++      event.type === 'frame' ? this.ctx.store.getTabById(event.sender.id) : undefined
++    const senderWindow = senderTab ? this.ctx.store.tabToWindow.get(senderTab) : undefined
+     const window =
+       typeof options?.windowId === 'number'
+         ? this.ctx.store.getWindowById(options.windowId)
+-        : this.ctx.store.getCurrentWindow()
++        : senderWindow ?? this.ctx.store.getCurrentWindow()
+     if (!window || window.isDestroyed()) {
+-      d('openPopup: window %d destroyed', window?.id)
+-      return
++      d('openPopup: no available window for extension %s', event.extension.id)
++      throw new Error('No window is available for action popup.')
+     }
+ 
+     const activeTab = this.ctx.store.getActiveTabFromWindow(window)
+-    if (!activeTab) return
++    if (!activeTab) {
++      d('openPopup: no active tab in window %d for extension %s', window.id, event.extension.id)
++      throw new Error('No active tab is available for action popup.')
++    }
++
++    if (await this.ctx.store.openPopup(event.extension, activeTab, window)) return
+ 
+     const [width] = window.getSize()
+     const anchorSize = 64
+ 
+-    this.activateClick({
++    return this.activateClick({
+       eventType: 'click',
+       extensionId: event.extension.id,
+       tabId: activeTab?.id,
+       // TODO(mv3): get anchor position
+       anchorRect: { x: width - anchorSize, y: 0, width: anchorSize, height: anchorSize },
+-    })
++    }, false)
+   }
+ 
+   private onUpdate() {
+diff --git a/packages/electron-chrome-extensions/src/browser/api/lib/native-messaging-host.ts b/packages/electron-chrome-extensions/src/browser/api/lib/native-messaging-host.ts
+index 1fcbc61..132df65 100644
+--- a/packages/electron-chrome-extensions/src/browser/api/lib/native-messaging-host.ts
++++ b/packages/electron-chrome-extensions/src/browser/api/lib/native-messaging-host.ts
+@@ -8,6 +8,11 @@ import { ExtensionSender, IpcEvent } from '../../router'
+ import { readRegistryKey } from './winreg'
+ 
+ const d = debug('electron-chrome-extensions:nativeMessaging')
++const MAX_NATIVE_MESSAGE_FROM_HOST = 1024 * 1024
++const MAX_NATIVE_MESSAGE_TO_HOST = 64 * 1024 * 1024
++const MAX_QUEUED_NATIVE_MESSAGES = 64
++const MAX_QUEUED_NATIVE_MESSAGE_BYTES = MAX_NATIVE_MESSAGE_TO_HOST + 4
++const NATIVE_MESSAGE_RESPONSE_TIMEOUT_MS = 60_000
+ 
+ interface NativeConfig {
+   name: string
+@@ -25,11 +30,15 @@ function isValidConfig(config: any): config is NativeConfig {
+     typeof config.description === 'string' &&
+     typeof config.path === 'string' &&
+     config.type === 'stdio' &&
+-    Array.isArray(config.allowed_origins)
++    Array.isArray(config.allowed_origins) &&
++    config.allowed_origins.every((origin: unknown) => typeof origin === 'string')
+   )
+ }
+ 
+ async function getConfigSearchPaths(application: string) {
++  if (!/^[a-z0-9_]+(?:\.[a-z0-9_]+)*$/.test(application)) {
++    throw new Error('Invalid native messaging host name.')
++  }
+   const appJson = `${application}.json`
+   let searchPaths: string[]
+   switch (process.platform) {
+@@ -58,8 +67,10 @@ async function getConfigSearchPaths(application: string) {
+     case 'win32': {
+       searchPaths = (
+         await Promise.allSettled([
+-          readRegistryKey('HKLM', `Software\\Google\\Chrome\\NativeMessagingHosts\\${application}`),
+-          readRegistryKey('HKCU', `Software\\Google\\Chrome\\NativeMessagingHosts\\${application}`),
++          readRegistryKey('HKCU', `Software\\Google\\Chrome\\NativeMessagingHosts\\${application}`, undefined, '32'),
++          readRegistryKey('HKLM', `Software\\Google\\Chrome\\NativeMessagingHosts\\${application}`, undefined, '32'),
++          readRegistryKey('HKCU', `Software\\Google\\Chrome\\NativeMessagingHosts\\${application}`, undefined, '64'),
++          readRegistryKey('HKLM', `Software\\Google\\Chrome\\NativeMessagingHosts\\${application}`, undefined, '64'),
+         ])
+       )
+         .map((result) => (result.status === 'fulfilled' ? result.value : undefined))
+@@ -74,24 +85,28 @@ async function getConfigSearchPaths(application: string) {
+ 
+ async function readNativeMessagingHostConfig(
+   application: string,
+-): Promise<NativeConfig | undefined> {
++): Promise<{ config: NativeConfig; manifestPath: string } | undefined> {
+   const searchPaths = await getConfigSearchPaths(application)
+-  d('searching', searchPaths)
++  d('searching for native messaging host %s', application)
+   for (const filePath of searchPaths) {
+     try {
+       const data = await fs.readFile(filePath)
+       const config = JSON.parse(data.toString())
+       if (isValidConfig(config)) {
+-        d('read config in %s', filePath, config)
+-        return config
++        if (config.name !== application) {
++          d('native messaging manifest declared a different host name')
++          continue
++        }
++        d('read native messaging manifest for %s', application)
++        return { config, manifestPath: filePath }
+       } else {
+-        d('%s contained invalid config', filePath, config)
++        d('native messaging manifest for %s is invalid', application)
+       }
+     } catch (error) {
+       if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+-        d('unable to read %s', filePath)
++        d('native messaging manifest candidate for %s was not found', application)
+       } else {
+-        d('unknown error', error)
++        d('unable to read native messaging manifest for %s', application)
+       }
+       continue
+     }
+@@ -102,9 +117,19 @@ export class NativeMessagingHost {
+   private sender?: ExtensionSender
+   private connectionId: string
+   private connected: boolean = false
+-  private pending?: any[]
++  private pending: Buffer[] = []
++  private writeQueue: Buffer[] = []
++  private queuedMessageCount = 0
++  private queuedMessageBytes = 0
++  private writeBlocked = false
+   private keepAlive: boolean
+   private resolveResponse?: (message: any) => void
++  private rejectResponse?: (error: Error) => void
++  private responseTimer?: NodeJS.Timeout
++  private receiveBuffer = Buffer.alloc(0)
++  private destroyed?: boolean
++  private onDestroyed?: () => void
++  private responseTimeoutMs: number
+ 
+   ready?: Promise<void>
+ 
+@@ -114,8 +139,12 @@ export class NativeMessagingHost {
+     connectionId: string,
+     application: string,
+     keepAlive: boolean = true,
++    onDestroyed?: () => void,
++    responseTimeoutMs: number = NATIVE_MESSAGE_RESPONSE_TIMEOUT_MS,
+   ) {
+     this.keepAlive = keepAlive
++    this.onDestroyed = onDestroyed
++    this.responseTimeoutMs = responseTimeoutMs
+     this.sender = sender
+     if (keepAlive) {
+       this.sender.ipc.on(`crx-native-msg-${connectionId}`, this.receiveExtensionMessage)
+@@ -124,110 +153,266 @@ export class NativeMessagingHost {
+     this.ready = this.launch(application, extensionId)
+   }
+ 
+-  destroy() {
++  fail(error: Error) {
++    this.clearResponseTimer()
++    if (this.rejectResponse) {
++      const reject = this.rejectResponse
++      this.resolveResponse = undefined
++      this.rejectResponse = undefined
++      reject(error)
++    }
++    this.destroy(true, error.message)
++  }
++
++  destroy(notify = true, errorMessage?: string) {
++    if (this.destroyed) return
++    this.destroyed = true
+     this.connected = false
++    this.clearResponseTimer()
++    this.pending = []
++    this.writeQueue = []
++    this.queuedMessageCount = 0
++    this.queuedMessageBytes = 0
++    this.writeBlocked = false
+     if (this.process) {
+-      this.process.kill()
++      try {
++        this.process.kill()
++      } catch {
++        // The process may already have exited.
++      }
+       this.process = undefined
+     }
+     if (this.keepAlive && this.sender) {
+       this.sender.ipc.off(`crx-native-msg-${this.connectionId}`, this.receiveExtensionMessage)
+-      this.sender.send(`crx-native-msg-${this.connectionId}-disconnect`)
++      if (notify) {
++        this.sender.send(`crx-native-msg-${this.connectionId}-disconnect`, errorMessage)
++      }
+     }
+     this.sender = undefined
++    const onDestroyed = this.onDestroyed
++    this.onDestroyed = undefined
++    onDestroyed?.()
+   }
+ 
+   private async launch(application: string, extensionId: string) {
+-    const config = await readNativeMessagingHostConfig(application)
+-    if (!config) {
++    const host = await readNativeMessagingHostConfig(application)
++    if (!host) {
+       d('launch: unable to find %s for %s', application, extensionId)
+-      this.destroy()
+-      return
++      throw new Error(`Native messaging host ${application} was not found.`)
+     }
++    const { config, manifestPath } = host
+ 
+     const extensionUrl = `chrome-extension://${extensionId}/`
+     if (!config.allowed_origins?.includes(extensionUrl)) {
+       d('launch: %s not in allowed origins', extensionId)
+-      this.destroy()
+-      return
++      throw new Error(`Access to native messaging host ${application} is forbidden.`)
++    }
++
++    if (process.platform !== 'win32' && !path.isAbsolute(config.path)) {
++      throw new Error(`Native messaging host ${application} must use an absolute executable path.`)
+     }
+ 
++    const executablePath =
++      process.platform === 'win32' && !path.isAbsolute(config.path)
++        ? path.resolve(path.dirname(manifestPath), config.path)
++        : config.path
++
+     let isFile = false
+     try {
+-      const stat = await fs.stat(config.path)
++      const stat = await fs.stat(executablePath)
+       isFile = stat.isFile()
+-    } catch (error) {
+-      d('launch: unable to find %s', config.path, error)
++    } catch {
++      d('launch: executable for %s was not found', application)
+     }
+ 
+     if (!isFile) {
+-      this.destroy()
+-      return
++      throw new Error(`Native messaging host executable was not found for ${application}.`)
+     }
+ 
+-    d('launch: spawning %s for %s', config.path, extensionId)
+-    this.process = spawn(config.path, [extensionUrl], {
++    d('launch: spawning host for %s', extensionId)
++    const args = process.platform === 'win32' ? [extensionUrl, '--parent-window=0'] : [extensionUrl]
++    this.process = spawn(executablePath, args, {
++      cwd: path.dirname(executablePath),
+       shell: false,
++      windowsHide: true,
+     })
+ 
+-    this.process.stdout!.on('data', this.receive)
+-    this.process.stderr!.on('data', (data) => {
+-      d('stderr: %s', data.toString())
++    if (!this.process.stdin || !this.process.stdout || !this.process.stderr) {
++      throw new Error('Native messaging host did not provide stdio streams.')
++    }
++
++    this.process.stdout.on('data', this.receive)
++    this.process.stderr.on('data', (data: Buffer) => {
++      d('native messaging host wrote %d bytes to stderr', data.length)
++    })
++    this.process.stdin.on('error', () => {
++      if (!this.destroyed) this.fail(new Error('Native messaging host input stream failed.'))
+     })
+-    this.process.on('error', (err) => {
+-      d('error: %s', err)
+-      this.destroy()
++    this.process.on('error', () => {
++      d('native messaging host process error')
++      this.fail(new Error('Native messaging host failed to start.'))
+     })
+     this.process.on('exit', (code) => {
+       d('exited %d', code)
+-      this.destroy()
++      this.process = undefined
++      if (!this.destroyed) this.fail(new Error('Native messaging host exited.'))
+     })
+ 
+     this.connected = true
+ 
+-    if (this.pending && this.pending.length > 0) {
++    if (this.pending.length > 0) {
+       d('sending %d pending messages', this.pending.length)
+-      this.pending.forEach((msg) => this.send(msg))
+-      this.pending = []
++      const pending = this.pending.splice(0)
++      for (const frame of pending) {
++        this.releaseQueuedFrame(frame)
++        this.writeFrame(frame)
++      }
+     }
+   }
+ 
+   private receiveExtensionMessage = (_event: IpcEvent, message: any) => {
+-    this.send(message)
++    try {
++      this.send(message)
++    } catch {
++      this.fail(new Error('Native messaging message could not be sent.'))
++    }
+   }
+ 
+   private send(json: any) {
+-    d('send', json)
++    if (this.destroyed) throw new Error('Native messaging host is disconnected.')
++
++    const frame = this.encodeMessage(json)
+ 
+     if (!this.connected) {
+-      const pending = this.pending || (this.pending = [])
+-      pending.push(json)
++      this.queueFrame(this.pending, frame)
+       d('send: pending')
+       return
+     }
+ 
+-    const message = JSON.stringify(json)
+-    const buffer = Buffer.alloc(4 + message.length)
++    this.writeFrame(frame)
++  }
++
++  private encodeMessage(json: any) {
++    let serialized: string | undefined
++    try {
++      serialized = JSON.stringify(json)
++    } catch {
++      throw new Error('Native messaging message is not JSON serializable.')
++    }
++    if (typeof serialized !== 'string') {
++      throw new Error('Native messaging message is not JSON serializable.')
++    }
++    const message = Buffer.from(serialized, 'utf8')
++    if (message.length > MAX_NATIVE_MESSAGE_TO_HOST) {
++      throw new Error('Native messaging message is larger than 64 MiB.')
++    }
++    const buffer = Buffer.allocUnsafe(4 + message.length)
+     buffer.writeUInt32LE(message.length, 0)
+-    buffer.write(message, 4)
+-    this.process!.stdin!.write(buffer)
++    message.copy(buffer, 4)
++    return buffer
++  }
++
++  private queueFrame(queue: Buffer[], frame: Buffer) {
++    if (
++      this.queuedMessageCount >= MAX_QUEUED_NATIVE_MESSAGES ||
++      this.queuedMessageBytes + frame.length > MAX_QUEUED_NATIVE_MESSAGE_BYTES
++    ) {
++      throw new Error('Native messaging pending queue limit exceeded.')
++    }
++    queue.push(frame)
++    this.queuedMessageCount += 1
++    this.queuedMessageBytes += frame.length
++  }
++
++  private releaseQueuedFrame(frame: Buffer) {
++    this.queuedMessageCount -= 1
++    this.queuedMessageBytes -= frame.length
++  }
++
++  private writeFrame(frame: Buffer) {
++    if (this.writeBlocked) {
++      this.queueFrame(this.writeQueue, frame)
++      return
++    }
++    const stdin = this.process?.stdin
++    if (!stdin || stdin.destroyed) {
++      throw new Error('Native messaging host is disconnected.')
++    }
++    if (!stdin.write(frame)) {
++      this.writeBlocked = true
++      stdin.once('drain', this.flushWriteQueue)
++    }
++  }
++
++  private flushWriteQueue = () => {
++    this.writeBlocked = false
++    while (!this.writeBlocked && this.writeQueue.length > 0 && !this.destroyed) {
++      const frame = this.writeQueue.shift()!
++      this.releaseQueuedFrame(frame)
++      this.writeFrame(frame)
++    }
+   }
+ 
+   private receive = (data: Buffer) => {
+-    const length = data.readUInt32LE(0)
+-    const message = JSON.parse(data.subarray(4, 4 + length).toString())
+-    d('receive: %s', message)
+-    if (this.keepAlive && this.sender) {
+-      this.sender.send(`crx-native-msg-${this.connectionId}`, message)
+-    } else {
+-      this.resolveResponse?.(message)
++    this.receiveBuffer = Buffer.concat([this.receiveBuffer, data])
++    while (this.receiveBuffer.length >= 4) {
++      const length = this.receiveBuffer.readUInt32LE(0)
++      if (length > MAX_NATIVE_MESSAGE_FROM_HOST) {
++        this.fail(new Error('Native messaging host sent a message larger than 1 MiB.'))
++        return
++      }
++      if (this.receiveBuffer.length < 4 + length) return
++      const payload = this.receiveBuffer.subarray(4, 4 + length)
++      this.receiveBuffer = this.receiveBuffer.subarray(4 + length)
++      let message: any
++      try {
++        const json = new TextDecoder('utf-8', { fatal: true }).decode(payload)
++        message = JSON.parse(json)
++      } catch {
++        this.fail(new Error('Native messaging host sent invalid JSON.'))
++        return
++      }
++      if (this.keepAlive && this.sender) {
++        this.sender.send(`crx-native-msg-${this.connectionId}`, message)
++      } else if (this.resolveResponse) {
++        const resolve = this.resolveResponse
++        this.clearResponseTimer()
++        this.resolveResponse = undefined
++        this.rejectResponse = undefined
++        resolve(message)
++        this.destroy(false)
++        return
++      }
+     }
+   }
+ 
+-  sendAndReceive(message: any) {
+-    this.send(message)
+-    return new Promise((resolve) => {
++  async sendAndReceive(message: any) {
++    await this.ready
++    if (this.destroyed || !this.connected) {
++      throw new Error('Native messaging host is disconnected.')
++    }
++    return new Promise((resolve, reject) => {
+       this.resolveResponse = resolve
++      this.rejectResponse = reject
++      this.responseTimer = setTimeout(() => {
++        this.fail(new Error('Native messaging host response timed out.'))
++      }, this.responseTimeoutMs)
++      this.responseTimer.unref?.()
++      try {
++        this.send(message)
++      } catch (error) {
++        this.clearResponseTimer()
++        this.resolveResponse = undefined
++        this.rejectResponse = undefined
++        reject(error)
++      }
+     })
+   }
++
++  private clearResponseTimer() {
++    if (this.responseTimer) {
++      clearTimeout(this.responseTimer)
++      this.responseTimer = undefined
++    }
++  }
+ }
+diff --git a/packages/electron-chrome-extensions/src/browser/api/lib/winreg.ts b/packages/electron-chrome-extensions/src/browser/api/lib/winreg.ts
+index 47fd872..8bb2491 100644
+--- a/packages/electron-chrome-extensions/src/browser/api/lib/winreg.ts
++++ b/packages/electron-chrome-extensions/src/browser/api/lib/winreg.ts
+@@ -3,13 +3,13 @@ import debug from 'debug'
+ 
+ const d = debug('electron-chrome-extensions:winreg')
+ 
+-export function readRegistryKey(hive: string, path: string, key?: string) {
++export function readRegistryKey(hive: string, path: string, key?: string, view?: '32' | '64') {
+   if (process.platform !== 'win32') {
+     return Promise.reject('Unsupported platform')
+   }
+ 
+   return new Promise<string | null>((resolve, reject) => {
+-    const args = ['query', `${hive}\\${path}`, ...(key ? ['/v', key] : [])]
++    const args = ['query', `${hive}\\${path}`, ...(key ? ['/v', key] : []), ...(view ? [`/reg:${view}`] : [])]
+     d('reg %s', args.join(' '))
+     const child = spawn('reg', args)
+ 
+diff --git a/packages/electron-chrome-extensions/src/browser/api/permissions.ts b/packages/electron-chrome-extensions/src/browser/api/permissions.ts
+index 2886b9f..012b689 100644
+--- a/packages/electron-chrome-extensions/src/browser/api/permissions.ts
++++ b/packages/electron-chrome-extensions/src/browser/api/permissions.ts
+@@ -35,9 +35,18 @@ export class PermissionsAPI {
+ 
+   private processExtension(extension: Electron.Extension) {
+     const manifest: chrome.runtime.Manifest = extension.manifest
++    const persisted = this.ctx.store.getGrantedPermissions(extension)
++    const optionalPermissions = new Set(manifest.optional_permissions || [])
++    const optionalOrigins = new Set(manifest.optional_host_permissions || [])
+     this.permissionMap.set(extension.id, {
+-      permissions: (manifest.permissions || []) as chrome.runtime.ManifestPermissions[],
+-      origins: manifest.host_permissions || [],
++      permissions: [
++        ...((manifest.permissions || []) as chrome.runtime.ManifestPermissions[]),
++        ...((persisted.permissions || []).filter((permission) => optionalPermissions.has(permission)) as chrome.runtime.ManifestPermissions[]),
++      ],
++      origins: [
++        ...(manifest.host_permissions || []),
++        ...(persisted.origins || []).filter((origin) => optionalOrigins.has(origin)),
++      ],
+     })
+   }
+ 
+@@ -61,41 +70,63 @@ export class PermissionsAPI {
+     return this.permissionMap.get(extension.id)
+   }
+ 
+-  private remove = ({ extension }: ExtensionEvent, permissions: chrome.permissions.Permissions) => {
+-    // TODO
+-    return true
++  private remove = async ({ extension }: ExtensionEvent, request: chrome.permissions.Permissions) => {
++    const granted = this.permissionMap.get(extension.id)
++    if (!granted) return false
++
++    const optionalPermissions = new Set(extension.manifest.optional_permissions || [])
++    const optionalOrigins = new Set(extension.manifest.optional_host_permissions || [])
++    const removed: chrome.permissions.Permissions = { permissions: [], origins: [] }
++
++    for (const permission of request.permissions || []) {
++      if (!optionalPermissions.has(permission)) continue
++      if (granted.permissions.includes(permission)) removed.permissions!.push(permission)
++    }
++    for (const origin of request.origins || []) {
++      if (!optionalOrigins.has(origin)) continue
++      if (granted.origins.includes(origin)) removed.origins!.push(origin)
++    }
++
++    if (removed.permissions!.length || removed.origins!.length) {
++      if (!(await this.ctx.store.removePermissions(extension, removed))) return false
++      granted.permissions = granted.permissions.filter(
++        (permission) => !removed.permissions!.includes(permission),
++      )
++      granted.origins = granted.origins.filter((origin) => !removed.origins!.includes(origin))
++      this.ctx.router.sendEvent(extension.id, 'permissions.onRemoved', removed)
++      return true
++    }
++    return false
+   }
+ 
+   private request = async (
+     { extension }: ExtensionEvent,
+     request: chrome.permissions.Permissions,
+   ) => {
+-    const declaredPermissions = new Set([
+-      ...(extension.manifest.permissions || []),
+-      ...(extension.manifest.optional_permissions || []),
+-    ])
++    const optionalPermissions = new Set(extension.manifest.optional_permissions || [])
++    const optionalOrigins = new Set(extension.manifest.optional_host_permissions || [])
+ 
+-    if (request.permissions && !request.permissions.every((p) => declaredPermissions.has(p))) {
++    if (request.permissions && !request.permissions.every((p) => optionalPermissions.has(p))) {
+       throw new Error('Permissions request includes undeclared permission')
+     }
+-
+-    const granted = await this.ctx.store.requestPermissions(extension, request)
+-    if (!granted) return false
++    if (request.origins && !request.origins.every((origin) => optionalOrigins.has(origin))) {
++      throw new Error('Permissions request includes undeclared origin')
++    }
+ 
+     const permissions = this.permissionMap.get(extension.id)!
+-    if (request.origins) {
+-      for (const origin of request.origins) {
+-        if (!permissions.origins.includes(origin)) {
+-          permissions.origins.push(origin)
+-        }
+-      }
++    const added: chrome.permissions.Permissions = {
++      permissions: (request.permissions || []).filter(
++        (permission) => !permissions.permissions.includes(permission),
++      ),
++      origins: (request.origins || []).filter((origin) => !permissions.origins.includes(origin)),
+     }
+-    if (request.permissions) {
+-      for (const permission of request.permissions) {
+-        if (!permissions.permissions.includes(permission)) {
+-          permissions.permissions.push(permission)
+-        }
+-      }
++    if (!added.permissions!.length && !added.origins!.length) return true
++    if (!(await this.ctx.store.requestPermissions(extension, added))) return false
++
++    permissions.permissions.push(...(added.permissions || []))
++    permissions.origins.push(...(added.origins || []))
++    if (added.permissions!.length || added.origins!.length) {
++      this.ctx.router.sendEvent(extension.id, 'permissions.onAdded', added)
+     }
+     return true
+   }
+diff --git a/packages/electron-chrome-extensions/src/browser/api/runtime.ts b/packages/electron-chrome-extensions/src/browser/api/runtime.ts
+index 418dfd8..e1f5df8 100644
+--- a/packages/electron-chrome-extensions/src/browser/api/runtime.ts
++++ b/packages/electron-chrome-extensions/src/browser/api/runtime.ts
+@@ -5,8 +5,11 @@ import { ExtensionEvent } from '../router'
+ import { getExtensionManifest } from './common'
+ import { NativeMessagingHost } from './lib/native-messaging-host'
+ 
++const MAX_NATIVE_HOST_CONNECTIONS = 16
++
+ export class RuntimeAPI extends EventEmitter {
+   private hostMap: Record<string, NativeMessagingHost | undefined> = {}
++  private activeHosts = new Set<NativeMessagingHost>()
+ 
+   constructor(private ctx: ExtensionContext) {
+     super()
+@@ -23,31 +26,70 @@ export class RuntimeAPI extends EventEmitter {
+     connectionId: string,
+     application: string,
+   ) => {
+-    const host = new NativeMessagingHost(
++    if (this.hostMap[connectionId]) {
++      throw new Error('Native messaging connection already exists.')
++    }
++    const host = this.createNativeHost(
+       event.extension.id,
+       event.sender!,
+       connectionId,
+       application,
+     )
+     this.hostMap[connectionId] = host
++    try {
++      await host.ready
++    } catch (error) {
++      host.fail(error instanceof Error ? error : new Error('Native messaging host failed to start.'))
++      throw error
++    }
+   }
+ 
+   private disconnectNative = (event: ExtensionEvent, connectionId: string) => {
+     this.hostMap[connectionId]?.destroy()
+-    this.hostMap[connectionId] = undefined
++    delete this.hostMap[connectionId]
+   }
+ 
+   private sendNativeMessage = async (event: ExtensionEvent, application: string, message: any) => {
+     const connectionId = randomUUID()
+-    const host = new NativeMessagingHost(
++    const host = this.createNativeHost(
+       event.extension.id,
+       event.sender!,
+       connectionId,
+       application,
+       false,
+     )
+-    await host.ready
+-    return await host.sendAndReceive(message)
++    try {
++      return await host.sendAndReceive(message)
++    } finally {
++      host.destroy(false)
++    }
++  }
++
++  private createNativeHost(
++    extensionId: string,
++    sender: ExtensionEvent['sender'],
++    connectionId: string,
++    application: string,
++    keepAlive: boolean = true,
++  ) {
++    if (!sender) throw new Error('Native messaging sender is unavailable.')
++    if (this.activeHosts.size >= MAX_NATIVE_HOST_CONNECTIONS) {
++      throw new Error('Native messaging connection limit exceeded.')
++    }
++    let host: NativeMessagingHost
++    host = new NativeMessagingHost(
++      extensionId,
++      sender,
++      connectionId,
++      application,
++      keepAlive,
++      () => {
++        this.activeHosts.delete(host)
++        if (this.hostMap[connectionId] === host) delete this.hostMap[connectionId]
++      },
++    )
++    this.activeHosts.add(host)
++    return host
+   }
+ 
+   private openOptionsPage = async ({ extension }: ExtensionEvent) => {
+diff --git a/packages/electron-chrome-extensions/src/browser/impl.ts b/packages/electron-chrome-extensions/src/browser/impl.ts
+index e6db60b..a909e4f 100644
+--- a/packages/electron-chrome-extensions/src/browser/impl.ts
++++ b/packages/electron-chrome-extensions/src/browser/impl.ts
+@@ -5,6 +5,11 @@ export interface ChromeExtensionImpl {
+   ): Promise<[Electron.WebContents, Electron.BaseWindow]>
+   selectTab?(tab: Electron.WebContents, window: Electron.BaseWindow): void
+   removeTab?(tab: Electron.WebContents, window: Electron.BaseWindow): void
++  openPopup?(
++    extension: Electron.Extension,
++    tab: Electron.WebContents,
++    window: Electron.BaseWindow,
++  ): Promise<boolean>
+ 
+   /**
+    * Populate additional details to a tab descriptor which gets passed back to
+@@ -19,4 +24,15 @@ export interface ChromeExtensionImpl {
+     extension: Electron.Extension,
+     permissions: chrome.permissions.Permissions,
+   ): Promise<boolean>
++
++  /** Return optional permissions previously granted by the embedding app. */
++  getGrantedPermissions?(
++    extension: Electron.Extension,
++  ): chrome.permissions.Permissions
++
++  /** Persist removal of optional permissions before ECE updates its cache. */
++  removePermissions?(
++    extension: Electron.Extension,
++    permissions: chrome.permissions.Permissions,
++  ): Promise<boolean>
+ }
+diff --git a/packages/electron-chrome-extensions/src/browser/popup.ts b/packages/electron-chrome-extensions/src/browser/popup.ts
+index e32de6c..b2725f5 100644
+--- a/packages/electron-chrome-extensions/src/browser/popup.ts
++++ b/packages/electron-chrome-extensions/src/browser/popup.ts
+@@ -190,6 +190,11 @@ export class PopupView extends EventEmitter {
+   }
+ 
+   private maybeClose = () => {
++    if (this.hidden) {
++      d('preventing close before popup is shown')
++      return
++    }
++
+     // Keep open if webContents is being inspected
+     if (!this.browserWindow?.isDestroyed() && this.browserWindow?.webContents.isDevToolsOpened()) {
+       d('preventing close due to DevTools being open')
+diff --git a/packages/electron-chrome-extensions/src/browser/store.ts b/packages/electron-chrome-extensions/src/browser/store.ts
+index 6ef9d31..4a47f50 100644
+--- a/packages/electron-chrome-extensions/src/browser/store.ts
++++ b/packages/electron-chrome-extensions/src/browser/store.ts
+@@ -160,6 +160,15 @@ export class ExtensionStore extends EventEmitter {
+     return (activeTab && !activeTab.isDestroyed() && activeTab) || undefined
+   }
+ 
++  async openPopup(
++    extension: Electron.Extension,
++    tab: Electron.WebContents,
++    window: Electron.BaseWindow,
++  ): Promise<boolean> {
++    if (typeof this.impl.openPopup !== 'function') return false
++    return (await this.impl.openPopup(extension, tab, window)) === true
++  }
++
+   getActiveTabFromWebContents(wc: Electron.WebContents): Electron.WebContents | undefined {
+     const win = this.tabToWindow.get(wc) || BrowserWindow.fromWebContents(wc)
+     const activeTab = win ? this.getActiveTabFromWindow(win) : undefined
+@@ -206,4 +215,21 @@ export class ExtensionStore extends EventEmitter {
+     const result: unknown = await this.impl.requestPermissions(extension, permissions)
+     return typeof result === 'boolean' ? result : false
+   }
++
++  getGrantedPermissions(extension: Electron.Extension) {
++    if (typeof this.impl.getGrantedPermissions !== 'function') {
++      return { permissions: [], origins: [] }
++    }
++    const result = this.impl.getGrantedPermissions(extension)
++    return result && typeof result === 'object' ? result : { permissions: [], origins: [] }
++  }
++
++  async removePermissions(
++    extension: Electron.Extension,
++    permissions: chrome.permissions.Permissions,
++  ) {
++    if (typeof this.impl.removePermissions !== 'function') return true
++    const result: unknown = await this.impl.removePermissions(extension, permissions)
++    return typeof result === 'boolean' ? result : false
++  }
+ }
+diff --git a/packages/electron-chrome-extensions/src/preload.ts b/packages/electron-chrome-extensions/src/preload.ts
+index 9547089..e44fc04 100644
+--- a/packages/electron-chrome-extensions/src/preload.ts
++++ b/packages/electron-chrome-extensions/src/preload.ts
+@@ -1,6 +1,7 @@
+ import { injectExtensionAPIs } from './renderer'
+ 
+-// Only load within extension page context
+-if (process.type === 'service-worker' || location.href.startsWith('chrome-extension://')) {
++// Extension subframes can still expose their runtime identity before their
++// final chrome-extension:// URL is visible to the isolated preload world.
++if (process.type === 'service-worker' || globalThis.chrome?.runtime?.id || location.href.startsWith('chrome-extension://')) {
+   injectExtensionAPIs()
+ }
+diff --git a/packages/electron-chrome-extensions/src/renderer/index.ts b/packages/electron-chrome-extensions/src/renderer/index.ts
+index 78770e5..ff4b07f 100644
+--- a/packages/electron-chrome-extensions/src/renderer/index.ts
++++ b/packages/electron-chrome-extensions/src/renderer/index.ts
+@@ -1,6 +1,9 @@
+ import { ipcRenderer, contextBridge, webFrame } from 'electron'
+ import { addExtensionListener, removeExtensionListener } from './event'
+ 
++const MAX_NATIVE_MESSAGE_TO_HOST = 64 * 1024 * 1024
++const MAX_QUEUED_NATIVE_MESSAGES = 64
++
+ export const injectExtensionAPIs = () => {
+   interface ExtensionMessageOptions {
+     noop?: boolean
+@@ -56,25 +59,33 @@ export const injectExtensionAPIs = () => {
+     extensionId: string,
+     application: string,
+     receive: (message: any) => void,
+-    disconnect: () => void,
++    disconnect: (errorMessage?: string) => void,
+     callback: ConnectNativeCallback,
+   ) => {
+     const connectionId = (contextBridge as any).executeInMainWorld({
+       func: () => crypto.randomUUID(),
+     })
+-    invokeExtension(extensionId, 'runtime.connectNative', {}, connectionId, application)
+     const onMessage = (_event: Electron.IpcRendererEvent, message: any) => {
+       receive(message)
+     }
+-    ipcRenderer.on(`crx-native-msg-${connectionId}`, onMessage)
+-    ipcRenderer.once(`crx-native-msg-${connectionId}-disconnect`, () => {
+-      ipcRenderer.off(`crx-native-msg-${connectionId}`, onMessage)
+-      disconnect()
+-    })
++    const messageChannel = `crx-native-msg-${connectionId}`
++    const disconnectChannel = `crx-native-msg-${connectionId}-disconnect`
++    const onDisconnect = (_event: Electron.IpcRendererEvent, errorMessage?: string) => {
++      ipcRenderer.off(messageChannel, onMessage)
++      disconnect(errorMessage)
++    }
++    ipcRenderer.on(messageChannel, onMessage)
++    ipcRenderer.once(disconnectChannel, onDisconnect)
+     const send = (message: any) => {
+       ipcRenderer.send(`crx-native-msg-${connectionId}`, message)
+     }
+-    callback(connectionId, send)
++    invokeExtension(extensionId, 'runtime.connectNative', { rejectErrors: true }, connectionId, application)
++      .then(() => callback(connectionId, send))
++      .catch((error) => {
++        ipcRenderer.off(messageChannel, onMessage)
++        ipcRenderer.off(disconnectChannel, onDisconnect)
++        disconnect(error instanceof Error ? error.message : 'Native messaging host failed to connect.')
++      })
+   }
+ 
+   const disconnectNative = (extensionId: string, connectionId: string) => {
+@@ -189,42 +200,92 @@ export const injectExtensionAPIs = () => {
+     class NativePort implements chrome.runtime.Port {
+       private connectionId: string = ''
+       private connected = false
++      private disconnected = false
+       private pending: any[] = []
++      private pendingBytes = 0
+ 
+       name: string = ''
+ 
+       _init = (connectionId: string, send: (message: any) => void) => {
++        if (this.disconnected) {
++          electron.disconnectNative(extensionId, connectionId)
++          Object.defineProperty(this, '_init', { value: undefined })
++          return
++        }
+         this.connected = true
+         this.connectionId = connectionId
+         this._send = send
+ 
+-        this.pending.forEach((msg) => this.postMessage(msg))
++        const pending = this.pending
+         this.pending = []
++        this.pendingBytes = 0
++        pending.forEach((msg) => this.postMessage(msg))
+ 
+         Object.defineProperty(this, '_init', { value: undefined })
+       }
+ 
+       _send(message: any) {
++        let serialized: string | undefined
++        try {
++          serialized = JSON.stringify(message)
++        } catch {
++          throw new Error('Native messaging message is not JSON serializable.')
++        }
++        if (typeof serialized !== 'string') {
++          throw new Error('Native messaging message is not JSON serializable.')
++        }
++        const messageBytes = new TextEncoder().encode(serialized).byteLength + 4
++        if (messageBytes > MAX_NATIVE_MESSAGE_TO_HOST + 4) {
++          throw new Error('Native messaging message is larger than 64 MiB.')
++        }
++        if (
++          this.pending.length >= MAX_QUEUED_NATIVE_MESSAGES ||
++          this.pendingBytes + messageBytes > MAX_NATIVE_MESSAGE_TO_HOST + 4
++        ) {
++          throw new Error('Native messaging pending queue limit exceeded.')
++        }
+         this.pending.push(message)
++        this.pendingBytes += messageBytes
+       }
+ 
+       _receive(message: any) {
+         ;(this.onMessage as any)._emit(message)
+       }
+ 
+-      _disconnect() {
+-        this.disconnect()
++      _disconnect(errorMessage?: string) {
++        if (this.disconnected) return
++        this.disconnected = true
++        this.connected = false
++        this.pending = []
++        this.pendingBytes = 0
++        if (!errorMessage) {
++          ;(this.onDisconnect as any)._emit()
++          return
++        }
++        const runtime = chrome.runtime
++        const previous = Object.getOwnPropertyDescriptor(runtime, 'lastError')
++        try {
++          Object.defineProperty(runtime, 'lastError', {
++            configurable: true,
++            value: { message: errorMessage },
++          })
++          ;(this.onDisconnect as any)._emit()
++        } finally {
++          if (previous) Object.defineProperty(runtime, 'lastError', previous)
++          else delete runtime.lastError
++        }
+       }
+ 
+       postMessage(message: any) {
++        if (this.disconnected) throw new Error('Attempting to use a disconnected port object.')
+         this._send(message)
+       }
+       disconnect() {
++        if (this.disconnected) return
+         if (this.connected) {
+           electron.disconnectNative(extensionId, this.connectionId)
+-          ;(this.onDisconnect as any)._emit()
+-          this.connected = false
+         }
++        this._disconnect()
+       }
+       onMessage: chrome.runtime.PortMessageEvent = new Event() as any
+       onDisconnect: chrome.runtime.PortDisconnectEvent = new Event() as any
+@@ -658,10 +719,42 @@ export const injectExtensionAPIs = () => {
+       })
+     })
+ 
+-    // Remove access to internals
+-    delete (globalThis as any).electron
++    // Electron exposes a partial browser namespace. webextension-polyfill selects
++    // it whenever browser.runtime.id exists, so mirror APIs supplied by this
++    // package into the matching extension's browser namespace.
++    const browser = (globalThis as any).browser
++    if (browser && browser.runtime?.id === extensionId) {
++      for (const apiName of Reflect.ownKeys(chrome)) {
++        if (typeof apiName !== 'string') continue
++        const chromeApi = (chrome as any)[apiName]
++        if (chromeApi === undefined) continue
++        if (browser[apiName] === undefined) {
++          Object.defineProperty(browser, apiName, {
++            value: chromeApi,
++            enumerable: true,
++            configurable: true,
++          })
++        } else if (
++          chromeApi &&
++          typeof chromeApi === 'object' &&
++          browser[apiName] &&
++          typeof browser[apiName] === 'object'
++        ) {
++          for (const member of Reflect.ownKeys(chromeApi)) {
++            if (typeof member !== 'string' || browser[apiName][member] !== undefined) continue
++            Object.defineProperty(browser[apiName], member, {
++              value: chromeApi[member],
++              enumerable: true,
++              configurable: true,
++            })
++          }
++        }
++      }
++    }
+ 
+-    Object.freeze(chrome)
++    // Remove access to internals. Chrome's API object remains mutable; freezing
++    // this proxy breaks ordinary wrapper invariants in cross-browser extensions.
++    delete (globalThis as any).electron
+ 
+     void 0 // no return
+   }

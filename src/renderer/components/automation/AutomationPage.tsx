@@ -141,7 +141,7 @@ export function AutomationPage(): JSX.Element {
     if (!dryRun) {
       const approved = await confirm(
         sensitive ? 'Run macro on sensitive content?' : `Run “${selected.name}”?`,
-        `${permissions.join(', ') || 'No persistent changes'}. Maximum 25 actions and 30 seconds.${sensitive ? ' This touches authentication, payment, or vault content and needs this one-time approval.' : ''}`,
+        `${permissions.join(', ') || 'No persistent changes'}. Maximum 25 actions and 30 seconds.${sensitive ? ' This touches authentication or payment content and needs this one-time approval.' : ''}`,
         sensitive ? 'Approve and run' : 'Run macro'
       )
       if (!approved) return
@@ -158,7 +158,7 @@ export function AutomationPage(): JSX.Element {
         <section className="vast-glass-panel rounded-panel p-5">
           <div className="mb-5 flex items-center justify-between gap-3">
             <h1 className="text-3xl font-semibold">Automation</h1>
-            <button type="button" onClick={addMacro} className="grid h-11 w-11 place-items-center rounded-card bg-vast-cyan text-black" title="Create macro">
+            <button type="button" onClick={addMacro} className="vast-button vast-button--primary vast-button--md h-11 w-11 justify-center rounded-card px-0" title="Create macro">
               <Plus className="h-5 w-5" />
             </button>
           </div>
@@ -194,12 +194,12 @@ export function AutomationPage(): JSX.Element {
                   <textarea value={selected.description} onChange={(event) => updateMacro(selected.id, { description: event.target.value })} rows={2} className="resize-none rounded-card border border-white/10 bg-black/20 p-3 text-sm leading-6 text-vast-soft outline-none focus:border-vast-cyan/[0.35]" />
                 </div>
                 <div className="mt-3 grid grid-cols-4 gap-2" data-testid="automation-primary-actions">
-                  <button type="button" onClick={() => void runMacro(false)} disabled={Boolean(runningId)} className="vault-action-button min-w-0 justify-center bg-vast-cyan px-2 text-black disabled:opacity-50" data-testid="macro-run-button"><Play className="h-4 w-4" />{runningId ? 'Running…' : 'Run'}</button>
-                  <button type="button" onClick={() => void runMacro(true)} disabled={Boolean(runningId)} className="vault-action-button min-w-0 justify-center px-2 disabled:opacity-50"><TestTube2 className="h-4 w-4" />Dry run</button>
-                  <button type="button" onClick={() => duplicateMacro(selected.id)} className="vault-action-button min-w-0 justify-center px-2"><Copy className="h-4 w-4" />Duplicate</button>
-                  <button type="button" onClick={() => deleteMacro(selected.id)} className="vault-danger-button min-w-0 justify-center px-2"><Trash2 className="h-4 w-4" />Delete</button>
+                  <button type="button" onClick={() => void runMacro(false)} disabled={Boolean(runningId)} className="vast-button vast-button--primary vast-button--sm min-w-0 justify-center px-2 disabled:opacity-50" data-testid="macro-run-button"><Play className="h-4 w-4" />{runningId ? 'Running…' : 'Run'}</button>
+                  <button type="button" onClick={() => void runMacro(true)} disabled={Boolean(runningId)} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2"><TestTube2 className="h-4 w-4" />Dry run</button>
+                  <button type="button" onClick={() => duplicateMacro(selected.id)} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2"><Copy className="h-4 w-4" />Duplicate</button>
+                  <button type="button" onClick={() => deleteMacro(selected.id)} className="vast-button vast-button--danger vast-button--sm min-w-0 justify-center px-2"><Trash2 className="h-4 w-4" />Delete</button>
                 </div>
-                {runningId === selected.id && <button type="button" onClick={() => runtime.stopMacro(selected.id)} className="vault-danger-button mt-2 w-full justify-center"><Square className="h-4 w-4" />Emergency stop</button>}
+                {runningId === selected.id && <button type="button" onClick={() => runtime.stopMacro(selected.id)} className="vast-button vast-button--danger vast-button--sm mt-2 w-full justify-center"><Square className="h-4 w-4" />Emergency stop</button>}
               </div>
 
               <div className="rounded-card border border-vast-amber/20 bg-vast-amber/[0.06] p-4">
@@ -211,7 +211,7 @@ export function AutomationPage(): JSX.Element {
                       {macroPermissionSummary(selected.actions).map((permission) => <span key={permission} className="rounded-control border border-white/10 bg-black/20 px-2.5 py-1 text-xs text-vast-soft">{permission}</span>)}
                       {macroPermissionSummary(selected.actions).length === 0 && <span className="text-xs text-vast-soft">No persistent changes.</span>}
                     </div>
-                    <div className="mt-2 text-xs leading-5 text-vast-soft">Authentication, payment and password-vault pages are blocked unless you approve that exact manual run. Every run is limited to 25 actions and 30 seconds.</div>
+                    <div className="mt-2 text-xs leading-5 text-vast-soft">Authentication and payment pages are blocked unless you approve that exact manual run. Every run is limited to 25 actions and 30 seconds.</div>
                   </div>
                 </div>
               </div>
@@ -242,7 +242,7 @@ export function AutomationPage(): JSX.Element {
               <div>
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="text-lg font-semibold">Actions</h2>
-                  <button type="button" onClick={() => updateMacro(selected.id, { actions: [...selected.actions, defaultAction()] })} className="settings-action settings-action-compact"><Plus className="h-4 w-4" />Add action</button>
+                  <button type="button" onClick={() => updateMacro(selected.id, { actions: [...selected.actions, defaultAction()] })} className="vast-button vast-button--secondary vast-button--sm"><Plus className="h-4 w-4" />Add action</button>
                 </div>
                 <div className="space-y-3">
                   {selected.actions.map((action, index) => (
@@ -260,7 +260,7 @@ export function AutomationPage(): JSX.Element {
                     >
                       <div className="mb-3 flex items-center justify-between gap-3">
                         <div className="flex cursor-grab items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-vast-soft"><GripVertical className="h-4 w-4" />Step {index + 1}</div>
-                        <button type="button" onClick={() => removeAction(action.id)} className="text-xs text-vast-soft hover:text-white">Remove</button>
+                        <button type="button" onClick={() => removeAction(action.id)} className="vast-button vast-button--quiet vast-button--xs text-xs">Remove</button>
                       </div>
                       <div className="grid gap-3 md:grid-cols-2">
                         <AutomationSelect
@@ -327,7 +327,7 @@ export function AutomationPage(): JSX.Element {
             </div>
           ) : (
             <div className="grid h-full place-items-center text-center">
-              <div><Sparkles className="mx-auto mb-4 h-10 w-10 text-vast-cyan" /><div className="text-xl font-semibold">No macros yet</div><button type="button" onClick={addMacro} className="mt-4 rounded-card bg-vast-cyan px-4 py-2 text-sm font-semibold text-black">Create macro</button></div>
+              <div><Sparkles className="mx-auto mb-4 h-10 w-10 text-vast-cyan" /><div className="text-xl font-semibold">No macros yet</div><button type="button" onClick={addMacro} className="vast-button vast-button--primary vast-button--md mt-4 justify-center rounded-card">Create macro</button></div>
             </div>
           )}
         </section>

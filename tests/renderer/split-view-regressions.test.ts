@@ -43,7 +43,7 @@ test('Developer settings stay behind the Developer Mode notification', () => {
   assert.match(developerSource, /<NotificationCard role="status" className="settings-developer-notification/)
   assert.match(developerSource, /Developer Mode required/)
   assert.match(developerSource, /updateSettings\(\{ advanced: \{ developerMode: true \} \}\)/)
-  assert.match(developerSource, /\) : <>[\s\S]*Open tab DevTools/)
+  assert.match(developerSource, /\) : <>[\s\S]*label="Tab DevTools"/)
 })
 
 test('split view owns a stable two-tab pair instead of deriving the left pane from focus', () => {

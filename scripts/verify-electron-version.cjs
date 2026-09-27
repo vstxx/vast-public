@@ -3,7 +3,7 @@ const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 
 const root = join(__dirname, '..')
-const expected = Object.freeze({ electron: '44.1.0', chrome: '152.0.7977.65', node: '24.19.0', v8: '15.2.124.18-electron.0' })
+const expected = Object.freeze({ electron: '44.3.0', chrome: '152.0.7977.78', node: '24.20.0', v8: '15.2.124.19-electron.0' })
 const packageVersion = JSON.parse(readFileSync(join(root, 'node_modules', 'electron', 'package.json'), 'utf8')).version
 const executable = require('electron')
 const output = execFileSync(executable, ['-p', 'JSON.stringify(process.versions)'], {

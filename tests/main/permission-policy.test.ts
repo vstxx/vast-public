@@ -54,6 +54,15 @@ test('combined media requests preserve separate camera and microphone decisions'
   assert.deepEqual(permissionKindsFromElectronPermission('media', ['video']), ['camera'])
 })
 
+test('unknown and newer unsupported Electron permissions fail closed', () => {
+  for (const permission of ['unknown-future-permission', 'speaker-selection', 'window-management', 'idle-detection']) {
+    assert.deepEqual(permissionKindsFromElectronPermission(permission), [])
+  }
+  assert.match(sessionsSource, /if \(kinds\.length === 0\) return false/)
+  assert.match(sessionsSource, /const permissionKinds = permissionKindsFromElectronPermission/)
+  assert.match(sessionsSource, /basePolicy === 'block'/)
+})
+
 test('main-owned site permission decisions are synchronized before renderer autosave', () => {
   assert.match(sessionsSource, /vast:site-permissions-changed/)
   assert.match(preloadSource, /onSitePermissionsChanged/)

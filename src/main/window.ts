@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen } from 'electron/main'
+import { app, BrowserWindow, screen } from 'electron/main'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { setupWindowSecurity } from './sessions'
@@ -16,36 +16,16 @@ import { DEFAULT_SETTINGS } from '../shared/constants'
 import { recordDiagnosticsEvent } from './diagnostics-events'
 import { persistWindowState, restoredWindowState } from './windows/window-state'
 import { markPerformance, performanceProbeEnabled } from './performance-probe'
-import {
-  OPENING_COMPLETE_IPC_CHANNEL,
-  OPENING_PRESENTATION,
-  OPENING_SEQUENCE
-} from '../shared/opening-sequence'
 import type { ExtensionManager } from './extensions/extension-manager'
 
 const APP_ICON_PATH = isDev
   ? join(__dirname, process.platform === 'win32' ? '../../assets/logos/vasticon-windows.png' : '../../assets/logos/vasticon.png')
   : join(process.resourcesPath, process.platform === 'win32' ? 'app-icon-windows.png' : 'app-icon.png')
-const GUEST_AUTOFILL_PRELOAD_URL = pathToFileURL(join(__dirname, '../preload/guest-autofill.js')).toString()
-
-function roundedWindowShape(width: number, height: number, radius: number): Electron.Rectangle[] {
-  const safeRadius = Math.max(0, Math.min(Math.floor(radius), Math.floor(width / 2), Math.floor(height / 2)))
-  if (safeRadius === 0) return [{ x: 0, y: 0, width, height }]
-  const rows: Electron.Rectangle[] = []
-  for (let y = 0; y < safeRadius; y += 1) {
-    const distance = safeRadius - y - 0.5
-    const inset = Math.max(0, Math.ceil(safeRadius - Math.sqrt(safeRadius * safeRadius - distance * distance)))
-    rows.push({ x: inset, y, width: width - inset * 2, height: 1 })
-    rows.push({ x: inset, y: height - y - 1, width: width - inset * 2, height: 1 })
-  }
-  rows.push({ x: 0, y: safeRadius, width, height: height - safeRadius * 2 })
-  return rows
-}
+const GUEST_PRELOAD_URL = pathToFileURL(join(__dirname, '../preload/guest.js')).toString()
 
 type MainWindowOptions = {
   kind?: Extract<VastWindowKind, 'primary' | 'normal' | 'detached'>
   openingHandledBySplash?: boolean
-  openingPresentation?: boolean
   showInitially?: boolean
   showWhenReady?: boolean
   detachedTab?: DetachedTabPayload
@@ -70,7 +50,6 @@ export function createMainWindow(
   }
   const windowKind = options.kind ?? (options.detachedTab ? 'detached' : 'normal')
   const savedWindowState = restoredWindowState(windowKind)
-  const openingPresentation = options.openingPresentation === true && windowKind === 'primary'
   const targetDisplay = savedWindowState
     ? screen.getDisplayMatching(savedWindowState)
     : screen.getPrimaryDisplay()
@@ -83,27 +62,11 @@ export function createMainWindow(
     x: savedWindowState?.x ?? Math.round(workArea.x + (workArea.width - targetWidth) / 2),
     y: savedWindowState?.y ?? Math.round(workArea.y + (workArea.height - targetHeight) / 2)
   }
-  const openingWidth = Math.min(OPENING_PRESENTATION.width, Math.max(360, workArea.width - 48))
-  const openingHeight = Math.min(OPENING_PRESENTATION.height, Math.max(240, workArea.height - 48))
-  const openingBounds = {
-    width: openingWidth,
-    height: openingHeight,
-    x: Math.round(workArea.x + (workArea.width - openingWidth) / 2),
-    y: Math.round(workArea.y + (workArea.height - openingHeight) / 2)
-  }
-  const initialBounds = openingPresentation ? openingBounds : targetBounds
 
   const mainWindow = new BrowserWindow({
-    ...initialBounds,
-    minWidth: openingPresentation ? Math.min(OPENING_PRESENTATION.minimumWidth, openingWidth) : 980,
-    minHeight: openingPresentation ? Math.min(OPENING_PRESENTATION.minimumHeight, openingHeight) : 680,
-    resizable: !openingPresentation,
-    maximizable: !openingPresentation,
-    frame: !openingPresentation,
-    hasShadow: !openingPresentation,
-    ...(process.platform === 'win32' && openingPresentation
-      ? { accentColor: '#030406', backgroundMaterial: 'none' as const }
-      : {}),
+    ...targetBounds,
+    minWidth: 980,
+    minHeight: 680,
     show: options?.showInitially ?? true,
     backgroundColor: '#030406',
     title: 'Vast',
@@ -130,62 +93,14 @@ export function createMainWindow(
         serializeOpeningStartupFlag(rendererStartupSettings),
         serializeOpeningStartupVolumeFlag(startupSettings),
         serializeOpeningHandledStartupFlag(openingHandledBySplash),
-        `--vast-guest-autofill-preload=${GUEST_AUTOFILL_PRELOAD_URL}`,
+        `--vast-guest-preload=${GUEST_PRELOAD_URL}`,
         ...(performanceProbeEnabled() ? ['--vast-performance-probe=1'] : [])
       ],
       backgroundThrottling: process.env.VAST_DISABLE_BACKGROUND_THROTTLING === '1' ? false : true
     }
   })
 
-  if (openingPresentation && (process.platform === 'win32' || process.platform === 'linux')) {
-    mainWindow.setShape(roundedWindowShape(openingWidth, openingHeight, startupSettings.appearance.cornerRadius))
-  }
-
-  let openingRevealed = !openingPresentation
-  let openingFallbackTimer: NodeJS.Timeout | undefined
-  let persistenceInstalled = false
-  const installWindowStatePersistence = (): void => {
-    if (persistenceInstalled) return
-    persistenceInstalled = true
-    persistWindowState(mainWindow, windowKind)
-  }
-  const revealBrowserWindow = (): void => {
-    if (openingRevealed || mainWindow.isDestroyed()) return
-    openingRevealed = true
-    clearTimeout(openingFallbackTimer)
-    mainWindow.hide()
-    if (process.platform === 'win32' || process.platform === 'linux') mainWindow.setShape([])
-    mainWindow.setHasShadow(true)
-    if (process.platform === 'win32') {
-      mainWindow.setAccentColor(null)
-      mainWindow.setBackgroundMaterial('auto')
-    }
-    mainWindow.setResizable(true)
-    mainWindow.setMaximizable(true)
-    mainWindow.setMinimumSize(980, 680)
-    mainWindow.setBounds(targetBounds, false)
-    if (savedWindowState?.maximized) mainWindow.maximize()
-    installWindowStatePersistence()
-    setTimeout(() => {
-      if (mainWindow.isDestroyed()) return
-      mainWindow.show()
-      mainWindow.focus()
-      markPerformance('opening-browser-window-revealed', { windowId: mainWindow.id })
-    }, OPENING_PRESENTATION.revealDelayMs)
-  }
-  const onOpeningComplete = (event: Electron.IpcMainEvent): void => {
-    if (event.sender !== mainWindow.webContents) return
-    revealBrowserWindow()
-  }
-  if (openingPresentation) {
-    ipcMain.on(OPENING_COMPLETE_IPC_CHANNEL, onOpeningComplete)
-    mainWindow.once('closed', () => {
-      clearTimeout(openingFallbackTimer)
-      ipcMain.removeListener(OPENING_COMPLETE_IPC_CHANNEL, onOpeningComplete)
-    })
-  } else {
-    installWindowStatePersistence()
-  }
+  persistWindowState(mainWindow, windowKind)
 
   markPerformance('browser-window-constructed', { kind: windowKind, windowId: mainWindow.id })
   mainWindow.once('ready-to-show', () => {
@@ -193,12 +108,6 @@ export function createMainWindow(
     if (options.showWhenReady && !mainWindow.isDestroyed()) {
       mainWindow.show()
       mainWindow.focus()
-    }
-    if (openingPresentation) {
-      openingFallbackTimer = setTimeout(
-        revealBrowserWindow,
-        OPENING_SEQUENCE.overlayHideMs + OPENING_PRESENTATION.fallbackGraceMs
-      )
     }
   })
   mainWindow.webContents.once('did-finish-load', () => {
@@ -230,7 +139,7 @@ export function createMainWindow(
   mainWindow.on('enter-full-screen', publishWindowState)
   mainWindow.on('leave-full-screen', publishWindowState)
   mainWindow.webContents.on('did-finish-load', publishWindowState)
-  if (savedWindowState?.maximized && !openingPresentation) mainWindow.once('ready-to-show', () => mainWindow.maximize())
+  if (savedWindowState?.maximized) mainWindow.once('ready-to-show', () => mainWindow.maximize())
 
   const rendererCrashTimes: number[] = []
   mainWindow.webContents.on('render-process-gone', (_event, details) => {

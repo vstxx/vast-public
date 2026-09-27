@@ -49,6 +49,12 @@ test('Video & Audio runtime preparation preserves the tracked placeholder byte-f
   assert.match(runtimeBuilderSource, /writeFileSync\(runtimeReadmePath, preservedRuntimeReadme\)/)
 })
 
+test('Video & Audio runtime verification binds its source record to the current audited FFmpeg bundle', () => {
+  assert.match(runtimeBuilderSource, /existsSync\(ffmpegSourceBundle\)/)
+  assert.match(runtimeBuilderSource, /sha256\(ffmpegSourceBundle\) !== manifest\.ffmpegSourceBundle\.sha256/)
+  assert.match(runtimeBuilderSource, /statSync\(ffmpegSourceBundle\)\.size !== manifest\.ffmpegSourceBundle\.size/)
+})
+
 test('Video & Audio process shutdown terminates descendants and uses bounded health checks', () => {
   assert.match(mainSource, /taskkill\.exe/)
   assert.match(mainSource, /'\/T', '\/F'/)

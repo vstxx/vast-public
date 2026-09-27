@@ -181,11 +181,11 @@ export function DiagnosticsPage(): JSX.Element {
           title="Diagnostics"
           actions={
             <div className="grid w-full grid-cols-2 gap-2 sm:w-[25rem]" data-testid="diagnostics-primary-actions">
-              <button type="button" onClick={() => void copyText(JSON.stringify(report, null, 2))} className="vault-action-button min-w-0 justify-center px-2">
+              <button type="button" onClick={() => void copyText(JSON.stringify(report, null, 2))} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2">
                 <Copy className="h-4 w-4" />
                 Copy diagnostics
               </button>
-              <button type="button" onClick={runtime.toggleDevTools} className="vault-action-button min-w-0 justify-center px-2">
+              <button type="button" onClick={runtime.toggleDevTools} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2">
                 <Wrench className="h-4 w-4" />
                 Tab DevTools
               </button>
@@ -234,7 +234,6 @@ export function DiagnosticsPage(): JSX.Element {
             <Info label="Sandbox" value="Enabled" />
             <Info label="Unsafe protocols" value="Blocked" />
             <Info label="HTTPS-only mode" value={httpsOnlyMode ? 'Enabled' : 'Disabled'} />
-            <Info label="Password encryption" value="OS-backed safeStorage" />
           </InternalPageSection>
 
           <InternalPageSection title="Google auth compatibility" icon={ShieldCheck}>
@@ -260,7 +259,7 @@ export function DiagnosticsPage(): JSX.Element {
           icon={Database}
           description="Built from local Vast state. Cookie and site-data clearing is handled by Electron sessions."
           action={
-            <button type="button" onClick={() => void window.vast.privacy.clearSiteData()} className="vault-danger-button">
+            <button type="button" onClick={() => void window.vast.privacy.clearSiteData()} className="vast-button vast-button--danger vast-button--sm">
               <Trash2 className="h-4 w-4" />
               Clear all site data
             </button>
@@ -293,7 +292,7 @@ export function DiagnosticsPage(): JSX.Element {
                   <button
                     type="button"
                     onClick={() => forgetSiteMemory(origin.origin)}
-                    className="rounded-control border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-[11px] text-vast-soft hover:text-white"
+                    className="vast-button vast-button--ghost vast-button--xs px-2 py-1 text-[11px]"
                   >
                     Forget memory
                   </button>

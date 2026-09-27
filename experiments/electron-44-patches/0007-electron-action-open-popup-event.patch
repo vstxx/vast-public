@@ -1,0 +1,97 @@
+diff --git a/shell/browser/api/electron_api_extensions.cc b/shell/browser/api/electron_api_extensions.cc
+index c53eb78..7f71cbb 100644
+--- a/shell/browser/api/electron_api_extensions.cc
++++ b/shell/browser/api/electron_api_extensions.cc
+@@ -123,6 +123,12 @@ v8::Local<v8::Value> Extensions::GetAllExtensions(v8::Isolate* isolate) {
+   return gin::ConvertToV8(isolate, extensions_vector);
+ }
+ 
++void Extensions::NotifyActionOpenPopup(
++    const std::string& extension_id,
++    int32_t sender_web_contents_id) {
++  Emit("extension-action-open-popup", extension_id, sender_web_contents_id);
++}
++
+ void Extensions::OnExtensionLoaded(content::BrowserContext* browser_context,
+                                    const extensions::Extension* extension) {
+   Emit("extension-loaded", extension);
+diff --git a/shell/browser/api/electron_api_extensions.h b/shell/browser/api/electron_api_extensions.h
+index 67f5642..79cf0ea 100644
+--- a/shell/browser/api/electron_api_extensions.h
++++ b/shell/browser/api/electron_api_extensions.h
+@@ -5,6 +5,8 @@
+ #ifndef ELECTRON_SHELL_BROWSER_API_ELECTRON_API_EXTENSIONS_H_
+ #define ELECTRON_SHELL_BROWSER_API_ELECTRON_API_EXTENSIONS_H_
+ 
++#include <cstdint>
++
+ #include "base/memory/raw_ptr.h"
+ #include "extensions/browser/extension_registry_observer.h"
+ #include "gin/wrappable.h"
+@@ -42,6 +44,8 @@ class Extensions final : public gin::Wrappable<Extensions>,
+   v8::Local<v8::Value> GetExtension(v8::Isolate* isolate,
+                                     const std::string& extension_id);
+   v8::Local<v8::Value> GetAllExtensions(v8::Isolate* isolate);
++  void NotifyActionOpenPopup(const std::string& extension_id,
++                             int32_t sender_web_contents_id);
+ 
+   // extensions::ExtensionRegistryObserver:
+   void OnExtensionLoaded(content::BrowserContext* browser_context,
+diff --git a/shell/browser/extensions/api/extension_action/extension_action_api.cc b/shell/browser/extensions/api/extension_action/extension_action_api.cc
+index d0d494b..f7649eb 100644
+--- a/shell/browser/extensions/api/extension_action/extension_action_api.cc
++++ b/shell/browser/extensions/api/extension_action/extension_action_api.cc
+@@ -14,11 +14,35 @@
+ #include "extensions/browser/extension_prefs.h"
+ #include "extensions/browser/extension_util.h"
+ #include "extensions/common/mojom/view_type.mojom.h"
++#include "shell/browser/api/electron_api_extensions.h"
++#include "shell/browser/api/electron_api_session.h"
++#include "shell/browser/api/electron_api_web_contents.h"
++#include "shell/browser/javascript_environment.h"
+ 
+ using content::WebContents;
+ 
+ namespace extensions {
+ 
++namespace {
++
++void NotifyActionOpenPopup(ExtensionFunction* function) {
++  auto* session_cell =
++      electron::api::Session::FromBrowserContext(function->browser_context());
++  auto* sender_contents = function->GetSenderWebContents();
++  auto* sender = electron::api::WebContents::From(sender_contents);
++  if (!session_cell || !session_cell->Get() || !sender ||
++      !function->extension()) {
++    return;
++  }
++
++  v8::Isolate* isolate = electron::JavascriptEnvironment::GetIsolate();
++  v8::HandleScope handle_scope(isolate);
++  session_cell->Get()->Extensions(isolate)->NotifyActionOpenPopup(
++      function->extension()->id(), sender->ID());
++}
++
++}  // namespace
++
+ //
+ // ExtensionActionAPI::Observer
+ //
+@@ -91,7 +115,7 @@ ExtensionActionSetIconFunction::RunExtensionAction() {
+ 
+ ExtensionFunction::ResponseAction
+ ExtensionActionOpenPopupFunction::RunExtensionAction() {
+-  LOG(INFO) << "chrome.action.openPopup is not supported in Electron";
++  NotifyActionOpenPopup(this);
+ 
+   return RespondNow(WithArguments(""));
+ }
+@@ -182,7 +206,7 @@ ExtensionFunction::ResponseAction ActionGetUserSettingsFunction::Run() {
+ 
+ ExtensionFunction::ResponseAction
+ ActionOpenPopupFunction::RunExtensionAction() {
+-  LOG(INFO) << "chrome.action.openPopup is not supported in Electron";
++  NotifyActionOpenPopup(this);
+ 
+   return RespondNow(NoArguments());
+ }

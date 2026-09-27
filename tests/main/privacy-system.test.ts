@@ -4,7 +4,7 @@ import test from 'node:test'
 
 const sessions = readFileSync(new URL('../../src/main/sessions.ts', import.meta.url), 'utf8')
 const preload = readFileSync(new URL('../../src/preload/index.ts', import.meta.url), 'utf8')
-const guestPreload = readFileSync(new URL('../../src/preload/guest-autofill.ts', import.meta.url), 'utf8')
+const guestPreload = readFileSync(new URL('../../src/preload/guest.ts', import.meta.url), 'utf8')
 const stage = readFileSync(new URL('../../src/renderer/components/browser/BrowserStage.tsx', import.meta.url), 'utf8')
 const webviewSurface = readFileSync(new URL('../../src/renderer/components/browser/WebviewSurface.tsx', import.meta.url), 'utf8')
 const browserRuntime = `${stage}\n${webviewSurface}`

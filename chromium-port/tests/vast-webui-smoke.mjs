@@ -65,7 +65,7 @@ const migrationFixtureDataText = JSON.stringify({
 });
 await writeFile(migrationFixtureData, migrationFixtureDataText);
 await writeFile(
-    join(migrationDataRoot, 'password-vault.json'),
+    join(migrationDataRoot, 'legacy-metadata.json'),
     '{"schemaVersion":1,"records":[]}');
 await writeFile(join(migrationDataRoot, 'Cookies'), 'must not migrate');
 await writeFile(
@@ -326,8 +326,8 @@ try {
         `Unexpected Vast migration preview: ${JSON.stringify(pageState.migrationDetails)}`);
   }
   if (!pageState.migrationDetails.includes(
-      'Password vault detected but excluded from preview.')) {
-    throw new Error('Migration preview did not explicitly exclude the password vault.');
+      'Legacy metadata detected but excluded from preview.')) {
+    throw new Error('Migration preview did not explicitly exclude the legacy metadata.');
   }
   const workspaceCountMatch =
       pageState.migrationDetails.match(/(\d+) workspace\(s\)/);
@@ -420,7 +420,7 @@ try {
           migrationFixtureDataText) {
     throw new Error('Committed fixture data does not match the copied source.');
   }
-  await stat(join(migratedDestination, 'password-vault.json'));
+  await stat(join(migratedDestination, 'legacy-metadata.json'));
   if (await stat(join(migratedDestination, 'Cookies')).then(() => true, () => false)) {
     throw new Error('Electron cookie storage crossed the migration boundary.');
   }

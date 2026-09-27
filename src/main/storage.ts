@@ -5,6 +5,7 @@ import { DEFAULT_DATA, STORAGE_SCHEMA_VERSION } from '../shared/constants'
 import { migrateLegacyInternalTab, migrateLegacySessionSnapshot, stripRetiredReaderState } from '../shared/legacy-internal-url-migration'
 import { resolveLayoutMode } from '../shared/layout-mode'
 import { mergePersistedDataForMigration } from '../shared/storage-schema-migration'
+import { sanitizeStoredExtensionMenuSize } from '../shared/extension-menu-sizing'
 import type { BrowserSettings, DownloadItem, PersistedData, SitePermissionOverride, StorageBackupInfo, StorageRecoveryState } from '../shared/types'
 import { dataFilePath, vastDataPath } from './data-path'
 import { recordStorageWrite } from './performance-probe'
@@ -331,6 +332,7 @@ const enumSettings = new Map<string, ReadonlySet<string>>([
   ['sidePanel.mode', new Set(['auto', 'docked', 'overlay'])],
   ['startupBehavior', new Set(['restore', 'new-tab', 'home'])],
   ['newTabBehavior', new Set(['vast', 'search', 'blank'])],
+  ['newTab.background', new Set(['space-black', 'accent-gradient', 'carbon-black', 'depth', 'adaptive', 'custom'])],
   ['privacy.fingerprintingProtection', new Set(['standard', 'strict', 'maximum'])],
   ['privacy.webRtcPolicy', new Set(['public-interface-only', 'default', 'disabled'])],
   ['spoofing.browserProfile', new Set(['chrome-windows', 'chrome-macos', 'firefox-windows', 'safari-macos', 'custom'])],
@@ -365,6 +367,7 @@ function sanitizeBrowserSettings(value: unknown): BrowserSettings {
   next.advanced.ramLimitMb = sanitizeRamLimitMb(next.advanced.ramLimitMb)
   next.layoutMode = resolveLayoutMode(next.layoutMode, next.advanced.experimentalFeatures)
   next.sidePanel.width = Math.min(520, Math.max(304, Math.round(next.sidePanel.width)))
+  next.extensionMenu = sanitizeStoredExtensionMenuSize(next.extensionMenu)
   return next
 }
 
@@ -445,10 +448,33 @@ export function migrateData(data: PersistedData): PersistedData {
       ? sanitizeRamLimitMb(legacyAdvanced.ramLimitMb)
       : deriveLegacyRamLimitMb(legacyAdvanced)
   const settingsInput = JSON.parse(JSON.stringify(data.settings ?? {})) as Record<string, unknown>
+  const legacyAppearance = isRecord(settingsInput.appearance) ? settingsInput.appearance : {}
+  const newTabInput = isRecord(settingsInput.newTab) ? { ...settingsInput.newTab } : {}
+  if (typeof newTabInput.background !== 'string' && typeof legacyAppearance.backgroundStyle === 'string') {
+    const legacyBackgrounds: Record<string, BrowserSettings['newTab']['background']> = {
+      graphite: 'depth',
+      midnight: 'accent-gradient',
+      aurora: 'accent-gradient',
+      violet: 'accent-gradient',
+      carbon: 'space-black',
+      frost: 'adaptive'
+    }
+    newTabInput.background = legacyBackgrounds[legacyAppearance.backgroundStyle] ?? DEFAULT_DATA.settings.newTab.background
+    settingsInput.newTab = newTabInput
+  }
   const sanitizedSettings = sanitizeBrowserSettings(settingsInput)
   sanitizedSettings.advanced.ramLimitMb = nextRamLimitMb
+  // Profiles stored before onboarding existed (schemaVersion < 9) predate the
+  // flow, so they count as completed; fresh profiles keep DEFAULT_DATA's
+  // `completed: false` and a v9+ file always keeps its own value.
+  const onboarding: PersistedData['onboarding'] = {
+    completed: isRecord(data.onboarding)
+      ? data.onboarding.completed === true
+      : data.schemaVersion >= STORAGE_SCHEMA_VERSION
+  }
   const merged: PersistedData = {
     ...mergePersistedDataForMigration(fallback, data, STORAGE_SCHEMA_VERSION),
+    onboarding,
     activeSidePanel: ['notes', 'bookmarks', 'history', 'downloads', 'reading-list'].includes(String(data.activeSidePanel))
       ? data.activeSidePanel
       : fallback.activeSidePanel,

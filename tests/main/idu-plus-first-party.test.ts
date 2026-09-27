@@ -290,7 +290,7 @@ test('migrates the previous auto-installed IDU+ record back to Explore', async (
     await manager.initialize([workspace('one')])
     assert.equal((await manager.list()).some((extension) => extension.id === IDU_PLUS_FIRST_PARTY_EXTENSION_ID), false)
     const persisted = JSON.parse(await readFile(join(registryDirectory, 'registry.json'), 'utf8')) as { schemaVersion: number; extensions: unknown[] }
-    assert.equal(persisted.schemaVersion, 5)
+    assert.equal(persisted.schemaVersion, 6)
     assert.equal(persisted.extensions.length, 0)
   } finally {
     await rm(userDataRoot, { recursive: true, force: true })

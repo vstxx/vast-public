@@ -1,5 +1,6 @@
 import { Loader2, type LucideIcon } from 'lucide-react'
 import type { HTMLAttributes, ReactNode } from 'react'
+import { VastButton } from '../ui/VastButton'
 
 export function InternalPageShell({
   children,
@@ -108,6 +109,7 @@ export function InternalMetricCard({
   )
 }
 
+/** Compact filter chip on the shared control system (selected when active). */
 export function InternalFilterButton({
   active,
   onClick,
@@ -118,18 +120,9 @@ export function InternalFilterButton({
   children: ReactNode
 }): JSX.Element {
   return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={`rounded-control px-2.5 py-1.5 text-xs font-medium transition-colors ${
-        active
-          ? 'bg-white/[0.09] text-white'
-          : 'bg-transparent text-vast-soft hover:bg-white/[0.045] hover:text-white'
-      }`}
-    >
+    <VastButton variant={active ? 'selected' : 'ghost'} size="xs" aria-pressed={active} onClick={onClick}>
       {children}
-    </button>
+    </VastButton>
   )
 }
 

@@ -1,4 +1,5 @@
 import type { WorkspaceIdentitySettings } from '../../shared/types'
+import { clearSiteData, configureWebContentsIdentity, getSiteInformation } from '../sessions'
 import { assertNonEmptyString, assertObject, assertPositiveInteger, fail, ok, type IpcHandle } from './registration'
 
 export function registerPrivacyIpc(handle: IpcHandle): void {
@@ -6,7 +7,7 @@ export function registerPrivacyIpc(handle: IpcHandle): void {
     try {
       if (origin !== undefined && (typeof origin !== 'string' || !/^https?:\/\//.test(origin))) throw new Error('Invalid site origin.')
       if (webContentsId !== undefined) assertPositiveInteger(webContentsId, 'web contents identifier')
-      await (await import('../sessions')).clearSiteData(origin, webContentsId)
+      await clearSiteData(origin, webContentsId)
       return ok()
     } catch (error) {
       return fail(error)
@@ -17,7 +18,7 @@ export function registerPrivacyIpc(handle: IpcHandle): void {
     try {
       assertPositiveInteger(webContentsId, 'web contents identifier')
       assertNonEmptyString(url, 'page URL', 32_768)
-      return { ok: true, info: await (await import('../sessions')).getSiteInformation(webContentsId, url) }
+      return { ok: true, info: await getSiteInformation(webContentsId, url) }
     } catch (error) {
       return fail(error)
     }
@@ -37,7 +38,7 @@ export function registerPrivacyIpc(handle: IpcHandle): void {
       assertObject(identity, 'identity configuration')
       assertNonEmptyString(url, 'page URL', 32_768)
       assertNonEmptyString(identityId, 'workspace identity', 256)
-      await (await import('../sessions')).configureWebContentsIdentity(webContentsId, identity, url, identityId)
+      await configureWebContentsIdentity(webContentsId, identity, url, identityId)
       return ok()
     } catch (error) {
       return fail(error)

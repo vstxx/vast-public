@@ -7,6 +7,8 @@ export type InstalledExtensionRuntime = VastExtensionKind
 
 export interface InstalledExtensionRecord {
   id: string
+  runtimeExtensionId?: string
+  upstreamExtensionId?: string
   name: string
   version: string
   description?: string
@@ -32,6 +34,8 @@ export interface InstalledExtensionRecord {
   updatedAt: number
   allowFileAccess: false
   grantedPermissions: VastNativePermission[]
+  grantedChromePermissions: string[]
+  grantedChromeOrigins: string[]
 }
 
 export interface ChromeExtensionManifest {
@@ -67,7 +71,9 @@ export interface ValidatedExtensionManifest {
   rootPath: string
   manifestPath: string
   manifest: ChromeExtensionManifest
+  requiredPermissions: string[]
   permissions: string[]
+  requiredHostPermissions: string[]
   hostPermissions: string[]
   iconDataUrl?: string
   kind: VastExtensionKind
@@ -82,7 +88,10 @@ export interface ValidatedExtensionManifest {
 export interface ExtensionSessionLike {
   isPersistent(): boolean
   clearStorageData?: Session['clearStorageData']
-  extensions: Pick<Session['extensions'], 'loadExtension' | 'removeExtension' | 'getExtension'>
+  extensions: Pick<Session['extensions'], 'loadExtension' | 'removeExtension' | 'getExtension'> & {
+    /** Vast's pinned Electron patch exposes Chromium's reload lifecycle. */
+    reloadExtension?: (extensionId: string) => void
+  }
 }
 
 export type ExtensionSessionProvider = (partition: string) => ExtensionSessionLike

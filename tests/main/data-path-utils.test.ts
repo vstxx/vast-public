@@ -76,14 +76,14 @@ test('data root migration copy preserves user data and skips volatile caches', a
     await mkdir(join(source, 'Cache'), { recursive: true })
     await mkdir(join(source, 'Sessions'), { recursive: true })
     await writeFile(join(source, 'vast-data.json'), '{"schemaVersion":1}', 'utf8')
-    await writeFile(join(source, 'password-vault.json'), '{"schemaVersion":1,"records":[]}', 'utf8')
+    await writeFile(join(source, 'legacy-user-state.bin'), 'preserve-me', 'utf8')
     await writeFile(join(source, 'Cache', 'http-cache'), 'cache', 'utf8')
     await writeFile(join(source, 'Sessions', 'session'), 'session', 'utf8')
 
     const result = await copyDataRootForMigration(source, target)
 
     assert.equal(result.copiedFiles.includes('vast-data.json'), true)
-    assert.equal(result.copiedFiles.includes('password-vault.json'), true)
+    assert.equal(result.copiedFiles.includes('legacy-user-state.bin'), true)
     assert.equal(result.copiedFiles.includes('Sessions/session'), true)
     assert.equal(result.skippedFiles.includes('Cache/http-cache'), true)
     assert.equal(await readFile(join(target, 'vast-data.json'), 'utf8'), '{"schemaVersion":1}')

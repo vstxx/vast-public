@@ -24,6 +24,7 @@ const pythonLicenseCollector = join(__dirname, 'copy-python-runtime-licenses.py'
 const ffmpegCapabilityAudit = join(__dirname, 'avidae-ffmpeg-capabilities.cjs')
 const ffmpegComplianceAudit = join(__dirname, 'check-ffmpeg-release-compliance.cjs')
 const ffmpegBuildRoot = join(root, '.vast-build', 'ffmpeg')
+const ffmpegSourceBundle = join(ffmpegBuildRoot, 'ffmpeg-corresponding-source-win64.tar.zst')
 const runtimeManifestSchema = 3
 const checkOnly = process.argv.includes('--check')
 const resume = process.argv.includes('--resume')
@@ -164,6 +165,11 @@ function verifyRuntime(executeSelfTest) {
       !/^[a-f0-9]{64}$/.test(String(manifest.ffmpegSourceBundle.sha256 || '')) ||
       !Number.isSafeInteger(manifest.ffmpegSourceBundle.size) || manifest.ffmpegSourceBundle.size < 1) {
     fail('Runtime FFmpeg corresponding-source metadata is invalid.')
+  }
+  if (!existsSync(ffmpegSourceBundle) ||
+      sha256(ffmpegSourceBundle) !== manifest.ffmpegSourceBundle.sha256 ||
+      statSync(ffmpegSourceBundle).size !== manifest.ffmpegSourceBundle.size) {
+    fail('Runtime FFmpeg corresponding-source record does not match the current audited source bundle. Run npm run avidae:runtime:prepare -- --resume.')
   }
   let ffmpegProvenance
   try { ffmpegProvenance = JSON.parse(readFileSync(files.ffmpegProvenance, 'utf8')) } catch { fail('Runtime FFmpeg provenance is invalid JSON.') }
@@ -312,7 +318,6 @@ function prepareRuntime() {
   const ffmpegReadme = join(ffmpegDistributionRoot, 'README.txt')
   const ffmpegProvenanceSource = join(ffmpegDistributionRoot, 'ffmpeg-build-provenance.json')
   const ffmpegCapabilitiesSource = join(ffmpegBuildRoot, 'avidae-ffmpeg-capabilities.json')
-  const ffmpegSourceBundle = join(ffmpegBuildRoot, 'ffmpeg-corresponding-source-win64.tar.zst')
   if (!existsSync(ffmpegReadme) || !existsSync(ffmpegProvenanceSource) || !existsSync(ffmpegCapabilitiesSource) || !existsSync(ffmpegSourceBundle)) {
     fail('Audited FFmpeg README, provenance, capability report, or corresponding-source archive is missing.')
   }

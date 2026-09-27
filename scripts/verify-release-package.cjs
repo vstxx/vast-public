@@ -4,9 +4,11 @@ const { closeSync, existsSync, mkdtempSync, openSync, readFileSync, readSync, re
 const { join, relative } = require('node:path')
 const { tmpdir } = require('node:os')
 const { inspectTrustedAuthenticode, inspectUnsignedPe } = require('./windows-authenticode.cjs')
+const { validateRuntimeFingerprint } = require('./verify-extension-compat-runtime.cjs')
 
 const root = join(__dirname, '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+const compatibilityManifest = JSON.parse(readFileSync(join(root, 'patches', 'extension-compatibility-runtime.json'), 'utf8'))
 const version = pkg.version
 const releaseRoot = join(root, 'release')
 
@@ -153,7 +155,19 @@ function readPackagedAsarFile(relativePath) {
   }
 }
 
-function assertReleaseBuildMetadata() {
+function assertCompatibilityRuntimeFingerprint() {
+  const fingerprintText = readPackagedAsarFile('out/extension-compatibility-runtime-fingerprint.json')
+  if (!fingerprintText) return undefined
+  try {
+    const fingerprint = JSON.parse(fingerprintText.replace(/^\uFEFF/, ''))
+    return validateRuntimeFingerprint({ fingerprint, manifest: compatibilityManifest, expectedSourceCommit })
+  } catch (error) {
+    fail(`packaged extension compatibility fingerprint is invalid: ${error instanceof Error ? error.message : String(error)}`)
+    return undefined
+  }
+}
+
+function assertReleaseBuildMetadata(runtimeFingerprint) {
   const metadataText = readPackagedAsarFile('out/release-build-metadata.json')
   if (!metadataText) return undefined
 
@@ -167,6 +181,9 @@ function assertReleaseBuildMetadata() {
 
   if (metadata.productName !== 'Vast') fail('packaged release metadata productName must be Vast')
   if (metadata.version !== version) fail('packaged release metadata version does not match package.json')
+  if (!runtimeFingerprint || JSON.stringify(metadata.extensionCompatibilityRuntime) !== JSON.stringify(runtimeFingerprint)) {
+    fail('packaged release metadata does not match the verified extension compatibility runtime fingerprint')
+  }
   if (metadata.noticesEnabled === true) {
     if (typeof metadata.noticesFeedOrigin !== 'string' || !metadata.noticesFeedOrigin.startsWith('https://')) {
       fail('packaged Vast Notices metadata must contain an HTTPS feed origin')
@@ -204,6 +221,7 @@ function assertReleaseBuildMetadata() {
     obfuscationEnabled: metadata.obfuscationEnabled,
     releaseRepo: metadata.releaseRepo,
     sourceCommit: metadata.sourceCommit,
+    extensionCompatibilityRuntime: metadata.extensionCompatibilityRuntime,
     signaturePolicy: metadata.signaturePolicy,
     noticesEnabled: metadata.noticesEnabled === true,
     noticesFeedOrigin: metadata.noticesFeedOrigin,
@@ -230,10 +248,6 @@ function assertObfuscationReport() {
   if (!protectedFiles.some((file) => String(file.file ?? '').replace(/\\/g, '/').startsWith('out/main/'))) {
     fail('packaged obfuscation report does not include protected main-process code')
   }
-  if (!protectedFiles.some((file) => /^PasswordsPage-/i.test(String(file.file ?? '').split(/[\\/]/).pop() ?? ''))) {
-    fail('packaged obfuscation report does not include the password-manager renderer bundle')
-  }
-
   return {
     present: true,
     strategy: report.strategy,
@@ -282,7 +296,8 @@ const updateArchive = inspectUpdateArchive()
 assertWindowsExe(`Installer/Vast-Setup-${version}.exe`)
 assertWindowsExe(`Installer/Vast-${version}-Portable.exe`)
 assertWindowsExe(`Updater/VastUpdater-${version}.exe`)
-const packagedBuildMetadata = assertReleaseBuildMetadata()
+const packagedRuntimeFingerprint = assertCompatibilityRuntimeFingerprint()
+const packagedBuildMetadata = assertReleaseBuildMetadata(packagedRuntimeFingerprint)
 const obfuscation = assertObfuscationReport()
 const electronFuses = inspectElectronFuses(`Vast-${version}/win-unpacked/Vast.exe`)
 const authenticode = {
@@ -373,6 +388,24 @@ function inspectReleaseArtifactForExcludedExtensions(relativePath, { extractionR
 }
 
 const packagedResourcesRoot = join(releaseRoot, `Vast-${version}`, 'win-unpacked', 'resources')
+for (const relativePath of [
+  'licenses/Vast-GPL-3.0.txt',
+  'licenses/electron-chrome-extensions-GPL-3.0.txt',
+  'licenses/THIRD_PARTY_NOTICES.md'
+]) {
+  const fullPath = join(packagedResourcesRoot, relativePath)
+  if (!existsSync(fullPath) || !statSync(fullPath).isFile() || statSync(fullPath).size === 0) {
+    fail(`packaged runtime is missing required license resource: ${relativePath}`)
+  }
+}
+const packagedVastLicense = join(packagedResourcesRoot, 'licenses', 'Vast-GPL-3.0.txt')
+const packagedEceLicense = join(packagedResourcesRoot, 'licenses', 'electron-chrome-extensions-GPL-3.0.txt')
+if (existsSync(packagedVastLicense) && !readFileSync(packagedVastLicense).equals(readFileSync(join(root, 'LICENSE')))) {
+  fail('packaged Vast GPL text differs from the reviewed root LICENSE')
+}
+if (existsSync(packagedEceLicense) && !readFileSync(packagedEceLicense).equals(readFileSync(join(root, 'node_modules', 'electron-chrome-extensions', 'LICENSE-GPL')))) {
+  fail('packaged ECE GPL text differs from the reviewed upstream license')
+}
 const ffmpegCompliance = inspectFfmpegCompliance(join(packagedResourcesRoot, 'avidae-runtime'))
 const appUpdateConfigPath = join(packagedResourcesRoot, 'app-update.yml')
 if (!existsSync(appUpdateConfigPath)) fail('packaged runtime is missing resources/app-update.yml required by electron-updater')
@@ -513,6 +546,7 @@ const report = {
   releaseRoot,
   requiredFiles,
   packagedBuildMetadata,
+  packagedRuntimeFingerprint,
   obfuscation,
   electronFuses,
   ffmpegCompliance,

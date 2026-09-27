@@ -246,6 +246,16 @@ export function VastSelect<T extends string | number>({
     transformOrigin: position.placement === 'bottom' ? 'top' : 'bottom'
   } : undefined
   const shell = buttonRef.current?.closest('.app-shell')
+  // The menu portals to document.body, outside the app shell that carries the
+  // user accent variables; re-declare them here so accent styling follows.
+  const portalAccentStyle = (() => {
+    if (!open || !shell) return undefined
+    const computed = getComputedStyle(shell)
+    const accent = computed.getPropertyValue('--vast-accent').trim()
+    if (!accent) return undefined
+    const accentSecondary = computed.getPropertyValue('--vast-accent-secondary').trim()
+    return { '--vast-accent': accent, '--vast-accent-secondary': accentSecondary } as CSSProperties
+  })()
   const portalThemeClass = shell?.classList.contains('light-theme')
     ? 'light-theme'
     : shell?.classList.contains('dim-theme') ? 'dim-theme' : 'dark-theme'
@@ -281,7 +291,7 @@ export function VastSelect<T extends string | number>({
         </span>
       </button>
       {open && position && createPortal(
-        <div className={portalThemeClass} data-vast-select-portal-theme style={{ display: 'contents' }}>
+        <div className={portalThemeClass} data-vast-select-portal-theme style={{ display: 'contents', ...portalAccentStyle }}>
           <div
             ref={menuRef}
             id={`${controlId}-listbox`}

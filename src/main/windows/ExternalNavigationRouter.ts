@@ -78,10 +78,18 @@ export class ExternalNavigationRouter {
   private readonly recentlyAccepted = new Map<string, number>()
   private readonly registry: WindowRegistry
   private readonly createWindow: () => BrowserWindow
+  private readonly localPdfUrl: (webContentsId: number, path: string) => Promise<string>
 
-  constructor(registry: WindowRegistry, createWindow: () => BrowserWindow) {
+  constructor(
+    registry: WindowRegistry,
+    createWindow: () => BrowserWindow,
+    localPdfUrl: (webContentsId: number, path: string) => Promise<string> = async () => {
+      throw new Error('Local PDF navigation is not configured.')
+    }
+  ) {
     this.registry = registry
     this.createWindow = createWindow
+    this.localPdfUrl = localPdfUrl
   }
 
   acceptArguments(argv: readonly string[]): void {
@@ -158,11 +166,8 @@ export class ExternalNavigationRouter {
       deliverUrl(target.value)
       return
     }
-    void import('../pdf-resources')
-      .then(({ pdfViewerUrlForResource, registerLocalPdfResource }) =>
-        registerLocalPdfResource(window.webContents.id, target.value)
-          .then((resource) => deliverUrl(pdfViewerUrlForResource(resource)))
-      )
+    void this.localPdfUrl(window.webContents.id, target.value)
+      .then(deliverUrl)
       .catch((error: unknown) => {
         if (window.isDestroyed() || window.webContents.isDestroyed()) return
         window.webContents.send('vast:ui:notification', {

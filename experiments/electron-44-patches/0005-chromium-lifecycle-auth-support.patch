@@ -1,0 +1,221 @@
+diff --git a/extensions/browser/api/alarms/alarm_manager.cc b/extensions/browser/api/alarms/alarm_manager.cc
+index 5b1ccf7a59..66cf69f2a9 100644
+--- a/extensions/browser/api/alarms/alarm_manager.cc
++++ b/extensions/browser/api/alarms/alarm_manager.cc
+@@ -15,6 +15,7 @@
+ #include "base/json/json_writer.h"
+ #include "base/json/values_util.h"
+ #include "base/lazy_instance.h"
++#include "base/logging.h"
+ #include "base/memory/raw_ptr.h"
+ #include "base/metrics/histogram_functions.h"
+ #include "base/numerics/safe_conversions.h"
+@@ -217,6 +218,8 @@ AlarmManager::AlarmManager(content::BrowserContext* context)
+       ExtensionRegistry::Get(browser_context_));
+ 
+   StateStore* storage = ExtensionSystem::Get(browser_context_)->state_store();
++  LOG(INFO) << "[vast-compat] alarm manager state-store="
++            << static_cast<bool>(storage);
+   if (storage) {
+     storage->RegisterKey(kRegisteredAlarms);
+   }
+@@ -389,6 +392,8 @@ void AlarmManager::OnAlarm(AlarmIterator it) {
+   CHECK(it.first != alarms_.end());
+   Alarm& alarm = *it.second;
+   ExtensionId extension_id_copy(it.first->first);
++  LOG(INFO) << "[vast-compat] alarm fired extension=" << extension_id_copy
++            << " name=" << (alarm.js_alarm ? alarm.js_alarm->name : std::string());
+   delegate_->OnAlarm(extension_id_copy, alarm);
+ 
+   // Update our scheduled time for the next alarm.
+@@ -563,6 +568,8 @@ void AlarmManager::RunWhenReady(const ExtensionId& extension_id,
+ void AlarmManager::OnExtensionLoaded(content::BrowserContext* browser_context,
+                                      const Extension* extension) {
+   StateStore* storage = ExtensionSystem::Get(browser_context_)->state_store();
++  LOG(INFO) << "[vast-compat] alarm extension-loaded id=" << extension->id()
++            << " state-store=" << static_cast<bool>(storage);
+   if (storage) {
+     bool is_unpacked = Manifest::IsUnpackedLocation(extension->location());
+     ready_actions_.insert(ReadyMap::value_type(extension->id(), ReadyQueue()));
+diff --git a/extensions/browser/api/runtime/runtime_api.cc b/extensions/browser/api/runtime/runtime_api.cc
+index 12e5589a68..e31c92df52 100644
+--- a/extensions/browser/api/runtime/runtime_api.cc
++++ b/extensions/browser/api/runtime/runtime_api.cc
+@@ -13,6 +13,7 @@
+ #include "base/functional/bind.h"
+ #include "base/lazy_instance.h"
+ #include "base/location.h"
++#include "base/logging.h"
+ #include "base/metrics/histogram_functions.h"
+ #include "base/notreached.h"
+ #include "base/one_shot_event.h"
+@@ -349,6 +350,8 @@ void RuntimeAPI::OnChromeUpdateAvailable() {
+ }
+ 
+ void RuntimeAPI::OnBackgroundHostStartup(const Extension* extension) {
++  LOG(INFO) << "[vast-compat] runtime startup observer id="
++            << extension->id();
+   RuntimeEventRouter::DispatchOnStartupEvent(browser_context_, extension->id());
+ }
+ 
+@@ -680,6 +683,8 @@ void RuntimeAPI::OnExtensionInstalledAndLoaded(
+     content::BrowserContext* browser_context,
+     const Extension* extension,
+     const base::Version& previous_version) {
++  LOG(INFO) << "[vast-compat] runtime installed observer id="
++            << extension->id() << " previous=" << previous_version.GetString();
+   base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+       FROM_HERE,
+       base::BindOnce(&RuntimeEventRouter::DispatchOnInstalledEvent,
+diff --git a/extensions/browser/api/web_request/web_request_api.h b/extensions/browser/api/web_request/web_request_api.h
+index 84720fa107..234dddc55e 100644
+--- a/extensions/browser/api/web_request/web_request_api.h
++++ b/extensions/browser/api/web_request/web_request_api.h
+@@ -258,6 +258,13 @@ class WebRequestAPI : public BrowserContextKeyedAPI,
+       AuthRequestCallback callback,
+       WebViewGuest* web_view_guest);
+ 
++  // The embedder may use the same auth request lookup with a composed URL
++  // loader proxy. The ProxySet does not become a second network handler.
++  ProxySet* proxy_set_for_composed_auth() { return proxies_.get(); }
++  base::WeakPtr<WebRequestAPI> GetWeakPtrForComposedAuth() {
++    return weak_factory_.GetWeakPtr();
++  }
++
+   // Starts proxying the connection with `factory`. This function can be called
+   // only when MayHaveProxies() returns true.
+   void ProxyWebSocket(
+diff --git a/extensions/browser/events/lazy_event_dispatch_util.cc b/extensions/browser/events/lazy_event_dispatch_util.cc
+index 4f62815a67..20fd9cacd1 100644
+--- a/extensions/browser/events/lazy_event_dispatch_util.cc
++++ b/extensions/browser/events/lazy_event_dispatch_util.cc
+@@ -44,6 +44,12 @@ void LazyEventDispatchUtil::RemoveObserver(Observer* observer) {
+   observers_.RemoveObserver(observer);
+ }
+ 
++void LazyEventDispatchUtil::SetPreviousVersionForNextInstall(
++    const ExtensionId& extension_id,
++    const std::string& previous_version) {
++  previous_versions_for_install_[extension_id] = previous_version;
++}
++
+ void LazyEventDispatchUtil::OnExtensionLoaded(
+     content::BrowserContext* browser_context,
+     const Extension* extension) {
+@@ -62,6 +68,7 @@ void LazyEventDispatchUtil::OnExtensionUninstalled(
+     const Extension* extension,
+     UninstallReason reason) {
+   RemovePendingOnInstallInfoFromPref(extension->id());
++  previous_versions_for_install_.erase(extension->id());
+ }
+ 
+ void LazyEventDispatchUtil::OnExtensionWillBeInstalled(
+@@ -112,6 +119,9 @@ void LazyEventDispatchUtil::StorePendingOnInstallInfoToPref(
+   base::DictValue pending_on_install_info;
+   base::Version previous_version = ExtensionRegistry::Get(browser_context_)
+                                        ->GetStoredVersion(extension->id());
++  auto supplied_version = previous_versions_for_install_.extract(extension->id());
++  if (supplied_version)
++    previous_version = base::Version(supplied_version.mapped());
+   pending_on_install_info.Set(kPrefPreviousVersion,
+                               previous_version.IsValid()
+                                   ? previous_version.GetString()
+diff --git a/extensions/browser/events/lazy_event_dispatch_util.h b/extensions/browser/events/lazy_event_dispatch_util.h
+index ff64cb0f3c..644706bb9e 100644
+--- a/extensions/browser/events/lazy_event_dispatch_util.h
++++ b/extensions/browser/events/lazy_event_dispatch_util.h
+@@ -5,6 +5,9 @@
+ #ifndef EXTENSIONS_BROWSER_EVENTS_LAZY_EVENT_DISPATCH_UTIL_H_
+ #define EXTENSIONS_BROWSER_EVENTS_LAZY_EVENT_DISPATCH_UTIL_H_
+ 
++#include <map>
++#include <string>
++
+ #include "base/memory/raw_ptr.h"
+ #include "base/observer_list.h"
+ #include "base/scoped_observation.h"
+@@ -50,6 +53,12 @@ class LazyEventDispatchUtil : public ExtensionRegistryObserver {
+   void AddObserver(Observer* observer);
+   void RemoveObserver(Observer* observer);
+ 
++  // A host that loads persisted extensions explicitly may know the previous
++  // version before ExtensionPrefs is updated, even when the registry has not
++  // yet been populated on this process start.
++  void SetPreviousVersionForNextInstall(const ExtensionId& extension_id,
++                                        const std::string& previous_version);
++
+   // ExtensionRegistryObserver:
+   void OnExtensionLoaded(content::BrowserContext* browser_context,
+                          const Extension* extension) override;
+@@ -69,6 +78,7 @@ class LazyEventDispatchUtil : public ExtensionRegistryObserver {
+ 
+   raw_ptr<content::BrowserContext> browser_context_;
+   base::ObserverList<Observer>::Unchecked observers_;
++  std::map<ExtensionId, std::string> previous_versions_for_install_;
+   base::ScopedObservation<ExtensionRegistry, ExtensionRegistryObserver>
+       extension_registry_observation_{this};
+ };
+diff --git a/extensions/browser/extension_navigation_throttle.cc b/extensions/browser/extension_navigation_throttle.cc
+index 8f225541ab..af8ae0d642 100644
+--- a/extensions/browser/extension_navigation_throttle.cc
++++ b/extensions/browser/extension_navigation_throttle.cc
+@@ -270,30 +270,35 @@ ExtensionNavigationThrottle::WillStartOrRedirectRequest() {
+     const Extension* owner_extension =
+         registry->enabled_extensions().GetByID(owner_extension_id);
+ 
+-    content::StoragePartitionConfig storage_partition_config =
+-        content::StoragePartitionConfig::CreateDefault(browser_context);
+-    bool is_guest = navigation_handle()
+-                        ->GetStartingSiteInstance()
+-                        ->GetSecurityPrincipal()
+-                        .IsGuest();
+-    if (is_guest) {
+-      storage_partition_config = navigation_handle()
+-                                     ->GetStartingSiteInstance()
+-                                     ->GetSecurityPrincipal()
+-                                     .GetStoragePartitionConfig();
+-    }
+-    CHECK_EQ(is_guest, navigation_handle()
+-                           ->GetStartingSiteInstance()
+-                           ->GetSecurityPrincipal()
+-                           .IsGuest());
+-
+-    bool allowed = true;
+-    url_request_util::AllowCrossRendererResourceLoadHelper(
+-        is_guest, target_extension, owner_extension,
+-        storage_partition_config.partition_name(), url.GetPath(),
+-        navigation_handle()->GetPageTransition(), &allowed);
+-    if (!allowed) {
+-      return content::NavigationThrottle::BLOCK_REQUEST;
++    // Electron also uses WebViewGuest for application-owned browser views.
++    // App-owned views fall through to the normal web-accessible-resource
++    // checks below instead of using the extension-owned <webview> rule.
++    if (owner_extension) {
++      content::StoragePartitionConfig storage_partition_config =
++          content::StoragePartitionConfig::CreateDefault(browser_context);
++      bool is_guest = navigation_handle()
++                          ->GetStartingSiteInstance()
++                          ->GetSecurityPrincipal()
++                          .IsGuest();
++      if (is_guest) {
++        storage_partition_config = navigation_handle()
++                                       ->GetStartingSiteInstance()
++                                       ->GetSecurityPrincipal()
++                                       .GetStoragePartitionConfig();
++      }
++      CHECK_EQ(is_guest, navigation_handle()
++                             ->GetStartingSiteInstance()
++                             ->GetSecurityPrincipal()
++                             .IsGuest());
++
++      bool allowed = true;
++      url_request_util::AllowCrossRendererResourceLoadHelper(
++          is_guest, target_extension, owner_extension,
++          storage_partition_config.partition_name(), url.GetPath(),
++          navigation_handle()->GetPageTransition(), &allowed);
++      if (!allowed) {
++        return content::NavigationThrottle::BLOCK_REQUEST;
++      }
+     }
+   }
+ #endif

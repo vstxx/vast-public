@@ -29,10 +29,13 @@ import { effectiveNativeGrants, hasPendingNativePermissions } from './extension-
 import { randomUUID } from 'node:crypto'
 import { readFile, stat } from 'node:fs/promises'
 import semver from 'semver'
-import { ExtensionManagedStore, type StagedManagedPackage } from './extension-managed-store.ts'
+import { ExtensionManagedStore, type ManagedRuntimeTransaction, type StagedManagedPackage } from './extension-managed-store.ts'
 import { ExtensionHubClient } from './extension-hub-client.ts'
+import { ICLOUD_PASSWORDS_EXTENSION_ID, ICloudUpstreamClient } from './icloud-upstream.ts'
 import { TRUSTED_VAST_HUB_KEYS } from './trusted-hub-keys.ts'
 import { PRODUCTION_EXTENSION_HUB_ORIGIN } from './extension-hub-config.ts'
+import type { Extension } from 'electron/main'
+import type { ChromePermissionRequest, ExtensionCompatibilityRuntime } from './extension-compatibility-runtime.ts'
 
 const EXTENSION_ID = /^[a-p]{32}$/
 
@@ -75,6 +78,15 @@ function extensionPageUrl(protocol: 'chrome-extension' | 'vast-extension', id: s
   return `${protocol}://${id}/${encodedPath}`
 }
 
+function chromeGrantSnapshot(record: InstalledExtensionRecord, manifest: Extension['manifest']): ChromePermissionRequest {
+  const optionalPermissions = new Set(Array.isArray(manifest.optional_permissions) ? manifest.optional_permissions : [])
+  const optionalOrigins = new Set(Array.isArray(manifest.optional_host_permissions) ? manifest.optional_host_permissions : [])
+  return {
+    permissions: record.grantedChromePermissions.filter((permission) => optionalPermissions.has(permission)),
+    origins: record.grantedChromeOrigins.filter((origin) => optionalOrigins.has(origin))
+  }
+}
+
 function sameRecordMetadata(record: InstalledExtensionRecord, validated: ValidatedExtensionManifest, id: string): boolean {
   return record.id === id &&
     record.path === validated.rootPath &&
@@ -112,8 +124,10 @@ export class ExtensionManager {
   private readonly contributions: ExtensionContributionRegistry
   private readonly managedStore: ExtensionManagedStore
   private readonly hubClient: ExtensionHubClient
+  private readonly upstreamClient: ICloudUpstreamClient
   private readonly nativeSurfacePreloadPath?: string
   private readonly reloadMatchingTabs?: (patterns: readonly string[]) => void | Promise<void>
+  private readonly compatibilityRuntime?: ExtensionCompatibilityRuntime
   private readonly runtime = new Map<string, ExtensionRuntimeStatus>()
   private readonly manifests = new Map<string, ValidatedExtensionManifest>()
   private readonly sessions = new Map<string, ExtensionSessionLike>()
@@ -133,8 +147,11 @@ export class ExtensionManager {
     userDataRoot: string
     sessionProvider: ExtensionSessionProvider
     hubOrigin?: string
+    appVersion?: string
+    upstreamClient?: ICloudUpstreamClient
     nativeSurfacePreloadPath?: string
     reloadMatchingTabs?: (patterns: readonly string[]) => void | Promise<void>
+    compatibilityRuntime?: ExtensionCompatibilityRuntime
     onChanged?: () => void
     onContributionsChanged?: (snapshot: VastExtensionContributionSnapshot) => void
   }) {
@@ -144,9 +161,11 @@ export class ExtensionManager {
     this.onContributionsChanged = options.onContributionsChanged
     this.storage = new ExtensionStorage(options.userDataRoot)
     this.managedStore = new ExtensionManagedStore(options.userDataRoot)
-    this.hubClient = new ExtensionHubClient(options.hubOrigin ?? PRODUCTION_EXTENSION_HUB_ORIGIN, TRUSTED_VAST_HUB_KEYS)
+    this.hubClient = new ExtensionHubClient(options.hubOrigin ?? PRODUCTION_EXTENSION_HUB_ORIGIN, TRUSTED_VAST_HUB_KEYS, options.appVersion ?? '0.0.0')
+    this.upstreamClient = options.upstreamClient ?? new ICloudUpstreamClient()
     this.nativeSurfacePreloadPath = options.nativeSurfacePreloadPath
     this.reloadMatchingTabs = options.reloadMatchingTabs
+    this.compatibilityRuntime = options.compatibilityRuntime
     this.contributions = new ExtensionContributionRegistry(
       (id) => this.registry.get(id)?.name ?? 'Extension',
       (snapshot) => this.onContributionsChanged?.(snapshot)
@@ -160,6 +179,25 @@ export class ExtensionManager {
       await this.removeLegacyBundledCatalogInstallations()
       this.eligiblePartitions = new Set(extensionPartitionsForWorkspaces(workspaces))
       this.initialized = true
+
+      for (const storedRecord of this.registry.list()) {
+        if (storedRecord.source === 'unpacked' || storedRecord.source === 'bundled') continue
+        try {
+          const legacyManifest = await validateExtensionManifest(storedRecord.path)
+          const stableRoot = this.managedStore.currentRoot(storedRecord.id)
+          // A key makes the Chromium identity path-independent. Keyless legacy
+          // installs keep their old physical path as the stable runtime root;
+          // signed version copies move to the separate releases directory.
+          if (legacyManifest.rootPath !== stableRoot && !legacyManifest.manifest.key) {
+            await this.managedStore.adoptLegacyRuntimePath(storedRecord.id, legacyManifest.rootPath)
+            continue
+          }
+          const currentRoot = await this.managedStore.ensureCurrent(storedRecord.id, storedRecord.version)
+          if (storedRecord.path !== currentRoot) await this.registry.patch(storedRecord.id, { path: currentRoot })
+        } catch (error) {
+          this.status(storedRecord.id).validationError = errorMessage(error)
+        }
+      }
 
       for (const storedRecord of this.registry.list()) {
         if (!storedRecord.enabled) continue
@@ -246,7 +284,9 @@ export class ExtensionManager {
         installedAt: now,
         updatedAt: now,
         allowFileAccess: false,
-        grantedPermissions: []
+        grantedPermissions: [],
+        grantedChromePermissions: [],
+        grantedChromeOrigins: []
       }
       await this.registry.upsert(record)
       this.manifests.set(record.id, validated)
@@ -283,10 +323,28 @@ export class ExtensionManager {
       await this.cleanupPendingInstalls()
       if (!EXTENSION_ID.test(extensionId)) throw new Error('Invalid extension ID.')
       const existing = this.registry.get(extensionId)
+      const details = await this.hubClient.details(extensionId)
+      if (details.distribution === 'upstream') {
+        if (extensionId !== ICLOUD_PASSWORDS_EXTENSION_ID) throw new Error('This upstream extension is not allowed by Vast.')
+        if (existing && existing.source !== 'upstream') throw new Error('Another extension installation already uses this extension ID.')
+        const upstream = await this.upstreamClient.latest()
+        if (!upstream) throw new Error('The upstream iCloud Passwords package is unavailable.')
+        const staged = await this.managedStore.stageUpstreamPackage(upstream)
+        try {
+          const validated = await validateExtensionManifest(staged.contentRoot)
+          if (chromeExtensionId(validated.rootPath, validated.manifest.key) !== ICLOUD_PASSWORDS_EXTENSION_ID) throw new Error('The upstream extension identity changed during staging.')
+          const preview = await this.packagePreview(staged, validated, 'Apple')
+          this.pendingInstalls.set(preview.token, { token: preview.token, expiresAt: Date.now() + PENDING_INSTALL_TTL_MS, preview, staged })
+          return preview
+        } catch (error) {
+          await this.managedStore.discard(staged).catch(() => undefined)
+          throw error
+        }
+      }
       if (existing && existing.source !== 'hub') throw new Error('Another extension installation already uses this extension ID.')
-      const [details, descriptor] = await Promise.all([this.hubClient.details(extensionId), this.hubClient.descriptor(extensionId)])
+      const descriptor = await this.hubClient.descriptor(extensionId)
       if (descriptor.descriptor.publisher_id !== details.publisher.id || descriptor.descriptor.version !== details.version) throw new Error('Vast Extensions returned inconsistent release metadata.')
-      const previous = existing ? await this.permissionSnapshotForRecord(existing) : { chrome: [], hosts: [], vast: [] }
+      const previous = existing ? await this.requiredPermissionSnapshotForRecord(existing) : { chrome: [], hosts: [], vast: [] }
       const escalation = permissionEscalation(previous, descriptor.descriptor.permissions)
       const token = randomUUID()
       const preview: ExtensionPackagePreview = {
@@ -298,7 +356,7 @@ export class ExtensionManager {
         publisherId: details.publisher.id,
         publisherName: details.publisher.name,
         source: 'hub',
-        trust: 'official',
+        trust: details.publisher.verified ? 'official' : 'reviewed',
         kind: details.kind,
         permissions: descriptor.descriptor.permissions,
         isUpdate: Boolean(existing),
@@ -325,7 +383,7 @@ export class ExtensionManager {
       try {
         const validated = await validateExtensionManifest(staged.contentRoot)
         this.assertPreparedPackage(pending, staged, validated)
-        return await this.activateManagedPackage(staged, validated, pending.preview.publisherName, true)
+        return await this.activateManagedPackage(staged, validated, pending.preview.publisherName, true, pending.preview.trust)
       } catch (error) {
         await this.managedStore.discard(staged).catch(() => undefined)
         throw error
@@ -361,7 +419,7 @@ export class ExtensionManager {
   async checkForUpdates(extensionId?: string): Promise<VastExtensionInfo[]> {
     return this.enqueue(async () => {
       await this.ensureInitialized()
-      const records = this.registry.list().filter((record) => record.source === 'hub' && (!extensionId || record.id === extensionId))
+      const records = this.registry.list().filter((record) => (record.source === 'hub' || record.source === 'upstream') && (!extensionId || record.id === extensionId))
       if (extensionId && !EXTENSION_ID.test(extensionId)) throw new Error('Invalid extension ID.')
       const results: VastExtensionInfo[] = []
       for (let record of records) {
@@ -369,13 +427,37 @@ export class ExtensionManager {
         try {
           record = (await this.registry.patch(record.id, { updateState: 'checking', updateError: undefined, lastUpdateCheckAt: Date.now() })) ?? record
           this.onChanged?.()
+          if (record.source === 'upstream') {
+            const upstream = await this.upstreamClient.latest(record.version)
+            if (!upstream) {
+              record = (await this.registry.patch(record.id, { updateState: 'up-to-date', availableVersion: undefined, updateError: undefined, lastUpdateCheckAt: Date.now() })) ?? record
+            } else if (record.failedUpdateVersion === upstream.version) {
+              record = (await this.registry.patch(record.id, { updateState: 'failed', availableVersion: upstream.version, updateError: 'This release previously failed to activate.' })) ?? record
+            } else {
+              candidate = await this.managedStore.stageUpstreamPackage(upstream)
+              const validated = await validateExtensionManifest(candidate.contentRoot)
+              const permissions = this.permissionSnapshot(validated)
+              const escalation = permissionEscalation(await this.permissionSnapshotForRecord(record), permissions)
+              if (hasPermissionEscalation(escalation)) {
+                await this.managedStore.discard(candidate)
+                candidate = undefined
+                record = (await this.registry.patch(record.id, { updateState: 'pending-approval', availableVersion: upstream.version, updateError: undefined })) ?? record
+              } else {
+                record = (await this.registry.patch(record.id, { updateState: 'updating', availableVersion: upstream.version, updateError: undefined })) ?? record
+                record = this.registry.get((await this.activateManagedPackage(candidate, validated, 'Apple', false, 'upstream')).id) ?? record
+                candidate = undefined
+              }
+            }
+            results.push(await this.infoFor(record))
+            continue
+          }
           const descriptor = await this.hubClient.descriptor(record.id)
           if (!semver.gt(descriptor.descriptor.version, record.version)) {
             record = (await this.registry.patch(record.id, { updateState: 'up-to-date', availableVersion: undefined, updateError: undefined, lastUpdateCheckAt: Date.now() })) ?? record
           } else if (record.failedUpdateVersion === descriptor.descriptor.version) {
             record = (await this.registry.patch(record.id, { updateState: 'failed', availableVersion: descriptor.descriptor.version, updateError: 'This release previously failed to activate.' })) ?? record
           } else {
-            const escalation = permissionEscalation(await this.permissionSnapshotForRecord(record), descriptor.descriptor.permissions)
+            const escalation = permissionEscalation(await this.requiredPermissionSnapshotForRecord(record), descriptor.descriptor.permissions)
             if (hasPermissionEscalation(escalation)) {
               record = (await this.registry.patch(record.id, { updateState: 'pending-approval', availableVersion: descriptor.descriptor.version, updateError: undefined })) ?? record
             } else {
@@ -403,7 +485,19 @@ export class ExtensionManager {
     return this.enqueue(async () => {
       await this.ensureInitialized()
       const record = this.requireRecord(extensionId)
-      if (record.source !== 'hub' || record.updateState !== 'pending-approval' || !record.availableVersion) throw new Error('This extension has no update awaiting approval.')
+      if ((record.source !== 'hub' && record.source !== 'upstream') || record.updateState !== 'pending-approval' || !record.availableVersion) throw new Error('This extension has no update awaiting approval.')
+      if (record.source === 'upstream') {
+        const upstream = await this.upstreamClient.latest(record.version)
+        if (!upstream || upstream.version !== record.availableVersion) throw new Error('The pending upstream update is no longer available.')
+        const staged = await this.managedStore.stageUpstreamPackage(upstream)
+        try {
+          const validated = await validateExtensionManifest(staged.contentRoot)
+          return await this.activateManagedPackage(staged, validated, 'Apple', true, 'upstream')
+        } catch (error) {
+          await this.managedStore.discard(staged).catch(() => undefined)
+          throw error
+        }
+      }
       const descriptor = await this.hubClient.descriptor(extensionId)
       if (descriptor.descriptor.version !== record.availableVersion || !semver.gt(descriptor.descriptor.version, record.version)) throw new Error('The pending update is no longer available.')
       const bytes = await this.hubClient.download(descriptor)
@@ -443,6 +537,7 @@ export class ExtensionManager {
       const validated = this.manifests.get(record.id) ?? await validateExtensionManifest(record.path)
       await this.stopNative(record.id, 'stopped')
       await this.unloadRecordEverywhere(record.id)
+      if (changed) await this.compatibilityRuntime?.removePrivacyControl(record.runtimeExtensionId ?? record.id)
       this.status(record.id).errors.clear()
       if (changed) await this.reloadContentScriptTabsAfterToggle(record, validated)
       this.onChanged?.()
@@ -455,11 +550,14 @@ export class ExtensionManager {
       await this.ensureInitialized()
       const previous = this.requireRecord(id)
       await this.stopNative(previous.id, 'stopped')
-      await this.unloadRecordEverywhere(previous.id)
       const refreshed = await this.refreshRecord(previous)
-      const record = refreshed.record.enabled
-        ? await this.loadRecordEverywhere(refreshed.record, refreshed.validated)
-        : refreshed.record
+      let record = refreshed.record
+      if (record.enabled && this.canReloadRecordNatively(record.id)) {
+        await this.reloadRecordEverywhere(record.id)
+      } else {
+        await this.unloadRecordEverywhere(previous.id)
+        if (record.enabled) record = await this.loadRecordEverywhere(record, refreshed.validated)
+      }
       if (record.enabled) await this.startNativeIfAllowed(record, refreshed.validated)
       this.onChanged?.()
       return this.infoFor(record)
@@ -471,11 +569,12 @@ export class ExtensionManager {
       await this.ensureInitialized()
       const record = this.registry.get(id)
       if (!record) return false
-      const validated = record.source === 'hub' || record.source === 'bundled'
+      const validated = record.source === 'hub' || record.source === 'upstream' || record.source === 'bundled'
         ? this.manifests.get(record.id) ?? await validateExtensionManifest(record.path)
         : undefined
       await this.stopNative(id, 'stopped')
       await this.unloadRecordEverywhere(id)
+      await this.compatibilityRuntime?.removePrivacyControl(record.runtimeExtensionId ?? record.id)
       const removed = await this.registry.remove(id)
       this.runtime.delete(id)
       this.manifests.delete(id)
@@ -637,6 +736,66 @@ export class ExtensionManager {
     try { return new URL(url).origin === surface.origin } catch { return false }
   }
 
+  getChromePermissionGrants(extension: Pick<Extension, 'id' | 'path' | 'manifest'>): ChromePermissionRequest {
+    const record = this.recordForChromeExtension(extension)
+    return record ? chromeGrantSnapshot(record, extension.manifest) : { permissions: [], origins: [] }
+  }
+
+  async addChromePermissionGrants(extension: Pick<Extension, 'id' | 'path' | 'manifest'>, added: ChromePermissionRequest): Promise<boolean> {
+    return this.enqueue(async () => {
+      const record = this.recordForChromeExtension(extension)
+      if (!record || !record.enabled) return false
+      const current = chromeGrantSnapshot(record, extension.manifest)
+      const optionalPermissions = new Set(Array.isArray(extension.manifest.optional_permissions) ? extension.manifest.optional_permissions : [])
+      const optionalOrigins = new Set(Array.isArray(extension.manifest.optional_host_permissions) ? extension.manifest.optional_host_permissions : [])
+      const requestedPermissions = added.permissions ?? []
+      const requestedOrigins = added.origins ?? []
+      if (requestedPermissions.some((permission) => !optionalPermissions.has(permission)) || requestedOrigins.some((origin) => !optionalOrigins.has(origin))) return false
+      const next = await this.registry.setGrantedChromePermissions(
+        record.id,
+        [...new Set([...(current.permissions ?? []), ...requestedPermissions])],
+        [...new Set([...(current.origins ?? []), ...requestedOrigins])]
+      )
+      if (!next) return false
+      this.onChanged?.()
+      return true
+    })
+  }
+
+  async removeChromePermissionGrants(extension: Pick<Extension, 'id' | 'path' | 'manifest'>, removed: ChromePermissionRequest): Promise<boolean> {
+    return this.enqueue(async () => {
+      const record = this.recordForChromeExtension(extension)
+      if (!record || !record.enabled) return false
+      const current = chromeGrantSnapshot(record, extension.manifest)
+      const removedPermissions = new Set(removed.permissions ?? [])
+      const removedOrigins = new Set(removed.origins ?? [])
+      const next = await this.registry.setGrantedChromePermissions(
+        record.id,
+        (current.permissions ?? []).filter((permission) => !removedPermissions.has(permission)),
+        (current.origins ?? []).filter((origin) => !removedOrigins.has(origin))
+      )
+      if (!next) return false
+      this.onChanged?.()
+      return true
+    })
+  }
+
+  attachCompatibilityTab(contents: import('electron/main').WebContents, window: import('electron/main').BrowserWindow): void {
+    this.compatibilityRuntime?.attachTab(contents, window)
+  }
+
+  selectCompatibilityTab(contents: import('electron/main').WebContents): void {
+    this.compatibilityRuntime?.selectTab(contents)
+  }
+
+  confirmCompatibilityTab(
+    requestId: string,
+    contents: import('electron/main').WebContents,
+    window: import('electron/main').BrowserWindow
+  ): boolean {
+    return this.compatibilityRuntime?.confirmCreatedTab(requestId, contents, window) ?? false
+  }
+
   dispatchContribution(key: string, context?: Record<string, unknown>): boolean {
     const owner = this.contributions.ownerFor(key)
     if (!owner) return false
@@ -667,6 +826,13 @@ export class ExtensionManager {
     const result = this.operationQueue.catch(() => undefined).then(operation)
     this.operationQueue = result.then(() => undefined, () => undefined)
     return result
+  }
+
+  private recordForChromeExtension(extension: Pick<Extension, 'id' | 'path'>): InstalledExtensionRecord | undefined {
+    const pathKey = (value: string): string => process.platform === 'win32' ? value.toLowerCase() : value
+    return this.registry.list().find((record) =>
+      record.runtimeExtensionId === extension.id || pathKey(record.path) === pathKey(extension.path)
+    )
   }
 
   private async ensureInitialized(): Promise<void> {
@@ -751,9 +917,22 @@ export class ExtensionManager {
     }
   }
 
+  private requiredPermissionSnapshot(validated: ValidatedExtensionManifest): ExtensionPermissionSnapshot {
+    return {
+      chrome: [...validated.requiredPermissions].sort(),
+      hosts: [...validated.requiredHostPermissions].sort(),
+      vast: [...(validated.vast?.permissions ?? [])].sort()
+    }
+  }
+
   private async permissionSnapshotForRecord(record: InstalledExtensionRecord): Promise<ExtensionPermissionSnapshot> {
     const validated = this.manifests.get(record.id) ?? await validateExtensionManifest(record.path)
     return this.permissionSnapshot(validated)
+  }
+
+  private async requiredPermissionSnapshotForRecord(record: InstalledExtensionRecord): Promise<ExtensionPermissionSnapshot> {
+    const validated = this.manifests.get(record.id) ?? await validateExtensionManifest(record.path)
+    return this.requiredPermissionSnapshot(validated)
   }
 
   private samePermissions(left: ExtensionPermissionSnapshot, right: ExtensionPermissionSnapshot): boolean {
@@ -772,8 +951,8 @@ export class ExtensionManager {
     const existing = this.registry.get(metadata.extension_id)
     if (existing?.source === 'unpacked') throw new Error('A developer extension already uses this extension ID.')
     if (existing?.source === 'bundled') throw new Error('Extensions included with Vast cannot be replaced by a package.')
-    if (existing?.source === 'hub' && staged.source !== 'hub') throw new Error('A local package cannot replace an extension installed from Vast Extensions.')
-    if (existing && semver.lt(metadata.version, existing.version)) throw new Error('Extension package downgrade is not allowed.')
+    if ((existing?.source === 'hub' && staged.source !== 'hub') || (existing?.source === 'upstream' && staged.source !== 'upstream')) throw new Error('A managed package cannot replace an extension from a different distribution channel.')
+    if (existing && !semver.gt(metadata.version, existing.version)) throw new Error('Extension package downgrade or same-version replay is not allowed.')
     if (existing?.publisherId && metadata.publisher_id && existing.publisherId !== metadata.publisher_id) throw new Error('Extension publisher identity does not match the installed extension.')
     const permissions = this.permissionSnapshot(validated)
     const previous = existing ? await this.permissionSnapshotForRecord(existing) : { chrome: [], hosts: [], vast: [] }
@@ -786,7 +965,7 @@ export class ExtensionManager {
       ...(metadata.publisher_id ? { publisherId: metadata.publisher_id } : {}),
       publisherName,
       source: staged.source,
-      trust: staged.source === 'hub' || Boolean(staged.parsed.verifiedKeyId) ? 'official' : 'local',
+      trust: staged.source === 'upstream' ? 'upstream' : staged.source === 'hub' ? 'reviewed' : Boolean(staged.parsed.verifiedKeyId) ? 'official' : 'local',
       kind: validated.kind,
       permissions,
       isUpdate: Boolean(existing),
@@ -797,7 +976,8 @@ export class ExtensionManager {
   private assertPreparedPackage(pending: PendingPackageInstall, staged: StagedManagedPackage, validated: ValidatedExtensionManifest): void {
     const metadata = staged.parsed.metadata
     if (pending.preview.extensionId !== metadata.extension_id || pending.preview.version !== metadata.version || pending.preview.source !== staged.source) throw new Error('Prepared extension package identity changed.')
-    if (!this.samePermissions(pending.preview.permissions, this.permissionSnapshot(validated))) throw new Error('Prepared extension package permissions changed.')
+    const permissions = pending.descriptor ? this.requiredPermissionSnapshot(validated) : this.permissionSnapshot(validated)
+    if (!this.samePermissions(pending.preview.permissions, permissions)) throw new Error('Prepared extension package permissions changed.')
     if (pending.descriptor) this.assertDescriptorPackage(pending.descriptor, staged, validated)
   }
 
@@ -807,57 +987,75 @@ export class ExtensionManager {
     if (staged.source !== 'hub' || !staged.parsed.verifiedKeyId || expected.extension_id !== metadata.extension_id || expected.publisher_id !== metadata.publisher_id || expected.version !== metadata.version || expected.sha256 !== staged.parsed.packageSha256 || expected.key_id !== staged.parsed.verifiedKeyId) {
       throw new Error('Verified release metadata does not match the extension package.')
     }
-    if (!this.samePermissions(expected.permissions, this.permissionSnapshot(validated))) throw new Error('Signed release permissions do not match the extension package.')
+    if (!this.samePermissions(expected.permissions, this.requiredPermissionSnapshot(validated))) throw new Error('Signed release permissions do not match the extension package.')
   }
 
-  private async activateManagedPackage(staged: StagedManagedPackage, validated: ValidatedExtensionManifest, publisherName: string, approveRequestedPermissions: boolean): Promise<VastExtensionInfo> {
+  private async activateManagedPackage(staged: StagedManagedPackage, validated: ValidatedExtensionManifest, publisherName: string, approveRequestedPermissions: boolean, trustOverride?: ExtensionPackagePreview['trust']): Promise<VastExtensionInfo> {
     const metadata = staged.parsed.metadata
     const previous = this.registry.get(metadata.extension_id)
-    if (previous?.source === 'unpacked' || previous?.source === 'bundled' || (previous?.source === 'hub' && staged.source !== 'hub')) throw new Error('Managed extension source cannot replace this installation.')
+    if (previous?.source === 'unpacked' || previous?.source === 'bundled' || (previous?.source === 'hub' && staged.source !== 'hub') || (previous?.source === 'upstream' && staged.source !== 'upstream')) throw new Error('Managed extension source cannot replace this installation.')
     if (previous?.publisherId && previous.publisherId !== metadata.publisher_id) throw new Error('Extension publisher identity does not match the installed extension.')
-    if (previous && semver.lt(metadata.version, previous.version)) throw new Error('Extension package downgrade is not allowed.')
-    const destination = await this.managedStore.commit(staged)
+    if (previous && !semver.gt(metadata.version, previous.version)) throw new Error('Extension package downgrade or same-version replay is not allowed.')
+    const versionRoot = await this.managedStore.commit(staged)
     try {
-      validated = await validateExtensionManifest(destination)
+      validated = await validateExtensionManifest(versionRoot)
     } catch (error) {
       if (!previous || metadata.version !== previous.version) await this.managedStore.removeVersion(metadata.extension_id, metadata.version).catch(() => undefined)
       throw new Error(`Extension activation failed before runtime startup. ${errorMessage(error)}`)
     }
-    const now = Date.now()
-    const grantedPermissions = approveRequestedPermissions
-      ? [...(validated.vast?.permissions ?? [])]
-      : effectiveNativeGrants(validated.vast?.permissions ?? [], previous?.grantedPermissions ?? [])
-    const record: InstalledExtensionRecord = {
-      id: metadata.extension_id,
-      name: validated.manifest.name,
-      version: validated.manifest.version,
-      ...(validated.manifest.description ? { description: validated.manifest.description } : {}),
-      path: destination,
-      enabled: previous?.enabled ?? true,
-      source: staged.source,
-      trust: staged.source === 'hub' || Boolean(staged.parsed.verifiedKeyId) ? 'official' : 'local',
-      ...(metadata.publisher_id ? { publisherId: metadata.publisher_id } : {}),
-      publisherName,
-      packageSha256: staged.parsed.packageSha256,
-      ...(staged.parsed.verifiedKeyId ? { signatureKeyId: staged.parsed.verifiedKeyId } : {}),
-      ...(previous && previous.version !== metadata.version ? { previousVersion: previous.version } : previous?.previousVersion ? { previousVersion: previous.previousVersion } : {}),
-      updateState: staged.source === 'hub' ? 'up-to-date' : 'not-applicable',
-      runtime: validated.kind,
-      manifestVersion: validated.manifest.manifest_version,
-      installedAt: previous?.installedAt ?? now,
-      updatedAt: now,
-      allowFileAccess: false,
-      grantedPermissions
+    let transaction: ManagedRuntimeTransaction | undefined
+    try {
+      transaction = await this.managedStore.prepareRuntime(metadata.extension_id, metadata.version)
+    } catch (error) {
+      if (!previous || metadata.version !== previous.version) await this.managedStore.removeVersion(metadata.extension_id, metadata.version).catch(() => undefined)
+      throw new Error(`Extension activation failed while preparing the stable runtime path. ${errorMessage(error)}`)
     }
     if (previous) {
       await this.stopNative(previous.id, 'stopped')
       await this.unloadRecordEverywhere(previous.id)
     }
-    await this.registry.upsert(record)
-    this.manifests.set(record.id, validated)
+    let record: InstalledExtensionRecord | undefined
+    let stateActivated = false
     try {
+      const currentRoot = await this.managedStore.swapRuntime(transaction)
+      validated = await validateExtensionManifest(currentRoot)
+      const runtimeExtensionId = validated.kind === 'vast'
+        ? undefined
+        : previous?.runtimeExtensionId
+      const now = Date.now()
+      const grantedPermissions = approveRequestedPermissions
+        ? [...(validated.vast?.permissions ?? [])]
+        : effectiveNativeGrants(validated.vast?.permissions ?? [], previous?.grantedPermissions ?? [])
+      record = {
+        id: metadata.extension_id,
+        ...(runtimeExtensionId ? { runtimeExtensionId } : {}),
+        ...(staged.source === 'upstream' ? { upstreamExtensionId: metadata.extension_id } : previous?.upstreamExtensionId ? { upstreamExtensionId: previous.upstreamExtensionId } : {}),
+        name: validated.manifest.name,
+        version: validated.manifest.version,
+        ...(validated.manifest.description ? { description: validated.manifest.description } : {}),
+        path: currentRoot,
+        enabled: previous?.enabled ?? true,
+        source: staged.source,
+        trust: trustOverride ?? previous?.trust ?? (staged.source === 'upstream' ? 'upstream' : staged.source === 'hub' ? 'reviewed' : Boolean(staged.parsed.verifiedKeyId) ? 'official' : 'local'),
+        ...(metadata.publisher_id ? { publisherId: metadata.publisher_id } : {}),
+        publisherName,
+        packageSha256: staged.parsed.packageSha256,
+        ...(staged.parsed.verifiedKeyId ? { signatureKeyId: staged.parsed.verifiedKeyId } : {}),
+        ...(previous && previous.version !== metadata.version ? { previousVersion: previous.version } : previous?.previousVersion ? { previousVersion: previous.previousVersion } : {}),
+        updateState: staged.source === 'hub' || staged.source === 'upstream' ? 'up-to-date' : 'not-applicable',
+        runtime: validated.kind,
+        manifestVersion: validated.manifest.manifest_version,
+        installedAt: previous?.installedAt ?? now,
+        updatedAt: now,
+        allowFileAccess: false,
+        grantedPermissions,
+        grantedChromePermissions: previous?.grantedChromePermissions ?? [],
+        grantedChromeOrigins: previous?.grantedChromeOrigins ?? []
+      }
+      await this.registry.upsert(record)
+      this.manifests.set(record.id, validated)
       if (record.enabled) {
-        await this.loadRecordEverywhere(record, validated)
+        record = await this.loadRecordEverywhere(record, validated)
         await this.startNativeIfAllowed(record, validated)
       }
       const info = await this.infoFor(record)
@@ -865,11 +1063,18 @@ export class ExtensionManager {
       const nativeFailed = Boolean(validated.vast) && info.native.state === 'error'
       if (chromeFailed || nativeFailed) throw new Error(info.native.error ?? info.chrome.error ?? 'Extension runtime stopped unexpectedly.')
       await this.managedStore.activate(staged)
+      stateActivated = true
+      await this.managedStore.commitRuntime(transaction).catch((error) => {
+        console.warn(`[extensions:lifecycle] Could not remove the old runtime copy for ${record?.name ?? metadata.extension_id}: ${errorMessage(error)}`)
+      })
       this.onChanged?.()
       return info
     } catch (error) {
-      await this.stopNative(record.id, 'stopped')
-      await this.unloadRecordEverywhere(record.id)
+      if (record) {
+        await this.stopNative(record.id, 'stopped')
+        await this.unloadRecordEverywhere(record.id)
+      }
+      if (!stateActivated) await this.managedStore.rollbackRuntime(transaction).catch(() => undefined)
       if (previous) {
         await this.registry.upsert(previous)
         const previousManifest = await validateExtensionManifest(previous.path)
@@ -881,13 +1086,13 @@ export class ExtensionManager {
         await this.managedStore.markFailed(previous.id, metadata.version)
         await this.registry.patch(previous.id, {
           failedUpdateVersion: metadata.version,
-          updateState: previous.source === 'hub' ? 'failed' : previous.updateState,
+          updateState: previous.source === 'hub' || previous.source === 'upstream' ? 'failed' : previous.updateState,
           updateError: errorMessage(error)
         })
-        if (metadata.version !== previous.version) await this.managedStore.removeVersion(record.id, metadata.version).catch(() => undefined)
+        if (metadata.version !== previous.version) await this.managedStore.removeVersion(metadata.extension_id, metadata.version).catch(() => undefined)
       } else {
-        await this.registry.remove(record.id)
-        await this.managedStore.remove(record.id).catch(() => undefined)
+        await this.registry.remove(metadata.extension_id)
+        await this.managedStore.remove(metadata.extension_id).catch(() => undefined)
       }
       this.onChanged?.()
       throw new Error(`Extension activation failed; the previous version was restored. ${errorMessage(error)}`)
@@ -910,7 +1115,7 @@ export class ExtensionManager {
   }
 
   private async reloadContentScriptTabsAfterToggle(record: InstalledExtensionRecord, validated: ValidatedExtensionManifest): Promise<void> {
-    if ((record.source !== 'hub' && record.source !== 'bundled') || !this.reloadMatchingTabs) return
+    if ((record.source !== 'hub' && record.source !== 'upstream' && record.source !== 'bundled') || !this.reloadMatchingTabs) return
     const patterns = [...new Set((validated.manifest.content_scripts ?? []).flatMap((entry) => entry.matches ?? []))]
     if (patterns.length === 0) return
     try {
@@ -939,11 +1144,14 @@ export class ExtensionManager {
   ): Promise<{ record: InstalledExtensionRecord; validated: ValidatedExtensionManifest }> {
     const validated = suppliedManifest ?? await validateExtensionManifest(storedRecord.path)
     const id = storedRecord.id
+    const runtimeExtensionId = validated.kind === 'vast' ? undefined : storedRecord.runtimeExtensionId
+    const chromeGrants = chromeGrantSnapshot(storedRecord, validated.manifest)
     let record = storedRecord
-    if (!sameRecordMetadata(storedRecord, validated, id)) {
+    if (!sameRecordMetadata(storedRecord, validated, id) || storedRecord.runtimeExtensionId !== runtimeExtensionId) {
       record = {
         ...storedRecord,
         id,
+        ...(runtimeExtensionId ? { runtimeExtensionId } : { runtimeExtensionId: undefined }),
         name: validated.manifest.name,
         version: validated.manifest.version,
         ...(validated.manifest.description ? { description: validated.manifest.description } : { description: undefined }),
@@ -951,6 +1159,8 @@ export class ExtensionManager {
         manifestVersion: validated.manifest.manifest_version,
         runtime: validated.kind,
         grantedPermissions: effectiveNativeGrants(validated.vast?.permissions ?? [], storedRecord.grantedPermissions),
+        grantedChromePermissions: chromeGrants.permissions ?? [],
+        grantedChromeOrigins: chromeGrants.origins ?? [],
         updatedAt: Date.now(),
         allowFileAccess: false
       }
@@ -1011,6 +1221,9 @@ export class ExtensionManager {
       try {
         const actualId = await this.loadRecordIntoPartition(record, validated, partition)
         if (!actualId) throw new Error('Electron did not return an extension runtime ID.')
+        if (!record.runtimeExtensionId) {
+          record = (await this.registry.patch(record.id, { runtimeExtensionId: actualId })) ?? { ...record, runtimeExtensionId: actualId }
+        }
       } catch (error) {
         this.status(record.id).errors.set(partition, errorMessage(error))
         console.warn(`[extensions] Could not load ${record.name} into a workspace session: ${errorMessage(error)}`)
@@ -1026,16 +1239,66 @@ export class ExtensionManager {
   ): Promise<string> {
     const status = this.status(record.id)
     const targetSession = this.sessionFor(partition)
+    if (this.compatibilityRuntime) {
+      if (!this.compatibilityRuntime.enabled) {
+        throw new Error(`Chrome extension compatibility is disabled: ${this.compatibilityRuntime.reason}.`)
+      }
+      try {
+        await this.compatibilityRuntime.prepareSession(targetSession as import('electron/main').Session)
+      } catch {
+        await this.unloadChromeExtensionsAfterCompatibilityFailure()
+        throw new Error('Chrome extension compatibility initialization failed and was disabled.')
+      }
+      if (!this.compatibilityRuntime.enabled) {
+        await this.unloadChromeExtensionsAfterCompatibilityFailure()
+        throw new Error('Chrome extension compatibility initialization failed and was disabled.')
+      }
+    }
     const loadedId = status.loaded.get(partition)
     if (loadedId && targetSession.extensions.getExtension(loadedId)) {
       status.errors.delete(partition)
       return loadedId
     }
     const extension = await targetSession.extensions.loadExtension(validated.rootPath, { allowFileAccess: false })
+    if (record.runtimeExtensionId && extension.id !== record.runtimeExtensionId) {
+      targetSession.extensions.removeExtension(extension.id)
+      throw new Error(`Extension runtime identity changed from ${record.runtimeExtensionId} to ${extension.id}.`)
+    }
     status.loaded.set(partition, extension.id)
     status.errors.delete(partition)
     status.validationError = undefined
     return extension.id
+  }
+
+  private async unloadChromeExtensionsAfterCompatibilityFailure(): Promise<void> {
+    for (const storedRecord of this.registry.list()) {
+      await this.unloadRecordEverywhere(storedRecord.id)
+    }
+  }
+
+  private canReloadRecordNatively(id: string): boolean {
+    const loadedPartitions = [...this.status(id).loaded.keys()]
+    return loadedPartitions.length > 0 && loadedPartitions.every((partition) =>
+      typeof this.sessions.get(partition)?.extensions.reloadExtension === 'function'
+    )
+  }
+
+  private async reloadRecordEverywhere(id: string): Promise<void> {
+    const status = this.status(id)
+    for (const [partition, extensionId] of status.loaded) {
+      try {
+        const targetSession = this.sessions.get(partition)
+        const reloadExtension = targetSession?.extensions.reloadExtension
+        if (!targetSession || !reloadExtension || !targetSession.extensions.getExtension(extensionId)) {
+          throw new Error('The loaded extension is unavailable for native reload.')
+        }
+        reloadExtension.call(targetSession.extensions, extensionId)
+        status.errors.delete(partition)
+      } catch (error) {
+        status.errors.set(partition, errorMessage(error))
+        throw error
+      }
+    }
   }
 
   private async unloadRecordEverywhere(id: string): Promise<void> {
@@ -1072,7 +1335,7 @@ export class ExtensionManager {
     const compatibility = validated && validated.kind === 'vast'
       ? { compatibility: validated.nativeCompatibilityError ? 'unsupported' as const : 'compatible' as const, summary: validated.nativeCompatibilityError ?? 'Built for the Vast Native Extension API.', warnings: validated.nativeCompatibilityError ? [validated.nativeCompatibilityError] : [] }
       : validated
-      ? analyzeExtensionCompatibility(validated)
+      ? analyzeExtensionCompatibility(validated, this.compatibilityRuntime?.enabled ? 'patched-electron-ece' : 'stock-electron')
       : {
           compatibility: 'unsupported' as const,
           summary: 'The unpacked extension directory or manifest is unavailable.',

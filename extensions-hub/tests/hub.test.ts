@@ -55,6 +55,28 @@ async function fixturePackage(id: string, version = '1.0.0', source = 'globalThi
   })
 }
 
+async function seedPublishedPasswordManager(id: string): Promise<void> {
+  const releaseId = `release_${id.slice(0, 16)}`
+  const timestamp = '2026-09-25T00:00:00.000Z'
+  const descriptor = {
+    schema: 1,
+    extension_id: id,
+    publisher_id: publisherId,
+    version: '1.0.0',
+    package_url: `${origin}/packages/${id}/1.0.0/${'a'.repeat(64)}.vext`,
+    sha256: 'a'.repeat(64),
+    key_id: TEST_SIGNING_KEY_ID,
+    permissions: { chrome: [], hosts: [], vast: [] },
+    published_at: timestamp
+  }
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO publishers(id,github_user_id,github_login,display_name,publisher_name,role,verified,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,0,?7,?7)').bind(publisherId, 'password-manager-fixture', 'password-manager-fixture', 'Password Manager Fixture', 'Password Manager Fixture', 'publisher', timestamp),
+    env.DB.prepare("INSERT INTO extensions(id,slug,name,summary,description,publisher_id,category,kind,status,current_release_id,created_at,updated_at,data_practice,remote_services) VALUES(?1,?2,?3,?4,?5,?6,'password-managers','chrome','published',NULL,?7,?7,'external-processing','fixture')").bind(id, `fixture-${id.slice(0, 8)}`, 'Password Manager Fixture', 'Compatibility-gated fixture.', 'Compatibility-gated fixture.', publisherId, timestamp),
+    env.DB.prepare("INSERT INTO releases(id,extension_id,version,descriptor_json,descriptor_signature,signature_key_id,manifest_summary,permissions_snapshot,validation_json,status,published_at,created_at) VALUES(?1,?2,'1.0.0',?3,'fixture-signature',?4,'{}',?5,'[]','published',?6,?6)").bind(releaseId, id, JSON.stringify(descriptor), TEST_SIGNING_KEY_ID, JSON.stringify(descriptor.permissions), timestamp),
+    env.DB.prepare('UPDATE extensions SET current_release_id=?1 WHERE id=?2').bind(releaseId, id)
+  ])
+}
+
 beforeEach(async () => {
   await applyD1Migrations(env.DB, env.TEST_MIGRATIONS)
   await env.DB.batch([
@@ -83,13 +105,24 @@ describe('public catalog and security envelope', () => {
     expect(optionalLegalConfig(production('Jan Nowacki', 'https://example.com/TODO'))).toBeUndefined()
     expect(optionalLegalConfig(production(' Jan Nowacki ', 'https://vastbrowser.com/legal'))).toEqual({ operatorName: 'Jan Nowacki', contactUrl: 'https://vastbrowser.com/legal' })
   })
-  it('returns a bounded empty catalog with security headers', async () => {
+  it('exposes password managers only to Vast 0.4.0', async () => {
+    const bitwardenId = 'nngceckbapebfimnlniiiahkandclblb'
+    const iCloudId = 'pejdijmoenmkgeppbflobdenhhabjlaj'
+    await seedPublishedPasswordManager(bitwardenId)
     const health = await call('/health')
     expect(health.status).toBe(200)
     const healthBody = await health.json() as { ok: boolean; environment: string; signingKeyId: string; signerProof: unknown }
     expect(healthBody).toEqual(expect.objectContaining({ ok: true, environment: 'test', signingKeyId: TEST_SIGNING_KEY_ID }))
     await verifyHubSignerProof(healthBody.signerProof, TEST_SIGNING_KEY_ID, origin, [{ keyId: TEST_SIGNING_KEY_ID, algorithm: 'Ed25519', publicKeySpkiBase64: TEST_SIGNING_PUBLIC_SPKI, status: 'test' }])
-    const response = await call('/v1/catalog')
+    const hidden = await call('/v1/catalog')
+    const hiddenBody = await hidden.json() as { items: Array<{ id: string }>; featured: Array<{ id: string }> }
+    expect(hiddenBody.items.some((item) => item.id === bitwardenId || item.id === iCloudId)).toBe(false)
+    expect(hiddenBody.featured.some((item) => item.id === bitwardenId || item.id === iCloudId)).toBe(false)
+    const wrongVersion = await call('/v1/catalog', { headers: { 'x-vast-version': '0.4.1' } })
+    expect((await wrongVersion.json() as { items: Array<{ id: string }> }).items.some((item) => item.id === bitwardenId || item.id === iCloudId)).toBe(false)
+
+    const versionHeaders = { 'x-vast-version': '0.4.0' }
+    const response = await call('/v1/catalog', { headers: versionHeaders })
     expect(response.status).toBe(200)
     expect(response.headers.get('content-security-policy')).toContain("default-src 'none'")
     expect(response.headers.get('x-content-type-options')).toBe('nosniff')
@@ -97,10 +130,31 @@ describe('public catalog and security envelope', () => {
     expect(response.headers.get('referrer-policy')).toBe('no-referrer')
     expect(response.headers.get('permissions-policy')).toContain('camera=()')
     const body = await response.json() as { items: unknown[]; categories: string[]; pageSize: number }
-    expect(body.items).toEqual([])
+    expect(body.items).toEqual(expect.arrayContaining([expect.objectContaining({
+      id: iCloudId,
+      name: 'iCloud Passwords',
+      distribution: 'upstream',
+      publisher: { id: 'publisher_upstreamappleinc', name: 'Apple', verified: false }
+    })]))
     expect(body.categories).toContain('developer')
     expect(body.categories).toContain('education')
+    expect(body.categories).toContain('password-managers')
     expect(body.pageSize).toBe(24)
+    expect((body.items as Array<{ id: string }>).some((item) => item.id === bitwardenId)).toBe(true)
+    expect((await call(`/v1/extensions/${bitwardenId}`)).status).toBe(404)
+    expect((await call(`/v1/extensions/${bitwardenId}`, { headers: { 'x-vast-version': '0.3.9' } })).status).toBe(404)
+    expect((await call(`/v1/extensions/${bitwardenId}`, { headers: versionHeaders })).status).toBe(200)
+    expect((await call(`/v1/install/${bitwardenId}`)).status).toBe(404)
+    expect((await call(`/v1/install/${bitwardenId}`, { headers: versionHeaders })).status).toBe(200)
+    const details = await call(`/v1/extensions/${iCloudId}`, { headers: versionHeaders })
+    expect(details.status).toBe(200)
+    expect(await details.json()).toEqual(expect.objectContaining({ distribution: 'upstream', sourceUrl: 'https://chromewebstore.google.com/detail/icloud-passwords/pejdijmoenmkgeppbflobdenhhabjlaj' }))
+    expect((await call(`/v1/extensions/${iCloudId}`)).status).toBe(404)
+    expect((await call(`/v1/install/${iCloudId}`, { headers: versionHeaders })).status).toBe(404)
+    const filtered = await call('/v1/catalog?category=developer', { headers: versionHeaders })
+    const filteredBody = await filtered.json() as { items: Array<{ id: string }>; featured: Array<{ id: string }> }
+    expect(filteredBody.items.some((item) => item.id === 'pejdijmoenmkgeppbflobdenhhabjlaj')).toBe(false)
+    expect(filteredBody.featured.some((item) => item.id === 'pejdijmoenmkgeppbflobdenhhabjlaj')).toBe(false)
   })
 
   it('enforces CSRF and delegates request throttling to a native rate-limit binding', async () => {
@@ -309,10 +363,10 @@ describe('publisher upload and role-aware review', () => {
     expect(parsed.metadata.extension_id).toBe(id)
     expect(parsed.metadata.version).toBe('1.0.0')
 
-    const catalog = await call('/v1/catalog')
+    const catalog = await call('/v1/catalog', { headers: { 'x-vast-version': '0.4.0' } })
     expect(catalog.headers.get('cache-control')).toBe('no-store')
     const catalogBody = await catalog.json() as { items: Array<{ id: string; downloads: number }> }
-    expect(catalogBody.items).toEqual([expect.objectContaining({ id, downloads: 1 })])
+    expect(catalogBody.items).toEqual(expect.arrayContaining([expect.objectContaining({ id, downloads: 1 }), expect.objectContaining({ id: 'pejdijmoenmkgeppbflobdenhhabjlaj', distribution: 'upstream' })]))
     const publisherHome = await call('/')
     expect(publisherHome.headers.get('cache-control')).toBe('no-store')
     const publisherHtml = await publisherHome.text()
@@ -416,9 +470,9 @@ describe('publisher upload and role-aware review', () => {
 
   it('allows local Manifest V2 providers and rejects relaxed CSP or missing background files', async () => {
     const id = 'abcdefghijklmnopabcdefghijklmnop'
-    const check = async (csp: string, scripts = ['background.js']) => {
+    const check = async (csp: string, scripts = ['background.js'], extra: Record<string, unknown> = {}) => {
       const bytes = await createVextPackage({ extensionId: id, version: '1.0.0', publisherId, files: new Map([
-        ['manifest.json', encoder.encode(JSON.stringify({ name: 'Network fixture', version: '1.0.0', manifest_version: 2, vast_network: 1, permissions: ['webRequest', 'webRequestBlocking', 'https://*/*'], background: { scripts, persistent: true }, content_security_policy: csp }))],
+        ['manifest.json', encoder.encode(JSON.stringify({ name: 'Network fixture', version: '1.0.0', manifest_version: 2, vast_network: 1, permissions: ['webRequest', 'webRequestBlocking', 'https://*/*'], background: { scripts, persistent: true }, content_security_policy: csp, ...extra }))],
         ['background.js', encoder.encode('globalThis.vastWebRequest={handle:()=>({})}')]
       ]) })
       return validatePublisherPackage(bytes, id, publisherId)
@@ -426,6 +480,8 @@ describe('publisher upload and role-aware review', () => {
     expect((await check("script-src 'self'; object-src 'none'")).kind).toBe('chrome')
     for (const csp of ["script-src 'self' 'unsafe-eval'; object-src 'none'", "script-src https://example.com; object-src 'none'", "script-src 'self'; object-src 'none'; worker-src https://example.com", "script-src 'self'; object-src 'none'; script-src 'unsafe-inline'"]) await expect(check(csp)).rejects.toThrow()
     await expect(check("script-src 'self'; object-src 'none'", ['missing.js'])).rejects.toThrow(/does not exist/)
+    expect((await check("script-src 'self'; object-src 'none'", undefined, { vast_document_rules: 1 })).kind).toBe('chrome')
+    for (const extra of [{ vast_document_rules: 2 }, { vast_document_rules: 1, vast_network: 0 }, { vast_document_rules: 1, background: { scripts: ['background.js'], persistent: false } }]) await expect(check("script-src 'self'; object-src 'none'", undefined, extra)).rejects.toThrow()
   })
 
   it('accepts documentation of prohibited APIs without treating comments or text as execution', async () => {

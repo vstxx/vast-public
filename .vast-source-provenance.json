@@ -1,9 +1,9 @@
 {
   "schema": 2,
-  "version": "0.3.0",
-  "sourceCommit": "bd23321fd7b1d4e4b9dc0ff1be22f9d4e1bfa190",
+  "version": "0.4.0",
+  "sourceCommit": "cc59ac349d86091552ca9ea7f24caa015e2aa1db",
   "worktreePreview": false,
-  "exportedAt": "2026-09-12T11:46:27.825Z",
+  "exportedAt": "2026-09-27T18:59:18.001Z",
   "exclusions": [
     "/^audit\\//",
     "/^docs\\/PRODUCTION_CORRECTNESS_AUDIT\\.md$/",

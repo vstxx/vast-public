@@ -1,0 +1,215 @@
+diff --git a/shell/browser/extensions/electron_extension_loader.cc b/shell/browser/extensions/electron_extension_loader.cc
+index 1b5879b..72c76fd 100644
+--- a/shell/browser/extensions/electron_extension_loader.cc
++++ b/shell/browser/extensions/electron_extension_loader.cc
+@@ -4,6 +4,7 @@
+ 
+ #include "shell/browser/extensions/electron_extension_loader.h"
+ 
++#include <optional>
+ #include <utility>
+ 
+ #include "base/auto_reset.h"
+@@ -16,9 +17,11 @@
+ #include "base/strings/string_number_conversions.h"
+ #include "base/strings/utf_string_conversions.h"
+ #include "base/task/sequenced_task_runner.h"
++#include "base/task/single_thread_task_runner.h"
+ #include "base/threading/thread_restrictions.h"
+ #include "base/time/time.h"
+ #include "content/public/browser/browser_context.h"
++#include "extensions/browser/api/runtime/runtime_api.h"
+ #include "extensions/browser/extension_file_task_runner.h"
+ #include "extensions/browser/extension_pref_names.h"
+ #include "extensions/browser/extension_prefs.h"
+@@ -34,6 +37,11 @@ namespace extensions {
+ 
+ namespace {
+ 
++// Unlike Chrome's registrar install path, Electron loads unpacked extensions
++// again on each app startup. Keep the last successfully loaded version in the
++// profile so a restart is not mistaken for a fresh install.
++constexpr char kElectronLastLoadedVersion[] = "electron_last_loaded_version";
++
+ std::pair<scoped_refptr<const Extension>, std::string> LoadUnpacked(
+     const base::FilePath& extension_dir,
+     int load_flags) {
+@@ -138,6 +146,12 @@ void ElectronExtensionLoader::UnloadExtension(
+     const ExtensionId& extension_id,
+     extensions::UnloadedExtensionReason reason) {
+   extension_registrar_->RemoveExtension(extension_id, reason);
++  if (reason == extensions::UnloadedExtensionReason::UNINSTALL) {
++    ExtensionPrefs::Get(browser_context_)
++        ->UpdateExtensionPref(extension_id, kElectronLastLoadedVersion,
++                              std::nullopt);
++    loaded_this_run_.erase(extension_id);
++  }
+ }
+ 
+ void ElectronExtensionLoader::FinishExtensionLoad(
+@@ -146,6 +160,14 @@ void ElectronExtensionLoader::FinishExtensionLoad(
+   scoped_refptr<const Extension> extension = result.first;
+   if (extension) {
+     ExtensionPrefs* extension_prefs = ExtensionPrefs::Get(browser_context_);
++    std::string previous_version;
++    extension_prefs->ReadPrefAsString(extension->id(),
++                                     kElectronLastLoadedVersion,
++                                     &previous_version);
++    LOG(INFO) << "[vast-compat] extension load id=" << extension->id()
++              << " previous_version="
++              << extension_prefs->GetVersionString(extension->id())
++              << " incoming_version=" << extension->version().GetString();
+ 
+     if (BackgroundInfo::IsServiceWorkerBased(extension.get())) {
+       // Tell Chromium that it needs to start the extension's service worker.
+@@ -159,6 +181,29 @@ void ElectronExtensionLoader::FinishExtensionLoad(
+     }
+ 
+     extension_registrar_->AddExtension(extension);
++    LOG(INFO) << "[vast-compat] extension registered id="
++              << extension->id();
++
++    const bool first_load_this_run =
++        loaded_this_run_.insert(extension->id()).second;
++    const std::string current_version = extension->version().GetString();
++    const bool version_changed = previous_version != current_version;
++    if (ExtensionRegistry::Get(browser_context_)
++            ->enabled_extensions()
++            .Contains(extension->id())) {
++      // Post after registration so the EventRouter can wake the MV3 worker.
++      // A repeated load of the same version in one process is not startup.
++      if (version_changed || first_load_this_run) {
++        base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
++            FROM_HERE,
++            base::BindOnce(&ElectronExtensionLoader::DispatchLifecycleEvent,
++                           weak_factory_.GetWeakPtr(), extension->id(),
++                           version_changed, base::Version(previous_version)));
++      }
++      extension_prefs->UpdateExtensionPref(
++          extension->id(), kElectronLastLoadedVersion,
++          base::Value(current_version));
++    }
+ 
+     // Write extension install time to ExtensionPrefs.
+     // This is required by extensions::WebRequestAPI
+@@ -181,6 +226,24 @@ void ElectronExtensionLoader::FinishExtensionLoad(
+   std::move(cb).Run(extension.get(), result.second);
+ }
+ 
++void ElectronExtensionLoader::DispatchLifecycleEvent(
++    const ExtensionId& extension_id,
++    bool installed_or_updated,
++    const base::Version& previous_version) {
++  if (!ExtensionRegistry::Get(browser_context_)
++           ->enabled_extensions()
++           .Contains(extension_id)) {
++    return;
++  }
++  if (installed_or_updated) {
++    RuntimeEventRouter::DispatchOnInstalledEvent(
++        static_cast<void*>(browser_context_),
++        extension_id, previous_version, /*chrome_updated=*/false);
++  } else {
++    RuntimeEventRouter::DispatchOnStartupEvent(browser_context_, extension_id);
++  }
++}
++
+ void ElectronExtensionLoader::FinishExtensionReload(
+     const ExtensionId& old_extension_id,
+     std::pair<scoped_refptr<const Extension>, std::string> result) {
+@@ -203,7 +266,9 @@ void ElectronExtensionLoader::PreAddExtension(const Extension* extension,
+ }
+ 
+ void ElectronExtensionLoader::PostActivateExtension(
+-    scoped_refptr<const Extension> extension) {}
++    scoped_refptr<const Extension> extension) {
++  LOG(INFO) << "[vast-compat] extension activated id=" << extension->id();
++}
+ 
+ void ElectronExtensionLoader::PostDeactivateExtension(
+     scoped_refptr<const Extension> extension) {}
+diff --git a/shell/browser/extensions/electron_extension_loader.h b/shell/browser/extensions/electron_extension_loader.h
+index 043edfd..76ecb0a 100644
+--- a/shell/browser/extensions/electron_extension_loader.h
++++ b/shell/browser/extensions/electron_extension_loader.h
+@@ -8,9 +8,11 @@
+ #include <string>
+ #include <utility>
+ 
++#include "base/containers/flat_set.h"
+ #include "base/functional/callback.h"
+ #include "base/memory/raw_ptr.h"
+ #include "base/memory/weak_ptr.h"
++#include "base/version.h"
+ #include "extensions/browser/extension_registrar.h"
+ #include "extensions/common/extension_id.h"
+ 
+@@ -72,6 +74,9 @@ class ElectronExtensionLoader : public ExtensionRegistrar::Delegate {
+   void FinishExtensionLoad(
+       base::OnceCallback<void(const Extension*, const std::string&)> cb,
+       std::pair<scoped_refptr<const Extension>, std::string> result);
++  void DispatchLifecycleEvent(const ExtensionId& extension_id,
++                              bool installed_or_updated,
++                              const base::Version& previous_version);
+   void DoLoadExtensionForReload(const ExtensionId& extension_id,
+                                 const base::FilePath& path);
+ 
+@@ -107,6 +112,7 @@ class ElectronExtensionLoader : public ExtensionRegistrar::Delegate {
+   // Used by ReloadExtension() to check whether ExtensionRegistrar calls
+   // LoadExtensionForReload().
+   bool did_schedule_reload_ = false;
++  base::flat_set<ExtensionId> loaded_this_run_;
+ 
+   base::WeakPtrFactory<ElectronExtensionLoader> weak_factory_{this};
+ };
+diff --git a/shell/browser/extensions/electron_extension_system.cc b/shell/browser/extensions/electron_extension_system.cc
+index 207290e..18aa8ab 100644
+--- a/shell/browser/extensions/electron_extension_system.cc
++++ b/shell/browser/extensions/electron_extension_system.cc
+@@ -27,6 +27,7 @@
+ #include "extensions/browser/null_app_sorting.h"
+ #include "extensions/browser/quota_service.h"
+ #include "extensions/browser/service_worker_manager.h"
++#include "extensions/browser/state_store.h"
+ #include "extensions/browser/user_script_manager.h"
+ #include "extensions/common/constants.h"
+ #include "shell/browser/extensions/electron_extension_loader.h"
+@@ -74,6 +75,9 @@ void ElectronExtensionSystem::Shutdown() {
+ }
+ 
+ void ElectronExtensionSystem::InitForRegularProfile(bool extensions_enabled) {
++  state_store_ = std::make_unique<StateStore>(
++      browser_context_, store_factory_, StateStore::BackendType::STATE,
++      /*deferred_load=*/false);
+   service_worker_manager_ =
+       std::make_unique<ServiceWorkerManager>(browser_context_);
+   quota_service_ = std::make_unique<QuotaService>();
+@@ -143,7 +147,7 @@ UserScriptManager* ElectronExtensionSystem::user_script_manager() {
+ }
+ 
+ StateStore* ElectronExtensionSystem::state_store() {
+-  return nullptr;
++  return state_store_.get();
+ }
+ 
+ StateStore* ElectronExtensionSystem::rules_store() {
+diff --git a/shell/browser/extensions/electron_extension_system.h b/shell/browser/extensions/electron_extension_system.h
+index 6e8b569..e6cbfec 100644
+--- a/shell/browser/extensions/electron_extension_system.h
++++ b/shell/browser/extensions/electron_extension_system.h
+@@ -26,6 +26,7 @@ class BrowserContext;
+ namespace extensions {
+ 
+ class ElectronExtensionLoader;
++class StateStore;
+ 
+ // A simplified version of ExtensionSystem for app_shell. Allows
+ // app_shell to skip initialization of services it doesn't need.
+@@ -93,6 +94,7 @@ class ElectronExtensionSystem : public ExtensionSystem {
+   std::unique_ptr<UserScriptManager> user_script_manager_;
+   std::unique_ptr<AppSorting> app_sorting_;
+   std::unique_ptr<ManagementPolicy> management_policy_;
++  std::unique_ptr<StateStore> state_store_;
+ 
+   std::unique_ptr<ElectronExtensionLoader> extension_loader_;
+ 

@@ -1,0 +1,20 @@
+const assert = require('node:assert/strict')
+const { readFileSync } = require('node:fs')
+const { join } = require('node:path')
+const test = require('node:test')
+const yaml = require('js-yaml')
+
+test('Store candidate is privately preserved and hash-verified after WACK before optional Actions artifact upload', () => {
+  const workflow = yaml.load(readFileSync(join(__dirname, '..', '..', '.github', 'workflows', 'store-release.yml'), 'utf8'))
+  assert.equal(workflow.permissions.contents, 'write')
+  const steps = workflow.jobs['build-verify'].steps
+  const wack = steps.findIndex(step => step.name === 'Run Windows App Certification Kit')
+  const privateCandidate = steps.findIndex(step => step.name === 'Preserve verified MSIX and evidence in private source repository')
+  const artifact = steps.findIndex(step => step.uses?.startsWith('actions/upload-artifact@'))
+  assert.ok(wack >= 0 && wack < privateCandidate && privateCandidate < artifact)
+  assert.equal(steps[privateCandidate].env.GH_TOKEN, '${{ github.token }}')
+  assert.match(steps[privateCandidate].run, /--repo vstxx\/vast --target \$head --draft --prerelease/)
+  assert.match(steps[privateCandidate].run, /Get-FileHash.*SHA256/)
+  assert.match(steps[privateCandidate].run, /asset\[0\]\.digest/)
+  assert.equal(steps[artifact]['continue-on-error'], true)
+})

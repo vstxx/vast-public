@@ -1,0 +1,12 @@
+{
+    "schema":  1,
+    "package":  "electron-chrome-extensions",
+    "version":  "4.9.0",
+    "repository":  "https://github.com/samuelmaddock/electron-browser-shell.git",
+    "commit":  "927ac340c3c6cc462f636a50ccd9991df0cd2e12",
+    "npmTarball":  "https://registry.npmjs.org/electron-chrome-extensions/-/electron-chrome-extensions-4.9.0.tgz",
+    "npmIntegrity":  "sha512-4kLlh4sPPF0ieOy/Gw7A7KrmqB07megDLqOWAWXdFLAYu+2AeOGME6uOBa80NZLbKgTqBvrsVDZ+epdszRm/EQ==",
+    "license":  "GPL-3.0",
+    "patch":  "0001-vast-browser-compatibility.patch",
+    "patchSha256":  "a20a0828aa21ce35f11a48eba0ca81cb55e005b5b80b1cc16101eb45d05ecd8f"
+}

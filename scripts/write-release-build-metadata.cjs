@@ -1,10 +1,13 @@
-const { mkdirSync, readFileSync, writeFileSync } = require('node:fs')
+const { existsSync, mkdirSync, readFileSync, writeFileSync } = require('node:fs')
 const { dirname, join } = require('node:path')
 const { readNoticesReleaseConfig } = require('./notices-release-config.cjs')
+const { validateRuntimeFingerprint } = require('./verify-extension-compat-runtime.cjs')
 
 const root = join(__dirname, '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const outputPath = join(root, 'out', 'release-build-metadata.json')
+const compatibilityFingerprintPath = join(root, 'out', 'extension-compatibility-runtime-fingerprint.json')
+const compatibilityManifest = JSON.parse(readFileSync(join(root, 'patches', 'extension-compatibility-runtime.json'), 'utf8'))
 
 function flag(name, fallback = false) {
   const value = String(process.env[name] ?? '').trim().toLowerCase()
@@ -37,6 +40,7 @@ const signaturePolicy = distributionChannel === 'microsoft-store'
     : (publicDistribution ? 'authenticode-signed' : 'internal-unsigned')
 const failures = []
 let notices = { enabled: false, feedOrigin: '', keyId: '' }
+let extensionCompatibilityRuntime = null
 
 function requireConfig(condition, message) {
   if (!condition) failures.push(message)
@@ -46,6 +50,21 @@ try {
   notices = readNoticesReleaseConfig(process.env)
 } catch (error) {
   failures.push(error instanceof Error ? error.message : String(error))
+}
+
+const compatibilityFingerprintRequired = flag('VAST_EXTENSION_COMPATIBILITY_FINGERPRINT_REQUIRED', false)
+if (/^[a-f0-9]{40}$/.test(sourceCommit) && existsSync(compatibilityFingerprintPath)) {
+  try {
+    extensionCompatibilityRuntime = validateRuntimeFingerprint({
+      fingerprint: JSON.parse(readFileSync(compatibilityFingerprintPath, 'utf8').replace(/^\uFEFF/, '')),
+      manifest: compatibilityManifest,
+      expectedSourceCommit: sourceCommit
+    })
+  } catch (error) {
+    failures.push(error instanceof Error ? error.message : String(error))
+  }
+} else if (compatibilityFingerprintRequired) {
+  failures.push('Release metadata requires a verified extension compatibility runtime fingerprint.')
 }
 
 requireConfig(['direct', 'microsoft-store'].includes(distributionChannel), 'VAST_DISTRIBUTION_CHANNEL must be direct or microsoft-store')
@@ -92,6 +111,7 @@ const metadata = {
   obfuscationEnabled,
   releaseRepo,
   sourceCommit,
+  extensionCompatibilityRuntime,
   signaturePolicy,
   noticesEnabled: notices.enabled,
   noticesFeedOrigin: notices.feedOrigin,
@@ -114,6 +134,7 @@ console.log(
       obfuscationEnabled,
       releaseRepo,
       sourceCommit,
+      extensionCompatibilityRuntime,
       signaturePolicy,
       noticesEnabled: notices.enabled,
       noticesFeedOrigin: notices.feedOrigin,

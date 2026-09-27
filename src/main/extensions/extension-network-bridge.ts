@@ -1,10 +1,13 @@
 import { app, webContents, type Session, type WebContents, type OnBeforeRequestListenerDetails } from 'electron/main'
 import { matchesExtensionMatchPattern } from '../../shared/extension-match-pattern'
 import { windowRegistry } from '../windows/WindowRegistry'
+import { createDocumentRuleStore, documentRuleUrl, sanitizeDocumentRules } from './extension-document-rules'
 
 type Decision = { cancel?: boolean; redirectURL?: string; csp?: string }
 interface Provider { contents: WebContents; session: Session; id: string }
 const providers = new Map<number, Provider>()
+const documents = createDocumentRuleStore()
+const watchedSessions = new WeakSet<Session>()
 let inFlight = 0
 let configured = false
 
@@ -26,15 +29,43 @@ export function setupExtensionNetworkBridge(): void {
   if (configured) return
   configured = true
   app.on('web-contents-created', (_event, contents) => {
+    contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => {
+      if (mainFrame && !inPlace) documents.navigationStarted(contents.id, url)
+    })
     const register = (): void => {
       const provider = authority(contents)
       if (provider) {
         providers.set(contents.id, provider)
-        void contents.executeJavaScript('globalThis.vastExtensionCapabilities = Object.freeze({ network: 1 })').catch(() => providers.delete(contents.id))
+        if (!watchedSessions.has(provider.session)) {
+          watchedSessions.add(provider.session)
+          provider.session.extensions.on('extension-unloaded', (_event, extension) => {
+            for (const [id, item] of providers) if (item.session === provider.session && item.id === extension.id) {
+              documents.invalidateProvider(id); providers.delete(id)
+            }
+          })
+        }
+        void contents.executeJavaScript('globalThis.vastExtensionCapabilities = Object.freeze({ network: 1, documentRules: 1 })').catch(() => providers.delete(contents.id))
       }
     }
     contents.on('dom-ready', register)
-    contents.once('destroyed', () => providers.delete(contents.id))
+    contents.once('destroyed', () => { documents.invalidateGuest(contents.id); documents.invalidateProvider(contents.id); providers.delete(contents.id) })
+  })
+}
+
+function documentProvider(provider: Provider): boolean {
+  const manifest = provider.session.extensions.getExtension(provider.id)?.manifest
+  const background = manifest?.background as { persistent?: boolean } | undefined
+  return Boolean(authority(provider.contents) && manifest?.vast_document_rules === 1 && background?.persistent === true)
+}
+
+/** Synchronous read by the browser-owned, isolated guest preload only. */
+export function takeExtensionDocumentRules(contents: WebContents, requestedUrl: unknown, frame: Electron.WebFrameMain | null): string[] {
+  const url = documentRuleUrl(requestedUrl)
+  if (!url || contents.isDestroyed() || contents.getType() !== 'webview' || frame !== contents.mainFrame ||
+    frame.url !== url || contents.getURL() !== url || !windowRegistry.vastWindowForWebContents(contents)) return []
+  return documents.take(contents.id, url, id => {
+    const provider = providers.get(id)
+    return Boolean(provider && provider.session === contents.session && documentProvider(provider))
   })
 }
 
@@ -50,6 +81,8 @@ export async function extensionNetworkDecision(target: Session, details: Pick<On
   const contents = details.webContentsId ? webContents.fromId(details.webContentsId) : undefined
   if (!contents || contents.isDestroyed() || !windowRegistry.vastWindowForWebContents(contents) || contents.getType() !== 'webview' || !/^https?:/.test(topUrl) || !/^(?:https?|wss?):/.test(details.url)) return {}
   const documentUrl = contents.getURL()
+  const ruleUrl = phase === 'request' && details.resourceType === 'mainFrame' ? documentRuleUrl(details.url) : undefined
+  const generation = ruleUrl ? documents.begin(contents.id, ruleUrl) : undefined
   const applicable = [...providers.values()].filter(provider => {
     if (provider.session !== target || !authority(provider.contents)) return false
     const manifest = target.extensions.getExtension(provider.id)?.manifest
@@ -62,14 +95,22 @@ export async function extensionNetworkDecision(target: Session, details: Pick<On
     let finished = false
     const finish = (value: Decision): void => { if (finished) return; finished = true; inFlight--; clearTimeout(timer); resolve(value) }
     const timer = setTimeout(() => {
-      providers.delete(provider.contents.id); finish({})
+      documents.invalidateProvider(provider.contents.id); providers.delete(provider.contents.id); finish({})
       if (!provider.contents.isDestroyed()) void provider.contents.executeJavaScript('globalThis.vastWebRequest?.unavailable?.()').catch(() => undefined)
     }, 500)
     // The host calls one fixed entry point on the verified extension background.
     // JSON serialization supplies data only; no caller-supplied source is evaluated.
-    const input = JSON.stringify({ phase, url: details.url, type: details.resourceType, sourceUrl: details.referrer || topUrl, topUrl, tabId: details.webContentsId, private: false })
+    const prepareDocument = generation !== undefined && documentProvider(provider)
+    const input = JSON.stringify({ phase, url: details.url, type: details.resourceType, sourceUrl: details.referrer || topUrl, topUrl, tabId: details.webContentsId, private: false, prepareDocument })
     void provider.contents.executeJavaScript(`globalThis.vastWebRequest?.handle(${input})`).then(
-      result => finish(authority(provider.contents) ? sanitizeDecision(result) : {}), () => finish({})
+      result => {
+        if (finished) return
+        if (prepareDocument && documentProvider(provider)) {
+          const scripts = sanitizeDocumentRules(result)
+          if (scripts) documents.stage(contents.id, generation!, ruleUrl!, provider.contents.id, scripts)
+        }
+        finish(authority(provider.contents) ? sanitizeDecision(result) : {})
+      }, () => finish({})
     )
   })))
   if (contents.isDestroyed() || contents.getURL() !== documentUrl) return {}
@@ -83,3 +124,4 @@ export async function extensionNetworkDecision(target: Session, details: Pick<On
   const csp = results.map(result => result.csp).filter(Boolean).join(', ')
   return csp ? { csp } : {}
 }
+

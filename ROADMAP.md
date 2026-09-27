@@ -6,7 +6,7 @@ This roadmap describes engineering direction, not promised release dates. Items 
 
 - Keep tab lifecycle, smart unloading, scrolling, startup, and memory behavior predictable under large sessions.
 - Keep public source snapshots, Windows releases, updater metadata, checksums, and third-party source obligations reproducible and easy to audit.
-- Continue hardening extensions, password-vault, IPC, navigation, and Labs trust boundaries without adding unnecessary backend complexity.
+- Continue hardening extensions, IPC, navigation, and Labs trust boundaries without adding unnecessary backend complexity.
 - Keep Windows direct and Microsoft Store distribution behavior consistent, including profile migration and update boundaries.
 - Reduce default distribution/runtime weight where it can be done without weakening offline behavior, compatibility, or verification.
 

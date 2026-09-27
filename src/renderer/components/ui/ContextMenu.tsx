@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useBrowserStore } from '../../store/browser-store'
+import { VastMenuItem } from './VastMenuItem'
 
 export function ContextMenu(): JSX.Element | null {
   const menu = useBrowserStore((state) => state.contextMenu)
@@ -109,15 +110,14 @@ export function ContextMenu(): JSX.Element | null {
         )}
         {menu.preview && (
           <div className="border-b border-white/[0.08] px-1.5 py-1">
-            <button
-              type="button"
+            <VastMenuItem
               onMouseDown={(event) => event.stopPropagation()}
               onClick={() => setPreviewOpen((current) => !current)}
-              className="flex min-h-7 w-full items-center justify-between rounded-control px-2 py-1 text-left text-[12px] font-medium text-vast-soft transition hover:bg-white/[0.075] hover:text-white"
+              className="justify-between"
             >
               <span>{previewOpen ? 'Hide preview' : 'Preview'}</span>
-              <span className="text-[11px] text-vast-cyan">{menu.preview.host}</span>
-            </button>
+              <span className="text-[11px]" style={{ color: 'var(--vast-accent)' }}>{menu.preview.host}</span>
+            </VastMenuItem>
           </div>
         )}
         <div className="py-0.5">
@@ -125,12 +125,12 @@ export function ContextMenu(): JSX.Element | null {
             item.separator ? (
               <div key={item.id} className="my-0.5 h-px bg-white/[0.08]" />
             ) : (
-              <button
+              <VastMenuItem
                 key={item.id}
-                type="button"
-                role="menuitem"
-                tabIndex={-1}
+                danger={item.danger && !item.disabled}
                 disabled={item.disabled || executing}
+                detail={item.detail}
+                shortcut={item.shortcut}
                 onMouseDown={(event) => event.stopPropagation()}
                 onClick={async () => {
                   if (item.disabled || executing) return
@@ -145,20 +145,9 @@ export function ContextMenu(): JSX.Element | null {
                     setExecuting(false)
                   }
                 }}
-                className={`flex min-h-7 w-full items-center gap-1.5 rounded-control px-2 py-1 text-left transition ${
-                  item.disabled
-                    ? 'cursor-not-allowed text-vast-soft/40'
-                    : item.danger
-                      ? 'text-red-300 hover:bg-red-400/10'
-                      : 'text-vast-soft hover:bg-white/[0.075] hover:text-white'
-                }`}
               >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[12px] font-medium leading-5">{item.label}</span>
-                  {item.detail && <span className="block truncate text-[11px] leading-4 text-vast-soft">{item.detail}</span>}
-                </span>
-                {item.shortcut && <kbd className="shrink-0 text-[11px] text-vast-soft">{item.shortcut}</kbd>}
-              </button>
+                {item.label}
+              </VastMenuItem>
             )
           )}
         </div>

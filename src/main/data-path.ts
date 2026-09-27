@@ -78,6 +78,13 @@ export function configureVastUserDataPath(): void {
   }
 }
 
+export function configureVastCrashDumpPath(): string {
+  const crashDumpPath = join(app.getPath('userData'), 'CrashDumps')
+  mkdirSync(crashDumpPath, { recursive: true })
+  app.setPath('crashDumps', crashDumpPath)
+  return crashDumpPath
+}
+
 export function vastDataPath(): string {
   return app.getPath('userData')
 }
@@ -198,7 +205,6 @@ export async function exportFullVastData(mainWindow: BrowserWindow): Promise<Mig
     skippedFiles: report.skippedFiles,
     skippedFileDetails: report.skippedFileDetails,
     vastDataIncluded: report.vastDataIncluded,
-    passwordVaultIncluded: report.passwordVaultIncluded,
     warnings: report.manifest.warnings
   }
 }

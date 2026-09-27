@@ -16,7 +16,7 @@ index 64228a24cb0f8a9c5659f8e00538f3dae6772a4a..e91341b1745f8127d11a3a33774c7e67
 +            `${preview.workspaces} workspace(s), ${preview.tabs} tab(s), ` +
              `${preview.bookmarks} bookmark(s), ${preview.notes} note(s), and ` +
              `${preview.history} history item(s). ` +
-             (preview.passwordVaultPresent ?
+             (preview.legacyMetadataPresent ?
 diff --git a/chrome/browser/ui/webui/vast/vast.mojom b/chrome/browser/ui/webui/vast/vast.mojom
 index 10b7b7b4abbcc03f95224c5684128ad4285713fb..a9c551d24eb33a0281325fc32c7989d4d8a10720 100644
 --- a/chrome/browser/ui/webui/vast/vast.mojom
@@ -24,7 +24,7 @@ index 10b7b7b4abbcc03f95224c5684128ad4285713fb..a9c551d24eb33a0281325fc32c7989d4
 @@ -25,6 +25,9 @@ struct MigrationPreview {
    uint32 notes;
    uint32 history;
-   bool password_vault_present;
+   bool legacy_metadata_present;
 +  bool archive_source;
 +  uint32 verified_archive_files;
 +  uint32 selected_product_files;
@@ -89,7 +89,7 @@ index f438c6d03e27244a08a80881fd441ea4657f43f9..eea887c42b9242ba336f2c74439804dc
 -  preview->bookmarks = source.bookmarks;
 -  preview->notes = source.notes;
 -  preview->history = source.history;
--  preview->password_vault_present = source.password_vault_present;
+-  preview->legacy_metadata_present = source.legacy_metadata_present;
 -  preview->error = source.error;
 +  preview->available = source.data.available;
 +  preview->compatible = source.data.compatible;
@@ -99,7 +99,7 @@ index f438c6d03e27244a08a80881fd441ea4657f43f9..eea887c42b9242ba336f2c74439804dc
 +  preview->bookmarks = source.data.bookmarks;
 +  preview->notes = source.data.notes;
 +  preview->history = source.data.history;
-+  preview->password_vault_present = source.data.password_vault_present;
++  preview->legacy_metadata_present = source.data.legacy_metadata_present;
 +  preview->archive_source = source.archive_source;
 +  preview->verified_archive_files = source.verified_archive_files;
 +  preview->selected_product_files = source.selected_product_files;

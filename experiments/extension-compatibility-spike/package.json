@@ -1,0 +1,17 @@
+{
+  "name": "vast-extension-compatibility-spike",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Isolated Electron 44.3.0 extension compatibility harness; never shipped with Vast.",
+  "license": "UNLICENSED",
+  "scripts": {
+    "install:experimental": "npm install --ignore-scripts",
+    "run": "node run-matrix.cjs",
+    "verify": "node verify-results.cjs",
+    "verify:production-network": "node verify-production-network.cjs",
+    "verify:multi-extension": "node verify-multi-extension.cjs"
+  },
+  "dependencies": {
+    "electron-chrome-extensions": "4.9.0"
+  }
+}

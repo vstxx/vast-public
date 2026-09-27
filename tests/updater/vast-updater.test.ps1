@@ -70,7 +70,6 @@ function New-TestUserData {
 
   $userData = Join-Path $Root 'user-data'
   New-Item -ItemType Directory -Path (Join-Path $userData 'Bookmarks') -Force | Out-Null
-  New-Item -ItemType Directory -Path (Join-Path $userData 'Local Vault') -Force | Out-Null
   New-Item -ItemType Directory -Path (Join-Path $userData 'Sessions') -Force | Out-Null
   New-Item -ItemType Directory -Path (Join-Path $userData 'Network') -Force | Out-Null
   New-Item -ItemType Directory -Path (Join-Path $userData 'Partitions\vast-default\Network') -Force | Out-Null
@@ -79,9 +78,7 @@ function New-TestUserData {
 
   Set-Content -Path (Join-Path $userData 'settings.json') -Value '{"theme":"dark"}' -Encoding UTF8
   Set-Content -Path (Join-Path $userData 'vast-data.json') -Value '{"schemaVersion":5,"bookmarks":[{"title":"Keep"}]}' -Encoding UTF8
-  Set-Content -Path (Join-Path $userData 'password-vault.json') -Value '{"schemaVersion":1,"records":[{"id":"keep"}]}' -Encoding UTF8
   Set-Content -Path (Join-Path $userData 'Bookmarks\bookmarks.json') -Value '{"items":[{"title":"Vast"}]}' -Encoding UTF8
-  Set-Content -Path (Join-Path $userData 'Local Vault\vault.json') -Value '{"encrypted":true}' -Encoding UTF8
   Set-Content -Path (Join-Path $userData 'Sessions\session.json') -Value '{"tabs":["https://example.test"]}' -Encoding UTF8
   Set-Content -Path (Join-Path $userData 'Network\Cookies') -Value 'default-cookie-db' -Encoding UTF8
   Set-Content -Path (Join-Path $userData 'Partitions\vast-default\Network\Cookies') -Value 'partition-cookie-db' -Encoding UTF8
@@ -98,7 +95,6 @@ function New-TestLegacyUserData {
   New-Item -ItemType Directory -Path $legacyUserData -Force | Out-Null
 
   Set-Content -Path (Join-Path $legacyUserData 'vast-data.json') -Value '{"schemaVersion":5,"bookmarks":[{"title":"Keep"}],"tabs":[{"url":"https://keep.example"}],"settings":{"theme":"custom"}}' -Encoding UTF8
-  Set-Content -Path (Join-Path $legacyUserData 'password-vault.json') -Value '{"schemaVersion":1,"records":[{"id":"keep","encryptedPassword":"cipher"}]}' -Encoding UTF8
   Set-Content -Path (Join-Path $legacyUserData 'vast-network-devices.json') -Value '{"devices":[{"name":"router"}]}' -Encoding UTF8
   Set-Content -Path (Join-Path $legacyUserData 'Local State') -Value '{"os_crypt":{"encrypted_key":"legacy-key"}}' -Encoding UTF8
   New-Item -ItemType Directory -Path (Join-Path $legacyUserData 'Network') -Force | Out-Null
@@ -173,6 +169,10 @@ try {
   $payload = New-TestPayload -Root $root
   $install = New-TestInstall -Root $root
   $userData = New-TestUserData -Root $root
+  $largeProfilePath = Join-Path $userData 'Partitions\vast-workspace-large\IndexedDB\large-profile.leveldb'
+  New-Item -ItemType Directory -Path (Split-Path -Parent $largeProfilePath) -Force | Out-Null
+  [IO.File]::WriteAllBytes($largeProfilePath, (New-Object byte[] (16 * 1024 * 1024)))
+  $largeProfileHash = Get-VastFileHashString -Path $largeProfilePath
   $logPath = Join-Path $root 'updater.log'
   $backupRoot = Join-Path $userData 'Backups'
 
@@ -195,14 +195,15 @@ try {
   Assert-Equal '{"name":"primary"}' ((Get-Content -Raw -Path (Join-Path $install 'profiles\profile.json')).Trim()) 'install-local profiles should be preserved'
   Assert-Equal 'keep me' ((Get-Content -Raw -Path (Join-Path $install 'notes\personal.md')).Trim()) 'install-local notes should be preserved'
   Assert-Equal '{"schemaVersion":5,"bookmarks":[{"title":"Keep"}]}' ((Get-Content -Raw -Path (Join-Path $userData 'vast-data.json')).Trim()) 'main Vast data file should be preserved'
-  Assert-Equal '{"schemaVersion":1,"records":[{"id":"keep"}]}' ((Get-Content -Raw -Path (Join-Path $userData 'password-vault.json')).Trim()) 'password vault file should be preserved'
   Assert-Equal '{"theme":"dark"}' ((Get-Content -Raw -Path (Join-Path $userData 'settings.json')).Trim()) 'settings should be preserved'
-  Assert-Equal '{"encrypted":true}' ((Get-Content -Raw -Path (Join-Path $userData 'Local Vault\vault.json')).Trim()) 'vault data should be preserved'
   Assert-True (Test-Path -LiteralPath $logPath) 'updater should write a readable log'
   Assert-True ((Get-Content -Raw -Path $logPath) -match 'Update completed successfully') 'log should record success'
   Assert-True (@(Get-ChildItem -Directory -Path $backupRoot).Count -ge 1) 'critical user data backup should be created'
   Assert-Equal 'default-cookie-db' ((Get-Content -Raw -Path (Join-Path $result.BackupPath 'user-data-1\Network\Cookies')).Trim()) 'default-session cookies should be backed up'
   Assert-Equal 'partition-cookie-db' ((Get-Content -Raw -Path (Join-Path $result.BackupPath 'user-data-1\Partitions\vast-default\Network\Cookies')).Trim()) 'partition cookies should be backed up'
+  $largeProfileBackup = Join-Path $result.BackupPath 'user-data-1\Partitions\vast-workspace-large\IndexedDB\large-profile.leveldb'
+  Assert-True (Test-Path -LiteralPath $largeProfileBackup) 'large profile storage should be included in the pre-update backup'
+  Assert-Equal $largeProfileHash (Get-VastFileHashString -Path $largeProfileBackup) 'large profile backup must preserve exact bytes'
   Assert-Equal 'preserve-service-worker-registration' ((Get-Content -Raw -Path (Join-Path $result.BackupPath 'user-data-1\Partitions\vast-default\Service Worker\Database\service-worker-db')).Trim()) 'service worker registration data should be backed up'
   Assert-True (-not (Test-Path -LiteralPath (Join-Path $result.BackupPath 'user-data-1\Partitions\vast-default\Service Worker\CacheStorage'))) 'recoverable service worker cache storage should not be backed up'
   Assert-True (-not ($result.PSObject.Properties.Name -contains 'TargetEdition')) 'legacy target edition input must not affect updater results'
@@ -249,7 +250,6 @@ try {
   $configPath = Join-Path $migrationRoot 'updater.config.json'
   New-Item -ItemType Directory -Path $newUserData -Force | Out-Null
   Set-Content -Path (Join-Path $newUserData 'vast-data.json') -Value '{"schemaVersion":5,"bookmarks":[],"tabs":[],"settings":{"theme":"default"}}' -Encoding UTF8
-  Set-Content -Path (Join-Path $newUserData 'password-vault.json') -Value '{"schemaVersion":1,"records":[]}' -Encoding UTF8
   Set-Content -Path (Join-Path $newUserData 'Local State') -Value '{"os_crypt":{"encrypted_key":"new-default-key"}}' -Encoding UTF8
   @{
     targetVersion = '1.0.4'
@@ -260,7 +260,7 @@ try {
     userDataPaths = @($newUserData, $legacyUserData)
     backupRoot = (Join-Path $migrationRoot 'updater-backups')
     processNames = @('DefinitelyNotVast')
-    criticalUserDataItems = @('vast-data.json', 'password-vault.json', 'vast-network-devices.json', 'Local State', 'Network', 'Partitions')
+    criticalUserDataItems = @('vast-data.json', 'vast-network-devices.json', 'Local State', 'Network', 'Partitions')
   } | ConvertTo-Json -Depth 5 | Set-Content -Path $configPath -Encoding UTF8
 
   Invoke-VastUpdate `
@@ -270,8 +270,6 @@ try {
     -NonInteractive | Out-Null
 
   Assert-Equal ((Get-Content -Raw -Path (Join-Path $legacyUserData 'vast-data.json')).Trim()) ((Get-Content -Raw -Path (Join-Path $newUserData 'vast-data.json')).Trim()) 'legacy main data should migrate to canonical user data root'
-  Assert-Equal ((Get-Content -Raw -Path (Join-Path $legacyUserData 'password-vault.json')).Trim()) ((Get-Content -Raw -Path (Join-Path $newUserData 'password-vault.json')).Trim()) 'legacy password vault should migrate to canonical user data root'
-  Assert-Equal ((Get-Content -Raw -Path (Join-Path $legacyUserData 'Local State')).Trim()) ((Get-Content -Raw -Path (Join-Path $newUserData 'Local State')).Trim()) 'legacy Local State should migrate with password vault so safeStorage can decrypt'
   Assert-Equal ((Get-Content -Raw -Path (Join-Path $legacyUserData 'vast-network-devices.json')).Trim()) ((Get-Content -Raw -Path (Join-Path $newUserData 'vast-network-devices.json')).Trim()) 'legacy network devices should migrate to canonical user data root'
   Assert-Equal 'legacy-default-cookie-db' ((Get-Content -Raw -Path (Join-Path $newUserData 'Network\Cookies')).Trim()) 'legacy default-session cookies should migrate to canonical user data root'
   Assert-Equal 'legacy-partition-cookie-db' ((Get-Content -Raw -Path (Join-Path $newUserData 'Partitions\vast-default\Network\Cookies')).Trim()) 'legacy partition cookies should migrate to canonical user data root'
@@ -359,18 +357,27 @@ try {
   $payload = New-TestPayload -Root $rollbackRoot
   $install = New-TestInstall -Root $rollbackRoot
   $userData = New-TestUserData -Root $rollbackRoot
+  $rollbackProfilePath = Join-Path $userData 'Partitions\vast-workspace-large\IndexedDB\rollback-profile.leveldb'
+  New-Item -ItemType Directory -Path (Split-Path -Parent $rollbackProfilePath) -Force | Out-Null
+  [IO.File]::WriteAllBytes($rollbackProfilePath, (New-Object byte[] (64 * 1024 * 1024)))
+  $rollbackProfileHash = Get-VastFileHashString -Path $rollbackProfilePath
+  $rollbackBackupRoot = Join-Path $rollbackRoot 'updater-backups'
   $logPath = Join-Path $rollbackRoot 'rollback.log'
   Set-Content -LiteralPath (Join-Path $install 'locales') -Value 'parent-path-collision' -Encoding UTF8
 
   $rollbackFailed = $false
   try {
-    Invoke-VastUpdate -InstallPath $install -PayloadPath $payload -UserDataRoot $userData -BackupRoot (Join-Path $rollbackRoot 'updater-backups') -LogPath $logPath -TargetVersion '1.0.4' -NonInteractive | Out-Null
+    Invoke-VastUpdate -InstallPath $install -PayloadPath $payload -UserDataRoot $userData -BackupRoot $rollbackBackupRoot -LogPath $logPath -TargetVersion '1.0.4' -NonInteractive | Out-Null
   } catch { $rollbackFailed = $true }
   Assert-True $rollbackFailed 'mid-copy failure should fail the update'
   Assert-Equal 'vast-runtime-1.0.3' ((Get-Content -Raw -LiteralPath (Join-Path $install 'Vast.exe')).Trim()) 'rollback should restore an already replaced executable'
   Assert-Equal 'asar-1.0.3' ((Get-Content -Raw -LiteralPath (Join-Path $install 'resources\app.asar')).Trim()) 'rollback should preserve the old application archive'
   Assert-Equal '{"version":"1.0.3"}' ((Get-Content -Raw -LiteralPath (Join-Path $install 'version.json')).Trim()) 'rollback should preserve the installed version'
   Assert-True (-not (Test-Path -LiteralPath (Join-Path $install 'chrome_100_percent.pak'))) 'rollback should remove newly introduced runtime files'
+  Assert-Equal $rollbackProfileHash (Get-VastFileHashString -Path $rollbackProfilePath) 'rollback must leave a large active profile byte-exact'
+  $rollbackBackupProfile = Get-ChildItem -LiteralPath $rollbackBackupRoot -Filter 'rollback-profile.leveldb' -File -Recurse | Select-Object -First 1
+  Assert-True ($null -ne $rollbackBackupProfile) 'failed update should retain the large pre-update profile backup'
+  Assert-Equal $rollbackProfileHash (Get-VastFileHashString -Path $rollbackBackupProfile.FullName) 'large rollback backup must preserve exact profile bytes'
   Assert-True ((Get-Content -Raw -LiteralPath $logPath) -match 'Rolling back application runtime changes') 'rollback should be recorded in the updater log'
 } finally {
   Remove-Item -LiteralPath $rollbackRoot -Recurse -Force -ErrorAction SilentlyContinue

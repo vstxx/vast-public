@@ -1,0 +1,26 @@
+﻿{
+  "manifest_version": 3,
+  "name": "Vast compatibility probe",
+  "version": "1.0.0",
+  "default_locale": "en",
+  "background": { "service_worker": "sw.js" },
+  "permissions": [
+    "storage", "unlimitedStorage", "alarms", "tabs", "activeTab", "scripting",
+    "webNavigation", "webRequest", "webRequestAuthProvider", "contextMenus",
+    "notifications", "cookies", "idle", "offscreen", "clipboardRead",
+    "clipboardWrite", "privacy", "commands"
+  ],
+  "optional_permissions": ["bookmarks"],
+  "host_permissions": ["http://127.0.0.1/*", "https://example.com/*"],
+  "content_scripts": [
+    { "matches": ["http://127.0.0.1/*", "https://example.com/*"], "js": ["cs-isolated.js"], "run_at": "document_end", "all_frames": true },
+    { "matches": ["http://127.0.0.1/*", "https://example.com/*"], "js": ["cs-main.js"], "run_at": "document_end", "all_frames": false, "world": "MAIN" }
+  ],
+  "action": { "default_popup": "popup.html" },
+  "commands": { "probe-command": { "suggested_key": { "default": "Ctrl+Shift+Y" }, "description": "Probe command" } },
+  "options_page": "popup.html",
+  "web_accessible_resources": [
+    { "resources": ["war.txt"], "matches": ["http://127.0.0.1/*", "https://example.com/*"] }
+  ],
+  "externally_connectable": { "matches": ["http://127.0.0.1/*", "https://example.com/*"] }
+}

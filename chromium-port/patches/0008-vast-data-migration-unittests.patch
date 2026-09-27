@@ -95,11 +95,11 @@ index 0000000000000000000000000000000000000000..a45682a2c885ee5f45fd4e9d6117bc0a
 +  base::ScopedTempDir temp_dir_;
 +};
 +
-+TEST_F(VastDataMigrationPreviewTest, ReadsDefaultRootAndOnlyDetectsVault) {
++TEST_F(VastDataMigrationPreviewTest, ReadsDefaultRootAndOnlyDetectsLegacyMetadata) {
 +  const base::FilePath root = CreateDirectory("Default");
 +  WriteData(root);
 +  ASSERT_TRUE(
-+      base::WriteFile(root.Append(FILE_PATH_LITERAL("password-vault.json")),
++      base::WriteFile(root.Append(FILE_PATH_LITERAL("legacy-metadata.json")),
 +                      "fixture secret that must never be parsed"));
 +
 +  const VastDataMigrationPreview preview =
@@ -113,7 +113,7 @@ index 0000000000000000000000000000000000000000..a45682a2c885ee5f45fd4e9d6117bc0a
 +  EXPECT_EQ(preview.bookmarks, 4u);
 +  EXPECT_EQ(preview.notes, 2u);
 +  EXPECT_EQ(preview.history, 1u);
-+  EXPECT_TRUE(preview.password_vault_present);
++  EXPECT_TRUE(preview.legacy_metadata_present);
 +  EXPECT_TRUE(preview.error.empty());
 +}
 +

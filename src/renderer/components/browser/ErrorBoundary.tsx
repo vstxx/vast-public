@@ -24,7 +24,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBound
             <h1 className="mt-3 text-2xl font-semibold">The browser chrome hit an error.</h1>
             <p className="mt-3 text-sm leading-6 text-vast-soft">{this.state.error.message}</p>
             <button
-              className="mt-5 rounded-control border border-white/10 bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/15"
+              className="vast-button vast-button--secondary vast-button--sm mt-5"
               onClick={() => location.reload()}
             >
               Reload Vast

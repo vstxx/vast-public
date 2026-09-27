@@ -11,7 +11,16 @@ const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vast-adblock-extensio
 const fixturePath = path.join(userDataDir, 'extension-fixture')
 const artifactsDirectory = path.join(root, '.vast-test-artifacts')
 const packagedExecutable = process.env.VAST_E2E_EXECUTABLE ? path.resolve(process.env.VAST_E2E_EXECUTABLE) : undefined
-const electronExecutable = packagedExecutable ?? require('electron')
+const patchedElectronDist = process.env.VAST_PATCHED_ELECTRON_DIST
+  ? path.resolve(process.env.VAST_PATCHED_ELECTRON_DIST)
+  : undefined
+const patchedElectronExecutable = patchedElectronDist
+  ? path.join(patchedElectronDist, process.platform === 'win32' ? 'electron.exe' : 'electron')
+  : undefined
+const electronExecutable = packagedExecutable ?? patchedElectronExecutable
+if (!electronExecutable || !fs.existsSync(electronExecutable)) {
+  throw new Error('Adblocker E2E requires VAST_E2E_EXECUTABLE or a verified VAST_PATCHED_ELECTRON_DIST.')
+}
 let appProcess
 let pageServer
 
@@ -27,7 +36,7 @@ function seedRegistry() {
     extensions: [{
       id: fixtureId,
       name: 'Adblocker for Vast',
-      version: '1.0.0',
+      version: '1.1.0',
       description: 'Deterministic unpacked extension fixture for Vast runtime tests.',
       path: fixturePath,
       enabled: true,
@@ -69,6 +78,8 @@ class CdpSession {
     this.pending = new Map()
     socket.addEventListener('message', (event) => {
       const message = JSON.parse(event.data)
+      if (message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error') console.log('Page console:', JSON.stringify(message.params.args.map(a=>a.value ?? a.description)))
+      if (message.method === 'Runtime.exceptionThrown') console.error('Renderer exception:', JSON.stringify(message.params))
       if (!message.id || !this.pending.has(message.id)) return
       const pending = this.pending.get(message.id)
       this.pending.delete(message.id)
@@ -146,7 +157,8 @@ async function waitFor(session, expression, label, timeout = assertionTimeout) {
     if (await session.evaluate(`Boolean(${expression})`).catch(() => false)) return
     await wait(250)
   }
-  const body = await session.evaluate('document.body.innerText').catch(() => '')
+  await session.screenshot('adblock-failure.png').catch(()=>{})
+  const body = await session.evaluate('document.body.innerText + JSON.stringify([...document.querySelectorAll("input")].map(e=>e.outerHTML))').catch(() => '')
   throw new Error(`Timed out waiting for ${label}. Body: ${String(body).slice(0, 800)}`)
 }
 
@@ -187,6 +199,8 @@ async function waitForGuest(session, expression, label, timeout = assertionTimeo
     session,
     `({ href: location.href, readyState: document.readyState, dataset: { ...document.documentElement.dataset }, body: document.body?.innerText?.slice(0, 400) ?? '' })`
   ).catch((error) => ({ inspectionError: String(error) }))
+  console.error('Extension state at failure', await executeInExtensionSurface(session, `chrome.runtime.sendMessage({type:'status'})`).catch(String))
+  console.error('Styles at failure', await executeInActiveWebview(session, `({early:window.earlyProtected,styles:[...document.querySelectorAll('style')].map(s=>({length:s.textContent.length,fixture:s.textContent.includes('vast-fixture-ad')}))})`).catch(String))
   throw new Error(`Timed out waiting for website assertion: ${label}. State: ${JSON.stringify(state)}`)
 }
 
@@ -259,11 +273,24 @@ async function stop(child) {
 
 async function run() {
   const { parseVextPackage } = await import('../src/shared/vext-format.ts')
-  const parsed = await parseVextPackage(new Uint8Array(fs.readFileSync(path.join(root,'artifacts/Adblocker-for-Vast-1.0.0.vext'))))
+  const parsed = await parseVextPackage(new Uint8Array(fs.readFileSync(path.join(root,'artifacts/Adblocker-for-Vast-1.1.0.vext'))))
   assert(parsed.metadata.extension_id===fixtureId,'Package identity mismatch')
   for(const [name,bytes] of parsed.files){ const target=path.resolve(fixturePath,name); assert(target.startsWith(fixturePath+path.sep),'Unsafe archive path'); fs.mkdirSync(path.dirname(target),{recursive:true}); fs.writeFileSync(target,bytes) }
+  // These rules exist only in the extracted test fixture, never in the upload.
+  fs.appendFileSync(path.join(fixturePath,'assets/ublock.txt'), '\n127.0.0.1##+js(trusted-set-constant, approvedRule, true)\n127.0.0.1##+js(trusted-replace-fetch-response, sponsored-marker, clean-marker, /trusted-player)\n127.0.0.1##+js(trusted-replace-xhr-response, sponsored-marker, clean-marker, /trusted-player)\n')
   seedRegistry()
-  pageServer = http.createServer((request,response) => { response.setHeader('Content-Type',request.url.includes('.js')?'application/javascript':'text/html'); response.end(request.url.includes('.js') ? 'window.adLoaded=true' : '<!doctype html><title>Adblock fixture</title><h1>Normal content</h1><div class="vast-fixture-ad">Advertisement</div><script src="/vast-block-me.js"></script>') })
+  pageServer = http.createServer((request,response) => {
+    if (request.url.startsWith('/trusted-player')) { response.setHeader('Content-Type','application/json'); response.end(JSON.stringify({ marker:'sponsored-marker', playback:{id:'normal-video'} })); return }
+    if (request.url.startsWith('/player')) { response.setHeader('Content-Type','application/json'); response.end(JSON.stringify({adPlacements:[1],adSlots:[2],playback:{id:'normal-video',duration:42}})); return }
+    if(request.url.includes('.js')) { response.setHeader('Content-Type','application/javascript'); response.end('window.adLoaded=true'); return }
+    response.setHeader('Content-Type','text/html')
+    response.end(`<!doctype html><script>
+      window.earlyProtected = window.adEnabled === false && window.approvedRule === true;
+      window.originalFetch = window.fetch;
+      window.fetchPlayer = fetch('/player?fetch').then(r=>r.json());
+      window.xhrPlayer = new Promise(resolve=>{const x=new XMLHttpRequest();x.open('GET','/player?xhr');x.onload=()=>resolve(JSON.parse(x.responseText));x.send()});
+    </script><title>Adblock fixture</title><h1>Normal content</h1><div class="vast-fixture-ad">Advertisement</div><div class="dynamic-ad">Promoted</div><div class="dynamic-keep">Promoted</div><script src="/vast-block-me.js"></script>`)
+  })
   await new Promise(resolve => pageServer.listen(0,'127.0.0.1',resolve))
   const origin = `http://127.0.0.1:${pageServer.address().port}`, remotePort=9820+Math.floor(Math.random()*100)
   let launched = launch(remotePort,origin)
@@ -292,13 +319,50 @@ async function run() {
     for(let i=0;i<100;i++){ state=await status(); if(state.value?.ready||state.value?.error) break; await wait(250) }
     console.log('Cold initialization (ms)', state.value?.performance?.initializationMs)
     assert(state.ok && state.value.ready,'Engine did not initialize: '+state.value?.error)
-    const next={...state.value.settings,autoUpdate:false,customFilters:'/vast-block-me.js$script\n127.0.0.1##.vast-fixture-ad'}
+    const guestTarget = (await fetchJson(`http://127.0.0.1:${remotePort}/json/list`)).find(t=>t.url.startsWith(origin))
+    if(guestTarget) await CdpSession.connect(guestTarget.webSocketDebuggerUrl)
+    const next={...state.value.settings,autoUpdate:false,customFilters:'/vast-block-me.js$script\n127.0.0.1##.vast-fixture-ad\n127.0.0.1##+js(set-constant, adEnabled, false)\n127.0.0.1##+js(json-prune-fetch-response, adPlacements adSlots, , propsToMatch, /player)\n127.0.0.1##+js(json-prune-xhr-response, adPlacements adSlots, , propsToMatch, /player)\n127.0.0.1##.dynamic-ad:has-text(Promoted)\n127.0.0.1##.dynamic-keep:has-text(Promoted)\n127.0.0.1#@#.dynamic-keep:has-text(Promoted)'}
     assert((await executeInExtensionSurface(session, `chrome.runtime.sendMessage(${JSON.stringify({type:'settings',settings:next})})`)).ok, 'Custom settings failed to save')
     await executeInActiveWebview(session, 'location.reload();true').catch(()=>{})
     await waitForGuest(session, `document.title==='Adblock fixture' && getComputedStyle(document.querySelector('.vast-fixture-ad')).display==='none'`, 'cosmetic filtering')
     assert(await executeInActiveWebview(session,'window.adLoaded!==true'),'Network request was not blocked')
+    const earlyState = await executeInActiveWebview(session, '({earlyProtected:window.earlyProtected,adEnabled:window.adEnabled,approvedRule:window.approvedRule})')
+    if (earlyState.earlyProtected !== true) {
+      await wait(150)
+      const lateState = await executeInActiveWebview(session, '({adEnabled:window.adEnabled,approvedRule:window.approvedRule})')
+      throw new Error(`Document rules missed the first inline page script: early=${JSON.stringify(earlyState)} late=${JSON.stringify(lateState)}`)
+    }
+    for (let navigation = 0; navigation < 8; navigation++) {
+      const url = `${origin}/fixture?early-document=${navigation}`
+      await setAddress(session, url)
+      await waitForGuest(session, `location.href===${JSON.stringify(url)} && document.title==='Adblock fixture'`, `early document navigation ${navigation}`)
+      const state = await executeInActiveWebview(session, '({earlyProtected:window.earlyProtected,adEnabled:window.adEnabled,approvedRule:window.approvedRule})')
+      assert(state.earlyProtected === true, `Document rules missed early navigation ${navigation}: ${JSON.stringify(state)}`)
+    }
+    for (const name of ['fetchPlayer','xhrPlayer']) {
+      const data = await executeInActiveWebview(session, `window.${name}`)
+      assert(!('adPlacements' in data) && !('adSlots' in data) && data.playback.id==='normal-video', name+' did not prune ads while preserving playback')
+    }
+    for (const expression of ["fetch('/trusted-player').then(r=>r.json())", "new Promise(resolve=>{const x=new XMLHttpRequest();x.open('GET','/trusted-player');x.onload=()=>resolve(JSON.parse(x.responseText));x.send()})"]) {
+      const data = await executeInActiveWebview(session, expression)
+      assert(data.marker==='clean-marker' && data.playback.id==='normal-video', 'Approved trusted response rule failed')
+    }
+    await waitForGuest(session, `getComputedStyle(document.querySelector('.dynamic-ad')).display==='none' && getComputedStyle(document.querySelector('.dynamic-keep')).display!=='none'`, 'extended selector and exception')
+    await executeInActiveWebview(session, `history.pushState({},'', '/fixture?spa');const e=document.createElement('div');e.id='spa-ad';e.className='dynamic-ad';e.textContent='Promoted';document.body.append(e);true`)
+    await waitForGuest(session, `getComputedStyle(document.querySelector('#spa-ad')).display==='none'`, 'SPA differential extended cosmetics')
+    assert(await executeInActiveWebview(session, 'fetch===originalFetch && typeof require==="undefined" && typeof process==="undefined"'), 'SPA duplicated page patches or exposed Node')
+
     assert((await status()).value.pageBlocked >= 1, 'Blocked statistics did not advance')
     const send = input => executeInExtensionSurface(session, `chrome.runtime.sendMessage(${JSON.stringify(input)})`)
+    state = await status()
+    assert((await send({type:'site',tabId:state.value.tabId,url:state.value.url,enabled:false,advancedOnly:true})).ok, 'Advanced-only disable failed')
+    await executeInActiveWebview(session, 'location.reload();true').catch(()=>{})
+    await waitForGuest(session, `document.title==='Adblock fixture' && getComputedStyle(document.querySelector('.vast-fixture-ad')).display==='none'`, 'ordinary cosmetics without advanced rules')
+    assert(await executeInActiveWebview(session, 'window.adLoaded!==true && typeof adEnabled==="undefined" && typeof approvedRule==="undefined" && getComputedStyle(document.querySelector(".dynamic-ad")).display!=="none"'), 'Advanced toggle changed ordinary blocking or kept page patches')
+    state = await status()
+    assert((await send({type:'site',tabId:state.value.tabId,url:state.value.url,enabled:true,advancedOnly:true})).ok, 'Advanced-only enable failed')
+    await executeInActiveWebview(session, 'location.reload();true').catch(()=>{})
+    await waitForGuest(session, 'window.earlyProtected===true', 'early rules after advanced re-enable')
     state = await status()
     assert(!(await send({type:'site',tabId:state.value.tabId,url:origin+'/stale',enabled:false})).ok, 'Stale site identity accepted')
     assert((await send({type:'site',tabId:state.value.tabId,url:state.value.url,enabled:false})).ok, 'Site disable failed')
@@ -308,11 +372,24 @@ async function run() {
     state = await status()
     assert((await send({type:'site',tabId:state.value.tabId,url:state.value.url,enabled:true})).ok, 'Site enable failed')
     await waitForGuest(session, `getComputedStyle(document.querySelector('.vast-fixture-ad')).display==='none'`, 'site cosmetic restoration')
-    assert(!(await send({type:'settings',settings:{...next,customFilters:'127.0.0.1##+js(set-constant, x, true)'}})).ok, 'Unsupported custom scriptlet was accepted')
+    assert(!(await send({type:'settings',settings:{...next,customFilters:'127.0.0.1##+js(trusted-set-constant, x, true)'}})).ok, 'Unsupported custom scriptlet was accepted')
     assert((await status()).value.settings.customFilters===next.customFilters, 'Failed custom edit replaced working rules')
     const before = performance.now()
     await executeInActiveWebview(session, `Promise.all(Array.from({length:100},(_,i)=>fetch('/allowed-'+i+'.txt'))).then(()=>true)`)
     console.log('100 allowed local requests (ms)', performance.now()-before)
+    const blockedBefore = performance.now()
+    assert(await executeInActiveWebview(session, `Promise.all(Array.from({length:100},(_,i)=>new Promise(resolve=>{const s=document.createElement('script');s.src='/vast-block-me.js?stress='+i;s.onload=()=>resolve(false);s.onerror=()=>{s.remove();resolve(true)};document.body.append(s)}))).then(results=>results.every(Boolean))`), 'Concurrent blocked requests escaped')
+    console.log('100 blocked local requests (ms)', performance.now()-blockedBefore)
+    const domBefore = performance.now()
+    await executeInActiveWebview(session, `const f=document.createDocumentFragment();for(let i=0;i<1000;i++){const e=document.createElement('div');e.className='dynamic-ad';e.textContent='Promoted';e.dataset.stress='true';f.append(e)}document.body.append(f);true`)
+    await waitForGuest(session, `[...document.querySelectorAll('[data-stress]')].every(e=>getComputedStyle(e).display==='none')`, '1000-node mutation batch')
+    console.log('1000 dynamic nodes hidden (ms)', performance.now()-domBefore)
+    await executeInActiveWebview(session, `document.querySelectorAll('[data-stress]').forEach(e=>e.remove());true`)
+    await setAddress(session, origin+'/oauth/callback?code=fixture')
+    await waitForGuest(session, `location.pathname==='/oauth/callback' && document.title==='Adblock fixture'`, 'OAuth fixture')
+    assert(await executeInActiveWebview(session, 'typeof adEnabled==="undefined" && typeof approvedRule==="undefined"'), 'OAuth flow received document rules')
+    await setAddress(session, origin+'/fixture')
+    await waitForGuest(session, 'window.earlyProtected===true', 'return from OAuth')
     assert((await session.evaluate(`window.vast.extensions.disable('${fixtureId}')`)).ok, 'Hub disable failed')
     await waitForGuest(session, `getComputedStyle(document.querySelector('.vast-fixture-ad')).display!=='none'`, 'extension unload cosmetic cleanup')
     await executeInActiveWebview(session, 'location.reload();true').catch(()=>{})
@@ -334,11 +411,42 @@ async function run() {
     assert(state.value.ready && state.value.performance.cacheHit, 'Browser restart did not restore compiled cache')
     assert(state.value.settings.customFilters===next.customFilters, 'Browser restart lost custom rules')
     console.log('Cached initialization (ms)',state.value.performance.initializationMs)
+    if (process.env.VAST_ADBLOCK_SMOKE === '1') {
+      const smoke = []
+      const urls = ['https://www.youtube.com/watch?v=aqz-KE-bpKQ','https://www.youtube.com/embed/aqz-KE-bpKQ','https://www.youtube.com/playlist?list=PLav47HAVZMjnTFVZL-aImCQIC0uLZtNCz','https://www.youtube.com/shorts/','https://www.youtube.com/watch?v=sWasdbDVNvc','https://www.reddit.com/','https://www.twitch.tv/','https://www.facebook.com/','https://x.com/','https://www.bbc.com/news','https://www.amazon.com/','https://accounts.google.com/']
+      for (const url of urls) {
+        try {
+          await setAddress(session, url)
+          await waitForGuest(session, `location.protocol==='https:' && location.hostname===${JSON.stringify(new URL(url).hostname)} && document.readyState==='complete'`, 'anonymous smoke '+url)
+          const result = await executeInActiveWebview(session, `({url:location.href,title:document.title,text:document.body?.innerText.slice(0,250),videos:[...document.querySelectorAll('video')].map(v=>({ready:v.readyState,paused:v.paused,error:v.error?.code})),node:typeof require})`)
+          smoke.push({requested:url,...result}); console.log('SMOKE', JSON.stringify(smoke.at(-1)))
+        } catch (error) { smoke.push({requested:url,error:String(error)}); console.log('SMOKE',JSON.stringify(smoke.at(-1))) }
+      }
+      fs.writeFileSync(path.join(artifactsDirectory,'adblock-live-smoke.json'), JSON.stringify(smoke,null,2))
+      await setAddress(session, origin+'/fixture?after-smoke')
+      await waitForGuest(session, 'window.earlyProtected===true', 'normal protection after live smoke')
+    }
+    const targets = await fetchJson(`http://127.0.0.1:${remotePort+1}/json/list`)
+    const backgroundTarget = targets.find(t=>t.url===`chrome-extension://${fixtureId}/_generated_background_page.html`)
+    assert(backgroundTarget, 'Verified background target missing')
+    const background = await CdpSession.connect(backgroundTarget.webSocketDebuggerUrl)
+    for (const response of ['null', '{scripts:[123]}', '{scripts:["x".repeat(524289)]}']) {
+      await background.evaluate(`globalThis.vastWebRequest.handle=async()=>(${response})`)
+      await setAddress(session, origin+'/fixture?malformed='+encodeURIComponent(response))
+      await waitForGuest(session, `document.title==='Adblock fixture' && window.adLoaded===true`, 'malformed provider fail-open')
+      assert(await executeInActiveWebview(session, 'typeof approvedRule==="undefined"'), 'Malformed provider scripts executed')
+    }
+    await background.evaluate('globalThis.vastWebRequest.handle=()=>new Promise(()=>{})')
+    const timeoutBefore = performance.now()
+    await setAddress(session, origin+'/fixture?timeout')
+    await waitForGuest(session, `document.title==='Adblock fixture' && window.adLoaded===true`, 'provider timeout fail-open')
+    assert(performance.now()-timeoutBefore < 5000, 'Unresponsive provider stalled browsing')
+    background.close()
     assert((await session.evaluate(`window.vast.extensions.remove('${fixtureId}')`)).ok, 'Hub remove failed')
     await waitForGuest(session, `getComputedStyle(document.querySelector('.vast-fixture-ad')).display!=='none'`, 'uninstall cosmetic cleanup')
     assert(!(await session.evaluate('window.vast.extensions.list()')).extensions.some(e=>e.id===fixtureId), 'Uninstalled record survived')
-    console.log('PASS standalone extension: worker, network, cosmetics, statistics, site controls, validation, lifecycle and cache')
+    console.log('PASS standalone extension: early safe/trusted rules, fetch/XHR, procedural SPA cosmetics, exceptions, site controls, OAuth, malformed/oversized/timeout fail-open, request/DOM stress, lifecycle and cache')
     session.close()
-  } finally { await stop(launched.child); fs.mkdirSync(artifactsDirectory,{recursive:true}); fs.writeFileSync(path.join(artifactsDirectory,'adblock-extension-e2e.log'),launched.stderr.join('')); await new Promise(resolve=>pageServer.close(resolve)); assert(path.dirname(userDataDir)===path.resolve(os.tmpdir())&&path.basename(userDataDir).startsWith('vast-adblock-extension-e2e-'),'Unsafe test cleanup'); fs.rmSync(userDataDir,{recursive:true,force:true}) }
+  } finally { await stop(launched.child); fs.mkdirSync(artifactsDirectory,{recursive:true}); fs.writeFileSync(path.join(artifactsDirectory,'adblock-extension-e2e.log'),launched.stdout.join('')+'\n'+launched.stderr.join('')); await new Promise(resolve=>pageServer.close(resolve)); assert(path.dirname(userDataDir)===path.resolve(os.tmpdir())&&path.basename(userDataDir).startsWith('vast-adblock-extension-e2e-'),'Unsafe test cleanup'); fs.rmSync(userDataDir,{recursive:true,force:true}) }
 }
 run().catch(error=>{console.error(error);process.exitCode=1})

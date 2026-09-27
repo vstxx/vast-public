@@ -1,0 +1,108 @@
+diff --git a/extensions/browser/api/alarms/alarm_manager.cc b/extensions/browser/api/alarms/alarm_manager.cc
+index 5b1ccf7a59..c1d45dffc3 100644
+--- a/extensions/browser/api/alarms/alarm_manager.cc
++++ b/extensions/browser/api/alarms/alarm_manager.cc
+@@ -15,6 +15,7 @@
+ #include "base/json/json_writer.h"
+ #include "base/json/values_util.h"
+ #include "base/lazy_instance.h"
++#include "base/logging.h"
+ #include "base/memory/raw_ptr.h"
+ #include "base/metrics/histogram_functions.h"
+ #include "base/numerics/safe_conversions.h"
+@@ -217,6 +218,8 @@ AlarmManager::AlarmManager(content::BrowserContext* context)
+       ExtensionRegistry::Get(browser_context_));
+ 
+   StateStore* storage = ExtensionSystem::Get(browser_context_)->state_store();
++  LOG(INFO) << "[vast-compat] alarm manager state-store="
++            << static_cast<bool>(storage);
+   if (storage) {
+     storage->RegisterKey(kRegisteredAlarms);
+   }
+@@ -389,6 +392,8 @@ void AlarmManager::OnAlarm(AlarmIterator it) {
+   CHECK(it.first != alarms_.end());
+   Alarm& alarm = *it.second;
+   ExtensionId extension_id_copy(it.first->first);
++  LOG(INFO) << "[vast-compat] alarm fired extension=" << extension_id_copy
++            << " name=" << (alarm.js_alarm ? alarm.js_alarm->name : std::string());
+   delegate_->OnAlarm(extension_id_copy, alarm);
+ 
+   // Update our scheduled time for the next alarm.
+@@ -563,6 +568,8 @@ void AlarmManager::RunWhenReady(const ExtensionId& extension_id,
+ void AlarmManager::OnExtensionLoaded(content::BrowserContext* browser_context,
+                                      const Extension* extension) {
+   StateStore* storage = ExtensionSystem::Get(browser_context_)->state_store();
++  LOG(INFO) << "[vast-compat] alarm extension-loaded id=" << extension->id()
++            << " state-store=" << static_cast<bool>(storage);
+   if (storage) {
+     bool is_unpacked = Manifest::IsUnpackedLocation(extension->location());
+     ready_actions_.insert(ReadyMap::value_type(extension->id(), ReadyQueue()));
+diff --git a/extensions/browser/api/runtime/runtime_api.cc b/extensions/browser/api/runtime/runtime_api.cc
+index 12e5589a68..ca2cfecf34 100644
+--- a/extensions/browser/api/runtime/runtime_api.cc
++++ b/extensions/browser/api/runtime/runtime_api.cc
+@@ -13,6 +13,7 @@
+ #include "base/functional/bind.h"
+ #include "base/lazy_instance.h"
+ #include "base/location.h"
++#include "base/logging.h"
+ #include "base/metrics/histogram_functions.h"
+ #include "base/notreached.h"
+ #include "base/one_shot_event.h"
+@@ -349,6 +350,8 @@ void RuntimeAPI::OnChromeUpdateAvailable() {
+ }
+ 
+ void RuntimeAPI::OnBackgroundHostStartup(const Extension* extension) {
++  LOG(INFO) << "[vast-compat] runtime startup observer id="
++            << extension->id();
+   RuntimeEventRouter::DispatchOnStartupEvent(browser_context_, extension->id());
+ }
+ 
+@@ -680,6 +683,8 @@ void RuntimeAPI::OnExtensionInstalledAndLoaded(
+     content::BrowserContext* browser_context,
+     const Extension* extension,
+     const base::Version& previous_version) {
++  LOG(INFO) << "[vast-compat] runtime installed observer id="
++            << extension->id() << " previous=" << previous_version.GetString();
+   base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+       FROM_HERE,
+       base::BindOnce(&RuntimeEventRouter::DispatchOnInstalledEvent,
+diff --git a/extensions/browser/event_router.cc b/extensions/browser/event_router.cc
+index 064f767024..c9b6eca12c 100644
+--- a/extensions/browser/event_router.cc
++++ b/extensions/browser/event_router.cc
+@@ -19,6 +19,7 @@
+ #include "base/debug/crash_logging.h"
+ #include "base/functional/bind.h"
+ #include "base/functional/callback_helpers.h"
++#include "base/logging.h"
+ #include "base/metrics/histogram_functions.h"
+ #include "base/metrics/histogram_macros.h"
+ #include "base/notreached.h"
+@@ -526,6 +527,8 @@ void EventRouter::AddListenerForMainThread(
+ void EventRouter::AddListenerForServiceWorker(
+     mojom::EventListenerPtr event_listener,
+     mojom::ServiceWorkerContextPtr service_worker_context) {
++  LOG(INFO) << "[vast-compat] sw active-listener event="
++            << event_listener->event_name;
+   auto* process = GetRenderProcessHostForCurrentReceiver();
+   if (!process) {
+     return;
+@@ -581,6 +584,8 @@ void EventRouter::AddLazyListenerForServiceWorker(
+     const ExtensionId& extension_id,
+     const GURL& worker_scope_url,
+     const std::string& event_name) {
++  LOG(INFO) << "[vast-compat] sw lazy-listener extension=" << extension_id
++            << " event=" << event_name;
+   auto* process = GetRenderProcessHostForCurrentReceiver();
+   if (!process) {
+     return;
+@@ -1251,6 +1256,8 @@ void EventRouter::BroadcastEvent(std::unique_ptr<Event> event) {
+ void EventRouter::DispatchEventToExtension(const ExtensionId& extension_id,
+                                            std::unique_ptr<Event> event) {
+   DCHECK(!extension_id.empty());
++  LOG(INFO) << "[vast-compat] dispatch extension=" << extension_id
++            << " event=" << event->event_name;
+   DispatchEventImpl(extension_id, GURL(), std::move(event));
+ }
+ 

@@ -22,6 +22,7 @@ test('external app protocol policy accepts app links without accepting web or pr
     'data:text/html,hello',
     'blob:https://example.com/id',
     'chrome://version',
+    'chrome-extension://nngceckbapebfimnlniiiahkandclblb/popup/index.html',
     'devtools://devtools/bundled',
     'vast://newtab',
     'not a url'

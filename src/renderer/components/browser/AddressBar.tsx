@@ -9,7 +9,6 @@ import {
   FileText,
   Gauge,
   History,
-  KeyRound,
   Lock,
   Minus,
   MoreHorizontal,
@@ -36,7 +35,6 @@ import {
   INTERNAL_NEW_TAB_URL,
   INTERNAL_NOTES_URL,
   INTERNAL_NETWORK_URL,
-  INTERNAL_PASSWORDS_URL,
   INTERNAL_SESSION_TIMELINE_URL,
   SEARCH_ENGINES
 } from '../../../shared/constants'
@@ -49,6 +47,8 @@ import { useExtensionContributions } from '../../extensions/extension-runtime'
 import { VideoAudioMark } from '../avidae/VideoAudioBrand'
 import { Favicon } from '../ui/Favicon'
 import { IconButton } from '../ui/IconButton'
+import { VastButton } from '../ui/VastButton'
+import { VastMenuItem } from '../ui/VastMenuItem'
 import { ExtensionsToolbarMenu } from './ExtensionsToolbarMenu'
 
 interface AddressSuggestion {
@@ -203,7 +203,6 @@ export function AddressBar({
       avidae: getFeatureState(VastFeatures.Avidae, { settings: featureContextSettings }),
       automation: getFeatureState(VastFeatures.Automation, { settings: featureContextSettings }),
       networkDevices: getFeatureState(VastFeatures.NetworkDevices, { settings: featureContextSettings }),
-      passwordManager: getFeatureState(VastFeatures.PasswordManager, { settings: featureContextSettings }),
       advancedDiagnostics: getFeatureState(VastFeatures.AdvancedDiagnostics, { settings: featureContextSettings }),
       sessionTimeline: getFeatureState(VastFeatures.SessionTimeline, { settings: featureContextSettings })
     }),
@@ -411,42 +410,36 @@ export function AddressBar({
               />
             </label>}
             {siteInfo?.kind === 'web' && siteInfo.origin && (
-              <button
-                type="button"
+              <VastButton
+                variant="secondary"
+                size="sm"
+                className="mt-2 w-full"
                 onClick={() => {
                   setSiteInfoOpen(false)
                   void window.vast.privacy.clearSiteData(siteInfo.origin, runtime.getActiveWebContentsId())
                 }}
-                className="mt-2 flex h-10 w-full items-center justify-center rounded-control border border-white/10 bg-white/[0.045] text-[13px] font-semibold text-white hover:bg-white/[0.08]"
               >
                 Clear cookies and storage for this site
-              </button>
+              </VastButton>
             )}
             {siteInfo?.kind === 'web' && siteInfo.origin && (
-              <button
-                type="button"
+              <VastButton
+                variant="danger"
+                size="sm"
+                className="mt-2 w-full"
                 onClick={() => {
                   setSiteInfoOpen(false)
                   void window.vast.privacy.clearSiteData(siteInfo.origin, runtime.getActiveWebContentsId()).finally(() => forgetSite(siteInfo.origin!))
                 }}
-                className="mt-2 flex h-10 w-full items-center justify-center rounded-control border border-red-400/20 bg-red-400/[0.06] text-[13px] font-semibold text-red-200 hover:bg-red-400/[0.1]"
               >
                 Forget this site
-              </button>
+              </VastButton>
             )}
           </div>
         )}
       </form>
 
       <div className={`address-bar-controls no-drag flex items-center gap-1 ${compact ? 'is-compact' : ''}`}>
-        {activeTab?.loginFormDetected && (
-          <IconButton
-            tooltip={featureStates.passwordManager.available ? 'Fill login' : 'Enable Password Manager in Labs'}
-            onClick={() => activateFeatureAction(featureStates.passwordManager, () => void runtime.fillLoginForActive())}
-          >
-            <KeyRound className="h-4 w-4" />
-          </IconButton>
-        )}
         <IconButton tooltip={isBookmarked ? 'Remove bookmark' : 'Bookmark page'} active={isBookmarked} onClick={runtime.addCurrentBookmark}>
           <Star className="h-4 w-4" fill={isBookmarked ? 'currentColor' : 'none'} />
         </IconButton>
@@ -480,7 +473,7 @@ export function AddressBar({
             <MoreHorizontal className="h-4 w-4" />
           </IconButton>
           {overflowOpen && (
-            <div className="browser-tools-menu absolute right-0 top-11 z-40 max-h-[72vh] w-64 overflow-y-auto rounded-card border border-white/10 bg-[#0c0d12]/[0.98] p-2 shadow-glass backdrop-blur-xl">
+            <div className="browser-tools-menu absolute right-0 top-11 z-40 max-h-[72vh] w-72 overflow-y-auto rounded-card border border-white/10 bg-[#0c0d12]/[0.98] p-2 shadow-glass backdrop-blur-xl">
               {extensionToolbar.slice(3).map((action) => <OverflowAction key={action.key} label={`${action.title} · ${action.extensionName}`} icon={Puzzle} disabled={action.enabled === false} onClick={() => { void window.vast.extensions.dispatchContribution(action.key) }} onClose={() => setOverflowOpen(false)} />)}
               <OverflowAction label="Incognito window" icon={EyeOff} onClick={runtime.openIncognitoWindow} onClose={() => setOverflowOpen(false)} />
               <>
@@ -490,13 +483,10 @@ export function AddressBar({
               </>
               <OverflowAction label="Notes" icon={FileText} onClick={() => runtime.openUrlInNewTab(INTERNAL_NOTES_URL)} onClose={() => setOverflowOpen(false)} />
               <>
-                <OverflowAction label="Password Manager" icon={KeyRound} badge={featureBadge(featureStates.passwordManager)} unavailable={!featureStates.passwordManager.available} onClick={() => runtime.openUrlInNewTab(INTERNAL_PASSWORDS_URL)} onClose={() => setOverflowOpen(false)} />
                 <OverflowAction label="Diagnostics & Site Data" icon={Database} badge={featureBadge(featureStates.advancedDiagnostics)} unavailable={!featureStates.advancedDiagnostics.available} onClick={() => runtime.openUrlInNewTab(INTERNAL_DIAGNOSTICS_URL)} onClose={() => setOverflowOpen(false)} />
               </>
               <OverflowAction label="Session Timeline" icon={History} badge={featureBadge(featureStates.sessionTimeline)} unavailable={!featureStates.sessionTimeline.available} onClick={() => runtime.openUrlInNewTab(INTERNAL_SESSION_TIMELINE_URL)} onClose={() => setOverflowOpen(false)} />
               <>
-                <OverflowAction label="Fill login" icon={KeyRound} badge={featureBadge(featureStates.passwordManager)} unavailable={!featureStates.passwordManager.available} disabled={!activeTab?.loginFormDetected} onClick={() => activateFeatureAction(featureStates.passwordManager, () => void runtime.fillLoginForActive())} onClose={() => setOverflowOpen(false)} />
-                <OverflowAction label="Save password" icon={Lock} badge={featureBadge(featureStates.passwordManager)} unavailable={!featureStates.passwordManager.available} disabled={!activeTab?.loginFormDetected} onClick={() => activateFeatureAction(featureStates.passwordManager, () => void runtime.saveLoginForActive())} onClose={() => setOverflowOpen(false)} />
               </>
               <OverflowAction label="Find in page" icon={Search} onClick={runtime.openFindUi} onClose={() => setOverflowOpen(false)} />
               <OverflowAction label="Print page" icon={Printer} onClick={() => void runtime.printActive()} onClose={() => setOverflowOpen(false)} />
@@ -540,23 +530,22 @@ function OverflowAction({
   badge?: string
 }): JSX.Element {
   return (
-    <button
-      type="button"
+    <VastMenuItem
       disabled={disabled}
+      className={`h-9 !px-3 !text-[14px] ${unavailable ? 'opacity-75' : ''}`}
       onClick={() => {
         if (disabled) return
         onClick()
         onClose()
       }}
-      className={`browser-tools-action flex h-9 w-full items-center gap-3 rounded-control px-3 text-left text-sm text-vast-soft transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-vast-soft ${unavailable ? 'opacity-75' : ''}`}
+      icon={<span style={{ color: 'var(--vast-accent)' }}><Icon className="h-4 w-4" /></span>}
     >
-      <Icon className="h-4 w-4 text-vast-cyan" />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {badge && (
-        <span className="rounded-checkbox border border-vast-cyan/20 bg-vast-cyan/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-vast-cyan">
+        <span className="rounded-checkbox border border-vast-cyan/20 bg-vast-cyan/10 px-1.5 py-0.5 text-[11px] font-semibold uppercase text-vast-cyan">
           {badge}
         </span>
       )}
-    </button>
+    </VastMenuItem>
   )
 }

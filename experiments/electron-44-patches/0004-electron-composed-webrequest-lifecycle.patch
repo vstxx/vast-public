@@ -1,0 +1,1797 @@
+diff --git a/shell/browser/api/electron_api_web_request.cc b/shell/browser/api/electron_api_web_request.cc
+index 1d2c8d1..10082f8 100644
+--- a/shell/browser/api/electron_api_web_request.cc
++++ b/shell/browser/api/electron_api_web_request.cc
+@@ -923,13 +923,16 @@ void WebRequest::HandleSimpleEvent(SimpleEvent event,
+ void WebRequest::OnLoginAuthResult(
+     uint64_t id,
+     net::AuthCredentials* credentials,
+-    const std::optional<net::AuthCredentials>& maybe_creds) {
++    const std::optional<net::AuthCredentials>& maybe_creds,
++    bool handled) {
+   auto nh = blocked_requests_.extract(id);
+   CHECK(nh);
+ 
+   AuthRequiredResponse action =
+       AuthRequiredResponse::AUTH_REQUIRED_RESPONSE_NO_ACTION;
+-  if (maybe_creds.has_value()) {
++  if (handled && !maybe_creds.has_value()) {
++    action = AuthRequiredResponse::AUTH_REQUIRED_RESPONSE_CANCEL_AUTH;
++  } else if (maybe_creds.has_value()) {
+     *credentials = maybe_creds.value();
+     action = AuthRequiredResponse::AUTH_REQUIRED_RESPONSE_SET_AUTH;
+   }
+diff --git a/shell/browser/api/electron_api_web_request.h b/shell/browser/api/electron_api_web_request.h
+index ec428c3..741b85f 100644
+--- a/shell/browser/api/electron_api_web_request.h
++++ b/shell/browser/api/electron_api_web_request.h
+@@ -232,7 +232,8 @@ class WebRequest final : public gin::Wrappable<WebRequest> {
+   void OnLoginAuthResult(
+       uint64_t id,
+       net::AuthCredentials* credentials,
+-      const std::optional<net::AuthCredentials>& maybe_creds);
++      const std::optional<net::AuthCredentials>& maybe_creds,
++      bool handled);
+ 
+   class RequestFilter {
+    public:
+diff --git a/shell/browser/electron_browser_client.cc b/shell/browser/electron_browser_client.cc
+index 398527c..1d44256 100644
+--- a/shell/browser/electron_browser_client.cc
++++ b/shell/browser/electron_browser_client.cc
+@@ -177,6 +177,7 @@
+ #include "content/public/browser/web_ui_url_loader_factory.h"
+ #include "extensions/browser/api/mime_handler_private/mime_handler_private.h"
+ #include "extensions/browser/api/web_request/web_request_api.h"
++#include "base/functional/callback_helpers.h"
+ #include "extensions/browser/browser_context_keyed_api_factory.h"
+ #include "extensions/browser/event_router.h"
+ #include "extensions/browser/extension_host.h"
+@@ -1484,19 +1485,14 @@ void ElectronBrowserClient::CreateWebSocket(
+   DCHECK(web_request);
+ 
+ #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
+-  if (!web_request->HasListener()) {
+-    auto* web_request_api = extensions::BrowserContextKeyedAPIFactory<
+-        extensions::WebRequestAPI>::Get(browser_context);
+-
+-    if (web_request_api && web_request_api->MayHaveProxies()) {
+-      web_request_api->ProxyWebSocket(
+-          frame, std::move(factory), url, site_for_cookies, user_agent,
+-          std::move(handshake_client), std::move(options.header_client));
+-      return;
+-    }
+-  }
++  LOG(INFO) << "[vast-compat] websocket app_listener="
++            << web_request->HasListener() << " url=" << url;
++  // The Electron proxy is the single owner of the handshake. Extension
++  // webRequest stages are composed within that proxy rather than selecting a
++  // competing proxy according to listener registration order.
+ #endif
+ 
++  LOG(INFO) << "[vast-compat] websocket route=electron";
+   ProxyingWebSocket::StartProxying(
+       web_request, std::move(factory), url, site_for_cookies, user_agent,
+       std::move(handshake_client), true, frame->GetProcess()->GetDeprecatedID(),
+@@ -1527,28 +1523,14 @@ void ElectronBrowserClient::WillCreateURLLoaderFactory(
+   DCHECK(web_request);
+ 
+ #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
+-  // Factories for requests made from the main process (e.g. net.fetch) have
+-  // no frame and are not routed through extensions.
+-  const bool is_browser_process_request =
+-      type == URLLoaderFactoryType::kNavigation && !frame_host;
+-  if (!web_request->HasListener() && !is_browser_process_request) {
+-    auto* web_request_api = extensions::BrowserContextKeyedAPIFactory<
+-        extensions::WebRequestAPI>::Get(browser_context);
+-
+-    DCHECK(web_request_api);
+-    bool used_proxy_for_web_request =
+-        web_request_api->MaybeProxyURLLoaderFactory(
+-            browser_context, frame_host, render_process_id, type, navigation_id,
+-            ukm_source_id, factory_builder, header_client,
+-            navigation_response_task_runner);
+-
+-    if (bypass_redirect_checks)
+-      *bypass_redirect_checks = used_proxy_for_web_request;
+-    if (used_proxy_for_web_request)
+-      return;
+-  }
++  LOG(INFO) << "[vast-compat] factory app_listener="
++            << web_request->HasListener()
++            << " type=" << static_cast<int>(type);
++  // Keep one URLLoaderFactory state machine regardless of when either listener
++  // was registered. Extension decisions are composed in the Electron proxy.
+ #endif
+ 
++  LOG(INFO) << "[vast-compat] factory route=electron";
+   auto [proxied_receiver, target_factory_remote] = factory_builder.Append();
+ 
+   // Renderer-facing factories get an IO-thread gate in front of the proxy, so
+@@ -1655,12 +1637,20 @@ void ElectronBrowserClient::RegisterAssociatedInterfaceBindersForServiceWorker(
+     const content::ServiceWorkerVersionBaseInfo& service_worker_version_info,
+     blink::AssociatedInterfaceRegistry& associated_registry) {
+   CHECK(service_worker_version_info.process_id);
++  LOG(INFO) << "[vast-compat] register worker binders process="
++            << service_worker_version_info.process_id;
+   associated_registry.AddInterface<mojom::ElectronApiIPC>(
+       base::BindRepeating(&ElectronApiSWIPCHandlerImpl::BindReceiver,
+                           service_worker_version_info.process_id,
+                           service_worker_version_info.version_id));
+ 
+ #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  // Extension service workers register persistent event listeners through this
++  // interface. Without the binder, events such as alarms.onAlarm never reach
++  // the worker even though addListener() succeeds in JavaScript.
++  associated_registry.AddInterface<extensions::mojom::EventRouter>(
++      base::BindRepeating(&extensions::EventRouter::BindForRenderer,
++                          service_worker_version_info.process_id));
+   associated_registry.AddInterface<extensions::mojom::RendererHost>(
+       base::BindRepeating(&extensions::RendererStartupHelper::BindForRenderer,
+                           service_worker_version_info.process_id));
+@@ -1998,10 +1988,56 @@ ElectronBrowserClient::CreateLoginDelegate(
+     bool first_auth_attempt,
+     content::GuestPageHolder* guest_page_holder,
+     content::LoginDelegate::LoginAuthRequiredCallback auth_required_callback) {
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  // The app's login event is authoritative. Only an application abstention
++  // allows the extension webRequest auth listener to answer this challenge.
++  auto composed_callback = base::BindOnce(
++      [](base::WeakPtr<ElectronBrowserContext> context,
++         net::AuthChallengeInfo challenge,
++         scoped_refptr<net::HttpResponseHeaders> headers,
++         content::GlobalRequestID id, bool navigation,
++         content::LoginDelegate::LoginAuthRequiredCallback final_callback,
++         const std::optional<net::AuthCredentials>& credentials,
++         bool app_handled) {
++        if (app_handled || !context) {
++          std::move(final_callback).Run(credentials);
++          return;
++        }
++        auto* api = extensions::WebRequestAPI::GetFactoryInstance()->Get(
++            context.get());
++        if (!api) {
++          std::move(final_callback).Run(std::nullopt);
++          return;
++        }
++        auto callbacks = base::SplitOnceCallback(std::move(final_callback));
++        bool extension_handled = api->MaybeProxyAuthRequest(
++            context.get(), challenge, std::move(headers), id, navigation,
++            base::BindOnce(
++                [](content::LoginDelegate::LoginAuthRequiredCallback cb,
++                   const std::optional<net::AuthCredentials>& extension_creds,
++                   bool should_cancel) {
++                  std::move(cb).Run(should_cancel ? std::nullopt
++                                                  : extension_creds);
++                },
++                std::move(callbacks.first)),
++            nullptr);
++        if (!extension_handled)
++          std::move(callbacks.second).Run(std::nullopt);
++      },
++      static_cast<ElectronBrowserContext*>(browser_context)->GetWeakPtr(),
++      auth_info, response_headers, request_id, is_request_for_navigation,
++      std::move(auth_required_callback));
++  return std::make_unique<LoginHandler>(
++      auth_info, web_contents, is_request_for_primary_main_frame,
++      is_request_for_navigation, base::kNullProcessId, url,
++      std::move(response_headers), first_auth_attempt,
++      std::move(composed_callback));
++#else
+   return std::make_unique<LoginHandler>(
+       auth_info, web_contents, is_request_for_primary_main_frame,
+       is_request_for_navigation, base::kNullProcessId, url, response_headers,
+       first_auth_attempt, std::move(auth_required_callback));
++#endif
+ }
+ 
+ std::vector<std::unique_ptr<blink::URLLoaderThrottle>>
+diff --git a/shell/browser/extensions/electron_extension_loader.cc b/shell/browser/extensions/electron_extension_loader.cc
+index 1b5879b..ccdb10d 100644
+--- a/shell/browser/extensions/electron_extension_loader.cc
++++ b/shell/browser/extensions/electron_extension_loader.cc
+@@ -16,12 +16,16 @@
+ #include "base/strings/string_number_conversions.h"
+ #include "base/strings/utf_string_conversions.h"
+ #include "base/task/sequenced_task_runner.h"
++#include "base/task/single_thread_task_runner.h"
+ #include "base/threading/thread_restrictions.h"
+ #include "base/time/time.h"
++#include "components/sync/model/string_ordinal.h"
+ #include "content/public/browser/browser_context.h"
++#include "extensions/browser/api/runtime/runtime_api.h"
+ #include "extensions/browser/extension_file_task_runner.h"
+ #include "extensions/browser/extension_pref_names.h"
+ #include "extensions/browser/extension_prefs.h"
++#include "extensions/browser/event_router.h"
+ #include "extensions/browser/extension_registry.h"
+ #include "extensions/browser/pref_names.h"
+ #include "extensions/common/constants.h"
+@@ -29,11 +33,22 @@
+ #include "extensions/common/file_util.h"
+ #include "extensions/common/manifest_constants.h"
+ #include "extensions/common/manifest_handlers/background_info.h"
++#include "shell/browser/electron_browser_context.h"
++#include "shell/browser/net/url_loader_factory_gate.h"
+ 
+ namespace extensions {
+ 
+ namespace {
+ 
++constexpr char kLegacyInstallTimePref[] = "preferences.install_time";
++// Chromium intentionally does not persist an unpacked extension's manifest,
++// so ExtensionPrefs::GetVersionString() is empty after an application restart.
++// Electron loads extensions through the unpacked path even when the embedding
++// application manages their installation. Persist the last loaded version
++// separately so install, update, and startup remain distinguishable.
++constexpr char kElectronInstalledVersionPref[] =
++    "preferences.electron_installed_version";
++
+ std::pair<scoped_refptr<const Extension>, std::string> LoadUnpacked(
+     const base::FilePath& extension_dir,
+     int load_flags) {
+@@ -138,6 +153,15 @@ void ElectronExtensionLoader::UnloadExtension(
+     const ExtensionId& extension_id,
+     extensions::UnloadedExtensionReason reason) {
+   extension_registrar_->RemoveExtension(extension_id, reason);
++  static_cast<electron::ElectronBrowserContext*>(browser_context_)
++      ->intercept_state()
++      ->SetExtensionInterception(
++          !ExtensionRegistry::Get(browser_context_)
++               ->enabled_extensions()
++               .empty());
++  if (reason == extensions::UnloadedExtensionReason::UNINSTALL) {
++    loaded_this_run_.erase(extension_id);
++  }
+ }
+ 
+ void ElectronExtensionLoader::FinishExtensionLoad(
+@@ -146,19 +170,70 @@ void ElectronExtensionLoader::FinishExtensionLoad(
+   scoped_refptr<const Extension> extension = result.first;
+   if (extension) {
+     ExtensionPrefs* extension_prefs = ExtensionPrefs::Get(browser_context_);
++    std::string previous_version;
++    extension_prefs->ReadPrefAsString(
++        extension->id(), kElectronInstalledVersionPref, &previous_version);
++    LOG(INFO) << "[vast-compat] extension load id=" << extension->id()
++              << " previous_version="
++              << extension_prefs->GetVersionString(extension->id())
++              << " incoming_version=" << extension->version().GetString();
+ 
+     if (BackgroundInfo::IsServiceWorkerBased(extension.get())) {
+       // Tell Chromium that it needs to start the extension's service worker.
+-      // Chromium usually does this only when an extension is first installed
+-      // because Chrome will restart the service worker when the browser
+-      // relaunches. In Electron, we make a fresh install on every app start,
+-      // so we need to run the fresh install logic again.
++      // Chromium's normal browser startup restarts extension workers. Electron
++      // loads unpacked extensions explicitly, so request worker registration
++      // on each application start without changing the persisted version.
+       extension_prefs->UpdateExtensionPref(
+           extension.get()->id(), extensions::kPrefHasStartedServiceWorker,
+           base::Value(false));
+     }
+ 
+-    extension_registrar_->AddExtension(extension);
++    const bool version_changed =
++        previous_version != extension->version().GetString();
++    // A service worker may issue requests during activation. Route them
++    // through the composed proxy before making the extension visible.
++    static_cast<electron::ElectronBrowserContext*>(browser_context_)
++        ->intercept_state()
++        ->SetExtensionInterception(true);
++    if (version_changed) {
++      // Chromium's install path records the manifest version and install time,
++      // then notifies LazyEventDispatchUtil for runtime.onInstalled.
++      // Register RuntimeAPI's observer before the install notification. Lazy
++      // construction after the event would permanently lose onInstalled.
++      RuntimeAPI::GetFactoryInstance()->Get(browser_context_);
++      // The registry can still be empty after process restart, so preserve
++      // the profile's previous version before OnExtensionInstalled rewrites it.
++      if (auto* event_router = EventRouter::Get(browser_context_)) {
++        event_router->lazy_event_dispatch_util()
++            ->SetPreviousVersionForNextInstall(extension->id(),
++                                               previous_version);
++      }
++      extension_registrar_->AddNewOrUpdatedExtension(
++          extension.get(), /*install_flags=*/0, syncer::StringOrdinal(),
++          /*install_parameter=*/std::string(), base::DictValue());
++      extension_prefs->UpdateExtensionPref(
++          extension->id(), kElectronInstalledVersionPref,
++          base::Value(extension->version().GetString()));
++    } else {
++      extension_registrar_->AddExtension(extension);
++    }
++    LOG(INFO) << "[vast-compat] extension registered id="
++              << extension->id();
++
++    const bool first_load_this_run =
++        loaded_this_run_.insert(extension->id()).second;
++    if (ExtensionRegistry::Get(browser_context_)
++            ->enabled_extensions()
++            .Contains(extension->id())) {
++      // Only an already-installed extension loaded at application startup
++      // gets onStartup. Chromium owns install/update dispatch above.
++      if (!version_changed && first_load_this_run) {
++        base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
++            FROM_HERE,
++            base::BindOnce(&ElectronExtensionLoader::DispatchStartupEvent,
++                           weak_factory_.GetWeakPtr(), extension->id()));
++      }
++    }
+ 
+     // Write extension install time to ExtensionPrefs.
+     // This is required by extensions::WebRequestAPI
+@@ -166,7 +241,10 @@ void ElectronExtensionLoader::FinishExtensionLoad(
+     //
+     // Implementation for writing the pref was based on
+     // PreferenceAPIBase::SetExtensionControlledPref.
+-    {
++    std::string existing_install_time;
++    if (!extension_prefs->ReadPrefAsString(
++            extension->id(), kLegacyInstallTimePref,
++            &existing_install_time)) {
+       ExtensionPrefs::ScopedDictionaryUpdate update(
+           extension_prefs, extension.get()->id(),
+           extensions::pref_names::kPrefPreferences);
+@@ -181,11 +259,24 @@ void ElectronExtensionLoader::FinishExtensionLoad(
+   std::move(cb).Run(extension.get(), result.second);
+ }
+ 
++void ElectronExtensionLoader::DispatchStartupEvent(
++    const ExtensionId& extension_id) {
++  if (!ExtensionRegistry::Get(browser_context_)
++           ->enabled_extensions()
++           .Contains(extension_id)) {
++    return;
++  }
++  RuntimeEventRouter::DispatchOnStartupEvent(browser_context_, extension_id);
++}
++
+ void ElectronExtensionLoader::FinishExtensionReload(
+     const ExtensionId& old_extension_id,
+     std::pair<scoped_refptr<const Extension>, std::string> result) {
+   scoped_refptr<const Extension> extension = result.first;
+   if (extension) {
++    static_cast<electron::ElectronBrowserContext*>(browser_context_)
++        ->intercept_state()
++        ->SetExtensionInterception(true);
+     extension_registrar_->AddExtension(extension);
+   }
+ }
+@@ -203,7 +294,9 @@ void ElectronExtensionLoader::PreAddExtension(const Extension* extension,
+ }
+ 
+ void ElectronExtensionLoader::PostActivateExtension(
+-    scoped_refptr<const Extension> extension) {}
++    scoped_refptr<const Extension> extension) {
++  LOG(INFO) << "[vast-compat] extension activated id=" << extension->id();
++}
+ 
+ void ElectronExtensionLoader::PostDeactivateExtension(
+     scoped_refptr<const Extension> extension) {}
+diff --git a/shell/browser/extensions/electron_extension_loader.h b/shell/browser/extensions/electron_extension_loader.h
+index 043edfd..6c4a763 100644
+--- a/shell/browser/extensions/electron_extension_loader.h
++++ b/shell/browser/extensions/electron_extension_loader.h
+@@ -8,6 +8,7 @@
+ #include <string>
+ #include <utility>
+ 
++#include "base/containers/flat_set.h"
+ #include "base/functional/callback.h"
+ #include "base/memory/raw_ptr.h"
+ #include "base/memory/weak_ptr.h"
+@@ -72,6 +73,7 @@ class ElectronExtensionLoader : public ExtensionRegistrar::Delegate {
+   void FinishExtensionLoad(
+       base::OnceCallback<void(const Extension*, const std::string&)> cb,
+       std::pair<scoped_refptr<const Extension>, std::string> result);
++  void DispatchStartupEvent(const ExtensionId& extension_id);
+   void DoLoadExtensionForReload(const ExtensionId& extension_id,
+                                 const base::FilePath& path);
+ 
+@@ -107,6 +109,7 @@ class ElectronExtensionLoader : public ExtensionRegistrar::Delegate {
+   // Used by ReloadExtension() to check whether ExtensionRegistrar calls
+   // LoadExtensionForReload().
+   bool did_schedule_reload_ = false;
++  base::flat_set<ExtensionId> loaded_this_run_;
+ 
+   base::WeakPtrFactory<ElectronExtensionLoader> weak_factory_{this};
+ };
+diff --git a/shell/browser/extensions/electron_extension_system.cc b/shell/browser/extensions/electron_extension_system.cc
+index 207290e..18aa8ab 100644
+--- a/shell/browser/extensions/electron_extension_system.cc
++++ b/shell/browser/extensions/electron_extension_system.cc
+@@ -27,6 +27,7 @@
+ #include "extensions/browser/null_app_sorting.h"
+ #include "extensions/browser/quota_service.h"
+ #include "extensions/browser/service_worker_manager.h"
++#include "extensions/browser/state_store.h"
+ #include "extensions/browser/user_script_manager.h"
+ #include "extensions/common/constants.h"
+ #include "shell/browser/extensions/electron_extension_loader.h"
+@@ -74,6 +75,9 @@ void ElectronExtensionSystem::Shutdown() {
+ }
+ 
+ void ElectronExtensionSystem::InitForRegularProfile(bool extensions_enabled) {
++  state_store_ = std::make_unique<StateStore>(
++      browser_context_, store_factory_, StateStore::BackendType::STATE,
++      /*deferred_load=*/false);
+   service_worker_manager_ =
+       std::make_unique<ServiceWorkerManager>(browser_context_);
+   quota_service_ = std::make_unique<QuotaService>();
+@@ -143,7 +147,7 @@ UserScriptManager* ElectronExtensionSystem::user_script_manager() {
+ }
+ 
+ StateStore* ElectronExtensionSystem::state_store() {
+-  return nullptr;
++  return state_store_.get();
+ }
+ 
+ StateStore* ElectronExtensionSystem::rules_store() {
+diff --git a/shell/browser/extensions/electron_extension_system.h b/shell/browser/extensions/electron_extension_system.h
+index 6e8b569..e6cbfec 100644
+--- a/shell/browser/extensions/electron_extension_system.h
++++ b/shell/browser/extensions/electron_extension_system.h
+@@ -26,6 +26,7 @@ class BrowserContext;
+ namespace extensions {
+ 
+ class ElectronExtensionLoader;
++class StateStore;
+ 
+ // A simplified version of ExtensionSystem for app_shell. Allows
+ // app_shell to skip initialization of services it doesn't need.
+@@ -93,6 +94,7 @@ class ElectronExtensionSystem : public ExtensionSystem {
+   std::unique_ptr<UserScriptManager> user_script_manager_;
+   std::unique_ptr<AppSorting> app_sorting_;
+   std::unique_ptr<ManagementPolicy> management_policy_;
++  std::unique_ptr<StateStore> state_store_;
+ 
+   std::unique_ptr<ElectronExtensionLoader> extension_loader_;
+ 
+diff --git a/shell/browser/extensions/electron_extension_web_contents_observer.cc b/shell/browser/extensions/electron_extension_web_contents_observer.cc
+index 635d8d4..6e2cbbb 100644
+--- a/shell/browser/extensions/electron_extension_web_contents_observer.cc
++++ b/shell/browser/extensions/electron_extension_web_contents_observer.cc
+@@ -4,6 +4,7 @@
+ 
+ #include "shell/browser/extensions/electron_extension_web_contents_observer.h"
+ #include "content/public/browser/web_contents_user_data.h"
++#include "extensions/browser/view_type_utils.h"
+ 
+ namespace extensions {
+ 
+@@ -21,6 +22,18 @@ void ElectronExtensionWebContentsObserver::CreateForWebContents(
+   content::WebContentsUserData<
+       ElectronExtensionWebContentsObserver>::CreateForWebContents(web_contents);
+ 
++  // Chromium's runtime.getContexts implementation assumes that every
++  // extension-capable WebContents has a concrete ViewType. Chrome assigns
++  // kTabContents through its tab strip, but Electron has no tab strip and
++  // historically left ordinary BrowserWindow/webview contents as kInvalid.
++  // Real MV3 extensions enumerate those contexts and Chromium treats kInvalid
++  // as a NOTREACHED, terminating debug/official builds. Preserve specialized
++  // types assigned by ExtensionHost (offscreen, background, popup, etc.) and
++  // classify only otherwise-untyped Electron contents as normal tabs.
++  if (GetViewType(web_contents) == mojom::ViewType::kInvalid) {
++    SetViewType(web_contents, mojom::ViewType::kTabContents);
++  }
++
+   // Initialize this instance if necessary.
+   FromWebContents(web_contents)->Initialize();
+ }
+diff --git a/shell/browser/login_handler.cc b/shell/browser/login_handler.cc
+index 34f7c25..c50553d 100644
+--- a/shell/browser/login_handler.cc
++++ b/shell/browser/login_handler.cc
+@@ -68,6 +68,38 @@ LoginHandler::LoginHandler(
+                    /*first_auth_attempt=*/false,
+                    std::move(auth_required_callback)) {}
+ 
++LoginHandler::LoginHandler(
++    const net::AuthChallengeInfo& auth_info,
++    content::WebContents* web_contents,
++    bool is_request_for_primary_main_frame,
++    bool is_request_for_navigation,
++    base::ProcessId process_id,
++    const GURL& url,
++    scoped_refptr<net::HttpResponseHeaders> response_headers,
++    bool first_auth_attempt,
++    WebRequestAuthCallback auth_required_callback)
++    : LoginHandler(auth_info, web_contents,
++                   is_request_for_primary_main_frame,
++                   is_request_for_navigation, process_id, url,
++                   std::move(response_headers), first_auth_attempt,
++                   content::LoginDelegate::LoginAuthRequiredCallback()) {
++  web_request_auth_callback_ = std::move(auth_required_callback);
++}
++
++LoginHandler::LoginHandler(
++    const net::AuthChallengeInfo& auth_info,
++    content::WebContents* web_contents,
++    base::ProcessId process_id,
++    const GURL& url,
++    scoped_refptr<net::HttpResponseHeaders> response_headers,
++    WebRequestAuthCallback auth_required_callback)
++    : LoginHandler(auth_info, web_contents,
++                   /*is_request_for_primary_main_frame=*/false,
++                   /*is_request_for_navigation=*/false, process_id, url,
++                   std::move(response_headers),
++                   /*first_auth_attempt=*/false,
++                   std::move(auth_required_callback)) {}
++
+ void LoginHandler::EmitEvent(
+     net::AuthChallengeInfo auth_info,
+     bool has_web_contents,
+@@ -88,7 +120,7 @@ void LoginHandler::EmitEvent(
+     if (web_contents)
+       api_web_contents = api::WebContents::From(web_contents.get());
+     if (!api_web_contents) {
+-      std::move(auth_required_callback_).Run(std::nullopt);
++      Complete(std::nullopt, /*handled=*/true);
+       return;
+     }
+   }
+@@ -131,22 +163,31 @@ void LoginHandler::EmitEvent(
+   // ⚠️ NB, if CallbackFromJS is called during Emit(), |this| will have been
+   // deleted. Check the weak ptr before accessing any member variables to
+   // prevent UAF.
+-  if (weak_this && !default_prevented && auth_required_callback_) {
+-    std::move(auth_required_callback_).Run(std::nullopt);
++  if (weak_this && !default_prevented) {
++    Complete(std::nullopt, /*handled=*/false);
+   }
+ }
+ 
+ LoginHandler::~LoginHandler() = default;
+ 
+ void LoginHandler::CallbackFromJS(gin::Arguments* args) {
+-  if (auth_required_callback_) {
++  if (auth_required_callback_ || web_request_auth_callback_) {
+     std::u16string username, password;
+     if (!args->GetNext(&username) || !args->GetNext(&password)) {
+-      std::move(auth_required_callback_).Run(std::nullopt);
++      Complete(std::nullopt, /*handled=*/true);
+       return;
+     }
+-    std::move(auth_required_callback_)
+-        .Run(net::AuthCredentials(username, password));
++    Complete(net::AuthCredentials(username, password), /*handled=*/true);
++  }
++}
++
++void LoginHandler::Complete(
++    const std::optional<net::AuthCredentials>& credentials,
++    bool handled) {
++  if (web_request_auth_callback_) {
++    std::move(web_request_auth_callback_).Run(credentials, handled);
++  } else if (auth_required_callback_) {
++    std::move(auth_required_callback_).Run(credentials);
+   }
+ }
+ 
+diff --git a/shell/browser/login_handler.h b/shell/browser/login_handler.h
+index b664811..a32d9b9 100644
+--- a/shell/browser/login_handler.h
++++ b/shell/browser/login_handler.h
+@@ -5,6 +5,9 @@
+ #ifndef ELECTRON_SHELL_BROWSER_LOGIN_HANDLER_H_
+ #define ELECTRON_SHELL_BROWSER_LOGIN_HANDLER_H_
+ 
++#include <optional>
++
++#include "base/functional/callback.h"
+ #include "base/memory/weak_ptr.h"
+ #include "base/process/process_handle.h"
+ #include "content/public/browser/content_browser_client.h"
+@@ -23,6 +26,10 @@ namespace electron {
+ // Handles HTTP basic auth.
+ class LoginHandler : public content::LoginDelegate {
+  public:
++  // `handled` distinguishes an application cancellation from no login
++  // listener, so extension authentication may run only in the latter case.
++  using WebRequestAuthCallback = base::OnceCallback<void(
++      const std::optional<net::AuthCredentials>& credentials, bool handled)>;
+   LoginHandler(
+       const net::AuthChallengeInfo& auth_info,
+       content::WebContents* web_contents,
+@@ -40,6 +47,21 @@ class LoginHandler : public content::LoginDelegate {
+       const GURL& url,
+       scoped_refptr<net::HttpResponseHeaders> response_headers,
+       content::LoginDelegate::LoginAuthRequiredCallback auth_required_callback);
++  LoginHandler(const net::AuthChallengeInfo& auth_info,
++               content::WebContents* web_contents,
++               bool is_request_for_primary_main_frame,
++               bool is_request_for_navigation,
++               base::ProcessId process_id,
++               const GURL& url,
++               scoped_refptr<net::HttpResponseHeaders> response_headers,
++               bool first_auth_attempt,
++               WebRequestAuthCallback auth_required_callback);
++  LoginHandler(const net::AuthChallengeInfo& auth_info,
++               content::WebContents* web_contents,
++               base::ProcessId process_id,
++               const GURL& url,
++               scoped_refptr<net::HttpResponseHeaders> response_headers,
++               WebRequestAuthCallback auth_required_callback);
+   ~LoginHandler() override;
+ 
+   // disable copy
+@@ -57,8 +79,11 @@ class LoginHandler : public content::LoginDelegate {
+                  scoped_refptr<net::HttpResponseHeaders> response_headers,
+                  bool first_auth_attempt);
+   void CallbackFromJS(gin::Arguments* args);
++  void Complete(const std::optional<net::AuthCredentials>& credentials,
++                bool handled);
+ 
+   content::LoginDelegate::LoginAuthRequiredCallback auth_required_callback_;
++  WebRequestAuthCallback web_request_auth_callback_;
+ 
+   base::WeakPtrFactory<LoginHandler> weak_factory_{this};
+ };
+diff --git a/shell/browser/net/proxying_url_loader_factory.cc b/shell/browser/net/proxying_url_loader_factory.cc
+index a4984e8..7ce314a 100644
+--- a/shell/browser/net/proxying_url_loader_factory.cc
++++ b/shell/browser/net/proxying_url_loader_factory.cc
+@@ -13,6 +13,12 @@
+ #include "base/strings/string_split.h"
+ #include "content/public/browser/browser_context.h"
+ #include "content/public/browser/global_routing_id.h"
++#include "content/public/browser/global_request_id.h"
++#include "content/public/common/child_process_id_util.h"
++#include "electron/buildflags/buildflags.h"
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++#include "extensions/browser/api/web_request/extension_web_request_event_router.h"
++#endif
+ #include "extensions/browser/extension_navigation_ui_data.h"
+ #include "mojo/public/cpp/bindings/self_owned_receiver.h"
+ #include "net/base/completion_repeating_callback.h"
+@@ -36,6 +42,28 @@ namespace electron {
+ 
+ namespace {
+ 
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++class ComposedAuthProxy final : public extensions::WebRequestAPI::Proxy {
++ public:
++  explicit ComposedAuthProxy(ProxyingURLLoaderFactory* factory)
++      : factory_(factory) {}
++
++  void HandleAuthRequest(
++      const net::AuthChallengeInfo& auth_info,
++      scoped_refptr<net::HttpResponseHeaders> response_headers,
++      int32_t request_id,
++      extensions::WebRequestAPI::AuthRequestCallback callback) override {
++    factory_->HandleComposedAuthRequest(auth_info, std::move(response_headers),
++                                        request_id, std::move(callback));
++  }
++
++  void OnDNRExtensionUnloaded(const extensions::Extension* extension) override {}
++
++ private:
++  const raw_ptr<ProxyingURLLoaderFactory> factory_;
++};
++#endif
++
+ class NoOpHeaderClient final : public network::mojom::TrustedHeaderClient {
+  public:
+   NoOpHeaderClient() = default;
+@@ -92,6 +120,16 @@ ProxyingURLLoaderFactory::InProgressRequest::InProgressRequest(
+       has_any_extra_headers_listeners_(network_service_request_id != 0 &&
+                                        factory->web_request_ &&
+                                        factory->web_request_->HasListener()) {
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (network_service_request_id_ != 0 &&
++      factory_->ShouldDispatchToExtensions()) {
++    auto* context = factory_->browser_context_.get();
++    if (auto* router = extensions::WebRequestEventRouter::Get(context)) {
++      has_any_extra_headers_listeners_ |=
++          router->HasAnyExtraHeadersListener(context);
++    }
++  }
++#endif
+   // If there is a client error, clean up the request.
+   target_client_.set_disconnect_handler(base::BindOnce(
+       &ProxyingURLLoaderFactory::InProgressRequest::OnRequestError,
+@@ -122,6 +160,13 @@ ProxyingURLLoaderFactory::InProgressRequest::~InProgressRequest() {
+   // to reference state owned by this object.
+   if (info_) {
+     factory_->web_request_->OnRequestWillBeDestroyed(&info_.value());
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++    if (extension_router_used_ && factory_->browser_context_) {
++      auto* context = factory_->browser_context_.get();
++      extensions::WebRequestEventRouter::Get(context)
++          ->OnRequestWillBeDestroyed(context, &info_.value());
++    }
++#endif
+   }
+   if (on_before_send_headers_callback_) {
+     std::move(on_before_send_headers_callback_)
+@@ -131,8 +176,73 @@ ProxyingURLLoaderFactory::InProgressRequest::~InProgressRequest() {
+     std::move(on_headers_received_callback_)
+         .Run(net::ERR_ABORTED, std::nullopt, std::nullopt);
+   }
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (extension_auth_callback_) {
++    std::move(extension_auth_callback_)
++        .Run(std::nullopt, /*should_cancel=*/true);
++  }
++#endif
+ }
+ 
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++void ProxyingURLLoaderFactory::InProgressRequest::HandleExtensionAuthRequest(
++    const net::AuthChallengeInfo& auth_info,
++    scoped_refptr<net::HttpResponseHeaders> response_headers,
++    extensions::WebRequestAPI::AuthRequestCallback callback) {
++  if (!factory_->ShouldDispatchToExtensions() || !info_) {
++    std::move(callback).Run(std::nullopt, /*should_cancel=*/false);
++    return;
++  }
++  auto* context = factory_->browser_context_.get();
++  auto* router = extensions::WebRequestEventRouter::Get(context);
++  if (!router) {
++    std::move(callback).Run(std::nullopt, /*should_cancel=*/false);
++    return;
++  }
++  CHECK(!extension_auth_callback_);
++  extension_router_used_ = true;
++  current_response_->headers = std::move(response_headers);
++  info_->AddResponseInfoFromResourceResponse(*current_response_);
++  extension_auth_callback_ = std::move(callback);
++  auto result = router->OnAuthRequired(
++      context, &info_.value(), auth_info,
++      base::BindOnce(&InProgressRequest::OnExtensionAuthRequestHandled,
++                     weak_factory_.GetWeakPtr()),
++      &extension_auth_credentials_);
++  if (result != extensions::WebRequestEventRouter::AuthRequiredResponse::
++                    AUTH_REQUIRED_RESPONSE_IO_PENDING) {
++    OnExtensionAuthRequestHandled(result);
++  }
++}
++
++void ProxyingURLLoaderFactory::InProgressRequest::
++    OnExtensionAuthRequestHandled(
++        extensions::WebRequestEventRouter::AuthRequiredResponse response) {
++  if (!extension_auth_callback_)
++    return;
++  switch (response) {
++    case extensions::WebRequestEventRouter::AuthRequiredResponse::
++        AUTH_REQUIRED_RESPONSE_SET_AUTH:
++      std::move(extension_auth_callback_)
++          .Run(extension_auth_credentials_, /*should_cancel=*/false);
++      break;
++    case extensions::WebRequestEventRouter::AuthRequiredResponse::
++        AUTH_REQUIRED_RESPONSE_CANCEL_AUTH:
++      std::move(extension_auth_callback_)
++          .Run(std::nullopt, /*should_cancel=*/true);
++      break;
++    case extensions::WebRequestEventRouter::AuthRequiredResponse::
++        AUTH_REQUIRED_RESPONSE_NO_ACTION:
++      std::move(extension_auth_callback_)
++          .Run(std::nullopt, /*should_cancel=*/false);
++      break;
++    case extensions::WebRequestEventRouter::AuthRequiredResponse::
++        AUTH_REQUIRED_RESPONSE_IO_PENDING:
++      NOTREACHED();
++  }
++}
++#endif
++
+ void ProxyingURLLoaderFactory::InProgressRequest::Restart() {
+   UpdateRequestInfo();
+   RestartInternal();
+@@ -169,18 +279,13 @@ void ProxyingURLLoaderFactory::InProgressRequest::RestartInternal() {
+   // If the header client will be used, we start the request immediately, and
+   // OnBeforeSendHeaders and OnSendHeaders will be handled there. Otherwise,
+   // send these events before the request starts.
+-  base::RepeatingCallback<void(int)> continuation;
+-  if (current_request_uses_header_client_) {
+-    continuation = base::BindRepeating(
+-        &InProgressRequest::ContinueToStartRequest, weak_factory_.GetWeakPtr());
+-  } else if (for_cors_preflight_) {
++  if (for_cors_preflight_ && !current_request_uses_header_client_) {
+     // In this case we do nothing because extensions should see nothing.
+     return;
+-  } else {
+-    continuation =
+-        base::BindRepeating(&InProgressRequest::ContinueToBeforeSendHeaders,
+-                            weak_factory_.GetWeakPtr());
+   }
++  auto continuation = base::BindRepeating(
++      &InProgressRequest::ContinueToExtensionBeforeRequest,
++      weak_factory_.GetWeakPtr());
+   redirect_url_ = GURL();
+   int result = factory_->web_request_->OnBeforeRequest(
+       &info_.value(), request_, continuation, &redirect_url_);
+@@ -212,6 +317,59 @@ void ProxyingURLLoaderFactory::InProgressRequest::RestartInternal() {
+   continuation.Run(net::OK);
+ }
+ 
++void ProxyingURLLoaderFactory::InProgressRequest::
++    ContinueToExtensionBeforeRequest(int error_code) {
++  if (error_code != net::OK) {
++    OnRequestError(network::URLLoaderCompletionStatus(error_code));
++    return;
++  }
++
++  // A session redirect is authoritative. Its target will be checked on the
++  // next redirect hop before any extension gets to act on it.
++  if (!redirect_url_.is_empty()) {
++    ContinueAfterExtensionBeforeRequest(net::OK);
++    return;
++  }
++
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (factory_->ShouldDispatchToExtensions()) {
++    auto* context = factory_->browser_context_.get();
++    auto* router = extensions::WebRequestEventRouter::Get(context);
++    if (router) {
++      extension_router_used_ = true;
++      bool should_collapse_initiator = false;
++      int result = router->OnBeforeRequest(
++          context, &info_.value(),
++          base::BindOnce(&InProgressRequest::ContinueAfterExtensionBeforeRequest,
++                         weak_factory_.GetWeakPtr()),
++          &redirect_url_, &should_collapse_initiator);
++      if (result == net::ERR_BLOCKED_BY_CLIENT) {
++        OnRequestError(network::URLLoaderCompletionStatus(result));
++        return;
++      }
++      if (result == net::ERR_IO_PENDING) {
++        if (proxied_client_receiver_.is_bound())
++          proxied_client_receiver_.Pause();
++        if (header_client_receiver_.is_bound())
++          header_client_receiver_.Pause();
++        return;
++      }
++      DCHECK_EQ(net::OK, result);
++    }
++  }
++#endif
++  ContinueAfterExtensionBeforeRequest(net::OK);
++}
++
++void ProxyingURLLoaderFactory::InProgressRequest::
++    ContinueAfterExtensionBeforeRequest(int error_code) {
++  if (current_request_uses_header_client_) {
++    ContinueToStartRequest(error_code);
++  } else {
++    ContinueToBeforeSendHeaders(error_code);
++  }
++}
++
+ void ProxyingURLLoaderFactory::InProgressRequest::FollowRedirect(
+     network::HttpRequestHeadersUpdateParams headers_update_params,
+     const std::optional<GURL>& new_url) {
+@@ -334,6 +492,13 @@ void ProxyingURLLoaderFactory::InProgressRequest::OnComplete(
+   target_client_->OnComplete(status);
+   factory_->web_request_->OnCompleted(&info_.value(), request_,
+                                       status.error_code);
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (extension_router_used_ && factory_->browser_context_) {
++    auto* context = factory_->browser_context_.get();
++    extensions::WebRequestEventRouter::Get(context)->OnCompleted(
++        context, &info_.value(), status.error_code);
++  }
++#endif
+ 
+   // Deletes |this|.
+   factory_->RemoveRequest(network_service_request_id_, request_id_);
+@@ -344,6 +509,18 @@ bool ProxyingURLLoaderFactory::IsForServiceWorkerScript() const {
+                                      URLLoaderFactoryType::kServiceWorkerScript;
+ }
+ 
++bool ProxyingURLLoaderFactory::ShouldDispatchToExtensions() const {
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  return browser_context_ &&
++         browser_context_->intercept_state()->ExtensionInterception() &&
++         !(loader_factory_type_ == content::ContentBrowserClient::
++                                       URLLoaderFactoryType::kNavigation &&
++           frame_routing_id_ == IPC::mojom::kRoutingIdNone);
++#else
++  return false;
++#endif
++}
++
+ void ProxyingURLLoaderFactory::InProgressRequest::OnLoaderCreated(
+     mojo::PendingReceiver<network::mojom::TrustedHeaderClient> receiver) {
+   // When CORS is involved there may be multiple network::URLLoader associated
+@@ -479,6 +656,46 @@ void ProxyingURLLoaderFactory::InProgressRequest::ContinueToBeforeSendHeaders(
+   if (proxied_client_receiver_.is_bound())
+     proxied_client_receiver_.Resume();
+ 
++  extension_removed_headers_.clear();
++  extension_set_headers_.clear();
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (request_.url.SchemeIsHTTPOrHTTPS() &&
++      factory_->ShouldDispatchToExtensions()) {
++    auto* context = factory_->browser_context_.get();
++    if (auto* router = extensions::WebRequestEventRouter::Get(context)) {
++      int result = router->OnBeforeSendHeaders(
++          context, &info_.value(),
++          base::BindOnce(&InProgressRequest::ContinueToAppBeforeSendHeaders,
++                         weak_factory_.GetWeakPtr()),
++          &request_.headers);
++      if (result == net::ERR_BLOCKED_BY_CLIENT) {
++        OnRequestError(network::URLLoaderCompletionStatus(result));
++        return;
++      }
++      if (result == net::ERR_IO_PENDING) {
++        if (proxied_client_receiver_.is_bound())
++          proxied_client_receiver_.Pause();
++        return;
++      }
++      DCHECK_EQ(net::OK, result);
++    }
++  }
++#endif
++  ContinueToAppBeforeSendHeaders({}, {}, net::OK);
++}
++
++void ProxyingURLLoaderFactory::InProgressRequest::
++    ContinueToAppBeforeSendHeaders(
++        const std::set<std::string>& removed_headers,
++        const std::set<std::string>& set_headers,
++        int error_code) {
++  if (error_code != net::OK) {
++    OnRequestError(network::URLLoaderCompletionStatus(error_code));
++    return;
++  }
++  extension_removed_headers_ = removed_headers;
++  extension_set_headers_ = set_headers;
++
+   auto continuation = base::BindRepeating(
+       &InProgressRequest::ContinueToSendHeaders, weak_factory_.GetWeakPtr());
+   // Note: In Electron onBeforeSendHeaders is called for all protocols.
+@@ -499,7 +716,7 @@ void ProxyingURLLoaderFactory::InProgressRequest::ContinueToBeforeSendHeaders(
+     //
+     // We pause the receiver here to prevent further client message processing.
+     if (proxied_client_receiver_.is_bound())
+-      proxied_client_receiver_.Resume();
++      proxied_client_receiver_.Pause();
+     return;
+   }
+   DCHECK_EQ(net::OK, result);
+@@ -577,17 +794,19 @@ void ProxyingURLLoaderFactory::InProgressRequest::ContinueToSendHeaders(
+     std::move(on_before_send_headers_callback_)
+         .Run(error_code, request_.headers, std::nullopt);
+   } else if (pending_follow_redirect_params_) {
+-    pending_follow_redirect_params_->removed_headers.insert(
+-        pending_follow_redirect_params_->removed_headers.end(),
+-        removed_headers.begin(), removed_headers.end());
+-
+-    for (auto& set_header : set_headers) {
+-      auto header = request_.headers.GetHeader(set_header);
++    std::set<std::string> changed_headers = extension_removed_headers_;
++    changed_headers.insert(extension_set_headers_.begin(),
++                           extension_set_headers_.end());
++    changed_headers.insert(removed_headers.begin(), removed_headers.end());
++    changed_headers.insert(set_headers.begin(), set_headers.end());
++    for (const auto& name : changed_headers) {
++      auto header = request_.headers.GetHeader(name);
+       if (header) {
+         pending_follow_redirect_params_->modified_headers.SetHeader(
+-            set_header, header.value());
++            name, header.value());
+       } else {
+-        NOTREACHED();
++        pending_follow_redirect_params_->modified_headers.RemoveHeader(name);
++        pending_follow_redirect_params_->removed_headers.push_back(name);
+       }
+     }
+ 
+@@ -612,6 +831,13 @@ void ProxyingURLLoaderFactory::InProgressRequest::ContinueToSendHeaders(
+   // Note: In Electron onSendHeaders is called for all protocols.
+   factory_->web_request_->OnSendHeaders(&info_.value(), request_,
+                                         request_.headers);
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (extension_router_used_ && factory_->browser_context_) {
++    auto* context = factory_->browser_context_.get();
++    extensions::WebRequestEventRouter::Get(context)->OnSendHeaders(
++        context, &info_.value(), request_.headers);
++  }
++#endif
+ 
+   if (!current_request_uses_header_client_)
+     ContinueToStartRequest(net::OK);
+@@ -709,6 +935,13 @@ void ProxyingURLLoaderFactory::InProgressRequest::ContinueToResponseStarted(
+   proxied_client_receiver_.Resume();
+ 
+   factory_->web_request_->OnResponseStarted(&info_.value(), request_);
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (extension_router_used_ && factory_->browser_context_) {
++    auto* context = factory_->browser_context_.get();
++    extensions::WebRequestEventRouter::Get(context)->OnResponseStarted(
++        context, &info_.value(), net::OK);
++  }
++#endif
+   target_client_->OnReceiveResponse(current_response_.Clone(),
+                                     std::move(current_body_),
+                                     std::move(current_cached_metadata_));
+@@ -729,6 +962,13 @@ void ProxyingURLLoaderFactory::InProgressRequest::ContinueToBeforeRedirect(
+ 
+   factory_->web_request_->OnBeforeRedirect(&info_.value(), request_,
+                                            redirect_info.new_url);
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (extension_router_used_ && factory_->browser_context_) {
++    auto* context = factory_->browser_context_.get();
++    extensions::WebRequestEventRouter::Get(context)->OnBeforeRedirect(
++        context, &info_.value(), redirect_info.new_url);
++  }
++#endif
+   target_client_->OnReceiveRedirect(redirect_info, current_response_.Clone());
+   bool should_clear_upload = false;
+   net::RedirectUtil::UpdateHttpRequest(
+@@ -747,6 +987,49 @@ void ProxyingURLLoaderFactory::InProgressRequest::
+   redirect_url_ = GURL();
+ 
+   info_->AddResponseInfoFromResourceResponse(*current_response_);
++  auto extension_callback_pair =
++      base::SplitOnceCallback(std::move(continuation));
++
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (request_.url.SchemeIsHTTPOrHTTPS() && extension_router_used_ &&
++      factory_->browser_context_) {
++    auto* context = factory_->browser_context_.get();
++    bool should_collapse_initiator = false;
++    int result = extensions::WebRequestEventRouter::Get(context)
++                     ->OnHeadersReceived(
++                         context, &info_.value(),
++                         base::BindOnce(
++                             &InProgressRequest::ContinueToAppHeadersReceived,
++                             weak_factory_.GetWeakPtr(),
++                             std::move(extension_callback_pair.first)),
++                         current_response_->headers.get(), &override_headers_,
++                         &redirect_url_, &should_collapse_initiator);
++    if (result == net::ERR_BLOCKED_BY_CLIENT) {
++      OnRequestError(network::URLLoaderCompletionStatus(result));
++      return;
++    }
++    if (result == net::ERR_IO_PENDING) {
++      if (proxied_client_receiver_.is_bound())
++        proxied_client_receiver_.Pause();
++      return;
++    }
++    DCHECK_EQ(net::OK, result);
++  }
++#endif
++  ContinueToAppHeadersReceived(std::move(extension_callback_pair.second),
++                               net::OK);
++}
++
++void ProxyingURLLoaderFactory::InProgressRequest::
++    ContinueToAppHeadersReceived(net::CompletionOnceCallback continuation,
++                                 int error_code) {
++  if (error_code != net::OK) {
++    OnRequestError(network::URLLoaderCompletionStatus(error_code));
++    return;
++  }
++  if (override_headers_)
++    current_response_->headers = override_headers_;
++  info_->AddResponseInfoFromResourceResponse(*current_response_);
+ 
+   auto callback_pair = base::SplitOnceCallback(std::move(continuation));
+   DCHECK(info_.has_value());
+@@ -780,6 +1063,13 @@ void ProxyingURLLoaderFactory::InProgressRequest::OnRequestError(
+     target_client_->OnComplete(status);
+   factory_->web_request_->OnErrorOccurred(&info_.value(), request_,
+                                           status.error_code);
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (extension_router_used_ && factory_->browser_context_) {
++    auto* context = factory_->browser_context_.get();
++    extensions::WebRequestEventRouter::Get(context)->OnErrorOccurred(
++        context, &info_.value(), /*started=*/true, status.error_code);
++  }
++#endif
+ 
+   // Deletes |this|.
+   factory_->RemoveRequest(network_service_request_id_, request_id_);
+@@ -822,6 +1112,19 @@ ProxyingURLLoaderFactory::ProxyingURLLoaderFactory(
+       base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+           switches::kIgnoreConnectionsLimit),
+       ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
++
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (browser_context_) {
++    auto* api = extensions::WebRequestAPI::GetFactoryInstance()->Get(
++        browser_context_.get());
++    if (api && api->proxy_set_for_composed_auth()) {
++      extension_web_request_api_ = api->GetWeakPtrForComposedAuth();
++      auto proxy = std::make_unique<ComposedAuthProxy>(this);
++      extension_auth_proxy_ = proxy.get();
++      api->proxy_set_for_composed_auth()->AddProxy(std::move(proxy));
++    }
++  }
++#endif
+ }
+ 
+ bool ProxyingURLLoaderFactory::ShouldIgnoreConnectionsLimit(
+@@ -878,7 +1181,11 @@ void ProxyingURLLoaderFactory::CreateLoaderAndStart(
+   const auto route =
+       browser_context_ ? browser_context_->intercept_state()->RouteFor(request)
+                        : InterceptState::Route::kProxy;
+-  if (route != InterceptState::Route::kProxy || !web_request_->HasListener()) {
++  const bool extension_interception =
++      browser_context_ &&
++      browser_context_->intercept_state()->ExtensionInterception();
++  if (route != InterceptState::Route::kProxy ||
++      (!web_request_->HasListener() && !extension_interception)) {
+     auto& target_factory = override_target_factory.is_bound()
+                                ? override_target_factory
+                                : target_factory_;
+@@ -910,6 +1217,23 @@ void ProxyingURLLoaderFactory::CreateLoaderAndStart(
+   if (request_id)
+     network_request_id_to_web_request_id_.emplace(request_id, web_request_id);
+ 
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (request_id && extension_web_request_api_ &&
++      extension_web_request_api_->proxy_set_for_composed_auth()) {
++    extension_web_request_api_->proxy_set_for_composed_auth()
++        ->AssociateProxyWithRequestId(
++            extension_auth_proxy_,
++            content::GlobalRequestID(
++                loader_factory_type_ ==
++                        content::ContentBrowserClient::URLLoaderFactoryType::
++                            kNavigation
++                    ? network::OriginatingProcessId()
++                    : content::ToOriginatingProcessIdUnsafe(
++                          render_process_id_),
++                request_id));
++  }
++#endif
++
+   auto result = requests_.emplace(
+       web_request_id,
+       std::make_unique<InProgressRequest>(
+@@ -963,7 +1287,36 @@ void ProxyingURLLoaderFactory::OnLoaderForCorsPreflightCreated(
+   result.first->second->Restart();
+ }
+ 
+-ProxyingURLLoaderFactory::~ProxyingURLLoaderFactory() = default;
++ProxyingURLLoaderFactory::~ProxyingURLLoaderFactory() {
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (extension_web_request_api_ &&
++      extension_web_request_api_->proxy_set_for_composed_auth()) {
++    extension_web_request_api_->proxy_set_for_composed_auth()->RemoveProxy(
++        extension_auth_proxy_);
++  }
++#endif
++}
++
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++void ProxyingURLLoaderFactory::HandleComposedAuthRequest(
++    const net::AuthChallengeInfo& auth_info,
++    scoped_refptr<net::HttpResponseHeaders> response_headers,
++    int32_t network_request_id,
++    extensions::WebRequestAPI::AuthRequestCallback callback) {
++  auto id_it = network_request_id_to_web_request_id_.find(network_request_id);
++  if (id_it == network_request_id_to_web_request_id_.end()) {
++    std::move(callback).Run(std::nullopt, /*should_cancel=*/false);
++    return;
++  }
++  auto request_it = requests_.find(id_it->second);
++  if (request_it == requests_.end()) {
++    std::move(callback).Run(std::nullopt, /*should_cancel=*/false);
++    return;
++  }
++  request_it->second->HandleExtensionAuthRequest(
++      auth_info, std::move(response_headers), std::move(callback));
++}
++#endif
+ 
+ void ProxyingURLLoaderFactory::OnTargetFactoryError() {
+   target_factory_.reset();
+@@ -981,6 +1334,22 @@ void ProxyingURLLoaderFactory::OnProxyBindingError() {
+ 
+ void ProxyingURLLoaderFactory::RemoveRequest(int32_t network_service_request_id,
+                                              uint64_t request_id) {
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (network_service_request_id && extension_web_request_api_ &&
++      extension_web_request_api_->proxy_set_for_composed_auth()) {
++    extension_web_request_api_->proxy_set_for_composed_auth()
++        ->DisassociateProxyWithRequestId(
++            extension_auth_proxy_,
++            content::GlobalRequestID(
++                loader_factory_type_ ==
++                        content::ContentBrowserClient::URLLoaderFactoryType::
++                            kNavigation
++                    ? network::OriginatingProcessId()
++                    : content::ToOriginatingProcessIdUnsafe(
++                          render_process_id_),
++                network_service_request_id));
++  }
++#endif
+   network_request_id_to_web_request_id_.erase(network_service_request_id);
+   requests_.erase(request_id);
+ 
+diff --git a/shell/browser/net/proxying_url_loader_factory.h b/shell/browser/net/proxying_url_loader_factory.h
+index 9310081..ca6f827 100644
+--- a/shell/browser/net/proxying_url_loader_factory.h
++++ b/shell/browser/net/proxying_url_loader_factory.h
+@@ -17,12 +17,18 @@
+ #include "base/memory/raw_ref.h"
+ #include "base/memory/weak_ptr.h"
+ #include "content/public/browser/content_browser_client.h"
++#include "electron/buildflags/buildflags.h"
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++#include "extensions/browser/api/web_request/extension_web_request_event_router.h"
++#include "extensions/browser/api/web_request/web_request_api.h"
++#endif
+ #include "extensions/browser/api/web_request/web_request_info.h"
+ #include "ipc/constants.mojom.h"
+ #include "mojo/public/cpp/bindings/receiver.h"
+ #include "mojo/public/cpp/bindings/receiver_set.h"
+ #include "mojo/public/cpp/bindings/remote.h"
+ #include "net/base/completion_once_callback.h"
++#include "net/base/auth.h"
+ #include "net/ssl/ssl_info.h"
+ #include "net/traffic_annotation/network_traffic_annotation.h"
+ #include "services/network/public/cpp/resource_request.h"
+@@ -86,6 +92,12 @@ class ProxyingURLLoaderFactory
+     InProgressRequest& operator=(const InProgressRequest&) = delete;
+ 
+     void Restart();
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++    void HandleExtensionAuthRequest(
++        const net::AuthChallengeInfo& auth_info,
++        scoped_refptr<net::HttpResponseHeaders> response_headers,
++        extensions::WebRequestAPI::AuthRequestCallback callback);
++#endif
+ 
+     // network::mojom::URLLoader:
+     void FollowRedirect(
+@@ -125,8 +137,14 @@ class ProxyingURLLoaderFactory
+     // These two methods combined form the implementation of Restart().
+     void UpdateRequestInfo();
+     void RestartInternal();
++    void ContinueToExtensionBeforeRequest(int error_code);
++    void ContinueAfterExtensionBeforeRequest(int error_code);
+ 
+     void ContinueToBeforeSendHeaders(int error_code);
++    void ContinueToAppBeforeSendHeaders(
++        const std::set<std::string>& removed_headers,
++        const std::set<std::string>& set_headers,
++        int error_code);
+     void ContinueToSendHeaders(const std::set<std::string>& removed_headers,
+                                const std::set<std::string>& set_headers,
+                                int error_code);
+@@ -137,7 +155,14 @@ class ProxyingURLLoaderFactory
+                                   int error_code);
+     void HandleResponseOrRedirectHeaders(
+         net::CompletionOnceCallback continuation);
++    void ContinueToAppHeadersReceived(
++        net::CompletionOnceCallback continuation,
++        int error_code);
+     void OnRequestError(const network::URLLoaderCompletionStatus& status);
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++    void OnExtensionAuthRequestHandled(
++        extensions::WebRequestEventRouter::AuthRequiredResponse response);
++#endif
+     void HandleBeforeRequestRedirect();
+ 
+     raw_ptr<ProxyingURLLoaderFactory> const factory_;
+@@ -163,6 +188,13 @@ class ProxyingURLLoaderFactory
+     mojo::ScopedDataPipeConsumerHandle current_body_;
+     scoped_refptr<net::HttpResponseHeaders> override_headers_;
+     GURL redirect_url_;
++    std::set<std::string> extension_removed_headers_;
++    std::set<std::string> extension_set_headers_;
++    bool extension_router_used_ = false;
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++    net::AuthCredentials extension_auth_credentials_;
++    extensions::WebRequestAPI::AuthRequestCallback extension_auth_callback_;
++#endif
+ 
+     const bool for_cors_preflight_ = false;
+ 
+@@ -247,6 +279,14 @@ class ProxyingURLLoaderFactory
+       override;
+ 
+   bool IsForServiceWorkerScript() const;
++  bool ShouldDispatchToExtensions() const;
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  void HandleComposedAuthRequest(
++      const net::AuthChallengeInfo& auth_info,
++      scoped_refptr<net::HttpResponseHeaders> response_headers,
++      int32_t network_request_id,
++      extensions::WebRequestAPI::AuthRequestCallback callback);
++#endif
+ 
+  private:
+   void OnTargetFactoryError();
+@@ -289,6 +329,11 @@ class ProxyingURLLoaderFactory
+   // internally generated request ID for the same request.
+   base::flat_map<int32_t, uint64_t> network_request_id_to_web_request_id_;
+ 
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  base::WeakPtr<extensions::WebRequestAPI> extension_web_request_api_;
++  raw_ptr<extensions::WebRequestAPI::Proxy> extension_auth_proxy_ = nullptr;
++#endif
++
+   std::vector<std::string> ignore_connections_limit_domains_;
+ };
+ 
+diff --git a/shell/browser/net/proxying_websocket.cc b/shell/browser/net/proxying_websocket.cc
+index 0c95130..5f9c5bb 100644
+--- a/shell/browser/net/proxying_websocket.cc
++++ b/shell/browser/net/proxying_websocket.cc
+@@ -10,6 +10,10 @@
+ #include "base/strings/string_util.h"
+ #include "content/public/browser/browser_thread.h"
+ #include "content/public/browser/global_routing_id.h"
++#include "electron/buildflags/buildflags.h"
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++#include "extensions/browser/api/web_request/extension_web_request_event_router.h"
++#endif
+ #include "extensions/browser/extension_navigation_ui_data.h"
+ #include "net/base/ip_endpoint.h"
+ #include "services/network/public/mojom/url_response_head.mojom.h"
+@@ -29,6 +33,7 @@ ProxyingWebSocket::ProxyingWebSocket(
+     content::BrowserContext* browser_context,
+     uint64_t* request_id_generator)
+     : web_request_{web_request},
++      browser_context_(browser_context),
+       request_(request),
+       factory_(std::move(factory)),
+       forwarding_handshake_client_(std::move(handshake_client)),
+@@ -46,6 +51,12 @@ ProxyingWebSocket::ProxyingWebSocket(
+           /*navigation_id=*/std::nullopt)) {}
+ 
+ ProxyingWebSocket::~ProxyingWebSocket() {
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (extension_router_used_) {
++    if (auto* router = extensions::WebRequestEventRouter::Get(browser_context_))
++      router->OnRequestWillBeDestroyed(browser_context_, &info_);
++  }
++#endif
+   if (on_before_send_headers_callback_) {
+     std::move(on_before_send_headers_callback_)
+         .Run(net::ERR_ABORTED, std::nullopt, std::nullopt);
+@@ -60,15 +71,9 @@ void ProxyingWebSocket::Start() {
+   // If the header client will be used, we start the request immediately, and
+   // OnBeforeSendHeaders and OnSendHeaders will be handled there. Otherwise,
+   // send these events before the request starts.
+-  base::RepeatingCallback<void(int)> continuation;
+-  if (has_extra_headers_) {
+-    continuation = base::BindRepeating(
+-        &ProxyingWebSocket::ContinueToStartRequest, weak_factory_.GetWeakPtr());
+-  } else {
+-    continuation =
+-        base::BindRepeating(&ProxyingWebSocket::OnBeforeRequestComplete,
+-                            weak_factory_.GetWeakPtr());
+-  }
++  auto continuation = base::BindRepeating(
++      &ProxyingWebSocket::ContinueToExtensionBeforeRequest,
++      weak_factory_.GetWeakPtr());
+ 
+   int result = web_request_->OnBeforeRequest(&info_, request_, continuation,
+                                              &redirect_url_);
+@@ -86,6 +91,55 @@ void ProxyingWebSocket::Start() {
+   continuation.Run(net::OK);
+ }
+ 
++void ProxyingWebSocket::ContinueToExtensionBeforeRequest(int error_code) {
++  if (error_code != net::OK) {
++    OnError(error_code);
++    return;
++  }
++  // An application redirect must pass the application policy for the target
++  // before a network handshake. WebSocket redirects are rejected until that
++  // re-evaluation can be represented without a second handshake owner.
++  if (!redirect_url_.is_empty()) {
++    OnError(net::ERR_BLOCKED_BY_CLIENT);
++    return;
++  }
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (auto* router = extensions::WebRequestEventRouter::Get(browser_context_)) {
++    extension_router_used_ = true;
++    bool should_collapse_initiator = false;
++    int result = router->OnBeforeRequest(
++        browser_context_, &info_,
++        base::BindOnce(&ProxyingWebSocket::ContinueAfterExtensionBeforeRequest,
++                       weak_factory_.GetWeakPtr()),
++        &redirect_url_, &should_collapse_initiator);
++    if (result == net::ERR_BLOCKED_BY_CLIENT) {
++      OnError(result);
++      return;
++    }
++    if (result == net::ERR_IO_PENDING)
++      return;
++    DCHECK_EQ(net::OK, result);
++  }
++#endif
++  ContinueAfterExtensionBeforeRequest(net::OK);
++}
++
++void ProxyingWebSocket::ContinueAfterExtensionBeforeRequest(int error_code) {
++  if (error_code != net::OK) {
++    OnError(error_code);
++    return;
++  }
++  // A redirect must never skip the application's onBeforeRequest policy.
++  if (!redirect_url_.is_empty()) {
++    OnError(net::ERR_BLOCKED_BY_CLIENT);
++    return;
++  }
++  if (has_extra_headers_)
++    ContinueToStartRequest(net::OK);
++  else
++    OnBeforeRequestComplete(net::OK);
++}
++
+ void ProxyingWebSocket::OnOpeningHandshakeStarted(
+     network::mojom::WebSocketHandshakeRequestPtr request) {
+   DCHECK(forwarding_handshake_client_);
+@@ -93,12 +147,43 @@ void ProxyingWebSocket::OnOpeningHandshakeStarted(
+ }
+ 
+ void ProxyingWebSocket::ContinueToHeadersReceived() {
++  info_.AddResponseInfoFromResourceResponse(*response_);
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (auto* router = extensions::WebRequestEventRouter::Get(browser_context_)) {
++    extension_router_used_ = true;
++    bool should_collapse_initiator = false;
++    int result = router->OnHeadersReceived(
++        browser_context_, &info_,
++        base::BindOnce(&ProxyingWebSocket::ContinueToAppHeadersReceived,
++                       weak_factory_.GetWeakPtr()),
++        response_->headers.get(), &override_headers_, &redirect_url_,
++        &should_collapse_initiator);
++    if (result == net::ERR_BLOCKED_BY_CLIENT) {
++      OnError(result);
++      return;
++    }
++    if (result == net::ERR_IO_PENDING) {
++      PauseIncomingMethodCallProcessing();
++      return;
++    }
++    DCHECK_EQ(net::OK, result);
++  }
++#endif
++  ContinueToAppHeadersReceived(net::OK);
++}
++
++void ProxyingWebSocket::ContinueToAppHeadersReceived(int error_code) {
++  if (error_code != net::OK) {
++    OnError(error_code);
++    return;
++  }
+   auto continuation =
+       base::BindRepeating(&ProxyingWebSocket::OnHeadersReceivedComplete,
+                           weak_factory_.GetWeakPtr());
+   info_.AddResponseInfoFromResourceResponse(*response_);
+   int result = web_request_->OnHeadersReceived(
+-      &info_, request_, continuation, response_->headers.get(),
++      &info_, request_, continuation,
++      override_headers_ ? override_headers_.get() : response_->headers.get(),
+       &override_headers_, &redirect_url_);
+ 
+   if (result == net::ERR_BLOCKED_BY_CLIENT) {
+@@ -153,6 +238,12 @@ void ProxyingWebSocket::ContinueToCompleted() {
+   DCHECK(forwarding_handshake_client_);
+   DCHECK(is_done_);
+   web_request_->OnCompleted(&info_, request_, net::ERR_WS_UPGRADE);
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (extension_router_used_) {
++    extensions::WebRequestEventRouter::Get(browser_context_)
++        ->OnCompleted(browser_context_, &info_, net::ERR_WS_UPGRADE);
++  }
++#endif
+   forwarding_handshake_client_->OnConnectionEstablished(
+       std::move(websocket_), std::move(client_receiver_),
+       std::move(handshake_response_), std::move(readable_),
+@@ -176,23 +267,20 @@ void ProxyingWebSocket::OnAuthRequired(
+   response_->remote_endpoint = remote_endpoint;
+   auth_required_callback_ = std::move(callback);
+ 
+-  auto continuation =
+-      base::BindRepeating(&ProxyingWebSocket::OnHeadersReceivedCompleteForAuth,
+-                          weak_factory_.GetWeakPtr(), auth_info);
++  auto continuation = base::BindRepeating(
++      &ProxyingWebSocket::OnHeadersReceivedCompleteForAuth,
++      weak_factory_.GetWeakPtr(), auth_info);
+   info_.AddResponseInfoFromResourceResponse(*response_);
+   int result = web_request_->OnHeadersReceived(
+       &info_, request_, continuation, response_->headers.get(),
+       &override_headers_, &redirect_url_);
+-
+   if (result == net::ERR_BLOCKED_BY_CLIENT) {
+     OnError(result);
+     return;
+   }
+-
+   PauseIncomingMethodCallProcessing();
+   if (result == net::ERR_IO_PENDING)
+     return;
+-
+   DCHECK_EQ(net::OK, result);
+   OnHeadersReceivedCompleteForAuth(auth_info, net::OK);
+ }
+@@ -260,6 +348,34 @@ void ProxyingWebSocket::OnBeforeRequestComplete(int error_code) {
+     return;
+   }
+ 
++  #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (auto* router = extensions::WebRequestEventRouter::Get(browser_context_)) {
++    extension_router_used_ = true;
++    int result = router->OnBeforeSendHeaders(
++        browser_context_, &info_,
++        base::BindOnce(&ProxyingWebSocket::ContinueToAppBeforeSendHeaders,
++                       weak_factory_.GetWeakPtr()),
++        &request_headers_);
++    if (result == net::ERR_BLOCKED_BY_CLIENT) {
++      OnError(result);
++      return;
++    }
++    if (result == net::ERR_IO_PENDING)
++      return;
++    DCHECK_EQ(net::OK, result);
++  }
++  #endif
++  ContinueToAppBeforeSendHeaders({}, {}, net::OK);
++}
++
++void ProxyingWebSocket::ContinueToAppBeforeSendHeaders(
++    const std::set<std::string>& removed_headers,
++    const std::set<std::string>& set_headers,
++    int error_code) {
++  if (error_code != net::OK) {
++    OnError(error_code);
++    return;
++  }
+   auto continuation =
+       base::BindRepeating(&ProxyingWebSocket::OnBeforeSendHeadersComplete,
+                           weak_factory_.GetWeakPtr());
+@@ -300,6 +416,12 @@ void ProxyingWebSocket::OnBeforeSendHeadersComplete(
+ 
+   info_.AddResponseInfoFromResourceResponse(*response_);
+   web_request_->OnSendHeaders(&info_, request_, request_headers_);
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (extension_router_used_) {
++    extensions::WebRequestEventRouter::Get(browser_context_)
++        ->OnSendHeaders(browser_context_, &info_, request_headers_);
++  }
++#endif
+ 
+   if (!receiver_as_header_client_.is_bound())
+     ContinueToStartRequest(net::OK);
+@@ -353,6 +475,13 @@ void ProxyingWebSocket::OnHeadersReceivedComplete(int error_code) {
+     OnError(error_code);
+     return;
+   }
++  if (!redirect_url_.is_empty()) {
++    // WebSocket has no FollowRedirect operation here. Never apply an
++    // extension response redirect without checking the destination in the
++    // application's request policy first.
++    OnError(net::ERR_BLOCKED_BY_CLIENT);
++    return;
++  }
+ 
+   if (on_headers_received_callback_) {
+     std::optional<std::string> headers;
+@@ -370,18 +499,47 @@ void ProxyingWebSocket::OnHeadersReceivedComplete(int error_code) {
+   ResumeIncomingMethodCallProcessing();
+   info_.AddResponseInfoFromResourceResponse(*response_);
+   web_request_->OnResponseStarted(&info_, request_);
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  if (extension_router_used_) {
++    extensions::WebRequestEventRouter::Get(browser_context_)
++        ->OnResponseStarted(browser_context_, &info_, net::OK);
++  }
++#endif
+ 
+   if (!receiver_as_header_client_.is_bound())
+     ContinueToCompleted();
+ }
+ 
+ void ProxyingWebSocket::OnAuthRequiredComplete(
++    const net::AuthChallengeInfo& auth_info,
+     api::WebRequest::AuthRequiredResponse rv) {
+   CHECK(auth_required_callback_);
+   ResumeIncomingMethodCallProcessing();
+   switch (rv) {
+     case api::WebRequest::AuthRequiredResponse::
+         AUTH_REQUIRED_RESPONSE_NO_ACTION:
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++      if (auto* router =
++              extensions::WebRequestEventRouter::Get(browser_context_)) {
++        extension_router_used_ = true;
++        auto extension_rv = router->OnAuthRequired(
++            browser_context_, &info_, auth_info,
++            base::BindOnce(&ProxyingWebSocket::OnExtensionAuthRequiredComplete,
++                           weak_factory_.GetWeakPtr()),
++            &auth_credentials_);
++        if (extension_rv == extensions::WebRequestEventRouter::
++                                AuthRequiredResponse::
++                                    AUTH_REQUIRED_RESPONSE_IO_PENDING) {
++          extension_auth_pending_ = true;
++          PauseIncomingMethodCallProcessing();
++          return;
++        }
++        OnExtensionAuthRequiredComplete(extension_rv);
++        return;
++      }
++#endif
++      std::move(auth_required_callback_).Run(std::nullopt);
++      break;
+     case api::WebRequest::AuthRequiredResponse::
+         AUTH_REQUIRED_RESPONSE_CANCEL_AUTH:
+       std::move(auth_required_callback_).Run(std::nullopt);
+@@ -396,6 +554,32 @@ void ProxyingWebSocket::OnAuthRequiredComplete(
+   }
+ }
+ 
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++void ProxyingWebSocket::OnExtensionAuthRequiredComplete(
++    extensions::WebRequestEventRouter::AuthRequiredResponse rv) {
++  CHECK(auth_required_callback_);
++  if (extension_auth_pending_) {
++    extension_auth_pending_ = false;
++    ResumeIncomingMethodCallProcessing();
++  }
++  switch (rv) {
++    case extensions::WebRequestEventRouter::AuthRequiredResponse::
++        AUTH_REQUIRED_RESPONSE_SET_AUTH:
++      std::move(auth_required_callback_).Run(auth_credentials_);
++      break;
++    case extensions::WebRequestEventRouter::AuthRequiredResponse::
++        AUTH_REQUIRED_RESPONSE_NO_ACTION:
++    case extensions::WebRequestEventRouter::AuthRequiredResponse::
++        AUTH_REQUIRED_RESPONSE_CANCEL_AUTH:
++      std::move(auth_required_callback_).Run(std::nullopt);
++      break;
++    case extensions::WebRequestEventRouter::AuthRequiredResponse::
++        AUTH_REQUIRED_RESPONSE_IO_PENDING:
++      NOTREACHED();
++  }
++}
++#endif
++
+ void ProxyingWebSocket::OnHeadersReceivedCompleteForAuth(
+     const net::AuthChallengeInfo& auth_info,
+     int rv) {
+@@ -407,7 +591,8 @@ void ProxyingWebSocket::OnHeadersReceivedCompleteForAuth(
+   info_.AddResponseInfoFromResourceResponse(*response_);
+ 
+   auto continuation = base::BindRepeating(
+-      &ProxyingWebSocket::OnAuthRequiredComplete, weak_factory_.GetWeakPtr());
++      &ProxyingWebSocket::OnAuthRequiredComplete, weak_factory_.GetWeakPtr(),
++      auth_info);
+   auto auth_rv = web_request_->OnAuthRequired(
+       &info_, auth_info, std::move(continuation), &auth_credentials_);
+   PauseIncomingMethodCallProcessing();
+@@ -416,7 +601,7 @@ void ProxyingWebSocket::OnHeadersReceivedCompleteForAuth(
+     return;
+   }
+ 
+-  OnAuthRequiredComplete(auth_rv);
++  OnAuthRequiredComplete(auth_info, auth_rv);
+ }
+ 
+ void ProxyingWebSocket::PauseIncomingMethodCallProcessing() {
+@@ -437,6 +622,13 @@ void ProxyingWebSocket::OnError(int error_code) {
+   if (!is_done_) {
+     is_done_ = true;
+     web_request_->OnErrorOccurred(&info_, request_, error_code);
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++    if (extension_router_used_) {
++      extensions::WebRequestEventRouter::Get(browser_context_)
++          ->OnErrorOccurred(browser_context_, &info_, /*started=*/true,
++                            error_code);
++    }
++#endif
+   }
+ 
+   // Deletes |this|.
+diff --git a/shell/browser/net/proxying_websocket.h b/shell/browser/net/proxying_websocket.h
+index 68271d9..5172064 100644
+--- a/shell/browser/net/proxying_websocket.h
++++ b/shell/browser/net/proxying_websocket.h
+@@ -12,6 +12,10 @@
+ 
+ #include "base/memory/raw_ptr.h"
+ #include "content/public/browser/content_browser_client.h"
++#include "electron/buildflags/buildflags.h"
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++#include "extensions/browser/api/web_request/extension_web_request_event_router.h"
++#endif
+ #include "extensions/browser/api/web_request/web_request_info.h"
+ #include "mojo/public/cpp/bindings/pending_receiver.h"
+ #include "mojo/public/cpp/bindings/receiver.h"
+@@ -101,6 +105,13 @@ class ProxyingWebSocket : public network::mojom::WebSocketHandshakeClient,
+       uint64_t* request_id_generator);
+ 
+  private:
++  void ContinueToExtensionBeforeRequest(int error_code);
++  void ContinueAfterExtensionBeforeRequest(int error_code);
++  void ContinueToAppBeforeSendHeaders(
++      const std::set<std::string>& removed_headers,
++      const std::set<std::string>& set_headers,
++      int error_code);
++  void ContinueToAppHeadersReceived(int error_code);
+   void OnBeforeRequestComplete(int error_code);
+   void OnBeforeSendHeadersComplete(const std::set<std::string>& removed_headers,
+                                    const std::set<std::string>& set_headers,
+@@ -108,7 +119,13 @@ class ProxyingWebSocket : public network::mojom::WebSocketHandshakeClient,
+   void ContinueToStartRequest(int error_code);
+   void OnHeadersReceivedComplete(int error_code);
+   void ContinueToHeadersReceived();
+-  void OnAuthRequiredComplete(api::WebRequest::AuthRequiredResponse rv);
++  void OnAuthRequiredComplete(
++      const net::AuthChallengeInfo& auth_info,
++      api::WebRequest::AuthRequiredResponse rv);
++#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  void OnExtensionAuthRequiredComplete(
++      extensions::WebRequestEventRouter::AuthRequiredResponse rv);
++#endif
+   void OnHeadersReceivedCompleteForAuth(const net::AuthChallengeInfo& auth_info,
+                                         int rv);
+   void ContinueToCompleted();
+@@ -126,6 +143,7 @@ class ProxyingWebSocket : public network::mojom::WebSocketHandshakeClient,
+ 
+   // Passed from api::WebRequest.
+   const cppgc::WeakPersistent<api::WebRequest> web_request_;
++  const raw_ptr<content::BrowserContext> browser_context_;
+ 
+   // Saved to feed the api::WebRequest.
+   network::ResourceRequest request_;
+@@ -151,6 +169,8 @@ class ProxyingWebSocket : public network::mojom::WebSocketHandshakeClient,
+   OnHeadersReceivedCallback on_headers_received_callback_;
+ 
+   GURL redirect_url_;
++  bool extension_router_used_ = false;
++  bool extension_auth_pending_ = false;
+   bool is_done_ = false;
+   bool has_extra_headers_;
+   mojo::PendingRemote<network::mojom::WebSocket> websocket_;
+diff --git a/shell/browser/net/url_loader_factory_gate.cc b/shell/browser/net/url_loader_factory_gate.cc
+index 44e7895..088b116 100644
+--- a/shell/browser/net/url_loader_factory_gate.cc
++++ b/shell/browser/net/url_loader_factory_gate.cc
+@@ -91,6 +91,16 @@ void InterceptState::SetListenerTypes(uint32_t blocking_types,
+   observer_types_ = observer_types;
+ }
+ 
++void InterceptState::SetExtensionInterception(bool enabled) {
++  base::AutoLock lock(lock_);
++  extension_interception_ = enabled;
++}
++
++bool InterceptState::ExtensionInterception() const {
++  base::AutoLock lock(lock_);
++  return extension_interception_;
++}
++
+ void InterceptState::SetInterceptedSchemes(
+     base::flat_set<std::string> schemes) {
+   base::AutoLock lock(lock_);
+@@ -116,6 +126,8 @@ bool InterceptState::WantsURL(const GURL& url) const {
+ InterceptState::Route InterceptState::RouteFor(
+     const network::ResourceRequest& request) const {
+   base::AutoLock lock(lock_);
++  if (extension_interception_)
++    return Route::kProxy;
+   if (WantsURL(request.url))
+     return Route::kProxy;
+   const uint32_t type_bit = 1u << static_cast<int>(ResourceTypeOf(request));
+diff --git a/shell/browser/net/url_loader_factory_gate.h b/shell/browser/net/url_loader_factory_gate.h
+index 848ffce..080b0c6 100644
+--- a/shell/browser/net/url_loader_factory_gate.h
++++ b/shell/browser/net/url_loader_factory_gate.h
+@@ -59,6 +59,8 @@ class InterceptState : public base::RefCountedThreadSafe<InterceptState> {
+   void SetListenerTypes(uint32_t blocking_types, uint32_t observer_types);
+   void SetInterceptedSchemes(base::flat_set<std::string> schemes);
+   void SetIgnoreConnectionsLimitDomains(std::vector<std::string> domains);
++  void SetExtensionInterception(bool enabled);
++  bool ExtensionInterception() const;
+ 
+   Route RouteFor(const network::ResourceRequest& request) const;
+ 
+@@ -71,6 +73,7 @@ class InterceptState : public base::RefCountedThreadSafe<InterceptState> {
+   mutable base::Lock lock_;
+   uint32_t blocking_types_ GUARDED_BY(lock_) = 0;
+   uint32_t observer_types_ GUARDED_BY(lock_) = 0;
++  bool extension_interception_ GUARDED_BY(lock_) = false;
+   base::flat_set<std::string> intercepted_schemes_ GUARDED_BY(lock_);
+   std::vector<std::string> ignore_connections_limit_domains_ GUARDED_BY(lock_);
+ };

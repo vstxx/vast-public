@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using static VastUpdaterBootstrapperConstants;
 
 return await VastUpdaterBootstrapper.RunAsync(args);
@@ -40,6 +41,10 @@ internal static class VastUpdaterBootstrapper
       {
         throw new InvalidOperationException($"Manifest targets version '{manifest.Version}', but this updater targets '{TargetVersion}'.");
       }
+      if (!string.Equals(manifest.SignaturePolicy, ExpectedSignaturePolicy, StringComparison.Ordinal))
+      {
+        throw new InvalidOperationException($"Manifest signature policy '{manifest.SignaturePolicy}' does not match updater policy '{ExpectedSignaturePolicy}'.");
+      }
 
       var downloadRoot = options.DownloadDirectory ?? Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -63,6 +68,12 @@ internal static class VastUpdaterBootstrapper
       logger.Info($"Package: {resolvedPackage.Display}");
       await DownloadResourceAsync(resolvedPackage, packagePath, logger);
 
+      var packageInfo = new FileInfo(packagePath);
+      if (manifest.Package is null || manifest.Package.Size <= 0 || packageInfo.Length != manifest.Package.Size)
+      {
+        throw new InvalidOperationException($"Downloaded package size mismatch. Expected {manifest.Package?.Size ?? 0}, got {packageInfo.Length}.");
+      }
+
       var expectedHash = manifest.Package?.Sha256 ?? string.Empty;
       if (!string.IsNullOrWhiteSpace(expectedHash))
       {
@@ -82,11 +93,18 @@ internal static class VastUpdaterBootstrapper
       if (Directory.Exists(extractPath)) Directory.Delete(extractPath, recursive: true);
       Directory.CreateDirectory(extractPath);
       logger.Info($"Extracting update bundle to: {extractPath}");
-      ZipFile.ExtractToDirectory(packagePath, extractPath);
+      ExtractUpdateBundle(packagePath, extractPath);
 
       var updaterScript = ResolveBundlePath(extractPath, manifest.Package?.Entrypoint, Path.Combine("Updater", "VastUpdater.ps1"));
       var updaterConfig = ResolveBundlePath(extractPath, manifest.Package?.ConfigPath, Path.Combine("Updater", "updater.config.json"), mustExist: false);
       var payloadPath = ResolveBundlePath(extractPath, manifest.Package?.PayloadPath, Path.Combine($"Vast-{TargetVersion}", "win-unpacked"));
+
+      VerifyUpdaterScript(updaterScript);
+
+      if (ExpectedSignaturePolicy == "authenticode-signed")
+      {
+        VerifyAuthenticodeSignature(Path.Combine(payloadPath, "Vast.exe"), ExpectedSignerSubject, logger);
+      }
 
       var exitCode = await RunPowerShellUpdaterAsync(updaterScript, updaterConfig, payloadPath, options, logger);
       if (exitCode != 0)
@@ -306,10 +324,102 @@ internal static class VastUpdaterBootstrapper
     return combined;
   }
 
+  private static void ExtractUpdateBundle(string packagePath, string destination)
+  {
+    const int maxFiles = 200_000;
+    const long maxEntryBytes = 1_610_612_736;
+    const long maxExpandedBytes = 4_294_967_296;
+    var root = Path.GetFullPath(destination).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+    var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    long expandedBytes = 0;
+    var fileCount = 0;
+    using var archive = ZipFile.OpenRead(packagePath);
+    foreach (var entry in archive.Entries)
+    {
+      var raw = entry.FullName;
+      if (string.IsNullOrWhiteSpace(raw) || (raw.Contains('\\') && raw.Contains('/')))
+        throw new InvalidOperationException("Update ZIP contains an invalid path.");
+      var name = raw.Replace('\\', '/');
+      if (name.StartsWith('/') || Path.IsPathRooted(name)) throw new InvalidOperationException($"Update ZIP contains an unsafe path: {name}");
+      var segments = name.Split('/', StringSplitOptions.RemoveEmptyEntries);
+      if (segments.Any(IsUnsafeWindowsPathSegment))
+        throw new InvalidOperationException($"Update ZIP contains path traversal or an unsafe Windows name: {name}");
+      if (!seen.Add(name)) throw new InvalidOperationException($"Update ZIP contains a duplicate path: {name}");
+      var isDirectory = name.EndsWith('/');
+      var unixType = ((uint)entry.ExternalAttributes >> 16) & 0xF000;
+      if (unixType != 0 && unixType != 0x8000 && !(isDirectory && unixType == 0x4000))
+        throw new InvalidOperationException($"Update ZIP contains a link or special file: {name}");
+      if ((entry.ExternalAttributes & 0x400) != 0) throw new InvalidOperationException($"Update ZIP contains a Windows reparse-point entry: {name}");
+      if (isDirectory) continue;
+      if (entry.Length > maxEntryBytes) throw new InvalidOperationException($"Update ZIP contains an oversized file: {name}");
+      expandedBytes += entry.Length;
+      fileCount++;
+      if (fileCount > maxFiles || expandedBytes > maxExpandedBytes) throw new InvalidOperationException("Update ZIP exceeds safe extraction limits.");
+      var target = Path.GetFullPath(Path.Combine(destination, Path.Combine(segments)));
+      if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Update ZIP extraction escaped its destination.");
+      var parent = Path.GetDirectoryName(target)!;
+      Directory.CreateDirectory(parent);
+      EnsureNoReparseParents(destination, parent);
+      entry.ExtractToFile(target, overwrite: false);
+    }
+  }
+
+  private static bool IsUnsafeWindowsPathSegment(string segment)
+  {
+    if (segment is "." or ".." || segment.EndsWith('.') || segment.EndsWith(' ')) return true;
+    if (segment.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return true;
+    return Regex.IsMatch(segment, @"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+  }
+
+  private static void EnsureNoReparseParents(string rootPath, string candidate)
+  {
+    var root = Path.GetFullPath(rootPath).TrimEnd(Path.DirectorySeparatorChar);
+    for (var cursor = new DirectoryInfo(candidate); cursor is not null; cursor = cursor.Parent)
+    {
+      if ((cursor.Attributes & FileAttributes.ReparsePoint) != 0) throw new InvalidOperationException("Update extraction parent is a reparse point.");
+      if (string.Equals(cursor.FullName.TrimEnd(Path.DirectorySeparatorChar), root, StringComparison.OrdinalIgnoreCase)) return;
+    }
+    throw new InvalidOperationException("Update extraction parent escaped its destination.");
+  }
+
   private static string ComputeSha256(string path)
   {
     using var stream = File.OpenRead(path);
     return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+  }
+
+  private static void VerifyAuthenticodeSignature(string path, string expectedSignerSubject, BootstrapperLogger logger)
+  {
+    if (string.IsNullOrWhiteSpace(expectedSignerSubject)) throw new InvalidOperationException("Signed updater has no compiled expected signer subject.");
+    if (!File.Exists(path)) throw new InvalidOperationException("Signed updater payload is missing Vast.exe.");
+    const string command = "$ErrorActionPreference='Stop'; Import-Module (Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1'); $s=Get-AuthenticodeSignature -LiteralPath $env:VAST_VERIFY_EXE; if ([string]$s.Status -ne 'Valid') { Write-Error ('Invalid Authenticode status: '+[string]$s.Status); exit 20 }; if ([string]$s.SignerCertificate.Subject -notlike ('*'+$env:VAST_VERIFY_SIGNER+'*')) { Write-Error ('Unexpected Authenticode signer: '+[string]$s.SignerCertificate.Subject); exit 21 }; Write-Output ([string]$s.SignerCertificate.Subject)";
+    var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(command));
+    var start = new ProcessStartInfo("powershell.exe")
+    {
+      UseShellExecute = false,
+      CreateNoWindow = true,
+      RedirectStandardOutput = true,
+      RedirectStandardError = true
+    };
+    start.ArgumentList.Add("-NoProfile");
+    start.ArgumentList.Add("-NonInteractive");
+    start.ArgumentList.Add("-EncodedCommand");
+    start.ArgumentList.Add(encoded);
+    start.Environment["VAST_VERIFY_EXE"] = Path.GetFullPath(path);
+    start.Environment["VAST_VERIFY_SIGNER"] = expectedSignerSubject;
+    using var process = Process.Start(start) ?? throw new InvalidOperationException("Could not start Authenticode verification.");
+    var output = process.StandardOutput.ReadToEnd();
+    var error = process.StandardError.ReadToEnd();
+    process.WaitForExit();
+    if (process.ExitCode != 0) throw new InvalidOperationException($"Update payload signature verification failed: {error.Trim()}");
+    logger.Info($"Verified update payload signer: {output.Trim()}");
+  }
+
+  private static void VerifyUpdaterScript(string path)
+  {
+    var actual = ComputeSha256(path);
+    if (!string.Equals(actual, ExpectedUpdaterScriptSha256, StringComparison.OrdinalIgnoreCase))
+      throw new InvalidOperationException("Downloaded updater script does not match the trusted script compiled into this bootstrapper.");
   }
 
   private static string Quote(string value) => "\"" + value.Replace("\"", "\\\"") + "\"";
@@ -450,6 +560,9 @@ internal sealed class UpdateManifest
 
   [JsonPropertyName("version")]
   public string Version { get; set; } = string.Empty;
+
+  [JsonPropertyName("signaturePolicy")]
+  public string SignaturePolicy { get; set; } = string.Empty;
 
   [JsonPropertyName("package")]
   public UpdatePackage? Package { get; set; }

@@ -1,12 +1,12 @@
 {
   "name": "vast-browser",
   "productName": "Vast",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A local-first desktop browser for power users, built with Electron, React, TypeScript, Vite, and Tailwind CSS.",
   "author": "VastProductions",
   "main": "out/main/main.js",
   "private": true,
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vstxx/vast-public.git"
@@ -16,7 +16,17 @@
     "url": "https://github.com/vstxx/vast-public/issues"
   },
   "scripts": {
-    "dev": "node scripts/dev.cjs",
+    "dev": "node scripts/dev-extension-compat.cjs",
+    "dev:stock": "node scripts/dev.cjs",
+    "dev:extension-compat": "node scripts/dev-extension-compat.cjs",
+    "extension:compat:auth-gate": "node scripts/extension-auth-gate.cjs",
+    "extension:compat:password-gate": "node scripts/password-manager-gate.cjs",
+    "extension:compat:password-gate:verify": "node scripts/password-manager-gate.cjs verify",
+    "extension:compat:prepare": "node scripts/prepare-extension-compat-runtime.cjs",
+    "extension:compat:check": "node scripts/prepare-extension-compat-runtime.cjs --check",
+    "extension:compat:runtime:check": "node scripts/verify-extension-compat-runtime.cjs",
+    "extension:compat:runtime:release-check": "node scripts/verify-extension-compat-runtime.cjs --release --write out/extension-compatibility-runtime-fingerprint.json",
+    "license:gpl:check": "node scripts/check-gpl-release-compliance.cjs",
     "build": "node scripts/build-app.cjs",
     "avidae:runtime:prepare": "node scripts/prepare-avidae-runtime.cjs",
     "avidae:runtime:check": "node scripts/prepare-avidae-runtime.cjs --check",
@@ -38,6 +48,7 @@
     "test:upgrade:public": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/updater/vast-public-beta-upgrade.test.ps1",
     "test:upgrade:0.1.5": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/updater/vast-0.1.5-to-0.2.5-upgrade.test.ps1",
     "test:fuses:integration": "node scripts/test-electron-fuses-integration.cjs",
+    "test:cookie-encryption": "node scripts/test-cookie-encryption-upgrade.cjs",
     "test:electron-version": "node scripts/verify-electron-version.cjs",
     "test:store": "node --test tests/store/*.test.cjs",
     "test:store:upgrade": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/store/store-msix-upgrade.test.ps1",
@@ -49,7 +60,11 @@
     "test:menus": "npm run build && node scripts/menus-e2e.cjs",
     "test:extensions:e2e": "node scripts/run-isolated-electron-e2e.cjs extensions-e2e.cjs",
     "test:extensions:native-e2e": "node scripts/run-isolated-electron-e2e.cjs native-extensions-e2e.cjs",
+    "test:extensions:native-messaging-e2e": "node scripts/run-isolated-electron-e2e.cjs native-messaging-e2e.cjs",
+    "extension:compat:icloud-smoke": "node scripts/icloud-passwords-smoke.cjs",
     "extension:pack": "node scripts/pack-extension.cjs",
+    "extension:password-managers:pack": "node scripts/build-password-manager-packages.cjs",
+    "extension:password-managers:verify": "npx vite-node scripts/verify-password-manager-packages.ts",
     "hub:types": "wrangler types extensions-hub/worker-configuration.d.ts --config extensions-hub/wrangler.jsonc",
     "hub:typecheck": "tsc --noEmit -p extensions-hub/tsconfig.json",
     "hub:test": "vitest run --config extensions-hub/vitest.config.ts",
@@ -66,7 +81,8 @@
     "distribution:size-audit": "node scripts/distribution-size-audit.cjs",
     "distribution:size-budget": "npm run distribution:size-audit && node scripts/check-distribution-size-budget.cjs",
     "audit:ci": "npm audit --audit-level=high && npm audit --prefix relay --audit-level=high",
-    "ci": "npm run audit:ci && npm run lint && npm run test && npm run release:audit",
+    "security:release": "node scripts/security-release.cjs",
+    "ci": "npm run audit:ci && npm run license:gpl:check && npm run lint && npm run test && npm run release:audit",
     "release:check": "node scripts/release-check.cjs",
     "release:direct:check": "node scripts/release-check.cjs",
     "release:store:check": "node scripts/release-store-check.cjs",
@@ -107,8 +123,9 @@
     "acorn": "8.18.0",
     "autoprefixer": "10.5.0",
     "clsx": "2.1.1",
-    "electron": "44.1.0",
+    "electron": "44.3.0",
     "electron-builder": "26.15.3",
+    "electron-chrome-extensions": "4.9.0",
     "electron-vite": "5.0.0",
     "javascript-obfuscator": "^5.4.3",
     "lucide-react": "1.16.0",
@@ -154,6 +171,18 @@
       "package.json"
     ],
     "extraResources": [
+      {
+        "from": "LICENSE",
+        "to": "licenses/Vast-GPL-3.0.txt"
+      },
+      {
+        "from": "THIRD_PARTY_NOTICES.md",
+        "to": "licenses/THIRD_PARTY_NOTICES.md"
+      },
+      {
+        "from": "node_modules/electron-chrome-extensions/LICENSE-GPL",
+        "to": "licenses/electron-chrome-extensions-GPL-3.0.txt"
+      },
       {
         "from": "resources/apply-update.ps1",
         "to": "apply-update.ps1"

@@ -1,5 +1,5 @@
 import { Bookmark, Check, Compass, Edit3, History, ListTodo, Plus, RotateCcw, Search, SlidersHorizontal, StickyNote, Trash2, X } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import type { Note, Tab } from '../../../shared/types'
 import { INTERNAL_SESSION_TIMELINE_URL } from '../../../shared/constants'
 import vastLogo from '../../../../assets/logos/vast.png'
@@ -75,6 +75,7 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
   const [query, setQuery] = useState('')
   const [todoText, setTodoText] = useState('')
   const [customizeOpen, setCustomizeOpen] = useState(false)
+  const [customBackgroundDataUrl, setCustomBackgroundDataUrl] = useState<string>()
   const [quickLinkEditor, setQuickLinkEditor] = useState<{
     id?: string
     title: string
@@ -96,19 +97,51 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
   const dashboardCardClass = `overflow-hidden rounded-card border border-white/[0.07] bg-[#090a0e] ${newTabSettings.compactCards ? 'p-4' : 'p-5'}`
 
   useEffect(() => {
+    let active = true
+    if (newTabSettings.background !== 'custom') {
+      setCustomBackgroundDataUrl(undefined)
+      return () => { active = false }
+    }
+    void window.vast.newTabBackground.get().then((result) => {
+      if (active) setCustomBackgroundDataUrl(result.ok ? result.dataUrl : undefined)
+    }).catch(() => {
+      if (active) setCustomBackgroundDataUrl(undefined)
+    })
+    return () => { active = false }
+  }, [newTabSettings.background])
+
+  useEffect(() => {
+    const onChanged = (event: Event): void => {
+      const dataUrl = (event as CustomEvent<unknown>).detail
+      if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) setCustomBackgroundDataUrl(dataUrl)
+    }
+    window.addEventListener('vast-new-tab-background-changed', onChanged)
+    return () => window.removeEventListener('vast-new-tab-background-changed', onChanged)
+  }, [])
+
+  const pageBackgroundStyle = useMemo<CSSProperties | undefined>(() => {
+    if (newTabSettings.background !== 'custom' || !customBackgroundDataUrl) return undefined
+    return { '--vast-new-tab-image': `url(${JSON.stringify(customBackgroundDataUrl)})` } as CSSProperties
+  }, [customBackgroundDataUrl, newTabSettings.background])
+  const pageBackgroundProps = {
+    'data-new-tab-background': newTabSettings.background,
+    style: pageBackgroundStyle
+  }
+
+  useEffect(() => {
     const timer = window.setTimeout(() => runtime.focusAddress(), 0)
     return () => window.clearTimeout(timer)
   }, [runtime, tab.id])
 
   if (minimal) {
     return (
-      <div className="new-tab-page min-h-full bg-vast-bg" />
+      <div {...pageBackgroundProps} className="new-tab-page min-h-full" />
     )
   }
 
   if (searchOnly) {
     return (
-      <div className="new-tab-page new-tab-flat-search grid min-h-full place-items-center overflow-auto bg-vast-bg px-8 py-10 text-white">
+      <div {...pageBackgroundProps} className="new-tab-page new-tab-flat-search grid min-h-full place-items-center overflow-auto px-8 py-10 text-white">
         <div className="w-full max-w-4xl">
           <div className="mb-7 grid place-items-center text-center" data-testid="new-tab-identity">
             <VastLogo />
@@ -149,7 +182,7 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
   }
 
   return (
-    <div className="new-tab-page min-h-full overflow-auto bg-vast-bg px-8 py-6 text-white">
+    <div {...pageBackgroundProps} className="new-tab-page min-h-full overflow-auto px-8 py-6 text-white">
       <div className="mx-auto flex max-w-6xl flex-col gap-5">
         <section className={`relative flex flex-col items-center justify-center overflow-hidden rounded-modal border border-white/[0.07] bg-[#090a0e] px-6 text-center ${newTabSettings.compactCards ? 'min-h-[310px] py-6' : 'min-h-[390px] py-8'}`}>
 
@@ -158,7 +191,7 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
               type="button"
               aria-expanded={customizeOpen}
               onClick={() => setCustomizeOpen((value) => !value)}
-              className="vast-control inline-flex h-10 items-center gap-2 px-3"
+              className="vast-button vast-button--secondary vast-button--sm h-10"
             >
               <SlidersHorizontal className="h-4 w-4" />
               Customize
@@ -309,7 +342,7 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
                 placeholder="Add a task"
                 className="min-w-0 flex-1 rounded-control border border-white/10 bg-black/25 px-3 py-2 text-sm outline-none placeholder:text-vast-soft focus:border-vast-cyan/40"
               />
-              <button className="grid h-10 w-10 place-items-center rounded-control bg-white/10 text-white hover:bg-white/15">
+              <button className="vast-icon-button vast-icon-button--quiet grid place-items-center h-10 w-10 rounded-control bg-white/10 text-white hover:bg-white/15">
                 <Plus className="h-4 w-4" />
               </button>
             </form>
@@ -326,7 +359,7 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
                   <button
                     type="button"
                     onClick={() => removeTodo(todo.id)}
-                    className="grid h-6 w-6 place-items-center rounded-checkbox opacity-0 hover:bg-white/10 hover:text-white group-hover:opacity-100"
+                    className="vast-icon-button vast-icon-button--quiet grid place-items-center h-6 w-6 rounded-checkbox opacity-0 group-hover:opacity-100"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -421,14 +454,14 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
                 onClick={() => {
                   addSessionSnapshot(undefined, { workspaceId: tab.workspaceId, trigger: 'manual' })
                 }}
-                className="rounded-control border border-white/[0.08] bg-white/[0.045] px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/[0.08]"
+                className="vast-button vast-button--secondary vast-button--xs px-3 py-2 text-xs font-semibold"
               >
                 Save snapshot
               </button>
               <button
                 type="button"
                 onClick={() => runtime.openUrlInNewTab(INTERNAL_SESSION_TIMELINE_URL)}
-                className="rounded-control border border-white/[0.08] bg-white/[0.045] px-3 py-2 text-xs font-semibold text-vast-cyan transition hover:bg-white/[0.08]"
+                className="vast-button vast-button--selected vast-button--xs px-3 py-2 text-xs font-semibold"
               >
                 Open timeline
               </button>
@@ -499,7 +532,7 @@ function EditableNoteCard({
           type="button"
           title="Delete note"
           onClick={() => onDelete(note.id)}
-          className="grid h-7 w-7 shrink-0 place-items-center rounded-control text-vast-soft opacity-0 transition hover:bg-white/10 hover:text-white group-hover:opacity-100"
+          className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 shrink-0 rounded-control opacity-0 transition group-hover:opacity-100"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -596,7 +629,7 @@ function QuickLinkGrid({
               type="button"
               title="Edit quick link"
               onClick={() => onEdit(link)}
-              className="grid h-7 w-7 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white"
+              className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control"
             >
               <Edit3 className="h-3.5 w-3.5" />
             </button>
@@ -604,7 +637,7 @@ function QuickLinkGrid({
               type="button"
               title="Remove quick link"
               onClick={() => onRemove(link.id)}
-              className="grid h-7 w-7 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white"
+              className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control"
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -653,7 +686,7 @@ function QuickLinkModal({
             <div className="text-lg font-semibold text-white">{draft.id ? 'Edit quick link' : 'Add quick link'}</div>
             <div className="mt-1 text-sm text-vast-soft">Saved locally on your new tab page.</div>
           </div>
-          <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white">
+          <button type="button" onClick={onClose} className="vast-icon-button vast-icon-button--quiet grid place-items-center h-9 w-9 rounded-control">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -692,10 +725,10 @@ function QuickLinkModal({
           </div>
         )}
         <div className="mt-5 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded-control border border-white/10 bg-white/[0.045] px-4 py-2 text-sm font-medium text-vast-soft hover:bg-white/[0.08] hover:text-white">
+          <button type="button" onClick={onClose} className="vast-button vast-button--secondary vast-button--sm">
             Cancel
           </button>
-          <button disabled={!valid} className="rounded-control bg-vast-cyan px-4 py-2 text-sm font-semibold text-black hover:bg-white disabled:cursor-not-allowed disabled:opacity-40">
+          <button disabled={!valid} className="vast-button vast-button--primary vast-button--sm">
             <Check className="mr-2 inline h-4 w-4" />
             Save
           </button>

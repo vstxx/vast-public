@@ -305,13 +305,13 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
 
 function PanelSearch({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder: string }): JSX.Element {
   return (
-    <div className="relative mb-3">
+    <div className="relative">
       <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-vast-soft" />
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="h-10 w-full rounded-control border border-white/10 bg-black/20 pl-9 pr-3 text-sm text-white outline-none placeholder:text-vast-soft focus:border-vast-cyan/[0.35]"
+        className="h-10 w-full rounded-card border border-white/10 bg-black/20 pl-9 pr-3 text-sm text-white outline-none placeholder:text-vast-soft"
       />
     </div>
   )
@@ -343,7 +343,7 @@ function NotesPanel(): JSX.Element {
             workspaceId: workspace?.id
           })
         }
-        className="flex w-full items-center gap-2 rounded-card border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-medium text-white hover:bg-white/[0.09]"
+        className="vast-button vast-button--secondary vast-button--sm vast-button--block"
       >
         <Plus className="h-4 w-4 text-vast-cyan" />
         New URL/workspace note
@@ -364,7 +364,7 @@ function NotesPanel(): JSX.Element {
           />
           <div className="mt-2 flex items-center justify-between text-[11px] text-vast-soft">
             <span>{note.url ? 'URL note' : 'Workspace note'}</span>
-            <button type="button" onClick={() => deleteNote(note.id)} className="hover:text-white">
+            <button type="button" onClick={() => deleteNote(note.id)} className="text-[11px] text-vast-soft transition hover:text-white">
               Delete
             </button>
           </div>
@@ -412,7 +412,7 @@ function BookmarksPanel(): JSX.Element {
             onConfirm: (name) => createFolder(name)
           })
         }
-        className="flex w-full items-center gap-2 rounded-card border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-medium text-white hover:bg-white/[0.09]"
+        className="vast-button vast-button--secondary vast-button--sm vast-button--block"
       >
         <Plus className="h-4 w-4 text-vast-cyan" />
         New folder
@@ -443,7 +443,7 @@ function BookmarksPanel(): JSX.Element {
                 type="button"
                 title="Rename folder"
                 onClick={() => setEditingFolderId(folder.id)}
-                className="grid h-7 w-7 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white"
+                className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control"
               >
                 <Edit3 className="h-3.5 w-3.5" />
               </button>
@@ -451,7 +451,7 @@ function BookmarksPanel(): JSX.Element {
                 type="button"
                 title="Delete folder"
                 onClick={() => deleteFolder(folder.id)}
-                className="grid h-7 w-7 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white"
+                className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
@@ -471,14 +471,14 @@ function BookmarksPanel(): JSX.Element {
                   <button
                     type="button"
                     onClick={() => setEditingBookmarkId((id) => (id === bookmarkItem.id ? null : bookmarkItem.id))}
-                    className="grid h-7 w-7 place-items-center rounded-control text-vast-soft opacity-0 hover:bg-white/10 hover:text-white group-hover:opacity-100"
+                    className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control opacity-0 transition group-hover:opacity-100"
                   >
                     <Edit3 className="h-3.5 w-3.5" />
                   </button>
                   <button
                     type="button"
                     onClick={() => removeBookmark(bookmarkItem.id)}
-                    className="grid h-7 w-7 place-items-center rounded-control text-vast-soft opacity-0 hover:bg-white/10 hover:text-white group-hover:opacity-100"
+                    className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control opacity-0 transition group-hover:opacity-100"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -528,14 +528,14 @@ function BookmarksPanel(): JSX.Element {
             <button
               type="button"
               onClick={() => setEditingBookmarkId((id) => (id === bookmarkItem.id ? null : bookmarkItem.id))}
-              className="grid h-7 w-7 place-items-center rounded-control text-vast-soft opacity-0 hover:bg-white/10 hover:text-white group-hover:opacity-100"
+              className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control opacity-0 transition group-hover:opacity-100"
             >
               <Edit3 className="h-3.5 w-3.5" />
             </button>
             <button
               type="button"
               onClick={() => removeBookmark(bookmarkItem.id)}
-              className="grid h-7 w-7 place-items-center rounded-control text-vast-soft opacity-0 hover:bg-white/10 hover:text-white group-hover:opacity-100"
+              className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control opacity-0 transition group-hover:opacity-100"
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -625,7 +625,7 @@ function HistoryPanel(): JSX.Element {
       <button
         type="button"
         onClick={clearHistory}
-        className="flex w-full items-center gap-2 rounded-card border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-medium text-white hover:bg-white/[0.09]"
+        className="vast-button vast-button--secondary vast-button--sm vast-button--block"
       >
         <Trash2 className="h-4 w-4 text-vast-amber" />
         Clear history
@@ -665,12 +665,12 @@ function DownloadsPanel(): JSX.Element {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-1.5">
         {(['all', 'active', 'finished'] as const).map((value) => (
-          <button key={value} type="button" onClick={() => setFilter(value)} className={`rounded-control px-2.5 py-1.5 text-[13px] capitalize ${filter === value ? 'bg-white/10 text-white' : 'text-vast-soft hover:bg-white/[0.06] hover:text-white'}`}>
+          <button key={value} type="button" onClick={() => setFilter(value)} className={`vast-button ${filter === value ? 'vast-button--selected' : 'vast-button--ghost'} vast-button--xs text-[13px] capitalize`}>
             {value}
           </button>
         ))}
         {downloads.some((item) => item.state === 'completed' || item.state === 'cancelled') && (
-          <button type="button" onClick={() => void clearCompleted()} className="ml-auto rounded-control px-2.5 py-1.5 text-[13px] text-vast-soft hover:bg-white/[0.06] hover:text-white">Clear completed</button>
+          <button type="button" onClick={() => void clearCompleted()} className="vast-button vast-button--ghost vast-button--xs ml-auto text-[13px]">Clear completed</button>
         )}
       </div>
       {visibleDownloads.length === 0 && <EmptyPanel icon={Download} text={downloads.length === 0 ? 'Downloads will appear here.' : 'No downloads match this filter.'} />}
@@ -703,15 +703,15 @@ function DownloadsPanel(): JSX.Element {
                   <div className="h-full rounded-control bg-vast-cyan" style={{ width: `${Math.round(progress * 100)}%` }} />
                 </div>
                 <div className="mt-3 flex gap-2">
-                  <button type="button" onClick={() => void (item.paused ? window.vast.downloads.resume(item.id) : window.vast.downloads.pause(item.id))} className="vault-action-button h-8 px-2.5">
+                  <button type="button" onClick={() => void (item.paused ? window.vast.downloads.resume(item.id) : window.vast.downloads.pause(item.id))} className="vast-button vast-button--secondary vast-button--sm h-8 px-2.5">
                     {item.paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}{item.paused ? 'Resume' : 'Pause'}
                   </button>
-                  <button type="button" onClick={() => void window.vast.downloads.cancel(item.id)} className="vault-danger-button h-8 px-2.5"><X className="h-3.5 w-3.5" />Cancel</button>
+                  <button type="button" onClick={() => void window.vast.downloads.cancel(item.id)} className="vast-button vast-button--danger vast-button--sm h-8 px-2.5"><X className="h-3.5 w-3.5" />Cancel</button>
                 </div>
               </>
             )}
             {item.state !== 'progressing' && item.state !== 'completed' && (
-              <button type="button" onClick={() => void window.vast.downloads.retry(item.id)} className="vault-action-button mt-3 h-8 px-2.5"><RotateCcw className="h-3.5 w-3.5" />Retry</button>
+              <button type="button" onClick={() => void window.vast.downloads.retry(item.id)} className="vast-button vast-button--secondary vast-button--sm mt-3 h-8 px-2.5"><RotateCcw className="h-3.5 w-3.5" />Retry</button>
             )}
             {item.state === 'completed' && (
               <div className="mt-3 rounded-control border border-white/[0.07] bg-black/15 p-2.5">
@@ -725,18 +725,18 @@ function DownloadsPanel(): JSX.Element {
                   type="button"
                   disabled={!scanReady}
                   onClick={() => void window.vast.downloads.openFile(item.savePath!)}
-                  className="rounded-control bg-white/[0.08] px-2 py-1 text-xs text-white hover:bg-white/[0.12]"
+                  className="vast-button vast-button--secondary vast-button--xs px-2 py-1 text-xs"
                 >
                   Open
                 </button>
                 <button
                   type="button"
                   onClick={() => void window.vast.downloads.showInFolder(item.savePath!)}
-                  className="rounded-control bg-white/[0.08] px-2 py-1 text-xs text-white hover:bg-white/[0.12]"
+                  className="vast-button vast-button--secondary vast-button--xs px-2 py-1 text-xs"
                 >
                   Show
                 </button>
-                <button type="button" onClick={() => void copyText(item.url)} className="rounded-control bg-white/[0.08] px-2 py-1 text-xs text-white hover:bg-white/[0.12]"><Copy className="mr-1 inline h-3.5 w-3.5" />Copy link</button>
+                <button type="button" onClick={() => void copyText(item.url)} className="vast-button vast-button--secondary vast-button--xs px-2 py-1 text-xs"><Copy className="mr-1 inline h-3.5 w-3.5" />Copy link</button>
               </div>
             )}
           </div>
@@ -780,14 +780,14 @@ function ReadingListPanel(): JSX.Element {
           <button
             type="button"
             onClick={() => update(item.id, { read: !item.read })}
-            className="grid h-7 w-7 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white"
+            className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control"
           >
             <Check className="h-3.5 w-3.5" />
           </button>
           <button
             type="button"
             onClick={() => remove(item.id)}
-            className="grid h-7 w-7 place-items-center rounded-control text-vast-soft hover:bg-white/10 hover:text-white"
+            className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>

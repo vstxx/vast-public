@@ -4,6 +4,8 @@ const { join } = require('node:path')
 
 const root = join(__dirname, '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+const compatibilityManifest = require(join(root, 'patches', 'extension-compatibility-runtime.json'))
+const { defaultOutputPath } = require('./prepare-patched-electron-dist.cjs')
 const target = String(process.argv[2] || 'build').trim().toLowerCase()
 
 if (!['build', 'dist', 'upgrader'].includes(target)) {
@@ -56,9 +58,14 @@ function quoteShellArg(value) {
 }
 
 function buildDist() {
+  run(npmCommand, ['run', 'license:gpl:check'])
   run(npmCommand, ['run', 'release:check'])
   run(npmCommand, ['run', 'ffmpeg:release:check'])
   run(npmCommand, ['run', 'avidae:runtime:check'])
+  run('node', ['scripts/prepare-patched-electron-dist.cjs'])
+  env.VAST_PATCHED_ELECTRON_DIST = defaultOutputPath(compatibilityManifest)
+  run(npmCommand, ['run', 'extension:compat:runtime:release-check'])
+  env.VAST_EXTENSION_COMPATIBILITY_FINGERPRINT_REQUIRED = '1'
   run(npmCommand, ['run', 'build:obfuscated'])
   run('node', ['scripts/write-release-build-metadata.cjs'])
   if (process.platform === 'win32') {
@@ -116,7 +123,13 @@ if (target === 'build') {
     '-Version',
     pkg.version,
     '-DefaultManifestUrl',
-    defaultManifestUrl
+    defaultManifestUrl,
+    '-SignaturePolicy',
+    env.VAST_PRIVATE_BUILD === '0'
+      ? (env.VAST_PUBLIC_UNSIGNED_RELEASE === '1' ? 'unsigned-public-release' : 'authenticode-signed')
+      : 'internal-unsigned',
+    '-ExpectedSignerSubject',
+    String(env.VAST_EXPECTED_SIGNER_SUBJECT || '')
   ])
   run('node', ['scripts/sign-windows-updater.cjs'])
   run(powershellCommand, [

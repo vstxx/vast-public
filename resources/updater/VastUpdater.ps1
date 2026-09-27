@@ -19,7 +19,6 @@ $ErrorActionPreference = 'Stop'
 $script:VastLogPath = $null
 $script:VastDefaultCriticalItems = @(
   'vast-data.json',
-  'password-vault.json',
   'vast-network-devices.json',
   'Local State',
   'Preferences',
@@ -50,11 +49,6 @@ $script:VastDefaultCriticalItems = @(
   'Sessions',
   'notes',
   'Notes',
-  'passwords',
-  'Passwords',
-  'Local Vault',
-  'vault',
-  'Vault',
   'workspaces',
   'Workspaces',
   'workspace',
@@ -1108,15 +1102,6 @@ function Test-VastUserDataFileLooksEmpty {
     return ($bookmarkCount -eq 0 -and $historyCount -eq 0 -and $downloadCount -eq 0 -and $sessionSnapshotCount -eq 0 -and $tabCount -le 2)
   }
 
-  if ($name -eq 'password-vault.json') {
-    $json = Read-VastJsonFile -Path $Path
-    if ($null -eq $json) {
-      return $false
-    }
-
-    return ((Get-VastJsonArrayCount -Json $json -PropertyName 'records') -eq 0)
-  }
-
   return ((Get-Item -LiteralPath $Path).Length -eq 0)
 }
 
@@ -1138,7 +1123,6 @@ function Sync-VastLegacyUserData {
 
   $migrationItems = @(
     'vast-data.json',
-    'password-vault.json',
     'vast-network-devices.json',
     'Local State',
     'Preferences',
@@ -1173,7 +1157,6 @@ function Sync-VastLegacyUserData {
       continue
     }
 
-    $forceMigrateLocalState = $false
     foreach ($item in $migrationItems) {
       $source = Join-Path $legacyRoot $item
       if (-not (Test-Path -LiteralPath $source)) {
@@ -1182,7 +1165,6 @@ function Sync-VastLegacyUserData {
 
       $target = Join-Path $canonicalRoot $item
       $sourceIsDirectory = Test-Path -LiteralPath $source -PathType Container
-      $forceMigrate = $item -eq 'Local State' -and $forceMigrateLocalState
       $targetHasContent = $false
       if (Test-Path -LiteralPath $target) {
         if (Test-Path -LiteralPath $target -PathType Container) {
@@ -1191,7 +1173,7 @@ function Sync-VastLegacyUserData {
           $targetHasContent = -not (Test-VastUserDataFileLooksEmpty -Path $target)
         }
       }
-      if (-not $forceMigrate -and $targetHasContent) {
+      if ($targetHasContent) {
         Write-VastLog "Canonical user data item already has user content, skipping legacy migration for '$item'."
         continue
       }
@@ -1204,9 +1186,6 @@ function Sync-VastLegacyUserData {
       }
 
       Copy-VastBackupItem -Source $source -Destination $target
-      if ($item -eq 'password-vault.json') {
-        $forceMigrateLocalState = $true
-      }
       $migrated.Add($item)
       Write-VastLog "Migrated legacy user data item '$item' from '$legacyRoot' to '$canonicalRoot'."
     }

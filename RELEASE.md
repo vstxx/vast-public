@@ -83,6 +83,8 @@ See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [docs/OPEN_SOURCE_LICEN
 
 Release automation exports a sanitized source snapshot with `scripts/export-public-source-snapshot.mjs` and publishes it to `vstxx/vast-public`.
 
+For GPL-3.0-only desktop releases, the immutable public tag is the corresponding-source anchor. It must contain the exact Vast source, build/release scripts, ECE modification source or patch, Electron/Chromium patch queue, dependency lockfiles, GPL license, and third-party notices used for the binary. The release must also ship the Vast and ECE GPL texts in its packaged `resources/licenses` directory. Operator credentials, signing keys, certificates and independent server deployment secrets are excluded; they are not required to build or modify the desktop client.
+
 The snapshot records:
 
 - the public version;

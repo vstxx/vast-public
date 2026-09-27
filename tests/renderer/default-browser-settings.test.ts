@@ -9,7 +9,7 @@ const ipcSource = readFileSync(new URL('../../src/main/ipc.ts', import.meta.url)
 test('settings exposes a bottom default browser action', () => {
   assert.match(settingsSource, /settings-default-browser-panel/)
   assert.doesNotMatch(settingsSource, /settings-default-browser-action/)
-  assert.match(settingsSource, /disabled=\{settingDefaultBrowser[^\n]+\n\s+className="settings-action"/)
+  assert.match(settingsSource, /disabled=\{settingDefaultBrowser[^\n]+\n[\s\S]{0,220}?MonitorCheck/)
   assert.match(settingsSource, /set browser as default/)
   assert.match(settingsSource, /MonitorCheck/)
 })

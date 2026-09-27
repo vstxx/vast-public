@@ -2,6 +2,7 @@ const BLOCKED_EXTERNAL_PROTOCOLS = new Set([
   'about:',
   'blob:',
   'chrome:',
+  'chrome-extension:',
   'data:',
   'devtools:',
   'file:',

@@ -29,7 +29,7 @@ Google sign-in means a user can visit `accounts.google.com` as a top-level page 
 
 ### Directly reusable TypeScript/React
 
-Pure UI and domain code without `window.vast`, Electron DOM elements, or Node imports can be bundled into Chromium WebUI with modest build changes. This includes much of the New Tab, settings presentation, notes, password list UI, automation UI, diagnostics UI, Video & Audio UI, feature gates, formatting utilities, themes, icons, and pure shared helpers/tests.
+Pure UI and domain code without `window.vast`, Electron DOM elements, or Node imports can be bundled into Chromium WebUI with modest build changes. This includes much of the New Tab, settings presentation, notes, automation UI, diagnostics UI, Video & Audio UI, feature gates, formatting utilities, themes, icons, and pure shared helpers/tests.
 
 `src/shared/types.ts`, local feature-flag rules, URL presentation helpers, shortcuts, store migration logic, and most Zustand reducers remain the canonical behavioral reference. They are reusable only where their data ownership does not conflict with Chromium's native tab/profile models.
 
@@ -40,7 +40,6 @@ The following retain their UI/business behavior but require a typed native servi
 - `browser-store.ts`: workspaces, Vast product data, notes, macros, and settings survive; live tabs, history, downloads, permissions, and sessions move to Chromium-native models.
 - Internal React pages: registered as `chrome://vast-*` WebUI pages and communicate over Mojo/WebUI handlers.
 - `vast-data.json` validation/migrations and `.vastbackup` semantics: ported to a native service or a migration helper with byte-for-byte fixtures and compatibility tests.
-- Password UI/import/export: backed by Chromium/Windows cryptographic facilities; old encrypted values are never assumed decryptable in a different OS account/profile.
 - Video & Audio, network devices, AI integrations, updater, and local feature decisions: native service boundaries replace Electron IPC and Node filesystem/process calls.
 
 ### Electron-specific replacements
@@ -52,7 +51,6 @@ The following retain their UI/business behavior but require a typed native servi
 | Electron `session` and partitions | `Profile`, `StoragePartition`, `CookieManager`, content settings |
 | preload `window.vast` / `ipcRenderer` | typed Mojo or constrained WebUI message handlers |
 | Electron main IPC handlers | keyed services / browser services in C++ |
-| `safeStorage` | Chromium OSCrypt/password-store integration plus explicit legacy import status |
 | Node filesystem/process APIs | `base::FilePath`, `base::File`, utility processes, native launch APIs |
 | `electron-updater` | Vast-native signed updater/installer with UAC and rollback |
 | Electron download/window-open hooks | Chromium download, navigation, popup, and permission delegates |
@@ -67,14 +65,13 @@ A development launch always passes a dedicated temporary `--user-data-dir`; it n
 Vast product data retains its logical files and schema contracts:
 
 - `vast-data.json` (current schema version 5);
-- `password-vault.json` (legacy schema version 1, encrypted payload caveat);
 - stable `data-root.json` selection;
 - `.vastbackup` format version 1 with manifest and SHA-256 checksums;
 - workspaces, bookmarks, notes, sessions, settings, macros, and related arrays.
 
 Migration is an explicit transaction: discover the configured Electron root, validate it, create a safety backup, copy to a new staging root, validate/convert there, and atomically select the new root only after success. Source data is read-only. A journal records source, destination, checksums, warnings, and rollback instructions. Cookies and OS-bound secrets are excluded unless Chromium itself can import them through a supported API; authenticated cookies are never copied from another browser.
 
-The default WebUI-facing compatibility layer remains deliberately preview-only. It accepts a disposable copied fixture, reads at most 8 MiB of `vast-data.json` on a `MayBlock` ThreadPool task, validates the schema/collection envelope, and returns only aggregate counts. It checks whether `password-vault.json` exists but never opens it. No record contents, URLs, credentials, cookies, encryption material, or source paths cross the Mojo boundary.
+The default WebUI-facing compatibility layer remains deliberately preview-only. It accepts a disposable copied fixture, reads at most 8 MiB of `vast-data.json` on a `MayBlock` ThreadPool task, validates the schema/collection envelope, and returns only aggregate counts. No record contents, URLs, credentials, cookies, encryption material, or source paths cross the Mojo boundary.
 
 The native-only transaction layer goes further without expanding renderer authority. It resolves `data-root.json`, copies an explicit Vast product-data allowlist into a safety backup, produces a second checksum-verified staging tree, and atomically promotes only a previously nonexistent destination. The journal remains in the browser process domain. Rollback moves committed data into a transaction holding directory; it never edits or deletes the Electron source. Electron/Chromium browser-profile artifacts—including cookies, `Local State`, `Preferences`, and website sessions—are deliberately outside the allowlist.
 
@@ -82,7 +79,7 @@ During development, this transaction can be exercised from `chrome://vast` only 
 
 The same development boundary accepts a pre-authorized backup switch as an alternative—not an addition—to the data-root fixture. Preview verifies the archive into a temporary sibling and deletes it. Commit deliberately re-verifies the archive, prepares safety/staging, deletes the extraction, and only then promotes the staging root. This double verification prevents an archive changed after preview from entering the transaction. The archive path remains native and never appears in Mojo.
 
-The first typed product-data adapter is intentionally read-only. It projects only validated workspace identity/presentation/order/privacy/active state and an allowlisted appearance/layout settings subset with safe fallbacks. It does not project live tabs, URLs, history, downloads, notes, credentials, vault contents, cookies, or other browser-profile data. A later profile-scoped service may expose this projection only after a persistent Vast 2 product root has been selected and recovered successfully.
+The first typed product-data adapter is intentionally read-only. It projects only validated workspace identity/presentation/order/privacy/active state and an allowlisted appearance/layout settings subset with safe fallbacks. It does not project live tabs, URLs, history, downloads, notes, credentials, cookies, or other browser-profile data. A later profile-scoped service may expose this projection only after a persistent Vast 2 product root has been selected and recovered successfully.
 
 A committed root can be activated by writing a small native-only selection record below the Chromium profile. The record is only a locator, never an authority: every restart reopens the committed migration journal, enforces its transaction-directory topology and product-data allowlist, verifies bounded size totals and SHA-256 values in both the active root and safety backup, and reruns the typed projection. A recovered transaction retains enough native state to move the committed root into its rollback holding directory. Selection metadata is cleared only after that move succeeds; the Electron source and safety backup remain untouched.
 
@@ -113,7 +110,6 @@ Product surfaces use Chromium WebUI where appropriate:
 - `chrome://vast` (current regular-profile New Tab and shell dashboard);
 - `chrome://vast-settings`;
 - `chrome://vast-notes`;
-- `chrome://vast-passwords`;
 - `chrome://vast-automation`;
 - `chrome://vast-avidae`;
 - additional diagnostics, network, session, reader, and site-data panels as they are ported.

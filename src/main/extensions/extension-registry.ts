@@ -4,7 +4,7 @@ import { atomicWriteJson } from '../atomic-file.ts'
 import type { InstalledExtensionRecord } from './extension-types.ts'
 import { VAST_NATIVE_PERMISSIONS, type VastExtensionKind, type VastNativePermission } from '../../shared/extension-native-api.ts'
 
-const REGISTRY_SCHEMA_VERSION = 5
+const REGISTRY_SCHEMA_VERSION = 6
 const EXTENSION_ID = /^[a-p]{32}$/
 
 interface PersistedExtensionRegistry {
@@ -16,6 +16,13 @@ function limitedString(value: unknown, maxLength: number): string | undefined {
   if (typeof value !== 'string') return undefined
   const trimmed = value.trim()
   return trimmed && trimmed.length <= maxLength ? trimmed : undefined
+}
+
+function limitedStringArray(value: unknown, maxItems: number, maxLength: number): string[] {
+  if (!Array.isArray(value)) return []
+  return [...new Set(value
+    .filter((item): item is string => typeof item === 'string' && item.length > 0 && item.length <= maxLength)
+    .slice(0, maxItems))]
 }
 
 export function parseInstalledExtensionRecord(value: unknown): InstalledExtensionRecord | undefined {
@@ -35,7 +42,7 @@ export function parseInstalledExtensionRecord(value: unknown): InstalledExtensio
 
   if (!id || !EXTENSION_ID.test(id) || !name || !version || !path || !isAbsolute(path)) return undefined
   if (input.enabled !== true && input.enabled !== false) return undefined
-  if (!['unpacked', 'local-vext', 'hub', 'bundled'].includes(String(input.source)) || !['chrome', 'vast', 'hybrid', undefined].includes(input.runtime as VastExtensionKind | undefined)) return undefined
+  if (!['unpacked', 'local-vext', 'hub', 'upstream', 'bundled'].includes(String(input.source)) || !['chrome', 'vast', 'hybrid', undefined].includes(input.runtime as VastExtensionKind | undefined)) return undefined
   if (input.manifestVersion !== 2 && input.manifestVersion !== 3) return undefined
   if (!installedAt || !updatedAt) return undefined
 
@@ -46,17 +53,19 @@ export function parseInstalledExtensionRecord(value: unknown): InstalledExtensio
     : []
   const runtime = (input.runtime === 'vast' || input.runtime === 'hybrid' ? input.runtime : 'chrome') as VastExtensionKind
   const source = input.source as InstalledExtensionRecord['source']
-  const trust = input.trust === 'official' || input.trust === 'local' || input.trust === 'developer'
+  const trust = input.trust === 'official' || input.trust === 'reviewed' || input.trust === 'upstream' || input.trust === 'local' || input.trust === 'developer'
     ? input.trust
-    : source === 'unpacked' ? 'developer' : source === 'hub' || source === 'bundled' ? 'official' : 'local'
+    : source === 'unpacked' ? 'developer' : source === 'upstream' ? 'upstream' : source === 'hub' || source === 'bundled' ? 'official' : 'local'
   const updateState = ['not-applicable', 'up-to-date', 'checking', 'available', 'updating', 'pending-approval', 'failed'].includes(String(input.updateState))
     ? input.updateState as InstalledExtensionRecord['updateState']
-    : source === 'hub' ? 'up-to-date' : 'not-applicable'
+    : source === 'hub' || source === 'upstream' ? 'up-to-date' : 'not-applicable'
   const optionalVersion = (value: unknown): string | undefined => limitedString(value, 64)
   const optionalHash = (value: unknown): string | undefined => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value) ? value : undefined
   const optionalTime = typeof input.lastUpdateCheckAt === 'number' && Number.isFinite(input.lastUpdateCheckAt) && input.lastUpdateCheckAt > 0 ? input.lastUpdateCheckAt : undefined
   return {
     id,
+    ...(limitedString(input.runtimeExtensionId, 64) && EXTENSION_ID.test(String(input.runtimeExtensionId)) ? { runtimeExtensionId: String(input.runtimeExtensionId) } : {}),
+    ...(limitedString(input.upstreamExtensionId, 64) && EXTENSION_ID.test(String(input.upstreamExtensionId)) ? { upstreamExtensionId: String(input.upstreamExtensionId) } : {}),
     name,
     version,
     ...(description ? { description } : {}),
@@ -81,7 +90,9 @@ export function parseInstalledExtensionRecord(value: unknown): InstalledExtensio
     installedAt,
     updatedAt,
     allowFileAccess: false,
-    grantedPermissions
+    grantedPermissions,
+    grantedChromePermissions: limitedStringArray(input.grantedChromePermissions, 128, 128),
+    grantedChromeOrigins: limitedStringArray(input.grantedChromeOrigins, 256, 2_048)
   }
 }
 
@@ -126,7 +137,7 @@ export class ExtensionRegistry {
       return []
     }
     const input = parsed as { schemaVersion?: unknown; extensions?: unknown }
-    if (![1, 2, 3, 4, REGISTRY_SCHEMA_VERSION].includes(Number(input.schemaVersion)) || !Array.isArray(input.extensions)) {
+    if (![1, 2, 3, 4, 5, REGISTRY_SCHEMA_VERSION].includes(Number(input.schemaVersion)) || !Array.isArray(input.extensions)) {
       await this.quarantineMalformedRegistry()
       return []
     }
@@ -191,6 +202,21 @@ export class ExtensionRegistry {
     const record = this.records.get(id)
     if (!record) return undefined
     const next = { ...record, grantedPermissions: [...new Set(permissions)], updatedAt: Date.now() }
+    this.records.set(id, next)
+    await this.persist()
+    return clone(next)
+  }
+
+  async setGrantedChromePermissions(id: string, permissions: string[], origins: string[]): Promise<InstalledExtensionRecord | undefined> {
+    if (!this.loaded) await this.load()
+    const record = this.records.get(id)
+    if (!record) return undefined
+    const next = {
+      ...record,
+      grantedChromePermissions: limitedStringArray(permissions, 128, 128),
+      grantedChromeOrigins: limitedStringArray(origins, 256, 2_048),
+      updatedAt: Date.now()
+    }
     this.records.set(id, next)
     await this.persist()
     return clone(next)

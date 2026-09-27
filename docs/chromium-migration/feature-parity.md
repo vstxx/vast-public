@@ -20,7 +20,6 @@ Statuses: `inventory`, `planned`, `in-progress`, `verified`, `deferred`, `obsole
 | P0 | Backup/import | `.vastbackup` v1 ZIP, manifest/checksums | Compatible native migration/backup service | in-progress | Real backup passes audit, pathless commit, profile-local activation, full process restart, checksum recovery, rollback, and deselection; production picker and export remain |
 | P1 | Side panels | React `SidePanel` | Chromium side panel coordinator + Vast WebUI | inventory | Open/persist/focus test |
 | P1 | Notes | React + JSON | `chrome://vast-notes` + product-data service | inventory | CRUD/migration test |
-| P1 | Password vault | Electron `safeStorage`, JSON metadata | Chromium/OSCrypt-backed service; explicit legacy status | inventory | New vault CRUD and legacy fixture report |
 | P1 | Reader mode | injected readability script | Chromium distillation/reader integration | inventory | Article fixture test |
 | P1 | PDF | pdf.js internal page + Electron print | Chromium PDF viewer/printing with Vast entry points | inventory | Local/remote PDF checklist |
 | P1 | Permissions/site info | Electron permission handlers | Chromium content settings and page info | in-progress | Permissions API and popup smoke pass; UI/parity tests remain |
@@ -41,4 +40,4 @@ Statuses: `inventory`, `planned`, `in-progress`, `verified`, `deferred`, `obsole
 
 `PersistedData` schema 5 currently contains workspaces, tab groups, tabs, recently closed tabs, bookmarks and folders, history, downloads, notes, reading list, quick links, site memory, todos, macros and logs, session snapshots, and settings. The port must decide per collection whether Chromium is authoritative or whether it remains Vast-owned; it must not silently maintain two conflicting sources of truth.
 
-The current feature registry uses local Labs flags for Video & Audio, network devices, password manager, automation, advanced diagnostics, and spoofing. Advanced Notes, Session Timeline, advanced import/export, and multiple workspaces are normally available; Experimental Themes remains coming soon. Equivalent Labs gates must be enforced in the native service, not only hidden in WebUI.
+The current feature registry uses local Labs flags for Video & Audio, network devices, automation, advanced diagnostics, and spoofing. Advanced Notes, Session Timeline, advanced import/export, and multiple workspaces are normally available; Experimental Themes remains coming soon. Equivalent Labs gates must be enforced in the native service, not only hidden in WebUI.

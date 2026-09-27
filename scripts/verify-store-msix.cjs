@@ -12,6 +12,7 @@ const {
 } = require('./store-msix-config.cjs')
 const { windowsSdkTool } = require('./store-msix-tools.cjs')
 const { verifyStoreAssets } = require('./verify-store-assets.cjs')
+const { packagedMainContains } = require('./store-msix-bundles.cjs')
 
 const input = process.argv[2]
 const development = process.argv.includes('--development')
@@ -166,8 +167,8 @@ try {
     }
   }
   const mainBundle = asar.extractFile(appAsar, 'out\\main\\main.js').toString('utf8')
-  if (!mainBundle.includes('https://extensions.vastbrowser.com')) throw new Error('Store package does not contain the production Extensions Hub origin.')
   if (!development) {
+    if (!packagedMainContains(asar, appAsar, 'https://extensions.vastbrowser.com')) throw new Error('Store package does not contain the production Extensions Hub origin.')
     if (!mainBundle.includes(metadata.relay.endpoint) || !mainBundle.includes(metadata.relay.keyId)) {
       throw new Error('Production Store main bundle does not contain its declared Relay endpoint and trust key.')
     }

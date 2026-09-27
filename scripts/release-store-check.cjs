@@ -29,8 +29,8 @@ function run(command, args, label, env = process.env) {
 
 requireGate(require('semver').valid(pkg.version) && !require('semver').prerelease(pkg.version), `Stable product version required, received ${pkg.version}`)
 requireGate(lock.version === pkg.version && lock.packages?.['']?.version === pkg.version, 'package-lock root version must match package.json')
-requireGate(pkg.devDependencies?.electron === '44.1.0', 'Electron must be pinned exactly to 44.1.0')
-requireGate(lock.packages?.['node_modules/electron']?.version === '44.1.0', 'package-lock must resolve Electron 44.1.0')
+requireGate(pkg.devDependencies?.electron === '44.3.0', 'Electron must be pinned exactly to 44.3.0')
+requireGate(lock.packages?.['node_modules/electron']?.version === '44.3.0', 'package-lock must resolve Electron 44.3.0')
 requireGate(process.env.VAST_DISTRIBUTION_CHANNEL === 'microsoft-store', 'VAST_DISTRIBUTION_CHANNEL must be microsoft-store')
 requireGate(String(process.env.VAST_UPDATE_ENABLED ?? '') === '0', 'VAST_UPDATE_ENABLED must be 0 for Store')
 requireGate(String(process.env.VAST_PRIVATE_BUILD ?? '') === '0', 'VAST_PRIVATE_BUILD must be 0 for production Store packaging')

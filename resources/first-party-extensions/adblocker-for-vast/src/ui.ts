@@ -15,7 +15,7 @@ function renderLists() {
   for (const list of current.lists) {
     const row = document.createElement('label'); row.className = 'row'
     const body = document.createElement('span'), name = document.createElement('strong'), meta = document.createElement('small'), warn = document.createElement('small'), control = document.createElement('input')
-    name.textContent = list.name; meta.textContent = list.checkedAt ? `Checked ${new Date(list.checkedAt).toLocaleString()}${list.rules ? ` · ${list.rules.toLocaleString()} rules` : ''}` : 'Bundled copy'
+    name.textContent = `${list.name} ? ${list.label}`; meta.textContent = list.checkedAt ? `Checked ${new Date(list.checkedAt).toLocaleString()}${list.rules ? ` · ${list.rules.toLocaleString()} rules` : ''}` : 'Bundled copy'
     warn.className = 'warning'; warn.textContent = list.error || (list.unsupported ? `${list.unsupported} unsupported rules; see compatibility below.` : '')
     control.type = 'checkbox'; control.dataset.list = list.id; control.checked = current.settings.lists.includes(list.id); control.addEventListener('change', () => dirty = true)
     body.append(name, meta, warn); row.append(body, control); container.append(row)
@@ -29,20 +29,20 @@ function renderSites() {
 }
 async function refresh(replace = false) {
   try {
-    current = await call({ type: 'status' }); $('state').textContent = current.error || (!current.ready ? 'Loading filters…' : !current.settings.enabled ? 'Blocking disabled' : current.hostname && !current.siteEnabled ? 'Disabled on this site' : 'Blocking enabled')
+    current = await call({ type: 'status' }); $('state').textContent = current.error || (!current.ready ? 'Loading filters…' : !current.settings.enabled ? 'Blocking disabled' : current.hostname && !current.siteEnabled ? 'Disabled on this site' : current.settings.advancedProtection && !current.advancedAvailable ? 'Update Vast to enable early advanced protection. Network blocking is active.' : 'Blocking enabled')
     if (options) {
       $('update').textContent = current.updating ? 'Updating…' : 'Update now'; $('update').disabled = busy || current.updating
-      if (replace || !baseline || !dirty) { baseline = structuredClone(current.settings); for (const key of ['enabled', 'blockAds', 'blockTrackers', 'cosmetics', 'autoUpdate']) toggle(key, current.settings[key]); $('custom').value = current.settings.customFilters; $('allowlist').value = current.settings.allowlist.join('\n'); renderLists(); renderSites() }
+      if (replace || !baseline || !dirty) { baseline = structuredClone(current.settings); for (const key of ['enabled', 'blockAds', 'blockTrackers', 'cosmetics', 'advancedProtection', 'autoUpdate']) toggle(key, current.settings[key]); $('custom').value = current.settings.customFilters; $('allowlist').value = current.settings.allowlist.join('\n'); renderLists(); renderSites() }
     } else {
       $('hostname').textContent = current.hostname || 'Open a website'; $('page-count').textContent = current.pageBlocked.toLocaleString(); $('total-count').textContent = current.totalBlocked.toLocaleString()
-      toggle('enabled', current.settings.enabled); toggle('site', current.siteEnabled); toggle('cosmetics', current.cosmeticActive)
-      $('site').disabled = !current.hostname || !current.ready; $('cosmetics').disabled = !current.siteEnabled; $('pick').disabled = !current.siteEnabled; $('reload').disabled = !current.hostname
+      toggle('enabled', current.settings.enabled); toggle('site', current.siteEnabled); toggle('cosmetics', current.cosmeticActive); toggle('advanced', current.advancedActive)
+      $('advanced').disabled = !current.siteEnabled; $('site').disabled = !current.hostname || !current.ready; $('cosmetics').disabled = !current.siteEnabled; $('pick').disabled = !current.siteEnabled; $('reload').disabled = !current.hostname
     }
   } catch (failure) { error(failure) }
 }
 if (options) {
   document.querySelectorAll('input,textarea').forEach(element => element.addEventListener('input', () => dirty = true))
-  $('save').onclick = () => { const next = { ...baseline }; for (const key of ['enabled', 'blockAds', 'blockTrackers', 'cosmetics', 'autoUpdate']) next[key] = $(key).checked; next.lists = [...document.querySelectorAll<HTMLInputElement>('[data-list]:checked')].map(input => input.dataset.list); next.allowlist = $('allowlist').value.split('\n').map((host: string) => host.trim()).filter(Boolean); next.customFilters = $('custom').value; void action({ type: 'settings', settings: next, expected: baseline }, true) }
+  $('save').onclick = () => { const next = { ...baseline }; for (const key of ['enabled', 'blockAds', 'blockTrackers', 'cosmetics', 'advancedProtection', 'autoUpdate']) next[key] = $(key).checked; next.lists = [...document.querySelectorAll<HTMLInputElement>('[data-list]:checked')].map(input => input.dataset.list); next.allowlist = $('allowlist').value.split('\n').map((host: string) => host.trim()).filter(Boolean); next.customFilters = $('custom').value; void action({ type: 'settings', settings: next, expected: baseline }, true) }
   $('load').onclick = () => { dirty = false; void refresh(true) }
   $('update').onclick = () => void action({ type: 'update' })
   $('reset').onclick = () => void action({ type: 'reset-stats' })
@@ -55,6 +55,7 @@ if (options) {
   $('enabled').onchange = () => void action({ type: 'settings', settings: { ...current.settings, enabled: $('enabled').checked }, expected: current.settings })
   $('site').onchange = () => void action({ type: 'site', tabId: current.tabId, url: current.url, enabled: $('site').checked })
   $('cosmetics').onchange = () => void action({ type: 'site', tabId: current.tabId, url: current.url, enabled: $('cosmetics').checked, cosmeticOnly: true })
+  $('advanced').onchange = () => void action({ type: 'site', tabId: current.tabId, url: current.url, enabled: $('advanced').checked, advancedOnly: true })
   $('reload').onclick = () => void action({ type: 'reload', tabId: current.tabId, url: current.url })
   $('pick').onclick = async () => { try { await call({ type: 'picker', tabId: current.tabId, url: current.url }); window.close() } catch (failure) { error(failure) } }
   $('settings').onclick = () => { location.href = chrome.runtime.getURL('options.html') }

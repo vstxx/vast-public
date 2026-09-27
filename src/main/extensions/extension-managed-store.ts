@@ -1,9 +1,11 @@
-import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { atomicWriteJson } from '../atomic-file.ts'
 import {
   parseVextPackage,
+  canonicalJson,
+  sha256Hex,
   verifyVextPackage,
   VEXT_EXTENSION_ID,
   VEXT_VERSION,
@@ -31,6 +33,7 @@ export interface ManagedExtensionState {
   previousVersion?: string
   source: Exclude<ExtensionInstallSource, 'unpacked' | 'bundled'>
   publisherId?: string
+  runtimeRelativePath?: string
   failedVersions: string[]
   versions: ManagedVersionState[]
 }
@@ -41,6 +44,22 @@ export interface StagedManagedPackage {
   contentRoot: string
   source: Exclude<ExtensionInstallSource, 'unpacked' | 'bundled'>
   parsed: ParsedVextPackage
+}
+
+export interface VerifiedUpstreamPackage {
+  extensionId: string
+  version: string
+  packageSha256: string
+  files: Map<string, Uint8Array>
+}
+
+export interface ManagedRuntimeTransaction {
+  extensionId: string
+  version: string
+  currentRoot: string
+  nextRoot: string
+  previousRoot: string
+  hadCurrent: boolean
 }
 
 function delay(ms: number): Promise<void> {
@@ -75,7 +94,7 @@ function stateFromUnknown(value: unknown): ManagedExtensionState | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
   const input = value as Record<string, unknown>
   if (input.schemaVersion !== 1 || !VEXT_EXTENSION_ID.test(String(input.extensionId)) || !VEXT_VERSION.test(String(input.activeVersion))) return undefined
-  if (input.source !== 'local-vext' && input.source !== 'hub') return undefined
+  if (input.source !== 'local-vext' && input.source !== 'hub' && input.source !== 'upstream') return undefined
   const failedVersions = Array.isArray(input.failedVersions) ? input.failedVersions.filter((version): version is string => typeof version === 'string' && VEXT_VERSION.test(version)).slice(0, 32) : []
   const versions = Array.isArray(input.versions) ? input.versions.flatMap((candidate): ManagedVersionState[] => {
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return []
@@ -88,6 +107,9 @@ function stateFromUnknown(value: unknown): ManagedExtensionState | undefined {
   }) : []
   const previousVersion = typeof input.previousVersion === 'string' && VEXT_VERSION.test(input.previousVersion) ? input.previousVersion : undefined
   const publisherId = typeof input.publisherId === 'string' ? input.publisherId : undefined
+  const runtimeRelativePath = typeof input.runtimeRelativePath === 'string' && (input.runtimeRelativePath === 'current' || /^versions\/[0-9A-Za-z.+-]+$/.test(input.runtimeRelativePath))
+    ? input.runtimeRelativePath
+    : undefined
   return {
     schemaVersion: 1,
     extensionId: String(input.extensionId),
@@ -95,6 +117,7 @@ function stateFromUnknown(value: unknown): ManagedExtensionState | undefined {
     ...(previousVersion ? { previousVersion } : {}),
     source: input.source,
     ...(publisherId ? { publisherId } : {}),
+    ...(runtimeRelativePath ? { runtimeRelativePath } : {}),
     failedVersions,
     versions
   }
@@ -115,6 +138,13 @@ export class ExtensionManagedStore {
     await Promise.all([mkdir(this.managedRoot, { recursive: true }), mkdir(this.stagingRoot, { recursive: true })])
     const entries = await readdir(this.stagingRoot, { withFileTypes: true }).catch(() => [])
     await Promise.all(entries.map((entry) => rm(join(this.stagingRoot, entry.name), { recursive: true, force: true }).catch(() => undefined)))
+    const managedEntries = await readdir(this.managedRoot, { withFileTypes: true }).catch(() => [])
+    for (const entry of managedEntries) {
+      if (entry.isDirectory() && VEXT_EXTENSION_ID.test(entry.name)) {
+        await this.migrateVersionArchives(entry.name)
+        await this.recoverRuntimeSwap(entry.name)
+      }
+    }
   }
 
   async stagePackage(bytes: Uint8Array, source: Exclude<ExtensionInstallSource, 'unpacked' | 'bundled'>, trustedKeys: readonly VextTrustedKey[]): Promise<StagedManagedPackage> {
@@ -141,9 +171,45 @@ export class ExtensionManagedStore {
     }
   }
 
+  async stageUpstreamPackage(input: VerifiedUpstreamPackage): Promise<StagedManagedPackage> {
+    if (!VEXT_EXTENSION_ID.test(input.extensionId) || !VEXT_VERSION.test(input.version) || !/^[a-f0-9]{64}$/.test(input.packageSha256)) throw new Error('Upstream extension identity is invalid.')
+    const manifest = input.files.get('manifest.json')
+    if (!manifest) throw new Error('Upstream extension manifest is missing.')
+    const fileList = await Promise.all([...input.files].map(async ([path, data]) => ({ path, size: data.byteLength, sha256: await sha256Hex(data) })))
+    const metadata: VextPackageMetadata = {
+      format_version: 1,
+      extension_id: input.extensionId,
+      version: input.version,
+      publisher_id: null,
+      manifest_sha256: await sha256Hex(manifest),
+      files: fileList.sort((left, right) => left.path.localeCompare(right.path))
+    }
+    const parsed: ParsedVextPackage = {
+      metadata,
+      files: input.files,
+      packageSha256: input.packageSha256,
+      canonicalMetadata: new TextEncoder().encode(canonicalJson(metadata))
+    }
+    const root = await mkdtemp(join(this.stagingRoot, 'upstream-'))
+    const contentRoot = join(root, 'content')
+    await mkdir(contentRoot, { recursive: true })
+    try {
+      for (const [packagePath, data] of input.files) {
+        const destination = resolve(contentRoot, ...packagePath.split('/'))
+        if (!isInside(contentRoot, destination)) throw new Error('Upstream package extraction escaped the staging directory.')
+        await mkdir(dirname(destination), { recursive: true })
+        await writeFile(destination, data, { flag: 'wx' })
+      }
+      return { id: randomUUID(), root, contentRoot, source: 'upstream', parsed }
+    } catch (error) {
+      await rm(root, { recursive: true, force: true }).catch(() => undefined)
+      throw error
+    }
+  }
+
   async commit(staged: StagedManagedPackage): Promise<string> {
     const extensionRoot = this.extensionRoot(staged.parsed.metadata.extension_id)
-    const versionsRoot = join(extensionRoot, 'versions')
+    const versionsRoot = join(extensionRoot, 'releases')
     const destination = this.versionRoot(staged.parsed.metadata.extension_id, staged.parsed.metadata.version)
     await mkdir(versionsRoot, { recursive: true })
     if (await stat(destination).then((info) => info.isDirectory()).catch(() => false)) {
@@ -176,12 +242,13 @@ export class ExtensionManagedStore {
       ...(current?.activeVersion && current.activeVersion !== metadata.version ? { previousVersion: current.activeVersion } : current?.previousVersion ? { previousVersion: current.previousVersion } : {}),
       source: staged.source,
       ...(metadata.publisher_id ? { publisherId: metadata.publisher_id } : {}),
+      ...(current?.runtimeRelativePath ? { runtimeRelativePath: current.runtimeRelativePath } : {}),
       failedVersions: (current?.failedVersions ?? []).filter((item) => item !== metadata.version),
       versions
     }
     await atomicWriteJson(this.statePath(metadata.extension_id), state)
     const retained = new Set(versions.map((item) => item.version))
-    const versionEntries = await readdir(join(this.extensionRoot(metadata.extension_id), 'versions'), { withFileTypes: true }).catch(() => [])
+    const versionEntries = await readdir(join(this.extensionRoot(metadata.extension_id), 'releases'), { withFileTypes: true }).catch(() => [])
     await Promise.all(versionEntries.filter((entry) => entry.isDirectory() && VEXT_VERSION.test(entry.name) && !retained.has(entry.name)).map((entry) => rm(this.versionRoot(metadata.extension_id, entry.name), { recursive: true, force: true }).catch(() => undefined)))
     return state
   }
@@ -193,6 +260,63 @@ export class ExtensionManagedStore {
     const next: ManagedExtensionState = { ...state, activeVersion: version, ...(previous !== version ? { previousVersion: previous } : {}) }
     await atomicWriteJson(this.statePath(extensionId), next)
     return next
+  }
+
+  async ensureCurrent(extensionId: string, version: string): Promise<string> {
+    await this.recoverRuntimeSwap(extensionId)
+    const currentRoot = await this.runtimeRoot(extensionId)
+    if (await this.isDirectory(currentRoot)) return currentRoot
+    const source = this.versionRoot(extensionId, version)
+    if (!await this.isDirectory(source)) throw new Error('The active managed extension version is unavailable.')
+    const nextRoot = this.nextRoot(extensionId)
+    await rm(nextRoot, { recursive: true, force: true })
+    await cp(source, nextRoot, { recursive: true, errorOnExist: true })
+    await renameWithRetry(nextRoot, currentRoot)
+    return currentRoot
+  }
+
+  async prepareRuntime(extensionId: string, version: string): Promise<ManagedRuntimeTransaction> {
+    await this.recoverRuntimeSwap(extensionId)
+    const source = this.versionRoot(extensionId, version)
+    if (!await this.isDirectory(source)) throw new Error('The verified managed extension version is unavailable.')
+    const currentRoot = await this.runtimeRoot(extensionId)
+    const nextRoot = this.nextRoot(extensionId)
+    const previousRoot = this.previousRoot(extensionId)
+    await Promise.all([
+      rm(nextRoot, { recursive: true, force: true }),
+      rm(previousRoot, { recursive: true, force: true })
+    ])
+    await cp(source, nextRoot, { recursive: true, errorOnExist: true })
+    return { extensionId, version, currentRoot, nextRoot, previousRoot, hadCurrent: await this.isDirectory(currentRoot) }
+  }
+
+  async swapRuntime(transaction: ManagedRuntimeTransaction): Promise<string> {
+    if (!await this.isDirectory(transaction.nextRoot)) throw new Error('The prepared managed extension runtime is unavailable.')
+    if (transaction.hadCurrent) await renameWithRetry(transaction.currentRoot, transaction.previousRoot)
+    try {
+      await renameWithRetry(transaction.nextRoot, transaction.currentRoot)
+      return transaction.currentRoot
+    } catch (error) {
+      if (transaction.hadCurrent && !await this.isDirectory(transaction.currentRoot) && await this.isDirectory(transaction.previousRoot)) {
+        await renameWithRetry(transaction.previousRoot, transaction.currentRoot).catch(() => undefined)
+      }
+      throw error
+    }
+  }
+
+  async commitRuntime(transaction: ManagedRuntimeTransaction): Promise<void> {
+    await Promise.all([
+      rm(transaction.previousRoot, { recursive: true, force: true }),
+      rm(transaction.nextRoot, { recursive: true, force: true })
+    ])
+  }
+
+  async rollbackRuntime(transaction: ManagedRuntimeTransaction): Promise<void> {
+    await rm(transaction.currentRoot, { recursive: true, force: true })
+    if (transaction.hadCurrent && await this.isDirectory(transaction.previousRoot)) {
+      await renameWithRetry(transaction.previousRoot, transaction.currentRoot)
+    }
+    await rm(transaction.nextRoot, { recursive: true, force: true })
   }
 
   async markFailed(extensionId: string, version: string): Promise<void> {
@@ -209,7 +333,26 @@ export class ExtensionManagedStore {
 
   versionRoot(extensionId: string, version: string): string {
     if (!VEXT_EXTENSION_ID.test(extensionId) || !VEXT_VERSION.test(version)) throw new Error('Managed extension identity is invalid.')
-    return join(this.extensionRoot(extensionId), 'versions', version)
+    return join(this.extensionRoot(extensionId), 'releases', version)
+  }
+
+  currentRoot(extensionId: string): string {
+    return join(this.extensionRoot(extensionId), 'current')
+  }
+
+  async adoptLegacyRuntimePath(extensionId: string, runtimePath: string): Promise<string> {
+    const state = await this.readState(extensionId)
+    if (!state) throw new Error('Managed extension state is unavailable.')
+    const expected = this.legacyVersionRoot(extensionId, state.activeVersion)
+    if (resolve(runtimePath) !== resolve(expected) || !await this.isDirectory(expected)) {
+      throw new Error('Legacy managed extension runtime path is invalid.')
+    }
+    await this.migrateVersionArchives(extensionId)
+    await atomicWriteJson(this.statePath(extensionId), {
+      ...state,
+      runtimeRelativePath: `versions/${state.activeVersion}`
+    })
+    return expected
   }
 
   async discard(staged: StagedManagedPackage): Promise<void> {
@@ -235,5 +378,71 @@ export class ExtensionManagedStore {
 
   private statePath(extensionId: string): string {
     return join(this.extensionRoot(extensionId), 'state.json')
+  }
+
+  private nextRoot(extensionId: string): string {
+    return join(this.extensionRoot(extensionId), 'current.next')
+  }
+
+  private previousRoot(extensionId: string): string {
+    return join(this.extensionRoot(extensionId), 'current.previous')
+  }
+
+  private legacyVersionRoot(extensionId: string, version: string): string {
+    if (!VEXT_VERSION.test(version)) throw new Error('Managed extension version is invalid.')
+    return join(this.extensionRoot(extensionId), 'versions', version)
+  }
+
+  private async runtimeRoot(extensionId: string): Promise<string> {
+    const state = await this.readState(extensionId)
+    if (!state?.runtimeRelativePath || state.runtimeRelativePath === 'current') return this.currentRoot(extensionId)
+    return join(this.extensionRoot(extensionId), ...state.runtimeRelativePath.split('/'))
+  }
+
+  private async isDirectory(path: string): Promise<boolean> {
+    return stat(path).then((entry) => entry.isDirectory()).catch(() => false)
+  }
+
+  private async recoverRuntimeSwap(extensionId: string): Promise<void> {
+    const currentRoot = await this.runtimeRoot(extensionId)
+    const nextRoot = this.nextRoot(extensionId)
+    const previousRoot = this.previousRoot(extensionId)
+    const hasCurrent = await this.isDirectory(currentRoot)
+    const hasPrevious = await this.isDirectory(previousRoot)
+    if (!hasCurrent && hasPrevious) {
+      await renameWithRetry(previousRoot, currentRoot)
+    } else if (hasCurrent && hasPrevious) {
+      const state = await this.readState(extensionId)
+      const currentVersion = await this.runtimeManifestVersion(currentRoot)
+      if (state && currentVersion === state.activeVersion) {
+        await rm(previousRoot, { recursive: true, force: true })
+      } else {
+        await rm(currentRoot, { recursive: true, force: true })
+        await renameWithRetry(previousRoot, currentRoot)
+      }
+    }
+    await rm(nextRoot, { recursive: true, force: true })
+  }
+
+  private async migrateVersionArchives(extensionId: string): Promise<void> {
+    const state = await this.readState(extensionId)
+    if (!state) return
+    for (const version of state.versions) {
+      const destination = this.versionRoot(extensionId, version.version)
+      if (await this.isDirectory(destination)) continue
+      const legacy = this.legacyVersionRoot(extensionId, version.version)
+      if (!await this.isDirectory(legacy)) continue
+      await mkdir(dirname(destination), { recursive: true })
+      await cp(legacy, destination, { recursive: true, errorOnExist: true })
+    }
+  }
+
+  private async runtimeManifestVersion(root: string): Promise<string | undefined> {
+    try {
+      const parsed = JSON.parse(await readFile(join(root, 'manifest.json'), 'utf8')) as { version?: unknown }
+      return typeof parsed.version === 'string' ? parsed.version : undefined
+    } catch {
+      return undefined
+    }
   }
 }

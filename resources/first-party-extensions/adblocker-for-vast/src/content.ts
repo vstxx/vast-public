@@ -1,48 +1,74 @@
+import { DOMMonitor } from '@ghostery/adblocker-content'
 import { installElementPicker } from './picker.ts'
+import { proceduralFiltering } from './procedural.ts'
 declare const chrome: any
-let style: HTMLStyleElement | undefined, observer: MutationObserver | undefined, timer: number | undefined, cancelPicker: (() => void) | undefined
-let initial = true, busy = false, generation = 0, dead = false
-const known = new Set<string>()
-function remove() { style?.remove(); style = undefined; observer?.disconnect(); observer = undefined; clearTimeout(timer); cancelPicker?.(); cancelPicker = undefined; known.clear() }
-async function refresh(reset = false) {
-  if (dead || !chrome.runtime?.id) { remove(); return }
-  if (reset) { generation++; remove(); initial = true }
-  if (busy) { timer = window.setTimeout(() => void refresh(), 150); return }
-  busy = true; const current = generation
+let style: HTMLStyleElement | undefined, monitor: DOMMonitor | undefined, observer: MutationObserver | undefined, cancelPicker: (() => void) | undefined
+let generation = 0, dead = false, queue = Promise.resolve(), procedures = proceduralFiltering()
+const cssChunks = new Set<string>()
+function remove() { style?.remove(); style = undefined; monitor?.stop(); monitor = undefined; observer?.disconnect(); observer = undefined; procedures.stop(); procedures = proceduralFiltering(); cancelPicker?.(); cancelPicker = undefined; cssChunks.clear() }
+async function request(features: { ids: string[]; classes: string[]; hrefs: string[] }, initial: boolean, current: number) {
+  if (current !== generation || dead || !chrome.runtime?.id) return
   try {
-    const features = { ids: [] as string[], classes: [] as string[], hrefs: [] as string[] }
-    const elements = document.querySelectorAll('[id],[class],[href]')
-    for (let i = 0; i < Math.min(elements.length, 12000); i++) {
-      const element = elements[i]
-      for (const [key, values] of [['ids', [element.id]], ['classes', [...element.classList]], ['hrefs', [element.getAttribute('href')]]] as const) {
-        for (const value of values) if (value && value.length <= 256 && features[key].length < 512 && !known.has(key + value)) features[key].push(value)
+    // Chunk feature deltas instead of dropping all generic filters after 512 IDs.
+    const length = Math.max(features.ids.length, features.classes.length, features.hrefs.length, 1)
+    for (let offset = 0; offset < Math.min(length, 32768); offset += 512) {
+      const input = Object.fromEntries((['ids', 'classes', 'hrefs'] as const).map(key => [key, features[key].slice(offset, offset + 512).filter(value => value.length <= 256)]))
+      const response = await chrome.runtime.sendMessage({ type: 'cosmetics', ...input, initial: initial && offset === 0 })
+      if (current !== generation) return
+      if (!response?.ok || !response.value.active) { if (!response?.ok) console.warn('Adblocker cosmetics:', response?.error); remove(); return }
+      const css = response.value.styles
+      if (typeof css === 'string' && css.trim() && !cssChunks.has(css) && cssChunks.size < 2048) {
+        cssChunks.add(css)
+        if (!style) { style = document.createElement('style'); (document.head || document.documentElement).append(style) }
+        style.append(document.createTextNode('\n' + css))
       }
+      if (Array.isArray(response.value.extended)) procedures.add(response.value.extended)
     }
-    const response = await chrome.runtime.sendMessage({ type: 'cosmetics', ...features, initial })
-    if (generation !== current) return
-    if (!response?.ok || !response.value.active) { remove(); return }
-    for (const key of ['ids', 'classes', 'hrefs'] as const) for (const value of features[key]) if (known.size < 8192) known.add(key + value)
-    const css = response.value.styles
-    if (typeof css === 'string' && css.trim()) { if (!style) { style = document.createElement('style'); (document.head || document.documentElement).append(style) } style.textContent += '\n' + css }
-    initial = false
-    if (!observer) { observer = new MutationObserver(() => { clearTimeout(timer); timer = window.setTimeout(() => void refresh(), 400) }); observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['id', 'class', 'href'] }) }
-  } catch { dead = !chrome.runtime?.id; remove() }
-  finally { busy = false }
+  } catch (error) { console.warn('Adblocker cosmetics:', String(error)); if (current === generation) { dead = !chrome.runtime?.id; remove() } }
+}
+function refresh() {
+  if (dead || !chrome.runtime?.id || !document.documentElement) return
+  generation++; remove(); const current = generation
+  const enqueue = (features: { ids: string[]; classes: string[]; hrefs: string[] }, initial = false) => { queue = queue.then(() => request(features, initial, current)) }
+  enqueue({ ids: [], classes: [], hrefs: [] }, true)
+  let featureCount = 0
+  monitor = new DOMMonitor(update => {
+    if (current !== generation) return
+    if (update.type === 'elements') procedures.changed(update.elements)
+    else {
+      featureCount += update.ids.length + update.classes.length + update.hrefs.length
+      if (featureCount <= 32768) enqueue(update)
+      else { monitor?.stop(); console.warn('Adblocker: DOM feature budget reached for this document.') }
+    }
+  })
+  monitor.queryAll(window); monitor.start(window)
+  // Ghostery's feature monitor does not watch text or arbitrary attributes.
+  // Those can change :has-text/:matches-attr without adding classes or nodes.
+  observer = new MutationObserver(mutations => {
+    const elements: Element[] = []
+    for (const mutation of mutations) {
+      if (mutation.type === 'attributes' && /^s\d+$/.test(mutation.attributeName ?? '')) continue
+      const element = mutation.target instanceof Element ? mutation.target : mutation.target.parentElement
+      if (element && element !== style) elements.push(element)
+    }
+    procedures.changed(elements)
+  })
+  observer.observe(document.documentElement, { subtree: true, characterData: true, attributes: true })
 }
 chrome.runtime.onMessage.addListener((message: any, _sender: unknown, respond: (value: unknown) => void) => {
-  if (message?.type === 'refresh') { void refresh(true); respond(true) }
+  if (message?.type === 'refresh') { refresh(); respond(true) }
   else if (message?.type === 'pick' && window === window.top && typeof message.token === 'string') {
     cancelPicker?.(); cancelPicker = installElementPicker(async selector => {
       const result = await chrome.runtime.sendMessage({ type: 'picked', token: message.token, selector, cancel: !selector })
-      if (result.ok) void refresh(true)
+      if (result.ok) refresh()
       return result
     }); respond(true)
   }
 })
-document.addEventListener('DOMContentLoaded', () => void refresh(true), { once: true })
-window.addEventListener('pagehide', () => remove())
-window.addEventListener('pageshow', event => { if (event.persisted) void refresh(true) })
-// Native unload invalidates chrome.runtime in surviving content contexts.
-// Poll only the local extension identity; no browsing data or extra IPC.
-const lifecycle = setInterval(() => { if (!chrome.runtime?.id) { dead = true; remove(); clearInterval(lifecycle) } }, 1000)
-if (document.documentElement) void refresh()
+document.addEventListener('DOMContentLoaded', refresh, { once: true })
+window.addEventListener('pagehide', () => { generation++; remove() })
+window.addEventListener('pageshow', event => { if (event.persisted) refresh() })
+window.addEventListener('popstate', refresh)
+window.addEventListener('hashchange', refresh)
+const lifecycle = setInterval(() => { if (!chrome.runtime?.id) { dead = true; generation++; remove(); clearInterval(lifecycle) } }, 1000)
+if (document.documentElement) refresh()

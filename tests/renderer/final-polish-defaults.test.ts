@@ -17,4 +17,9 @@ test('clean launch keeps the new tab configurable but hides non-neutral dashboar
   assert.equal(DEFAULT_SETTINGS.newTab.showSessionTimeline, false)
   assert.equal(DEFAULT_SETTINGS.sidePanel.mode, 'auto')
   assert.ok(DEFAULT_SETTINGS.sidePanel.width >= 304)
+  assert.deepEqual(DEFAULT_SETTINGS.extensionMenu, { width: 368, height: 452 })
+})
+
+test('new profiles keep outlined toolbar controls until clean icons are enabled', () => {
+  assert.equal(DEFAULT_SETTINGS.appearance.cleanToolbarIcons, false)
 })

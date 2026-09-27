@@ -23,11 +23,11 @@ Generate patches from the pinned Chromium checkout with binary changes included.
 
 `0005-vast-mojo-runtime-info.patch` upgrades that surface to `MojoWebUIController`, registers a URL-scoped `PageHandlerFactory`, and returns native runtime facts through generated C++ and TypeScript bindings. It is the first tested renderer-to-browser service boundary for Vast.
 
-`0006-vast-data-migration-preview.patch` adds the first native data-compatibility component. It reads copied fixtures on a `MayBlock` ThreadPool task, enforces the Electron schema size/collection limits, returns only aggregate counts, detects but never reads the password vault, and rejects malformed JSON through the same Mojo boundary.
+`0006-vast-data-migration-preview.patch` adds the first native data-compatibility component. It reads copied fixtures on a `MayBlock` ThreadPool task, enforces the Electron schema size/collection limits, returns only aggregate counts, detects but never reads the legacy metadata, and rejects malformed JSON through the same Mojo boundary.
 
 `0007-vast-data-root-resolution.patch` adds the Electron `data-root.json` contract to that native component. It accepts only bounded JSON with an absolute `customDataRoot`, falls back to the stable config root when no override exists, and never returns the resolved path to WebUI.
 
-`0008-vast-data-migration-unittests.patch` adds the first native Vast-specific Chromium test executable. Its five tests cover default and custom roots, vault metadata exclusion, malformed input, relative-root rejection, and the 8 MiB bound without reading or modifying production data.
+`0008-vast-data-migration-unittests.patch` adds the first native Vast-specific Chromium test executable. Its five tests cover default and custom roots, legacy metadata exclusion, malformed input, relative-root rejection, and the 8 MiB bound without reading or modifying production data.
 
 `0009-vast-data-migration-transaction.patch` adds the native copy-first transaction. It copies only an explicit Vast product-data allowlist, rejects links/junctions and bounded-size violations, creates a separate safety backup plus verified staging tree, records per-file SHA-256 values, atomically promotes a new destination, and rolls back by moving data into a holding directory rather than deleting it. Electron cookies, sessions, `Local State`, and other browser-profile state are excluded.
 
@@ -39,7 +39,7 @@ Generate patches from the pinned Chromium checkout with binary changes included.
 
 `0013-vast-backup-fixture-webui-transaction.patch` lets development `chrome://vast` select exactly one native source: a copied data-root fixture or a pre-authorized `.vastbackup`. Archive preview verifies and deletes a temporary extraction; commit verifies again to prevent preview/commit substitution, prepares the existing copy-first transaction, deletes extraction before promotion, and exposes only aggregate counts through Mojo. The real supplied backup passed preview, commit, and rollback.
 
-`0014-vast-workspace-settings-projection.patch` adds the first typed, read-only projection of migrated product state. It validates unique workspace IDs, the active workspace, bounded presentation fields, ordering/privacy metadata, and a strict appearance/layout settings subset with safe defaults. It deliberately omits tabs, URLs, history, notes, credentials, vault contents, and all browser-profile data; four additional native tests bring the data suite to 18/18.
+`0014-vast-workspace-settings-projection.patch` adds the first typed, read-only projection of migrated product state. It validates unique workspace IDs, the active workspace, bounded presentation fields, ordering/privacy metadata, and a strict appearance/layout settings subset with safe defaults. It deliberately omits tabs, URLs, history, notes, credentials, legacy metadata contents, and all browser-profile data; four additional native tests bring the data suite to 18/18.
 
 `0015-vast-product-data-root-recovery.patch` adds native-only activation and restart recovery for a committed Vast 2 product root. A small record lives below the disposable Chromium profile, but recovery trusts neither that record nor paths alone: it revalidates the committed v1 transaction journal, path relationships, allowlist, file limits, SHA-256 for both active data and safety backup, and the typed schema projection. Rollback moves the committed data first and only then clears selection metadata. Four tests bring the native suite to 22/22; WebUI wiring remains a separate patch.
 

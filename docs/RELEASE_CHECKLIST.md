@@ -11,6 +11,8 @@ Use this checklist for each public Vast release. Route-specific checks that do n
 - [ ] Full-history secret scanning has no unreviewed finding.
 - [ ] `npm run release:preflight` passes on the reviewed source; local/manual blockers are resolved explicitly.
 - [ ] Generated public snapshot excludes `audit/` and passes its own audit and Gitleaks before any push.
+- [ ] Public source tag contains the exact ECE modification source/patch and Electron/Chromium patch queue used by the binary.
+- [ ] `package.json` declares `GPL-3.0-only`; the canonical root GPL text and third-party notices are present.
 - [ ] No private key, certificate, password, token, local profile, generated release package, or personal absolute path is introduced into the source snapshot.
 
 ## Build and tests
@@ -28,7 +30,6 @@ Use this checklist for each public Vast release. Route-specific checks that do n
 
 - [ ] Web content remains isolated from Node and generic privileged filesystem/shell APIs.
 - [ ] Sensitive IPC surfaces remain bound to their local feature/security policy.
-- [ ] Password-vault and autofill origin/sender binding tests pass if touched.
 - [ ] Relay production configuration carries only the documented bounded operational data.
 - [ ] Labs or extension changes do not silently widen permissions or remote-control capabilities.
 - [ ] Diagnostics and release metadata contain no credentials or private user content.
@@ -53,6 +54,9 @@ Use this checklist for each public Vast release. Route-specific checks that do n
 ## Third-party compliance
 
 - [ ] Runtime license/notice inventory is complete.
+- [ ] Packaged resources contain `Vast-GPL-3.0.txt`, `electron-chrome-extensions-GPL-3.0.txt`, and `THIRD_PARTY_NOTICES.md`.
+- [ ] ECE is exactly pinned, configured with `license: 'GPL-3.0'`, and no Patron/commercial path is enabled.
+- [ ] Exact corresponding source for Vast's ECE modifications and patched Electron is published at the release tag.
 - [ ] FFmpeg provenance and exact corresponding-source archive pass the maintained compliance gate.
 - [ ] Corresponding-source and provenance assets are uploaded beside every release that ships the covered binaries.
 - [ ] Release checksums include the required verification/compliance assets.

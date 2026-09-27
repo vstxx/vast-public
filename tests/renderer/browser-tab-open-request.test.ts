@@ -38,6 +38,10 @@ function modelFixture() {
       getTabIdForWebContents: (id: number) => id === sourceWebContentsId ? source.id : undefined,
       getTabModel: () => ({
         tabs,
+        navigateTab: (tabId: ID, url: string, title?: string) => {
+          const target = tabs.find((item) => item.id === tabId)
+          if (target) Object.assign(target, { url, title: title ?? target.title })
+        },
         createTab: (options: { url: string; title: string; workspaceId?: ID; groupId?: ID; activate: boolean }) => {
           const created = {
             ...tab(`tab-created-${tabs.length}`, options.workspaceId, options.groupId),
@@ -96,5 +100,16 @@ test('unsafe tab-open requests never reach the tab model', () => {
     fixture.context
   )
   assert.equal(created, undefined)
+  assert.equal(fixture.tabs.length, 1)
+})
+
+test('current-tab replacement navigates the source tab without creating another tab', () => {
+  const fixture = modelFixture()
+  const result = handleBrowserTabOpenRequest(
+    { url: 'https://example.com/replacement', sourceWebContentsId, disposition: 'current-tab', activate: true },
+    fixture.context
+  )
+  assert.equal(result?.id, fixture.source.id)
+  assert.equal(fixture.source.url, 'https://example.com/replacement')
   assert.equal(fixture.tabs.length, 1)
 })

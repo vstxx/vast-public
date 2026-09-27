@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 2,
+  "electron": {
+    "version": "44.3.0",
+    "electronBaseCommit": "07e460719c75b2ec5ee4893f7d2192ef31c7b8c2",
+    "chromiumVersion": "152.0.7977.78",
+    "chromiumBaseCommit": "82ccee2d3b4f0bc4aa5d5c9c3c88ed3b283571f3",
+    "patchsetRevision": "electron-44.3.0-vast-r3",
+    "patchsetSha256": "183e7b4461f7b8e79cb5721d79367cd3e237cc9d4ae0f2ed3c280e3742449332",
+    "patches": [
+      {
+        "root": "electron",
+        "path": "experiments/electron-44-patches/0004-electron-composed-webrequest-lifecycle.patch",
+        "sha256": "41afae25bd9b71fcd4e04f415e55983939d698c750917aa1b45b8592d5552971"
+      },
+      {
+        "root": "chromium",
+        "path": "experiments/electron-44-patches/0005-chromium-lifecycle-auth-support.patch",
+        "sha256": "e91b4b7c514411cacea03473a9e97467214715ce09b676f4696160d7eb05e895"
+      },
+      {
+        "root": "electron",
+        "path": "experiments/electron-44-patches/0006-electron-messaging-split-view-compat.patch",
+        "sha256": "acc81646aafad060e9271451a0b0c06fab1cf5ecbe65acff34b98077b9bd57d4"
+      },
+      {
+        "root": "electron",
+        "path": "experiments/electron-44-patches/0007-electron-action-open-popup-event.patch",
+        "sha256": "2df446dd4dbd76275783b5ab0a19fb50c8adf3fcd246af962a12a52a5df20209"
+      },
+      {
+        "root": "electron",
+        "path": "experiments/electron-44-patches/0008-electron-extensions-reload-api.patch",
+        "sha256": "762378e295472227d338622509ba2262d053ca3447b2dc0ffa35fcc568e2e223"
+      }
+    ],
+    "binary": {
+      "platform": "win32",
+      "arch": "x64",
+      "fileName": "electron.exe",
+      "size": 388690944,
+      "sha256": "3faafae4f5e7ae36a992346b40ab56c87f5ae395f7d7dfebf125ff3844f16a6b"
+    }
+  },
+  "ece": {
+    "version": "4.9.0",
+    "patchPath": "patches/electron-chrome-extensions-4.9.0-vast.patch",
+    "patchSha256": "002c90dd134e6a203ad05438939563c415f95b02d3fa75f1de93d1dfd5b8d865",
+    "runtimeSha256": "2658339fb6f278c1f602ecb04ab4bb9b71705a5880200c062c896bb20c3db334",
+    "runtimeFiles": [
+      "dist/chrome-extension-api.preload.js",
+      "dist/cjs/index.js",
+      "dist/esm/index.mjs",
+      "dist/types/browser/impl.d.ts"
+    ]
+  },
+  "vastSource": {
+    "mode": "release-env-must-match-head"
+  }
+}

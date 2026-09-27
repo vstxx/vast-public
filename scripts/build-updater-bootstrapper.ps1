@@ -1,6 +1,9 @@
 param(
   [string] $Version = '',
-  [string] $DefaultManifestUrl = ''
+  [string] $DefaultManifestUrl = '',
+  [ValidateSet('internal-unsigned', 'unsigned-public-release', 'authenticode-signed')]
+  [string] $SignaturePolicy = 'internal-unsigned',
+  [string] $ExpectedSignerSubject = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -11,11 +14,15 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
 }
 $Project = Join-Path $RepoRoot 'tools\VastUpdaterBootstrapper\VastUpdaterBootstrapper.csproj'
 $GeneratedConstants = Join-Path $RepoRoot 'tools\VastUpdaterBootstrapper\VastUpdaterBootstrapperConstants.Generated.cs'
+$UpdaterScript = Join-Path $RepoRoot 'release\Updater\VastUpdater.ps1'
 $PublishDir = Join-Path $RepoRoot 'release\Updater\single-file'
 $OutputExe = Join-Path $RepoRoot "release\Updater\VastUpdater-$Version.exe"
 
 if (-not (Test-Path -LiteralPath $Project -PathType Leaf)) {
   throw "Bootstrapper project missing: $Project"
+}
+if (-not (Test-Path -LiteralPath $UpdaterScript -PathType Leaf)) {
+  throw "Staged updater script missing: $UpdaterScript"
 }
 
 if ([string]::IsNullOrWhiteSpace($DefaultManifestUrl)) {
@@ -25,9 +32,25 @@ if ([string]::IsNullOrWhiteSpace($DefaultManifestUrl)) {
 if (-not $DefaultManifestUrl.StartsWith('https://', [System.StringComparison]::OrdinalIgnoreCase)) {
   throw "DefaultManifestUrl must use HTTPS: $DefaultManifestUrl"
 }
+if ($SignaturePolicy -eq 'authenticode-signed' -and [string]::IsNullOrWhiteSpace($ExpectedSignerSubject)) {
+  throw 'ExpectedSignerSubject is required for an authenticode-signed updater.'
+}
 
 $escapedVersion = $Version.Replace('\', '\\').Replace('"', '\"')
 $escapedDefaultManifestUrl = $DefaultManifestUrl.Replace('\', '\\').Replace('"', '\"')
+$escapedSignaturePolicy = $SignaturePolicy.Replace('\', '\\').Replace('"', '\"')
+$escapedExpectedSignerSubject = $ExpectedSignerSubject.Replace('\', '\\').Replace('"', '\"')
+# The release workflow launches Windows PowerShell from PowerShell 7. Its
+# inherited PSModulePath may not contain the Windows PowerShell utility module,
+# so hash the staged file directly without relying on Get-FileHash autoloading.
+$hashStream = [System.IO.File]::OpenRead($UpdaterScript)
+$sha256 = [System.Security.Cryptography.SHA256]::Create()
+try {
+  $updaterScriptSha256 = ([System.BitConverter]::ToString($sha256.ComputeHash($hashStream))).Replace('-', '').ToLowerInvariant()
+} finally {
+  $sha256.Dispose()
+  $hashStream.Dispose()
+}
 $logFileName = "VastUpdaterBootstrapper-$Version.log"
 $escapedLogFileName = $logFileName.Replace('\', '\\').Replace('"', '\"')
 
@@ -36,6 +59,9 @@ internal static partial class VastUpdaterBootstrapperConstants
 {
   public const string TargetVersion = "$escapedVersion";
   public const string DefaultManifestUrl = "$escapedDefaultManifestUrl";
+  public static readonly string ExpectedSignaturePolicy = "$escapedSignaturePolicy";
+  public static readonly string ExpectedSignerSubject = "$escapedExpectedSignerSubject";
+  public const string ExpectedUpdaterScriptSha256 = "$updaterScriptSha256";
   public const string LogFileName = "$escapedLogFileName";
 }
 "@ | Set-Content -LiteralPath $GeneratedConstants -Encoding UTF8

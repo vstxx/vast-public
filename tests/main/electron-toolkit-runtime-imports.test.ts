@@ -13,5 +13,10 @@ test('main process startup avoids runtime imports from electron toolkit utils', 
   }
   assert.match(mainSource, /from 'electron\/main'/)
   assert.match(windowSource, /from 'electron\/main'/)
-  assert.equal(existsSync(openingSplashUrl), false, 'opening sequence must not create a second renderer process')
+  // The dedicated splash is a second lightweight window by design; it must stay
+  // script-free of app/runtime imports and load a self-contained document.
+  const splashSource = existsSync(openingSplashUrl) ? readFileSync(openingSplashUrl, 'utf8') : ''
+  assert.match(splashSource, /from 'electron\/main'/)
+  assert.doesNotMatch(splashSource, /@electron-toolkit\/utils/)
+  assert.doesNotMatch(splashSource, /from 'electron'/)
 })

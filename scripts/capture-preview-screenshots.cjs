@@ -258,7 +258,7 @@ async function buildDemoData() {
   const now = Date.now()
   const workspaceId = 'workspace-personal'
   const previewUrl = `http://127.0.0.1:${webPort}/`
-  const tabIds = ['tab-new', 'tab-preview', 'tab-notes', 'tab-automation', 'tab-timeline', 'tab-passwords']
+  const tabIds = ['tab-new', 'tab-preview', 'tab-notes', 'tab-automation', 'tab-timeline']
 
   data.activeWorkspaceId = workspaceId
   data.sidePanelOpen = false
@@ -304,7 +304,6 @@ async function buildDemoData() {
     makeTab('tab-notes', 'Notes', constants.INTERNAL_NOTES_URL, workspaceId),
     makeTab('tab-automation', 'Automation', constants.INTERNAL_AUTOMATION_URL, workspaceId),
     makeTab('tab-timeline', 'Session Timeline', constants.INTERNAL_SESSION_TIMELINE_URL, workspaceId),
-    makeTab('tab-passwords', 'Passwords', constants.INTERNAL_PASSWORDS_URL, workspaceId)
   ]
   data.bookmarkFolders = [
     { id: 'folder-product', name: 'Product', order: 0, createdAt: now, updatedAt: now },

@@ -7,12 +7,13 @@ import {
   INTERNAL_NEW_TAB_URL,
   INTERNAL_NOTES_URL,
   INTERNAL_NETWORK_URL,
-  INTERNAL_PASSWORDS_URL,
+  INTERNAL_ONBOARDING_URL,
   INTERNAL_PDF_VIEWER_URL,
   INTERNAL_SESSION_TIMELINE_URL,
   INTERNAL_SITE_DATA_URL,
+  INTERNAL_UNSUPPORTED_EXTENSION_STORE_URL,
   SEARCH_ENGINES
-} from '../../shared/constants'
+} from '../../shared/constants.ts'
 import type { SearchEngine } from '../../shared/types'
 
 const DOMAIN_LIKE = /^([a-z0-9-]+\.)+[a-z]{2,}(:\d+)?(\/.*)?$/i
@@ -20,7 +21,6 @@ const LOCALHOST_LIKE = /^(localhost|127\.0\.0\.1)(:\d+)?(\/.*)?$/i
 const INTERNAL_URLS = new Set([
   INTERNAL_NEW_TAB_URL,
   INTERNAL_AVIDAE_URL,
-  INTERNAL_PASSWORDS_URL,
   INTERNAL_AUTOMATION_URL,
   INTERNAL_NOTES_URL,
   INTERNAL_NETWORK_URL,
@@ -28,7 +28,9 @@ const INTERNAL_URLS = new Set([
   INTERNAL_SITE_DATA_URL,
   INTERNAL_DIAGNOSTICS_URL,
   INTERNAL_SESSION_TIMELINE_URL,
-  INTERNAL_EXTENSIONS_URL
+  INTERNAL_EXTENSIONS_URL,
+  INTERNAL_UNSUPPORTED_EXTENSION_STORE_URL,
+  INTERNAL_ONBOARDING_URL
 ])
 
 function internalUrlBase(url: string): string {
@@ -144,7 +146,6 @@ export function resolveAddressInput(input: string, searchEngineId: string): stri
   if (!trimmed) return INTERNAL_NEW_TAB_URL
   if (lower === INTERNAL_NEW_TAB_URL || lower === 'new tab') return INTERNAL_NEW_TAB_URL
   if (lower === INTERNAL_AVIDAE_URL || lower === 'avidae' || lower === 'video & audio' || lower === 'video and audio' || lower === 'video audio') return INTERNAL_AVIDAE_URL
-  if (lower === INTERNAL_PASSWORDS_URL || lower === 'passwords' || lower === 'password manager') return INTERNAL_PASSWORDS_URL
   if (lower === INTERNAL_AUTOMATION_URL || lower === 'automation' || lower === 'macros') return INTERNAL_AUTOMATION_URL
   if (lower === INTERNAL_NOTES_URL || lower === 'notes') return INTERNAL_NOTES_URL
   if (lower === INTERNAL_NETWORK_URL || lower === 'network' || lower === 'network devices') return INTERNAL_NETWORK_URL
@@ -152,6 +153,7 @@ export function resolveAddressInput(input: string, searchEngineId: string): stri
   if (lower === INTERNAL_DIAGNOSTICS_URL || lower === 'diagnostics' || lower === 'debug') return INTERNAL_DIAGNOSTICS_URL
   if (lower === INTERNAL_SESSION_TIMELINE_URL || lower === 'session timeline' || lower === 'timeline' || lower === 'sessions') return INTERNAL_SESSION_TIMELINE_URL
   if (lower === INTERNAL_EXTENSIONS_URL || lower === 'extensions' || lower === 'extension manager') return INTERNAL_EXTENSIONS_URL
+  if (lower === INTERNAL_ONBOARDING_URL || lower === 'onboarding') return INTERNAL_ONBOARDING_URL
 
   const shortcutMatch = trimmed.match(/^([a-z]{1,3})\s+(.+)$/i)
   if (shortcutMatch) {
@@ -177,7 +179,6 @@ export function resolveAddressInput(input: string, searchEngineId: string): stri
 export function displayUrl(url: string): string {
   if (matchesInternalUrl(url, INTERNAL_NEW_TAB_URL)) return 'New tab'
   if (matchesInternalUrl(url, INTERNAL_AVIDAE_URL)) return 'Video & Audio'
-  if (matchesInternalUrl(url, INTERNAL_PASSWORDS_URL)) return 'Passwords'
   if (matchesInternalUrl(url, INTERNAL_AUTOMATION_URL)) return 'Automation'
   if (matchesInternalUrl(url, INTERNAL_NOTES_URL)) return 'Notes'
   if (matchesInternalUrl(url, INTERNAL_NETWORK_URL)) return 'Network'
@@ -189,6 +190,8 @@ export function displayUrl(url: string): string {
   if (matchesInternalUrl(url, INTERNAL_DIAGNOSTICS_URL)) return 'Diagnostics'
   if (matchesInternalUrl(url, INTERNAL_SESSION_TIMELINE_URL)) return 'Session Timeline'
   if (matchesInternalUrl(url, INTERNAL_EXTENSIONS_URL)) return 'Extensions'
+  if (matchesInternalUrl(url, INTERNAL_UNSUPPORTED_EXTENSION_STORE_URL)) return 'Chrome Web Store unsupported'
+  if (matchesInternalUrl(url, INTERNAL_ONBOARDING_URL)) return 'Onboarding'
   try {
     const parsed = new URL(url)
     return `${parsed.hostname}${parsed.pathname === '/' ? '' : parsed.pathname}`
@@ -230,7 +233,6 @@ export function isSecureUrl(url: string): boolean {
 export function titleFromUrl(url: string): string {
   if (matchesInternalUrl(url, INTERNAL_NEW_TAB_URL)) return 'New tab'
   if (matchesInternalUrl(url, INTERNAL_AVIDAE_URL)) return 'Video & Audio'
-  if (matchesInternalUrl(url, INTERNAL_PASSWORDS_URL)) return 'Passwords'
   if (matchesInternalUrl(url, INTERNAL_AUTOMATION_URL)) return 'Automation'
   if (matchesInternalUrl(url, INTERNAL_NOTES_URL)) return 'Notes'
   if (matchesInternalUrl(url, INTERNAL_NETWORK_URL)) return 'Network'
@@ -242,6 +244,8 @@ export function titleFromUrl(url: string): string {
   if (matchesInternalUrl(url, INTERNAL_DIAGNOSTICS_URL)) return 'Diagnostics'
   if (matchesInternalUrl(url, INTERNAL_SESSION_TIMELINE_URL)) return 'Session Timeline'
   if (matchesInternalUrl(url, INTERNAL_EXTENSIONS_URL)) return 'Extensions'
+  if (matchesInternalUrl(url, INTERNAL_UNSUPPORTED_EXTENSION_STORE_URL)) return 'Chrome Web Store unsupported'
+  if (matchesInternalUrl(url, INTERNAL_ONBOARDING_URL)) return 'Onboarding'
   const host = hostnameFor(url)
   return host || url
 }

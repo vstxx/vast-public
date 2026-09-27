@@ -36,7 +36,9 @@ if (run('git', ['tag', '--list', tag], repo).trim()) {
   }
   console.log(`Verified existing ${tag}; source publication already complete.`)
 } else {
-  run('git', ['rm', '-r', '--ignore-unmatch', '.'], repo)
+  // Windows clone checkout may have CRLF changes before core.autocrlf is disabled above.
+  // This is a fresh throwaway clone; replace its tracked files with the audited snapshot.
+  run('git', ['rm', '-r', '--force', '--ignore-unmatch', '.'], repo)
   fs.cpSync(snapshot, repo, { recursive: true })
   run('git', ['add', '-A'], repo)
   run('git', ['config', 'user.name', 'Vast Release Bot'], repo)

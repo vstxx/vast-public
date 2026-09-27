@@ -6,7 +6,7 @@ on:
       expected_version:
         description: Exact package version authorized for this release
         required: true
-        default: 0.3.0
+        default: 0.4.0
         type: string
       publish:
         description: Publish the verified candidate (false only builds and verifies)
@@ -24,12 +24,12 @@ on:
       previous_version:
         description: Previously published Vast version (for upgrade gate)
         required: true
-        default: 0.2.7
+        default: 0.3.0
         type: string
       previous_release_base_url:
         description: HTTPS production asset base URL for the previous signed release
         required: true
-        default: https://github.com/vstxx/vast-public/releases/download/v0.2.7
+        default: https://github.com/vstxx/vast-public/releases/download/v0.3.0
         type: string
       bootstrap_first_beta:
         description: One-time beta.1 bootstrap; allowed only while the release repository has no published releases
@@ -63,12 +63,9 @@ jobs:
       VAST_RELAY_ENABLED: '1'
       VAST_RELAY_ENVIRONMENT: production
       VAST_EXPECTED_SIGNER_SUBJECT: VastProductions
-      WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-      WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-      GH_TOKEN: ${{ secrets.VAST_RELEASE_TOKEN }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - name: Require original candidate for publication
@@ -77,6 +74,9 @@ jobs:
       - name: Fail fast when signed-release credentials are unavailable
         shell: pwsh
         env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          GH_TOKEN: ${{ secrets.VAST_RELEASE_TOKEN }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
@@ -93,17 +93,17 @@ jobs:
           if ($missing.Count -gt 0) {
             throw "Signed public release prerequisites are missing: $($missing -join ', '). Configure the protected public-release environment before running the expensive FFmpeg/package stages."
           }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: |
             package-lock.json
             relay/package-lock.json
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.13'
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: '8.0.x'
 
@@ -148,7 +148,7 @@ jobs:
           if ($run.head_sha -ne '${{ github.sha }}' -or $run.path -ne '.github/workflows/public-release.yml' -or $run.event -ne 'workflow_dispatch' -or $run.status -ne 'completed') { throw 'Candidate must come from a completed manual run of this workflow at the exact same source SHA.' }
       - name: Restore original candidate for publication resume
         if: inputs.resume_run_id != ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: vast-${{ github.workflow }}-${{ inputs.channel }}-${{ github.sha }}-release-candidate
           run-id: ${{ inputs.resume_run_id }}
@@ -168,6 +168,8 @@ jobs:
       - name: Validate one-time first-beta bootstrap
         if: ${{ inputs.bootstrap_first_beta }}
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.VAST_RELEASE_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
@@ -204,6 +206,7 @@ jobs:
           npm run release:audit
           npm run release:check
           npm run test:fuses:integration
+          npm run test:cookie-encryption
           npm run test:electron-version
           npm run test:app
       - name: Verify production Relay writes the release check-in
@@ -220,6 +223,9 @@ jobs:
         run: npm run avidae:runtime:prepare
       - name: Build timestamped public distribution
         if: inputs.resume_run_id == ''
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: npm run dist:upgrader
       - name: Verify background downloads and safe installer deferral
         if: inputs.resume_run_id == ''
@@ -280,7 +286,7 @@ jobs:
         run: node scripts/release-candidate.cjs stage
       - name: Preserve verified release candidate for manual publication resume
         if: inputs.resume_run_id == ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: vast-${{ github.workflow }}-${{ inputs.channel }}-${{ github.sha }}-release-candidate
           path: .vast-build/candidate/
@@ -292,6 +298,8 @@ jobs:
       - name: Publish matching public source snapshot and immutable tag
         if: inputs.publish
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.VAST_RELEASE_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
@@ -302,6 +310,8 @@ jobs:
       - name: Create draft production release and upload exact artifacts
         if: inputs.publish
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.VAST_RELEASE_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
@@ -313,11 +323,14 @@ jobs:
       - name: Re-download and verify draft assets from production repository
         if: inputs.publish && env.VAST_RELEASE_ALREADY_PUBLIC != 'true'
         env:
+          GH_TOKEN: ${{ secrets.VAST_RELEASE_TOKEN }}
           VAST_GITHUB_DRAFT_RELEASE: '1'
         run: npm run release:verify:published
       - name: Publish verified release
         if: inputs.publish && env.VAST_RELEASE_ALREADY_PUBLIC != 'true'
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.VAST_RELEASE_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
@@ -325,9 +338,11 @@ jobs:
           gh release edit "v$version" --repo vstxx/vast-public --draft=false
       - name: Re-download and verify public production URLs
         if: inputs.publish
+        env:
+          GH_TOKEN: ${{ secrets.VAST_RELEASE_TOKEN }}
         run: npm run release:verify:published
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: vast-${{ inputs.channel }}-${{ github.sha }}-verification

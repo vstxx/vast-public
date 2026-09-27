@@ -1,15 +1,15 @@
-import { defaults, validateSettings, LISTS, type Settings } from './settings.ts'
+import { defaults, validateSettings, migrateSettings, LISTS, type Settings } from './settings.ts'
 import { adblockHostname } from './hosts.ts'
 import { download, readState, writeState, writeTotal, validateList, type CachedList } from './cache.ts'
 declare const chrome: any
-declare global { interface Window { vastExtensionCapabilities?: { network: number }; vastWebRequest?: { handle: typeof network; unavailable: () => void } } }
+declare global { interface Window { vastExtensionCapabilities?: { network: number; documentRules?: number }; vastWebRequest?: { handle: typeof network; unavailable: () => void } } }
 let settings = defaults(), lists: Record<string, CachedList> = {}, compiled: any, engine: Client | undefined
 let error = '', ready = false, updating = false, total = 0, retryAt = 0, revision = 0
 let queue: Promise<unknown> = Promise.resolve(), queued = 0
 const pages = new Map<number, { url: string; count: number; generation: number }>()
 const retries = new Map<string, { start: number; count: number }>()
 const pickerTokens = new Map<number, { token: string; url: string; expires: number }>()
-let resources = '', savedTotal = 0
+let resources = { safe: '', trusted: '' }, savedTotal = 0
 let updateController: AbortController | undefined
 class Client {
   worker = new Worker(chrome.runtime.getURL('dist/worker.js'))
@@ -21,7 +21,10 @@ class Client {
   }
   call(type: string, input: unknown): Promise<any> {
     if (this.dead || this.pending.size >= 1024) return Promise.reject(new Error('Filtering engine is unavailable.'))
-    return new Promise((resolve, reject) => { const id = ++this.id, timer = self.setTimeout(() => this.stop(), type === 'init' ? 45000 : 180); this.pending.set(id, { resolve, reject, timer }); this.worker.postMessage({ id, type, input }) })
+    return new Promise((resolve, reject) => { const id = ++this.id, timer = self.setTimeout(() => {
+      if (type === 'document' || type === 'cosmetics') { this.pending.delete(id); reject(new Error('Advanced filtering timed out.')); return }
+      this.stop()
+    }, type === 'init' ? 45000 : 180); this.pending.set(id, { resolve, reject, timer }); this.worker.postMessage({ id, type, input }) })
   }
   stop(): void { this.dead = true; this.worker.terminate(); for (const task of this.pending.values()) { clearTimeout(task.timer); task.reject(new Error('Filtering engine stopped.')) } this.pending.clear(); if (engine === this) { engine = undefined; ready = false; error = 'Filtering stopped. Disable and re-enable the extension to retry.' } }
 }
@@ -29,8 +32,9 @@ function serial<T>(operation: () => Promise<T>): Promise<T> {
   if (queued >= 16) return Promise.reject(new Error('Busy. Try again shortly.'))
   queued++; const next = queue.catch(() => undefined).then(operation).finally(() => queued--); queue = next; return next
 }
-function stored() { return { schema: 1, settings, lists, compiled, total, retryAt } }
+function stored() { return { schema: 2, settings, lists, compiled, total, retryAt } }
 function active(url: string) { const host = adblockHostname(url); return Boolean(host && settings.enabled && ready && engine && !settings.allowlist.includes(host)) }
+function advanced(url: string) { return active(url) && settings.advancedProtection && !settings.advancedAllowlist.includes(adblockHostname(url)!) }
 function page(id: number, url: string) {
   let entry = pages.get(id)
   if (!entry || entry.url !== url) { entry = { url, count: 0, generation: (entry?.generation ?? 0) + 1 }; if (pages.size >= 1000) pages.delete(pages.keys().next().value!); pages.set(id, entry) }
@@ -52,11 +56,11 @@ async function installCandidate(next: Settings, nextLists: Record<string, Cached
   }
   const { client, result } = await candidate(next, nextLists)
   try { await writeState({ ...stored(), settings: next, lists: nextLists, compiled: result }) } catch (failure) { client.stop(); throw failure }
-  const previous = engine; engine = client; previous?.stop(); settings = next; lists = nextLists; compiled = result; ready = true; error = ''; await refreshPages()
+  const previous = engine; engine = client; previous?.stop(); settings = next; lists = nextLists; compiled = result; ready = true; error = result.trustedError ?? ''; await refreshPages()
 }
 async function update(force: boolean) {
   if (!settings.enabled || !force && Date.now() < retryAt) return
-  const selected = LISTS.filter(list => settings.lists.includes(list.id) && (force || Date.now() - (lists[list.id]?.checkedAt ?? 0) > 86400000))
+  const selected = LISTS.filter(list => settings.lists.includes(list.id) && (force || Date.now() - (lists[list.id]?.checkedAt ?? 0) > list.cadence))
   if (!selected.length) return
   updating = true
   const controller = new AbortController(); updateController = controller
@@ -86,13 +90,19 @@ async function network(input: any) {
     }
     if (!active(input.topUrl) || pages.get(input.tabId) !== entry) return {}
     if (result.cancel || result.redirectURL?.startsWith('data:')) { entry.count++; total = Math.min(Number.MAX_SAFE_INTEGER, total + 1) }
+    if (input.prepareDocument === true && input.type === 'mainFrame' && advanced(input.topUrl)) {
+      const current = revision
+      const document = await engine!.call('document', { url: input.url }).catch(() => ({ scripts: [] }))
+      if (current === revision && advanced(input.topUrl) && pages.get(input.tabId) === entry) return { ...result, scripts: document.scripts }
+    }
     return result
   } catch { return {} }
 }
 function status(tabId?: number, url?: string) {
   const hostname = adblockHostname(url ?? '')
   return { settings, ready, error, updating, revision, hostname, pageBlocked: tabId ? pages.get(tabId)?.count ?? 0 : 0, totalBlocked: total,
-    siteEnabled: active(url ?? ''), cosmeticActive: active(url ?? '') && settings.cosmetics && !settings.cosmeticAllowlist.includes(hostname!),
+    siteEnabled: active(url ?? ''), advancedActive: advanced(url ?? ''), advancedAvailable: window.vastExtensionCapabilities?.documentRules === 1,
+    cosmeticActive: active(url ?? '') && settings.cosmetics && !settings.cosmeticAllowlist.includes(hostname!),
     lists: LISTS.map(list => ({ ...list, ...compiled?.report?.[list.id], updatedAt: lists[list.id]?.updatedAt, checkedAt: lists[list.id]?.checkedAt, error: lists[list.id]?.error })), performance: { initializationMs: compiled?.initializationMs, cacheHit: compiled?.cacheHit } }
 }
 async function message(input: any, sender: any) {
@@ -103,7 +113,7 @@ async function message(input: any, sender: any) {
     if (!Number.isInteger(tabId) || !adblockHostname(url) || !active(topUrl ?? '') || !settings.cosmetics || settings.cosmeticAllowlist.includes(adblockHostname(topUrl)!)) return { active: false, styles: '' }
     for (const key of ['ids', 'classes', 'hrefs']) if (!Array.isArray(input[key]) || input[key].length > 512 || input[key].some((value: unknown) => typeof value !== 'string' || value.length > 256)) throw new Error('Invalid page features.')
     const current = revision
-    const result = await engine!.call('cosmetics', { url, ids: input.ids, classes: input.classes, hrefs: input.hrefs, initial: input.initial === true })
+    const result = await engine!.call('cosmetics', { url, ids: input.ids, classes: input.classes, hrefs: input.hrefs, initial: input.initial === true, advanced: advanced(topUrl) })
     return current === revision ? result : { active: false, styles: '' }
   }
   if (input.type === 'picked') {
@@ -133,7 +143,7 @@ async function message(input: any, sender: any) {
       const token = crypto.randomUUID(); pickerTokens.set(tab.id, { token, url: tab.url, expires: Date.now() + 120000 })
       return chrome.tabs.sendMessage(tab.id, { type: 'pick', token }, { frameId: 0 })
     }
-    return serial(async () => { const key = input.cosmeticOnly ? 'cosmeticAllowlist' : 'allowlist', hosts = new Set(settings[key]); input.enabled ? hosts.delete(adblockHostname(tab.url)!) : hosts.add(adblockHostname(tab.url)!); const next = validateSettings({ ...settings, [key]: [...hosts] }); await writeState({ ...stored(), settings: next }); settings = next; await refreshPages() })
+    return serial(async () => { const key = input.advancedOnly ? 'advancedAllowlist' : input.cosmeticOnly ? 'cosmeticAllowlist' : 'allowlist', hosts = new Set(settings[key]); input.enabled ? hosts.delete(adblockHostname(tab.url)!) : hosts.add(adblockHostname(tab.url)!); const next = validateSettings({ ...settings, [key]: [...hosts] }); await writeState({ ...stored(), settings: next }); settings = next; await refreshPages() })
   }
   if (input.type === 'update') return serial(() => update(true))
   if (input.type === 'reset-stats') return serial(async () => { total = 0; await writeTotal(total); savedTotal = total })
@@ -144,8 +154,9 @@ chrome.runtime.onMessage.addListener((input: unknown, sender: unknown, respond: 
 })
 async function start() {
   let saved: any
-  try { saved = await readState(); if (saved?.schema === 1) { settings = validateSettings(saved.settings); total = Number.isSafeInteger(saved.total) && saved.total > 0 ? saved.total : 0; retryAt = Number.isSafeInteger(saved.retryAt) && saved.retryAt < Date.now() + 86400000 ? saved.retryAt : 0; compiled = saved.compiled } } catch { error = 'Saved settings could not load. Defaults are active.' }
-  resources = await (await fetch(chrome.runtime.getURL('assets/resources.json'))).text()
+  try { saved = await readState(); if (saved?.schema === 1 || saved?.schema === 2) { settings = migrateSettings(saved.settings); total = Number.isSafeInteger(saved.total) && saved.total > 0 ? saved.total : 0; retryAt = Number.isSafeInteger(saved.retryAt) && saved.retryAt < Date.now() + 86400000 ? saved.retryAt : 0; compiled = saved.compiled } } catch { error = 'Saved settings could not load. Defaults are active.' }
+  resources.safe = await (await fetch(chrome.runtime.getURL('assets/resources-safe.json'))).text()
+    resources.trusted = await fetch(chrome.runtime.getURL('assets/resources-trusted.json')).then(response => response.text()).catch(() => '')
   const provenance = await (await fetch(chrome.runtime.getURL('assets/provenance.json'))).json(), preparedAt = Date.parse(provenance.preparedAt)
   for (const list of LISTS) {
     try { const item = saved?.lists?.[list.id]; validateList(item.text); lists[list.id] = item } catch { lists[list.id] = { text: await (await fetch(chrome.runtime.getURL(`assets/${list.id}.txt`))).text(), updatedAt: preparedAt, checkedAt: preparedAt } }

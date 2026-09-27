@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { documentRulesManifestError, DOCUMENT_RULE_PERMISSION } from '../../shared/extension-document-capability.ts'
 import { lstat, readFile, realpath, stat } from 'node:fs/promises'
 import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { ChromeExtensionManifest, ValidatedExtensionManifest } from './extension-types.ts'
@@ -7,8 +8,11 @@ import { VEXT_EXTENSION_ID } from '../../shared/vext-format.ts'
 import { parseExtensionMatchPattern } from '../../shared/extension-match-pattern.ts'
 
 const MAX_MANIFEST_BYTES = 1024 * 1024
+const MAX_LOCALE_MESSAGES_BYTES = 4 * 1024 * 1024
 const MAX_ICON_BYTES = 1024 * 1024
 const VERSION = /^\d+(?:\.\d+){0,3}$/
+const LOCALE_NAME = /^[A-Za-z0-9_-]{1,32}$/
+const LOCALIZED_MESSAGE = /^__MSG_([A-Za-z0-9_@]+)__$/
 const ASSET_MIME = new Map([
   ['.png', 'image/png'],
   ['.jpg', 'image/jpeg'],
@@ -105,6 +109,50 @@ function hasChromeLayer(input: Record<string, unknown>, vastOnlyPermissions: rea
   const permissions = Array.isArray(input.permissions) ? input.permissions.filter((item): item is string => typeof item === 'string') : []
   if (permissions.some((permission) => !vastOnlyPermissions.includes(permission))) return true
   return input.host_permissions !== undefined || input.optional_host_permissions !== undefined || input.web_accessible_resources !== undefined
+}
+
+async function localizedManifestString(
+  rootPath: string,
+  value: unknown,
+  defaultLocale: unknown,
+  label: string,
+  maxLength: number
+): Promise<string | undefined> {
+  const raw = label === 'name'
+    ? requiredString(value, label, maxLength)
+    : optionalString(value, label, maxLength)
+  if (!raw) return undefined
+  const token = LOCALIZED_MESSAGE.exec(raw)
+  if (!token || typeof defaultLocale !== 'string' || !LOCALE_NAME.test(defaultLocale)) return raw
+
+  const candidates = [...new Set([defaultLocale, defaultLocale.toLowerCase(), 'en', 'en_US', 'en_us'])]
+  for (const locale of candidates) {
+    if (!LOCALE_NAME.test(locale)) continue
+    try {
+      const messagesPath = await resolveExtensionAssetPath(rootPath, `_locales/${locale}/messages.json`)
+      const info = await stat(messagesPath)
+      if (!info.isFile() || info.size <= 0 || info.size > MAX_LOCALE_MESSAGES_BYTES) continue
+      const messages: unknown = JSON.parse(await readFile(messagesPath, 'utf8'))
+      if (!object(messages)) continue
+      const wanted = token[1].toLowerCase()
+      const match = Object.entries(messages).find(([key]) => key.toLowerCase() === wanted)?.[1]
+      if (!object(match) || typeof match.message !== 'string') continue
+      const localized = match.message.trim()
+      if (localized && localized.length <= maxLength) return localized
+    } catch {
+      // A malformed or missing locale must not make an otherwise valid
+      // extension uninstallable; Chromium falls back to manifest metadata.
+    }
+  }
+  return raw
+}
+
+function isLegacyNetworkProvider(input: Record<string, unknown>, permissions: readonly string[]): boolean {
+  const background = object(input.background) ? input.background : undefined
+  return input.vast_network === 1 &&
+    background?.persistent === true &&
+    Array.isArray(background.scripts) && background.scripts.length > 0 &&
+    permissions.includes('webRequest') && permissions.includes('webRequestBlocking')
 }
 
 function isInside(root: string, candidate: string): boolean {
@@ -218,14 +266,16 @@ export async function validateExtensionManifest(extensionPath: string): Promise<
     throw new Error('Extension manifest.json is not valid JSON.')
   }
   if (!object(input)) throw new Error('Extension manifest root must be an object.')
+  const capabilityError = documentRulesManifestError(input)
+  if (capabilityError) throw new Error(capabilityError)
 
-  const name = requiredString(input.name, 'name', 256)
+  const name = (await localizedManifestString(rootPath, input.name, input.default_locale, 'name', 256))!
   const version = requiredString(input.version, 'version', 64)
   if (!VERSION.test(version)) throw new Error('Extension manifest has an invalid version.')
   if (input.manifest_version !== 2 && input.manifest_version !== 3) {
     throw new Error('Vast supports Chrome Manifest V2 and V3 extensions only.')
   }
-  const description = optionalString(input.description, 'description', 4_096)
+  const description = await localizedManifestString(rootPath, input.description, input.default_locale, 'description', 4_096)
   const key = optionalString(input.key, 'key', 32_768)
   const permissions = stringArray(input.permissions, 'permissions')
   const optionalPermissions = stringArray(input.optional_permissions, 'optional permissions')
@@ -233,6 +283,10 @@ export async function validateExtensionManifest(extensionPath: string): Promise<
   const optionalHostPermissions = stringArray(input.optional_host_permissions, 'optional host permissions')
   const mv2HostPermissions = permissions.filter(isHostPattern)
   const apiPermissions = permissions.filter((permission) => !isHostPattern(permission))
+
+  if (input.manifest_version === 2 && !isLegacyNetworkProvider(input, permissions)) {
+    throw new Error('Manifest V2 is restricted to explicit Vast network-provider extensions. Use Manifest V3 for ordinary extensions.')
+  }
 
   await validateContentScripts(rootPath, input.content_scripts)
   const native = await validateVastSection(rootPath, input.vast)
@@ -260,12 +314,15 @@ export async function validateExtensionManifest(extensionPath: string): Promise<
       ? entry.matches.filter((pattern): pattern is string => typeof pattern === 'string')
       : [])
     : []
+  const documentRulePermissions = input.vast_document_rules === 1 ? [DOCUMENT_RULE_PERMISSION] : []
 
   return {
     rootPath,
     manifestPath,
     manifest,
-    permissions: [...new Set([...apiPermissions, ...optionalPermissions.filter((permission) => !isHostPattern(permission))])],
+    requiredPermissions: [...new Set([...apiPermissions, ...documentRulePermissions])],
+    permissions: [...new Set([...apiPermissions, ...optionalPermissions.filter((permission) => !isHostPattern(permission)), ...documentRulePermissions])],
+    requiredHostPermissions: [...new Set([...hostPermissions, ...mv2HostPermissions, ...contentScriptHosts])],
     hostPermissions: [...new Set([...hostPermissions, ...optionalHostPermissions, ...mv2HostPermissions, ...contentScriptHosts])],
     iconDataUrl: await extensionIconDataUrl(rootPath, input.icons),
     kind,

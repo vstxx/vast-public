@@ -11,15 +11,17 @@ To reproduce the shipped library, use Node 24 and the Vast source distribution:
 
 1. `npm ci` at the Vast repository root.
 2. `node resources/first-party-extensions/adblocker-for-vast/assets/source/compile-adblock-resources.mjs --check` compares the generated
-   bytes with `resources/first-party-extensions/adblocker-for-vast/assets/resources.json` without changing either.
+   bytes with `assets/resources-safe.json` and `assets/resources-trusted.json` without changing either.
 3. Omit `--check` to regenerate the JSON and its integrity manifest offline.
 
 The generator is included in this directory and uses relative asset paths.
 It uses `@ghostery/adblocker` 2.18.2 only to validate output.
 
 Conversion preserves readable function bodies and dependencies without
-minification. It excludes scriptlets marked `requiresTrust`, because the
-selected engine API does not enforce upstream trusted-list semantics.
+minification. The safe bundle excludes entries marked `requiresTrust`. The trusted bundle
+contains the complete scriptlet dependency closure and no redirects. Only the
+separate engine fed by approved built-in uBlock list IDs can access trusted
+scriptlets; custom rules and ordinary lists never receive this resource object.
 Every JavaScript redirect body comes from the included original source.
 `upstream-resources.json` extracts alias/MIME metadata and fully represented
 synthetic MIME stubs, excluding unused compiled script bodies; its immutable

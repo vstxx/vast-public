@@ -27,7 +27,9 @@ function record(path: string): InstalledExtensionRecord {
     installedAt: 1,
     updatedAt: 1,
     allowFileAccess: false,
-    grantedPermissions: []
+    grantedPermissions: [],
+    grantedChromePermissions: [],
+    grantedChromeOrigins: []
   }
 }
 
@@ -40,12 +42,21 @@ test('persists enabled state atomically and restores it in a new registry instan
     await first.upsert(record(extensionPath))
     await first.setEnabled(extensionId, false)
     await first.setGrantedPermissions(extensionId, ['vast.storage'])
+    await first.setGrantedChromePermissions(extensionId, ['notifications'], ['https://example.test/*'])
+    await first.patch(extensionId, {
+      runtimeExtensionId: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      upstreamExtensionId: 'cccccccccccccccccccccccccccccccc'
+    })
 
     const restored = new ExtensionRegistry(root)
     assert.equal((await restored.load())[0]?.enabled, false)
     assert.deepEqual(restored.get(extensionId)?.grantedPermissions, ['vast.storage'])
+    assert.deepEqual(restored.get(extensionId)?.grantedChromePermissions, ['notifications'])
+    assert.deepEqual(restored.get(extensionId)?.grantedChromeOrigins, ['https://example.test/*'])
+    assert.equal(restored.get(extensionId)?.runtimeExtensionId, 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')
+    assert.equal(restored.get(extensionId)?.upstreamExtensionId, 'cccccccccccccccccccccccccccccccc')
     const persisted = JSON.parse(await readFile(restored.filePath, 'utf8')) as { schemaVersion: number }
-    assert.equal(persisted.schemaVersion, 5)
+    assert.equal(persisted.schemaVersion, 6)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

@@ -8,7 +8,7 @@ const internalRouterSource = readFileSync(new URL('../../src/renderer/components
 test('settings always expose Labs with only feature-specific controls', () => {
   assert.match(settingsSource, /section id="Labs"/)
   assert.doesNotMatch(settingsSource, /Enable Vast Labs/)
-  for (const label of ['Video & Audio', 'Network Devices', 'Automation', 'Password Manager', 'Diagnostics', 'Spoofing']) {
+  for (const label of ['Video & Audio', 'Network Devices', 'Automation', 'Diagnostics', 'Spoofing']) {
     assert.match(settingsSource, new RegExp(`label="${label}"`))
   }
   assert.doesNotMatch(settingsSource, /local, experimental programs/)

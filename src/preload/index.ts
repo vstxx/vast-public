@@ -8,8 +8,7 @@ import {
   parseOpeningStartupVolumeSearch
 } from '../shared/opening-startup'
 import { DEFAULT_SETTINGS } from '../shared/constants'
-import { OPENING_COMPLETE_IPC_CHANNEL, OPENING_COMPLETE_MESSAGE } from '../shared/opening-sequence'
-import type { BrowserTabOpenRequest, DetachedTabPayload, DownloadItem, PersistedData, VastApi } from '../shared/types'
+import type { BrowserTabOpenRequest, DetachedTabPayload, DownloadItem, ExtensionCompatibilityTabCommand, PersistedData, VastApi } from '../shared/types'
 import { TabOpenRequestBuffer } from './tab-open-request-buffer'
 
 const openingAnimationEnabled = parseOpeningStartupSearch(window.location.search) || parseOpeningStartupFlag(process.argv)
@@ -19,7 +18,7 @@ const openingAnimationSoundVolume = parseOpeningStartupVolumeSearch(
 )
 const openingAnimationHandledBySplash =
   parseOpeningHandledStartupSearch(window.location.search) || parseOpeningHandledStartupFlag(process.argv)
-const guestAutofillPreloadUrl = process.argv.find((value) => value.startsWith('--vast-guest-autofill-preload='))?.slice('--vast-guest-autofill-preload='.length) ?? ''
+const guestPreloadUrl = process.argv.find((value) => value.startsWith('--vast-guest-preload='))?.slice('--vast-guest-preload='.length) ?? ''
 const startupRadius = Number(process.argv.find((value) => value.startsWith('--vast-radius='))?.slice('--vast-radius='.length))
 window.addEventListener('DOMContentLoaded', () => {
   const radius = Number.isFinite(startupRadius) ? Math.min(36, Math.max(6, startupRadius)) : DEFAULT_SETTINGS.appearance.cornerRadius
@@ -27,15 +26,6 @@ window.addEventListener('DOMContentLoaded', () => {
 }, { once: true })
 
 const performanceProbeEnabled = process.argv.includes('--vast-performance-probe=1')
-
-if (openingAnimationEnabled) {
-  window.addEventListener('message', (event) => {
-    if (event.source !== window) return
-    if (!event.data || typeof event.data !== 'object') return
-    if ((event.data as { type?: unknown }).type !== OPENING_COMPLETE_MESSAGE) return
-    ipcRenderer.send(OPENING_COMPLETE_IPC_CHANNEL)
-  })
-}
 
 if (performanceProbeEnabled) {
   window.addEventListener('DOMContentLoaded', () => {
@@ -94,6 +84,14 @@ const api = {
     openDataFolder: () => ipcRenderer.invoke('vast:data-path:open'),
     changeDataDirectory: () => ipcRenderer.invoke('vast:data-path:change')
   },
+  newTabBackground: {
+    get: () => ipcRenderer.invoke('vast:new-tab-background:get'),
+    choose: () => ipcRenderer.invoke('vast:new-tab-background:choose')
+  },
+  importer: {
+    discover: () => ipcRenderer.invoke('vast:importer:discover'),
+    run: (request) => ipcRenderer.invoke('vast:importer:run', request)
+  },
   extensions: {
     list: () => ipcRenderer.invoke('vast:extensions:list'),
     loadUnpacked: () => ipcRenderer.invoke('vast:extensions:load-unpacked'),
@@ -121,6 +119,13 @@ const api = {
       const listener = (): void => callback()
       ipcRenderer.on('vast:extensions:changed', listener)
       return () => ipcRenderer.removeListener('vast:extensions:changed', listener)
+    },
+    onOpenPopup: (callback) => {
+      const listener = (_event: Electron.IpcRendererEvent, extensionId: unknown): void => {
+        if (typeof extensionId === 'string') callback(extensionId)
+      }
+      ipcRenderer.on('vast:extensions:open-popup', listener)
+      return () => ipcRenderer.removeListener('vast:extensions:open-popup', listener)
     },
     onContributionsChanged: (callback) => {
       const listener = (_event: Electron.IpcRendererEvent, snapshot: Parameters<typeof callback>[0]): void => callback(snapshot)
@@ -152,42 +157,6 @@ const api = {
     forgetDevice: (id) => ipcRenderer.invoke('vast:network:forget-device', id),
     clearCache: () => ipcRenderer.invoke('vast:network:clear-cache'),
     exportInventory: () => ipcRenderer.invoke('vast:network:export-inventory')
-  },
-  passwords: {
-    sessionStatus: () => ipcRenderer.invoke('vast:passwords:session-status'),
-    lockSession: () => ipcRenderer.invoke('vast:passwords:lock-session'),
-    list: () => ipcRenderer.invoke('vast:passwords:list'),
-    create: (input) => ipcRenderer.invoke('vast:passwords:create', input),
-    update: (id, input) => ipcRenderer.invoke('vast:passwords:update', id, input),
-    remove: (id) => ipcRenderer.invoke('vast:passwords:remove', id),
-    copyUsername: (id) => ipcRenderer.invoke('vast:passwords:copy-username', id),
-    copyPassword: (id) => ipcRenderer.invoke('vast:passwords:copy-password', id),
-    fillAutofill: (webContentsId, origin) => ipcRenderer.invoke('vast:passwords:autofill', webContentsId, origin),
-    getAutofillSuggestions: (webContentsId, origin) => ipcRenderer.invoke('vast:passwords:autofill-suggestions', webContentsId, origin),
-    fillById: (id, webContentsId, origin, requestId) => ipcRenderer.invoke('vast:passwords:fill-by-id', id, webContentsId, origin, requestId),
-    saveCapturedLogin: (input) => ipcRenderer.invoke('vast:passwords:save-captured', input),
-    captureStatus: (webContentsId, origin) => ipcRenderer.invoke('vast:passwords:capture-status', webContentsId, origin),
-    allowSavePrompts: (origin) => ipcRenderer.invoke('vast:passwords:allow-save-prompts', origin),
-    importCsv: () => ipcRenderer.invoke('vast:passwords:import-csv'),
-    exportCsv: () => ipcRenderer.invoke('vast:passwords:export-csv'),
-    audit: () => ipcRenderer.invoke('vast:passwords:audit'),
-    unlockSession: () => ipcRenderer.invoke('vast:passwords:unlock-session'),
-    onSessionState: (callback) => {
-      const listener = (_event: Electron.IpcRendererEvent, state: Parameters<typeof callback>[0]): void => callback(state)
-      ipcRenderer.on('vast:passwords:session-state', listener)
-      return () => ipcRenderer.removeListener('vast:passwords:session-state', listener)
-    },
-    onSavePrompt: (callback) => {
-      const listener = (_event: Electron.IpcRendererEvent, prompt: Parameters<typeof callback>[0]): void => callback(prompt)
-      ipcRenderer.on('vast:passwords:save-prompt', listener)
-      return () => ipcRenderer.removeListener('vast:passwords:save-prompt', listener)
-    },
-    onSavePromptCleared: (callback) => {
-      const listener = (_event: Electron.IpcRendererEvent, attemptId: string): void => callback(attemptId)
-      ipcRenderer.on('vast:passwords:save-prompt-cleared', listener)
-      return () => ipcRenderer.removeListener('vast:passwords:save-prompt-cleared', listener)
-    },
-    resolveSavePrompt: (attemptId, action) => ipcRenderer.invoke('vast:passwords:resolve-save-prompt', attemptId, action)
   },
   notes: {
     exportMarkdown: (title, body) => ipcRenderer.invoke('vast:notes:export-markdown', title, body)
@@ -247,6 +216,15 @@ const api = {
   browser: {
     writeClipboardText: (text) => ipcRenderer.invoke('vast:browser:write-clipboard-text', text),
     onOpenTabRequest: (callback) => tabOpenRequests.subscribe(callback),
+    onExtensionCompatibilityTabCommand: (callback) => {
+      const listener = (_event: Electron.IpcRendererEvent, command: ExtensionCompatibilityTabCommand): void => callback(command)
+      ipcRenderer.on('vast:extension-compat:tab-command', listener)
+      return () => ipcRenderer.removeListener('vast:extension-compat:tab-command', listener)
+    },
+    confirmExtensionCompatibilityTab: (requestId, webContentsId) =>
+      ipcRenderer.invoke('vast:extension-compat:confirm-tab', requestId, webContentsId) as Promise<{ ok: boolean; error?: string }>,
+    selectExtensionCompatibilityTab: (webContentsId) =>
+      ipcRenderer.invoke('vast:extension-compat:select-tab', webContentsId) as Promise<{ ok: boolean; error?: string }>,
     onExternalProtocolRequest: (callback) => {
       const listener = (_event: Electron.IpcRendererEvent, request: Parameters<typeof callback>[0]) => callback(request)
       ipcRenderer.on('vast:browser:external-protocol-request', listener)
@@ -320,7 +298,7 @@ const api = {
   },
   app: {
     platform: process.platform,
-    guestAutofillPreloadUrl,
+    guestPreloadUrl,
     window: {
       state: () => ipcRenderer.invoke('vast:window:state'),
       minimize: () => ipcRenderer.invoke('vast:window:minimize'),
@@ -337,6 +315,7 @@ const api = {
       openingAnimationHandledBySplash,
       openingAnimationSoundVolume
     },
+    uiReady: () => ipcRenderer.send('vast:renderer-ui-ready'),
     versions: {
       electron: process.versions.electron ?? '',
       chrome: process.versions.chrome ?? '',

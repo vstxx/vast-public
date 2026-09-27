@@ -1,0 +1,7 @@
+{
+  "manifest_version": 2,
+  "name": "Vast MV2 webRequest probe",
+  "version": "1.0.0",
+  "permissions": ["<all_urls>", "webRequest", "webRequestBlocking", "storage", "tabs"],
+  "background": { "scripts": ["background.js"], "persistent": true }
+}

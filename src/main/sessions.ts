@@ -44,6 +44,7 @@ import { buildFingerprintingProtectionScript } from '../shared/fingerprinting'
 import { checkpointPersistentBrowserSessions, persistentBrowserSessions } from './session-continuity'
 import { classifyPdfNavigationResponse, pdfAttachmentHeaders } from '../shared/pdf-navigation-policy'
 import { registerPdfNavigationResponse } from './pdf-resources'
+import { blockedTopLevelNavigationReplacement, isAllowedChromeExtensionSubframeRedirect } from '../shared/top-level-navigation-policy'
 
 const diagnosticLogChains = new Map<string, Promise<void>>()
 
@@ -83,6 +84,7 @@ function protocolOf(rawUrl: string): string | null {
 }
 
 export function isSafeWebUrl(rawUrl: string): boolean {
+  if (blockedTopLevelNavigationReplacement(rawUrl)) return false
   const protocol = protocolOf(rawUrl)
   if (!protocol) return false
   if (BLOCKED_INTERNAL_PROTOCOLS.includes(protocol)) return false
@@ -171,6 +173,27 @@ function dispatchBrowserTabOpenRequest(
     url: redactedUrlForLog(request.url)
   })
   return false
+}
+
+export function dispatchExtensionCompatibilityTabOpen(
+  targetWindow: BrowserWindow,
+  request: BrowserTabOpenRequest
+): boolean {
+  if (targetWindow.isDestroyed() || targetWindow.webContents.isDestroyed()) return false
+  return dispatchBrowserTabOpenRequest(targetWindow.webContents, request, 'renderer')
+}
+
+function replaceBlockedTopLevelNavigation(contents: Electron.WebContents, attemptedUrl: string): boolean {
+  const replacement = blockedTopLevelNavigationReplacement(attemptedUrl)
+  if (!replacement) return false
+  const isGuest = Boolean((contents as Electron.WebContents & { hostWebContents?: Electron.WebContents }).hostWebContents)
+  dispatchBrowserTabOpenRequest(contents, {
+    url: replacement,
+    ...(isGuest ? { sourceWebContentsId: contents.id } : {}),
+    disposition: isGuest ? 'current-tab' : 'foreground-tab',
+    activate: true
+  }, isGuest ? 'guest' : 'popup')
+  return true
 }
 
 function currentSecuritySettings(): BrowserSettings {
@@ -278,6 +301,15 @@ function configureTrackerBlocking(targetSession: Session, getSettings: () => Bro
     return requestPolicy
   }
   targetSession.webRequest.onBeforeRequest((details, callback) => {
+    if (details.resourceType === 'mainFrame') {
+      const replacement = blockedTopLevelNavigationReplacement(details.url)
+      if (replacement) {
+        const contents = typeof details.webContentsId === 'number' ? webContents.fromId(details.webContentsId) : undefined
+        if (contents) replaceBlockedTopLevelNavigation(contents, details.url)
+        callback({ cancel: true })
+        return
+      }
+    }
     const authWindow = typeof details.webContentsId === 'number' && authCompatibilityWebContents.has(details.webContentsId)
     const topLevelUrl = requestTopLevelUrl(details)
     if (shouldBypassVastInterference({ url: details.url, topLevelUrl, authWindow })) {
@@ -1199,6 +1231,8 @@ function installWindowOpenRouting(contents: Electron.WebContents): void {
       `window-open received contents=${contents.id} guest=${isWebviewGuest} popup=${isRealPopup} disposition=${disposition} frameName=${frameName || ''} referrer=${referrer?.url ? 'present' : 'absent'} post=${postBody ? 'present' : 'absent'} url=${redactedUrlForLog(url)}`
     )
 
+    if (replaceBlockedTopLevelNavigation(contents, url)) return { action: 'deny' }
+
     if (isWebviewGuest || isRealPopup) {
       if (requestExternalProtocolOpen(contents, url)) return { action: 'deny' }
       const settings = currentSecuritySettings()
@@ -1274,7 +1308,7 @@ export function setupWindowSecurity(
   mainWindow: BrowserWindow,
   getSettings: () => BrowserSettings,
   onDataSaved?: (data: PersistedData) => void,
-  extensionManager?: Pick<import('./extensions/extension-manager').ExtensionManager, 'ensureForPartition' | 'authorizeSurfaceAttachment' | 'bindPreparedSurface' | 'isAllowedSurfaceNavigation'>
+  extensionManager?: Pick<import('./extensions/extension-manager').ExtensionManager, 'ensureForPartition' | 'authorizeSurfaceAttachment' | 'bindPreparedSurface' | 'isAllowedSurfaceNavigation' | 'attachCompatibilityTab'>
 ): void {
   securitySettings = getSettings
   securityDataSaved = onDataSaved
@@ -1302,15 +1336,15 @@ export function setupWindowSecurity(
       })
     }
 
-    // Replace any renderer-supplied preload with Vast's narrowly scoped,
-    // event-only autofill bridge. It exposes no Node or main-renderer API.
+    // Replace any renderer-supplied preload with Vast's narrowly scoped guest
+    // bridge. It exposes no Node or main-renderer API.
     if (extensionSurface) {
       if (extensionSurface.preload) webPreferences.preload = extensionSurface.preload
       else delete webPreferences.preload
       webPreferences.additionalArguments = [`--vast-extension-surface-token=${extensionSurface.token}`]
       pendingExtensionSurfaces.push({ partition, token: extensionSurface.token })
     }
-    else webPreferences.preload = join(__dirname, '../preload/guest-autofill.js')
+    else webPreferences.preload = join(__dirname, '../preload/guest.js')
     webPreferences.nodeIntegration = false
     webPreferences.contextIsolation = true
     webPreferences.sandbox = true
@@ -1326,6 +1360,7 @@ export function setupWindowSecurity(
     const queuedToken = pendingIndex >= 0 ? pendingExtensionSurfaces.splice(pendingIndex, 1)[0]?.token : undefined
     const token = tokenArgument?.slice('--vast-extension-surface-token='.length) ?? queuedToken
     if (token && extensionManager?.bindPreparedSurface(guestContents, token)) return
+    extensionManager?.attachCompatibilityTab(guestContents, mainWindow)
     installWindowOpenRouting(guestContents)
   })
 
@@ -1413,8 +1448,17 @@ export function setupWindowSecurity(
 
     installWindowOpenRouting(contents)
 
-    const guardWebNavigation = (event: Electron.Event, url: string): void => {
+    const guardWebNavigation = (event: Electron.Event, url: string, _isInPlace?: boolean, isMainFrame = true): void => {
+      if (replaceBlockedTopLevelNavigation(contents, url)) {
+        event.preventDefault()
+        return
+      }
       if (extensionManager?.isAllowedSurfaceNavigation(contents, url)) return
+      // Chromium has already applied ExtensionNavigationThrottle, including
+      // web_accessible_resources checks, before Electron emits will-redirect.
+      // Do not reinterpret its internal dynamic-ID redirect as a top-level
+      // navigation into an unsafe application protocol.
+      if (isAllowedChromeExtensionSubframeRedirect(url, isMainFrame)) return
       const isWebviewGuest = !!(contents as Electron.WebContents & { hostWebContents?: unknown }).hostWebContents
       if (trustedInternalNavigationWebContents.has(contents.id)) {
         const protocol = protocolOf(url)
@@ -1584,6 +1628,12 @@ export async function configureWebContentsIdentity(
       ? 'disable_non_proxied_udp'
       : 'default_public_interface_only'
   contents.setWebRTCIPHandlingPolicy(policy)
+}
+
+export function extensionDocumentRulesAllowed(contents: Electron.WebContents, requestedUrl: string): boolean {
+  return !contents.isDestroyed() && Boolean(ownerWindowForWebContents(contents)) &&
+    !shouldBypassVastInterference({ url: requestedUrl, authWindow: authCompatibilityWebContents.has(contents.id) }) &&
+    !siteInterventionsDisabled({ url: requestedUrl, resourceType: 'mainFrame', webContentsId: contents.id }, currentSecuritySettings().privacy.siteInterventionsDisabled)
 }
 
 export function privacyDocumentScriptForWebContents(contents: Electron.WebContents, requestedUrl: string): string {

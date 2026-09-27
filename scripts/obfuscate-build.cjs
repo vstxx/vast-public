@@ -4,7 +4,6 @@ const JavaScriptObfuscator = require('javascript-obfuscator')
 
 const rootDir = join(__dirname, '..')
 const outputDirs = [join(rootDir, 'out', 'main'), join(rootDir, 'out', 'renderer', 'assets')]
-const protectedRendererChunks = [/^PasswordsPage-/i]
 
 function collectJavaScriptFiles(dir, files = []) {
   for (const entry of readdirSync(dir)) {
@@ -19,7 +18,6 @@ function collectJavaScriptFiles(dir, files = []) {
 function profileFor(filePath) {
   const rel = relative(rootDir, filePath).replaceAll('\\', '/')
   if (rel.startsWith('out/main/')) return 'main-light'
-  if (protectedRendererChunks.some((pattern) => pattern.test(basename(filePath)))) return 'protected'
   return 'none'
 }
 

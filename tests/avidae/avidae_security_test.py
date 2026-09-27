@@ -21,7 +21,11 @@ os.environ.update({
     "PORT": PORT,
 })
 
-from app import app, socketio, _approved_path, _spreadsheet_safe  # noqa: E402
+with patch("threading.Thread.start"):
+    # The HTTP/security fixture never exercises scheduled jobs. Starting the
+    # production scheduler here races TemporaryDirectory cleanup on Windows
+    # while its SQLite connection is open.
+    from app import app, socketio, _approved_path, _spreadsheet_safe  # noqa: E402
 from security import _SafeRedirectHandler, _connect_approved, is_public_url, resolve_public_url  # noqa: E402
 
 

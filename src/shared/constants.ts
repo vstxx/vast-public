@@ -3,7 +3,6 @@ import type { BrowserSettings, PersistedData, SearchEngine } from './types'
 export const APP_NAME = 'Vast'
 export const INTERNAL_NEW_TAB_URL = 'vast://newtab'
 export const INTERNAL_AVIDAE_URL = 'vast://avidae'
-export const INTERNAL_PASSWORDS_URL = 'vast://passwords'
 export const INTERNAL_AUTOMATION_URL = 'vast://automation'
 export const INTERNAL_NOTES_URL = 'vast://notes'
 export const INTERNAL_PDF_VIEWER_URL = 'vast://pdf'
@@ -12,7 +11,9 @@ export const INTERNAL_DIAGNOSTICS_URL = 'vast://diagnostics'
 export const INTERNAL_NETWORK_URL = 'vast://network'
 export const INTERNAL_SESSION_TIMELINE_URL = 'vast://session-timeline'
 export const INTERNAL_EXTENSIONS_URL = 'vast://extensions'
-export const STORAGE_SCHEMA_VERSION = 8
+export const INTERNAL_UNSUPPORTED_EXTENSION_STORE_URL = 'vast://unsupported-extension-store'
+export const INTERNAL_ONBOARDING_URL = 'vast://onboarding'
+export const STORAGE_SCHEMA_VERSION = 9
 
 export const SEARCH_ENGINES: SearchEngine[] = [
   {
@@ -85,7 +86,6 @@ export const DEFAULT_SETTINGS: BrowserSettings = {
     secondaryAccentColor: '#79159d',
     backgroundTintColor: '#000000',
     surfaceTintColor: '#1d1127',
-    backgroundStyle: 'carbon',
     cornerRadius: 26,
     glassIntensity: 100,
     blurIntensity: 76,
@@ -96,7 +96,8 @@ export const DEFAULT_SETTINGS: BrowserSettings = {
     panelOpacity: 78,
     chromeOpacity: 84,
     saturation: 100,
-    forceDarkModeWebsites: false
+    forceDarkModeWebsites: false,
+    cleanToolbarIcons: false
   },
   sidebarDensity: 'comfortable',
   layoutMode: 'horizontal',
@@ -108,6 +109,10 @@ export const DEFAULT_SETTINGS: BrowserSettings = {
     positionX: -1,
     positionY: 60
   },
+  extensionMenu: {
+    width: 368,
+    height: 452
+  },
   bookmarksBarVisible: true,
   bookmarksBarOnlyOnNewTab: false,
   hibernateInactiveTabs: true,
@@ -115,6 +120,7 @@ export const DEFAULT_SETTINGS: BrowserSettings = {
   startupBehavior: 'restore',
   newTabBehavior: 'search',
   newTab: {
+    background: 'space-black',
     compactCards: true,
     showQuickLinks: true,
     showRecentPages: false,
@@ -187,7 +193,6 @@ export const DEFAULT_SETTINGS: BrowserSettings = {
     httpsOnlyMode: false,
     confirmExternalLinks: false,
     warnDangerousDownloads: true,
-    alwaysConfirmAutofill: true,
     permissionCamera: 'ask',
     permissionMicrophone: 'ask',
     permissionLocation: 'ask',
@@ -212,7 +217,6 @@ export const DEFAULT_SETTINGS: BrowserSettings = {
     avidae: false,
     networkDevices: false,
     automation: false,
-    passwordManager: false,
     advancedDiagnostics: false,
     spoofing: false
   },
@@ -277,7 +281,8 @@ export const DEFAULT_DATA: PersistedData = {
   macroLogs: [],
   sessionSnapshots: [],
   recentCommandIds: [],
-  settings: DEFAULT_SETTINGS
+  settings: DEFAULT_SETTINGS,
+  onboarding: { completed: false }
 }
 
 export const BLOCKED_INTERNAL_PROTOCOLS = [

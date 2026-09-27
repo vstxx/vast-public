@@ -17,7 +17,7 @@ test('release packaging applies the complete hardened Electron fuse profile befo
   assert.equal(pkg.build?.afterPack, 'scripts/after-pack-hardening.cjs')
   assert.deepEqual(REQUIRED_ELECTRON_FUSES, {
     RunAsNode: false,
-    EnableCookieEncryption: false,
+    EnableCookieEncryption: true,
     EnableNodeOptionsEnvironmentVariable: false,
     EnableNodeCliInspectArguments: false,
     EnableEmbeddedAsarIntegrityValidation: true,

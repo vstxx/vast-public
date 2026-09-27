@@ -88,7 +88,7 @@ try {
     skippedFileCount = $manifest.skippedFileCount
     includedSections = @($manifest.includedSections)
     vastDataIncluded = $manifest.vastDataIncluded
-    passwordVaultIncluded = $manifest.passwordVaultIncluded
+    legacyMetadataIncluded = $manifest.legacyMetadataIncluded
     checksumsValid = $true
     sourceDataPathRedacted = $true
     warnings = @($manifest.warnings)

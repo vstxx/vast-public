@@ -1,6 +1,8 @@
 import type { RelayActionResult, RelayClientSnapshot } from './relay-types'
 import type { VastExtensionKind, VastNativeRuntimeState, VastNativePermission, VastPermissionMetadata, VastExtensionContributionSnapshot, VastUiBrokerRequest, VastUiBrokerResponse } from './extension-native-api'
 import type { ExtensionInstallSource, ExtensionPackagePreview, ExtensionTrustLevel, ExtensionUpdateState, VastHubCatalogResult, VastHubExtensionDetails } from './extension-marketplace'
+import type { OnboardingState } from './onboarding'
+import type { BrowserImportCatalog, BrowserImportRequest, BrowserImportRunResult } from './browser-import'
 
 export type ID = string
 
@@ -61,7 +63,6 @@ export interface Tab {
   favicon?: string
   pinned: boolean
   muted?: boolean
-  loginFormDetected?: boolean
   status: TabStatus
   lifecycle: TabLifecycle
   progress: number
@@ -121,6 +122,12 @@ export interface BrowserTabOpenRequest {
   disposition: string
   activate: boolean
   navigation?: TabOpenNavigationMetadata
+  compatibilityRequestId?: string
+}
+
+export interface ExtensionCompatibilityTabCommand {
+  action: 'select' | 'remove'
+  webContentsId: number
 }
 
 export interface ExternalProtocolRequest {
@@ -279,6 +286,14 @@ export interface BrowserSpoofingSettings {
   }
 }
 
+export type NewTabBackground =
+  | 'space-black'
+  | 'accent-gradient'
+  | 'carbon-black'
+  | 'depth'
+  | 'adaptive'
+  | 'custom'
+
 export interface BrowserSettings {
   theme: ThemePreference
   accentColor: string
@@ -286,7 +301,6 @@ export interface BrowserSettings {
     secondaryAccentColor: string
     backgroundTintColor: string
     surfaceTintColor: string
-    backgroundStyle: 'graphite' | 'midnight' | 'aurora' | 'violet' | 'carbon' | 'frost'
     cornerRadius: number
     glassIntensity: number
     blurIntensity: number
@@ -298,6 +312,7 @@ export interface BrowserSettings {
     chromeOpacity: number
     saturation: number
     forceDarkModeWebsites: boolean
+    cleanToolbarIcons: boolean
   }
   sidebarDensity: SidebarDensity
   layoutMode: LayoutMode
@@ -309,6 +324,10 @@ export interface BrowserSettings {
     positionX: number
     positionY: number
   }
+  extensionMenu: {
+    width: number
+    height: number
+  }
   bookmarksBarVisible: boolean
   bookmarksBarOnlyOnNewTab: boolean
   hibernateInactiveTabs: boolean
@@ -316,6 +335,7 @@ export interface BrowserSettings {
   startupBehavior: StartupBehavior
   newTabBehavior: NewTabBehavior
   newTab: {
+    background: NewTabBackground
     compactCards: boolean
     showQuickLinks: boolean
     showRecentPages: boolean
@@ -370,7 +390,6 @@ export interface BrowserSettings {
     httpsOnlyMode: boolean
     confirmExternalLinks: boolean
     warnDangerousDownloads: boolean
-    alwaysConfirmAutofill: boolean
     permissionCamera: PermissionSetting
     permissionMicrophone: PermissionSetting
     permissionLocation: PermissionSetting
@@ -395,7 +414,6 @@ export interface BrowserSettings {
     avidae: boolean
     networkDevices: boolean
     automation: boolean
-    passwordManager: boolean
     advancedDiagnostics: boolean
     spoofing: boolean
   }
@@ -425,6 +443,7 @@ export interface UiNotificationPayload {
 export type ExtensionCompatibility = 'compatible' | 'partial' | 'unsupported'
 export type ExtensionRuntimeState = 'loaded' | 'disabled' | 'error'
 export type { VastExtensionKind, VastNativeRuntimeState, VastNativePermission, VastPermissionMetadata, VastExtensionContributionSnapshot, VastUiBrokerRequest, VastUiBrokerResponse } from './extension-native-api'
+export type { BrowserImportCatalog, BrowserImportRequest, BrowserImportRunResult } from './browser-import'
 
 export interface VastExtensionInfo {
   id: string
@@ -773,70 +792,6 @@ export interface AvidaeStatus {
   dataPath: string
 }
 
-export interface PasswordVaultItem {
-  id: ID
-  origin: string
-  hostname: string
-  username: string
-  title: string
-  createdAt: number
-  updatedAt: number
-  lastUsedAt?: number
-  notes?: string
-  favicon?: string
-  autofillPolicy?: 'ask' | 'never'
-}
-
-export interface PasswordVaultInput {
-  origin: string
-  username: string
-  password: string
-  title?: string
-  notes?: string
-  favicon?: string
-  autofillPolicy?: 'ask' | 'never'
-}
-
-export interface PasswordVaultUpdate {
-  origin?: string
-  username?: string
-  password?: string
-  title?: string
-  notes?: string
-  favicon?: string
-  autofillPolicy?: 'ask' | 'never'
-}
-
-export interface PasswordVaultAudit {
-  weakIds: ID[]
-  reusedGroups: ID[][]
-  duplicateIds: ID[]
-}
-
-export type PasswordVaultLockReason = 'startup' | 'manual' | 'idle' | 'system-lock' | 'suspend' | 'session-expired'
-
-export interface PasswordVaultSessionState {
-  locked: boolean
-  reason: PasswordVaultLockReason
-  unlockedAt?: number
-  expiresAt?: number
-  idleExpiresAt?: number
-  freshUntil?: number
-}
-
-export interface PasswordSavePromptPayload {
-  attemptId: string
-  webContentsId: number
-  origin: string
-  hostname: string
-  username: string
-  kind: 'login' | 'signup' | 'change-password'
-  action: 'save' | 'update'
-  expiresAt: number
-}
-
-export type PasswordSavePromptAction = 'save' | 'update' | 'not-now' | 'never'
-
 export type VastNoticeSeverity = 'info' | 'important' | 'security'
 
 export interface VastNotice {
@@ -862,22 +817,6 @@ export interface VastNoticesResult {
   expiresAt?: string
   reason?: string
 }
-
-export interface PasswordAutofillSuggestion {
-  id: ID
-  username: string
-  title: string
-  favicon?: string
-}
-
-export interface PasswordAutofillCredential {
-  id: ID
-  origin: string
-  username: string
-  password: string
-}
-
-export type PasswordCaptureOutcome = 'saved' | 'updated' | 'unchanged' | 'dismissed' | 'suppressed' | 'duplicate'
 
 export interface PersistedData {
   schemaVersion: number
@@ -910,6 +849,12 @@ export interface PersistedData {
   sessionSnapshots: SessionSnapshot[]
   recentCommandIds: string[]
   settings: BrowserSettings
+  onboarding?: OnboardingState
+  startupRecovery?: {
+    safeStartup: boolean
+    consecutiveFailedStartups: number
+    recoverySnapshotPath?: string
+  }
 }
 
 export interface StorageBackupInfo {
@@ -934,7 +879,6 @@ export interface StorageImportPreview {
   bookmarks: number
   notes: number
   history: number
-  passwordsExcluded: true
 }
 
 export interface DataPathInfo {
@@ -965,7 +909,6 @@ export interface MigrationReport {
   skippedFiles?: string[]
   skippedFileDetails?: DataOperationSkippedFile[]
   vastDataIncluded?: boolean
-  passwordVaultIncluded?: boolean
   warnings?: string[]
   error?: string
 }
@@ -1009,6 +952,14 @@ export interface VastApi {
     openDataFolder: () => Promise<{ ok: boolean; error?: string }>
     changeDataDirectory: () => Promise<MigrationReport>
   }
+  importer: {
+    discover: () => Promise<BrowserImportCatalog>
+    run: (request: BrowserImportRequest) => Promise<BrowserImportRunResult>
+  }
+  newTabBackground: {
+    get: () => Promise<{ ok: boolean; dataUrl?: string; error?: string }>
+    choose: () => Promise<{ ok: boolean; canceled?: boolean; dataUrl?: string; error?: string }>
+  }
   extensions: {
     list: () => Promise<VastExtensionListResult>
     loadUnpacked: () => Promise<VastExtensionMutationResult>
@@ -1035,6 +986,7 @@ export interface VastApi {
     onContributionsChanged: (callback: (snapshot: VastExtensionContributionSnapshot) => void) => () => void
     onUiRequest: (callback: (request: VastUiBrokerRequest) => void) => () => void
     onChanged: (callback: () => void) => () => void
+    onOpenPopup: (callback: (extensionId: string) => void) => () => void
   }
   privacy: {
     clearSiteData: (origin?: string, webContentsId?: number) => Promise<{ ok: boolean; error?: string }>
@@ -1046,30 +998,6 @@ export interface VastApi {
     start: () => Promise<AvidaeStatus>
     stop: () => Promise<AvidaeStatus>
     installDependencies: () => Promise<AvidaeStatus>
-  }
-  passwords: {
-    sessionStatus: () => Promise<{ ok: boolean; state?: PasswordVaultSessionState; error?: string }>
-    lockSession: () => Promise<{ ok: boolean; state?: PasswordVaultSessionState; error?: string }>
-    list: () => Promise<{ ok: boolean; items?: PasswordVaultItem[]; encryptionAvailable?: boolean; suppressedOrigins?: string[]; error?: string }>
-    create: (input: PasswordVaultInput) => Promise<{ ok: boolean; item?: PasswordVaultItem; error?: string }>
-    update: (id: ID, input: PasswordVaultUpdate) => Promise<{ ok: boolean; item?: PasswordVaultItem; error?: string }>
-    remove: (id: ID) => Promise<{ ok: boolean; error?: string }>
-    copyUsername: (id: ID) => Promise<{ ok: boolean; error?: string }>
-    copyPassword: (id: ID) => Promise<{ ok: boolean; error?: string }>
-    fillAutofill: (webContentsId: number, origin: string) => Promise<{ ok: boolean; filled?: boolean; error?: string }>
-    getAutofillSuggestions: (webContentsId: number, origin: string) => Promise<{ ok: boolean; suggestions?: PasswordAutofillSuggestion[]; error?: string }>
-    fillById: (id: ID, webContentsId: number, origin: string, requestId: string) => Promise<{ ok: boolean; filled?: boolean; error?: string }>
-    saveCapturedLogin: (input: PasswordVaultInput) => Promise<{ ok: boolean; item?: PasswordVaultItem; error?: string }>
-    captureStatus: (webContentsId: number, origin: string) => Promise<{ ok: boolean; enabled?: boolean; error?: string }>
-    allowSavePrompts: (origin: string) => Promise<{ ok: boolean; error?: string }>
-    importCsv: () => Promise<{ ok: boolean; imported?: number; skipped?: number; error?: string }>
-    exportCsv: () => Promise<{ ok: boolean; path?: string; error?: string }>
-    audit: () => Promise<{ ok: boolean; audit?: PasswordVaultAudit; error?: string }>
-    unlockSession: () => Promise<{ ok: boolean; state?: PasswordVaultSessionState; error?: string }>
-    onSessionState: (callback: (state: PasswordVaultSessionState) => void) => () => void
-    onSavePrompt: (callback: (prompt: PasswordSavePromptPayload) => void) => () => void
-    onSavePromptCleared: (callback: (attemptId: string) => void) => () => void
-    resolveSavePrompt: (attemptId: string, action: PasswordSavePromptAction) => Promise<{ ok: boolean; outcome?: PasswordCaptureOutcome; error?: string }>
   }
   notes: {
     exportMarkdown: (title: string, body: string) => Promise<{ ok: boolean; path?: string; error?: string }>
@@ -1112,6 +1040,9 @@ export interface VastApi {
   browser: {
     writeClipboardText: (text: string) => Promise<{ ok: boolean; error?: string }>
     onOpenTabRequest: (callback: (request: BrowserTabOpenRequest) => void) => () => void
+    onExtensionCompatibilityTabCommand: (callback: (command: ExtensionCompatibilityTabCommand) => void) => () => void
+    confirmExtensionCompatibilityTab: (requestId: string, webContentsId: number) => Promise<{ ok: boolean; error?: string }>
+    selectExtensionCompatibilityTab: (webContentsId: number) => Promise<{ ok: boolean; error?: string }>
     onExternalProtocolRequest: (callback: (request: ExternalProtocolRequest) => void) => () => void
     resolveExternalProtocolRequest: (id: ID, allow: boolean) => Promise<{ ok: boolean; error?: string }>
     onHtmlFullscreenState: (callback: (state: HtmlFullscreenState) => void) => () => void
@@ -1140,7 +1071,7 @@ export interface VastApi {
   }
   app: {
     platform: string
-    guestAutofillPreloadUrl: string
+    guestPreloadUrl: string
     window: {
       state: () => Promise<WindowFrameState>
       minimize: () => Promise<{ ok: boolean; error?: string }>
@@ -1153,6 +1084,7 @@ export interface VastApi {
       openingAnimationHandledBySplash: boolean
       openingAnimationSoundVolume: number
     }
+    uiReady: () => void
     versions: {
       electron: string
       chrome: string

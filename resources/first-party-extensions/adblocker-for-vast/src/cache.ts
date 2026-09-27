@@ -1,9 +1,11 @@
+import { LISTS } from './settings.ts'
 export interface CachedList { text: string; updatedAt: number; checkedAt: number; etag?: string; lastModified?: string; error?: string }
 const max = 12 * 1024 * 1024
 export function validateList(text: string): void {
   if (new TextEncoder().encode(text).length > max || text.length < 100 || /\0|^\s*<(?:!doctype|html|head|body)/i.test(text) || !/^(?:\[Adblock|!|\|\|)/m.test(text) || text.split('\n').some(line => line.length > 16384)) throw new Error('Publisher did not return a valid filter list.')
 }
 export async function download(url: string, previous?: CachedList, signal?: AbortSignal): Promise<CachedList> {
+  if (!LISTS.some(list => list.url === url)) throw new Error('Only built-in filter sources are supported.')
   // Only the fixed catalog supplies URLs. The browser makes this ordinary HTTPS
   // request without a Node fetch bridge, browser credentials or redirect following.
   const response = await fetch(url, { credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error', cache: 'no-store', signal: AbortSignal.any([AbortSignal.timeout(30000), ...(signal ? [signal] : [])]), headers: {

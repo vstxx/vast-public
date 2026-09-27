@@ -1,0 +1,27 @@
+name: Restore pinned patched Electron
+description: Restore the private, hash-pinned Electron 44 compatibility build without rebuilding Electron source.
+
+inputs:
+  github-token:
+    description: Read access to the private release cache in vstxx/vast.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Download and verify approved Electron cache
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $PSNativeCommandUseErrorActionPreference = $true
+        $descriptor = Get-Content -Raw 'third_party/electron/electron-ci-cache.json' | ConvertFrom-Json
+        $archive = Join-Path $env:RUNNER_TEMP $descriptor.assetName
+        gh release download $descriptor.releaseTag --repo $descriptor.repository --pattern $descriptor.assetName --dir $env:RUNNER_TEMP --clobber
+        if ($LASTEXITCODE -ne 0) { throw 'Could not download the private, pinned Electron cache.' }
+        node scripts/restore-patched-electron-cache.cjs --archive $archive
+        if ($LASTEXITCODE -ne 0) { throw 'The private Electron cache failed integrity verification.' }
+        $source = (Resolve-Path (Join-Path '.vast-build/electron-cache-source' $descriptor.patchsetRevision)).Path
+        "VAST_PATCHED_ELECTRON_SOURCE_DIR=$source" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        "VAST_PATCHED_ELECTRON_DIST=$source" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8

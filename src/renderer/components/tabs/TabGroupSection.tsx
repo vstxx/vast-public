@@ -108,7 +108,7 @@ function TabGroupSectionComponent({
             type="button"
             title="Group options"
             onClick={() => setMenuOpen((value) => !value)}
-            className="grid h-6 w-6 place-items-center rounded-checkbox text-white/[0.35] hover:bg-white/10 hover:text-white"
+            className="vast-icon-button vast-icon-button--quiet grid place-items-center h-6 w-6 rounded-checkbox"
           >
             <MoreHorizontal className="h-3.5 w-3.5" />
           </button>
@@ -152,7 +152,7 @@ function TabGroupSectionComponent({
                   setMenuOpen(false)
                   deleteGroup(group.id)
                 }}
-                className="flex h-9 w-full items-center gap-2 rounded-control px-2 text-left text-xs text-red-300 hover:bg-red-400/10"
+                className="vast-menu-item is-danger h-9 text-xs"
               >
                 <Trash2 className="h-3.5 w-3.5" />
                 Delete

@@ -64,6 +64,44 @@ interface CatalogRow {
   data_practice: 'local-only' | 'external-processing' | 'undisclosed'
   privacy_policy_url: string | null
   remote_services: string
+  attribution_name: string | null
+  attribution_url: string | null
+  license_spdx: string | null
+  source_ref: string | null
+}
+
+const ICLOUD_PASSWORDS_ID = 'pejdijmoenmkgeppbflobdenhhabjlaj'
+const PASSWORD_MANAGER_VAST_VERSION = '0.4.0'
+const HOSTED_PASSWORD_MANAGER_IDS = ['nngceckbapebfimnlniiiahkandclblb', 'ghmbeldphafepmbegfdlkpapadhbakde'] as const
+const PASSWORD_MANAGER_IDS = new Set<string>([...HOSTED_PASSWORD_MANAGER_IDS, ICLOUD_PASSWORDS_ID])
+const ICLOUD_PASSWORDS_ITEM = Object.freeze({
+  id: ICLOUD_PASSWORDS_ID,
+  slug: 'icloud-passwords',
+  name: 'iCloud Passwords',
+  summary: 'Use passwords stored in iCloud Passwords on Windows. Installed and updated directly from Apple upstream.',
+  publisher: { id: 'publisher_upstreamappleinc', name: 'Apple', verified: false },
+  category: 'password-managers',
+  kind: 'chrome' as const,
+  version: '3.3.0',
+  updatedAt: '2026-03-31T00:00:00.000Z',
+  downloads: 0,
+  distribution: 'upstream' as const,
+  sourceRef: `Chrome Web Store ${ICLOUD_PASSWORDS_ID}`,
+  installed: false
+})
+
+function iCloudMatches(url: URL): boolean {
+  const query = (url.searchParams.get('query') ?? '').trim().toLowerCase()
+  const category = (url.searchParams.get('category') ?? '').trim()
+  return (!query || `${ICLOUD_PASSWORDS_ITEM.name} ${ICLOUD_PASSWORDS_ITEM.summary} Apple`.toLowerCase().includes(query)) && (!category || category === ICLOUD_PASSWORDS_ITEM.category)
+}
+
+function passwordManagersAvailable(request: Request): boolean {
+  return request.headers.get('x-vast-version') === PASSWORD_MANAGER_VAST_VERSION
+}
+
+function assertPasswordManagerAvailable(request: Request, id: string): void {
+  if (PASSWORD_MANAGER_IDS.has(id) && !passwordManagersAvailable(request)) throw new HttpError(404, 'Extension was not found.')
 }
 
 interface OwnedExtensionRow { id: string; publisher_id: string; current_release_id: string | null; status: string }
@@ -137,17 +175,21 @@ function parseValidationFindings(value: string): string[] {
 }
 
 function catalogItem(row: CatalogRow, env: Env): Record<string, unknown> {
+  const attributed = Boolean(row.attribution_name)
   return {
     id: row.id,
     slug: row.slug,
     name: row.name,
     summary: row.summary,
-    publisher: { id: row.publisher_id, name: row.publisher_name, verified: row.verified === 1 },
+    publisher: { id: row.publisher_id, name: row.attribution_name ?? row.publisher_name, verified: !attributed && row.verified === 1 },
     category: row.category,
     kind: row.kind,
     version: row.version,
     updatedAt: row.updated_at,
     downloads: Number(row.downloads),
+    distribution: 'hub',
+    ...(row.license_spdx ? { license: row.license_spdx } : {}),
+    ...(row.source_ref ? { sourceRef: row.source_ref } : {}),
     dataPractice: row.data_practice,
     ...(row.privacy_policy_url ? { privacyPolicyUrl: row.privacy_policy_url } : {}),
     remoteServices: row.remote_services,
@@ -174,21 +216,22 @@ function catalogView(row: CatalogRow, env: Env): CatalogViewItem {
   }
 }
 
-function catalogWhere(url: URL): { where: string; bindings: string[]; query: string; category: string } {
+function catalogWhere(url: URL, includePasswordManagers: boolean): { where: string; bindings: string[]; query: string; category: string } {
   const query = (url.searchParams.get('query') ?? '').trim().slice(0, 128)
   const category = (url.searchParams.get('category') ?? '').trim().slice(0, 64)
   if (category && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(category)) throw new HttpError(400, 'Category is invalid.')
   const escaped = query.toLowerCase().replace(/[\\%_]/g, '\\$&')
-  const where = `e.status='published' AND r.status='published' AND (?1='' OR lower(e.name||' '||e.summary||' '||p.publisher_name) LIKE ?2 ESCAPE '\\') AND (?3='' OR e.category=?3)`
+  const compatibility = includePasswordManagers ? '' : ` AND e.id NOT IN ('${HOSTED_PASSWORD_MANAGER_IDS.join("','")}')`
+  const where = `e.status='published' AND r.status='published' AND (?1='' OR lower(e.name||' '||e.summary||' '||p.publisher_name) LIKE ?2 ESCAPE '\\') AND (?3='' OR e.category=?3)${compatibility}`
   return { where, bindings: [query, `%${escaped}%`, category], query, category }
 }
 
-async function catalogRows(env: Env, url: URL, limit: number, offset: number): Promise<{ rows: CatalogRow[]; total: number }> {
-  const input = catalogWhere(url)
+async function catalogRows(env: Env, url: URL, limit: number, offset: number, includePasswordManagers = false): Promise<{ rows: CatalogRow[]; total: number }> {
+  const input = catalogWhere(url, includePasswordManagers)
   const base = `FROM extensions e JOIN publishers p ON p.id=e.publisher_id JOIN releases r ON r.id=e.current_release_id LEFT JOIN download_counters d ON d.extension_id=e.id WHERE ${input.where}`
   const sort = url.searchParams.get('sort') === 'updated' ? 'e.updated_at DESC,e.id' : 'COALESCE(d.count,0) DESC,e.updated_at DESC,e.id'
   const [list, count] = await Promise.all([
-    env.DB.prepare(`SELECT e.id,e.slug,e.name,e.summary,e.description,e.category,e.kind,e.updated_at,e.homepage,e.source_url,e.icon_key,e.data_practice,e.privacy_policy_url,e.remote_services,p.id publisher_id,p.publisher_name,p.verified,r.version,r.permissions_snapshot,COALESCE(d.count,0) downloads ${base} ORDER BY ${sort} LIMIT ?4 OFFSET ?5`).bind(...input.bindings, limit, offset).all<CatalogRow>(),
+    env.DB.prepare(`SELECT e.id,e.slug,e.name,e.summary,e.description,e.category,e.kind,e.updated_at,e.homepage,e.source_url,e.icon_key,e.data_practice,e.privacy_policy_url,e.remote_services,e.attribution_name,e.attribution_url,e.license_spdx,e.source_ref,p.id publisher_id,p.publisher_name,p.verified,r.version,r.permissions_snapshot,COALESCE(d.count,0) downloads ${base} ORDER BY ${sort} LIMIT ?4 OFFSET ?5`).bind(...input.bindings, limit, offset).all<CatalogRow>(),
     env.DB.prepare(`SELECT COUNT(*) total ${base}`).bind(...input.bindings).first<{ total: number }>()
   ])
   return { rows: list.results, total: Number(count?.total ?? 0) }
@@ -196,26 +239,42 @@ async function catalogRows(env: Env, url: URL, limit: number, offset: number): P
 
 async function getCatalogRow(env: Env, id: string): Promise<CatalogRow | null> {
   assertExtensionId(id)
-  return env.DB.prepare(`SELECT e.id,e.slug,e.name,e.summary,e.description,e.category,e.kind,e.updated_at,e.homepage,e.source_url,e.icon_key,e.data_practice,e.privacy_policy_url,e.remote_services,p.id publisher_id,p.publisher_name,p.verified,r.version,r.permissions_snapshot,COALESCE(d.count,0) downloads FROM extensions e JOIN publishers p ON p.id=e.publisher_id JOIN releases r ON r.id=e.current_release_id LEFT JOIN download_counters d ON d.extension_id=e.id WHERE e.id=?1 AND e.status='published' AND r.status='published'`).bind(id).first<CatalogRow>()
+  return env.DB.prepare(`SELECT e.id,e.slug,e.name,e.summary,e.description,e.category,e.kind,e.updated_at,e.homepage,e.source_url,e.icon_key,e.data_practice,e.privacy_policy_url,e.remote_services,e.attribution_name,e.attribution_url,e.license_spdx,e.source_ref,p.id publisher_id,p.publisher_name,p.verified,r.version,r.permissions_snapshot,COALESCE(d.count,0) downloads FROM extensions e JOIN publishers p ON p.id=e.publisher_id JOIN releases r ON r.id=e.current_release_id LEFT JOIN download_counters d ON d.extension_id=e.id WHERE e.id=?1 AND e.status='published' AND r.status='published'`).bind(id).first<CatalogRow>()
 }
 
 async function categories(env: Env): Promise<string[]> {
-  return (await env.DB.prepare('SELECT slug FROM categories ORDER BY position,slug').all<{ slug: string }>()).results.map((row) => row.slug)
+  return [...new Set([...(await env.DB.prepare('SELECT slug FROM categories ORDER BY position,slug').all<{ slug: string }>()).results.map((row) => row.slug), 'password-managers'])]
 }
 
 async function publicCatalog(request: Request, env: Env): Promise<Response> {
   await enforceRateLimit(request, env.HUB_PUBLIC_RATE_LIMIT, 'catalog')
   const url = new URL(request.url)
   const page = Math.max(1, Math.min(1_000, Number.parseInt(url.searchParams.get('page') ?? '1', 10) || 1))
+  const includePasswordManagers = passwordManagersAvailable(request)
+  const includeICloud = includePasswordManagers && iCloudMatches(url)
+  const databaseOffset = Math.max(0, (page - 1) * CATALOG_PAGE_SIZE - (includeICloud ? 1 : 0))
+  const databaseLimit = page === 1 && includeICloud ? CATALOG_PAGE_SIZE - 1 : CATALOG_PAGE_SIZE
   const [{ rows, total }, featured, categoryList] = await Promise.all([
-    catalogRows(env, url, CATALOG_PAGE_SIZE, (page - 1) * CATALOG_PAGE_SIZE),
-    env.DB.prepare(`SELECT e.id,e.slug,e.name,e.summary,e.description,e.category,e.kind,e.updated_at,e.homepage,e.source_url,e.icon_key,e.data_practice,e.privacy_policy_url,e.remote_services,p.id publisher_id,p.publisher_name,p.verified,r.version,r.permissions_snapshot,COALESCE(d.count,0) downloads FROM extensions e JOIN publishers p ON p.id=e.publisher_id JOIN releases r ON r.id=e.current_release_id LEFT JOIN download_counters d ON d.extension_id=e.id WHERE e.status='published' AND r.status='published' ORDER BY COALESCE(d.count,0) DESC,e.updated_at DESC LIMIT 6`).all<CatalogRow>(),
+    catalogRows(env, url, databaseLimit, databaseOffset, includePasswordManagers),
+    env.DB.prepare(`SELECT e.id,e.slug,e.name,e.summary,e.description,e.category,e.kind,e.updated_at,e.homepage,e.source_url,e.icon_key,e.data_practice,e.privacy_policy_url,e.remote_services,e.attribution_name,e.attribution_url,e.license_spdx,e.source_ref,p.id publisher_id,p.publisher_name,p.verified,r.version,r.permissions_snapshot,COALESCE(d.count,0) downloads FROM extensions e JOIN publishers p ON p.id=e.publisher_id JOIN releases r ON r.id=e.current_release_id LEFT JOIN download_counters d ON d.extension_id=e.id WHERE e.status='published' AND r.status='published'${includePasswordManagers ? '' : ` AND e.id NOT IN ('${HOSTED_PASSWORD_MANAGER_IDS.join("','")}')`} ORDER BY COALESCE(d.count,0) DESC,e.updated_at DESC LIMIT 6`).all<CatalogRow>(),
     categories(env)
   ])
-  return json({ items: rows.map((row) => catalogItem(row, env)), page, pageSize: CATALOG_PAGE_SIZE, total, featured: featured.results.map((row) => catalogItem(row, env)), categories: categoryList }, { headers: { 'cache-control': 'no-store' } })
+  const items = rows.map((row) => catalogItem(row, env))
+  if (page === 1 && includeICloud) items.unshift(ICLOUD_PASSWORDS_ITEM)
+  const featuredItems = [...(includeICloud ? [ICLOUD_PASSWORDS_ITEM] : []), ...featured.results.map((row) => catalogItem(row, env))].slice(0, 6)
+  return json({ items, page, pageSize: CATALOG_PAGE_SIZE, total: total + (includeICloud ? 1 : 0), featured: featuredItems, categories: categoryList }, { headers: { 'cache-control': 'no-store' } })
 }
 
-async function extensionDetails(env: Env, id: string): Promise<Response> {
+async function extensionDetails(request: Request, env: Env, id: string): Promise<Response> {
+  assertPasswordManagerAvailable(request, id)
+  if (id === ICLOUD_PASSWORDS_ID) return json({
+    ...ICLOUD_PASSWORDS_ITEM,
+    description: 'Install the original iCloud Passwords extension directly from Apple\'s Chrome Web Store distribution. Vast does not host, mirror, repackage, or endorse this extension. iCloud for Windows is required.',
+    homepage: 'https://support.apple.com/guide/icloud-windows/set-up-icloud-passwords-icw2babf5e03/icloud',
+    sourceUrl: `https://chromewebstore.google.com/detail/icloud-passwords/${ICLOUD_PASSWORDS_ID}`,
+    screenshots: [],
+    permissions: { chrome: ['privacy', 'declarativeContent', 'nativeMessaging', 'webNavigation', 'storage', 'contextMenus', 'scripting'], hosts: ['*://*/*'], vast: [] }
+  }, { headers: { 'cache-control': 'no-store' } })
   const row = await getCatalogRow(env, id)
   if (!row) throw new HttpError(404, 'Extension was not found.')
   const screenshots = (await env.DB.prepare('SELECT object_key FROM extension_screenshots WHERE extension_id=?1 ORDER BY position LIMIT 5').bind(id).all<{ object_key: string }>()).results
@@ -225,6 +284,7 @@ async function extensionDetails(env: Env, id: string): Promise<Response> {
 async function releaseDescriptor(request: Request, env: Env, extension: string, version?: string): Promise<Response> {
   await enforceRateLimit(request, env.HUB_PUBLIC_RATE_LIMIT, 'install-metadata')
   assertExtensionId(extension)
+  assertPasswordManagerAvailable(request, extension)
   if (version && !VEXT_VERSION.test(version)) throw new HttpError(404, 'Release was not found.')
   const row = await env.DB.prepare(`SELECT r.descriptor_json,r.descriptor_signature,r.signature_key_id FROM releases r JOIN extensions e ON e.id=r.extension_id WHERE r.extension_id=?1 AND r.status='published' AND e.status='published' AND ${version ? 'r.version=?2' : 'r.id=e.current_release_id'}`).bind(...(version ? [extension, version] : [extension])).first<{ descriptor_json: string; descriptor_signature: string; signature_key_id: string }>()
   if (!row) throw new HttpError(404, 'Release was not found.')
@@ -830,11 +890,12 @@ async function publisherHome(request: Request, env: Env): Promise<Response> {
 
 async function explore(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url)
-  const [{ rows }, categoryList, session] = await Promise.all([catalogRows(env, url, CATALOG_PAGE_SIZE, 0), categories(env), optionalSession(request, env)])
+  const [{ rows }, categoryList, session] = await Promise.all([catalogRows(env, url, CATALOG_PAGE_SIZE, 0, passwordManagersAvailable(request)), categories(env), optionalSession(request, env)])
   return html(homePage(rows.map((row) => catalogView(row, env)), (url.searchParams.get('query') ?? '').slice(0, 128), categoryList, session, (url.searchParams.get('category') ?? '').slice(0, 64)), { headers: { 'cache-control': 'no-store' } })
 }
 
 async function detail(request: Request, env: Env, id: string): Promise<Response> {
+  assertPasswordManagerAvailable(request, id)
   const [row, session] = await Promise.all([getCatalogRow(env, id), optionalSession(request, env)])
   if (!row) throw new HttpError(404, 'Extension was not found.')
   return html(detailPage({ ...catalogView(row, env), description: row.description, ...(row.homepage ? { homepage: row.homepage } : {}), ...(row.source_url ? { sourceUrl: row.source_url } : {}), permissions: parsePermissions(row.permissions_snapshot) }, session), { headers: { 'cache-control': 'no-store' } })
@@ -915,7 +976,7 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (request.method === 'POST' && path === '/v1/publisher/terms/accept') return acceptPublisherTerms(request, env)
   if (request.method === 'POST' && path === '/v1/publisher/extensions') return createExtension(request, env)
   const detailMatch = path.match(/^\/v1\/extensions\/([a-p]{32})$/)
-  if (request.method === 'GET' && detailMatch) return extensionDetails(env, detailMatch[1])
+  if (request.method === 'GET' && detailMatch) return extensionDetails(request, env, detailMatch[1])
   const reportCreateMatch = path.match(/^\/v1\/extensions\/([a-p]{32})\/reports$/)
   if (request.method === 'POST' && reportCreateMatch) return createReport(request, env, reportCreateMatch[1])
   const currentReleaseMatch = path.match(/^\/v1\/install\/([a-p]{32})$/)

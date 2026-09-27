@@ -73,7 +73,7 @@ export function SessionTimelinePage(): JSX.Element {
           title="Session Timeline"
           actions={
             <div className="grid w-full grid-cols-2 gap-2 sm:w-[25rem]" data-testid="timeline-primary-actions">
-              <button type="button" onClick={() => addSessionSnapshot(undefined, { trigger: 'manual' })} className="vault-action-button min-w-0 justify-center px-2">
+              <button type="button" onClick={() => addSessionSnapshot(undefined, { trigger: 'manual' })} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2">
                 <Sparkles className="h-4 w-4" />
                 Save snapshot now
               </button>
@@ -84,7 +84,7 @@ export function SessionTimelinePage(): JSX.Element {
                   if (latest?.tabs?.[0]) restoreSessionSnapshot(latest.id)
                 }}
                 disabled={!filteredSnapshots[0]?.tabs?.[0]}
-                className="vault-action-button min-w-0 justify-center px-2 disabled:opacity-40"
+                className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2"
               >
                 <RotateCcw className="h-4 w-4" />
                 Restore latest
@@ -158,7 +158,7 @@ export function SessionTimelinePage(): JSX.Element {
                 title="No snapshots match"
                 description="Save a manual snapshot or switch workspaces to start building a navigable local session history."
                 action={
-                  <button type="button" onClick={() => addSessionSnapshot(undefined, { trigger: 'manual' })} className="vault-action-button">
+                  <button type="button" onClick={() => addSessionSnapshot(undefined, { trigger: 'manual' })} className="vast-button vast-button--secondary vast-button--sm">
                     <Sparkles className="h-4 w-4" />
                     Create snapshot
                   </button>
@@ -255,11 +255,11 @@ function SnapshotCard({
         </div>
 
         <div className="grid w-full grid-cols-2 gap-2 xl:w-44 xl:grid-cols-1">
-          <button type="button" onClick={onRestore} disabled={tabs.length === 0} className="vault-action-button justify-center disabled:opacity-40">
+          <button type="button" onClick={onRestore} disabled={tabs.length === 0} className="vast-button vast-button--secondary vast-button--sm justify-center">
             <RotateCcw className="h-4 w-4" />
             Restore
           </button>
-          <button type="button" onClick={onDelete} className="vault-danger-button justify-center">
+          <button type="button" onClick={onDelete} className="vast-button vast-button--danger vast-button--sm justify-center">
             <Trash2 className="h-4 w-4" />
             Delete
           </button>

@@ -10,7 +10,7 @@ Vast treats application chrome, browser guests, local privileged services, and r
 - Node integration is disabled in the renderer.
 - The preload exposes a deliberately bounded `window.vast` API.
 - Normal websites run in sandboxed Electron webviews and do not receive the Vast preload API.
-- Filesystem, native dialogs, storage, password-vault operations, downloads, and other privileged operations remain behind main-process IPC.
+- Filesystem, native dialogs, storage, downloads, and other privileged operations remain behind main-process IPC.
 
 Changes that expand a boundary are security-sensitive and should include regression coverage.
 
@@ -26,13 +26,6 @@ IPC handlers validate input shape and keep privileged resources in the main proc
 
 The renderer can request operations; renderer state alone does not authorize privileged actions. Filesystem access is not exposed as a generic renderer primitive.
 
-## Password vault
-
-Password records are stored outside normal browser-state JSON. Secrets are encrypted through Electron `safeStorage` before being written to disk.
-
-Vault authorization is owned by the main process. Autofill and credential-capture flows are bound to the relevant guest `webContentsId` and exact HTTP(S) origin rather than trusting page-controlled metadata. Private-workspace behavior and sensitive actions are separately constrained.
-
-`safeStorage` depends on operating-system facilities; it is not an independent cross-platform master-password or hardware-backed biometric system.
 
 ## Extensions
 
@@ -64,7 +57,7 @@ Network discovery is user-triggered and restricted to local/private or link-loca
 
 ### Automation
 
-Automation exposes bounded browser/product actions rather than arbitrary shell or page-script execution. New automation actions that cross authentication, payment, credential, download, or execution boundaries require separate review.
+Automation exposes bounded browser/product actions rather than arbitrary shell or page-script execution. New automation actions that cross authentication, payment, download, or execution boundaries require separate review.
 
 ## Dependency and release gates
 
@@ -77,5 +70,4 @@ The exact set of release gates is documented in [../RELEASE.md](../RELEASE.md) a
 - Electron webviews remain a high-value security boundary and require careful review.
 - Fingerprint/spoofing controls are best-effort and cannot make a browser perfectly indistinguishable from another environment.
 - Content blocking is not a substitute for the browser sandbox or endpoint security.
-- OS-bound encryption can limit password-vault portability between accounts or machines.
 - Experimental features intentionally have narrower support guarantees than the default browser surface.

@@ -93,7 +93,7 @@ async function main() {
   fs.writeFileSync(path.join(fixturePath, 'popup.html'), '<!doctype html><html><head><meta charset="utf-8"><title>Native popup</title><style>body{margin:0;padding:18px;background:#0b0c11;color:#f5f7fa;font:14px system-ui}</style></head><body data-native-popup="ready"><strong>Native custom popup</strong><p id="state">Loading</p><script type="module" src="popup.js"></script></body></html>', 'utf8')
   fs.writeFileSync(path.join(fixturePath, 'popup.js'), "const state = await vast.storage.local.get('started'); document.querySelector('#state').textContent = state.started ? 'Storage connected' : 'Storage unavailable'\n", 'utf8')
   fs.writeFileSync(path.join(fixturePath, 'options.html'), '<!doctype html><html><head><meta charset="utf-8"><title>Native options</title></head><body data-native-options="ready">Native options</body></html>', 'utf8')
-  fs.appendFileSync(path.join(fixturePath, 'vast-background.js'), `\nlet networkBlocked=false;try{await fetch('http://127.0.0.1:${probePort}/probe')}catch{networkBlocked=true}\nawait vast.storage.local.set({sandbox:{requireType:typeof globalThis.require,processType:typeof globalThis.process,ipcRendererType:typeof globalThis.ipcRenderer},networkBlocked,popupBlocked:window.open('https://example.com')===null})\n`)
+  fs.appendFileSync(path.join(fixturePath, 'vast-background.js'), `\nlet networkBlocked=false;try{await fetch('http://127.0.0.1:${probePort}/probe')}catch{networkBlocked=true}\nlet tabsReadDenied=false;try{await vast.tabs.query({})}catch{tabsReadDenied=true}\nawait vast.storage.local.set({sandbox:{requireType:typeof globalThis.require,processType:typeof globalThis.process,ipcRendererType:typeof globalThis.ipcRenderer},networkBlocked,tabsReadDenied,popupBlocked:window.open('https://example.com')===null})\n`)
   const extensionId = idFor(fixturePath); const now = Date.now(); const registryDir = path.join(userDataDir, 'Extensions')
   fs.mkdirSync(registryDir, { recursive: true })
   fs.writeFileSync(path.join(registryDir, 'registry.json'), `${JSON.stringify({ schemaVersion: 2, extensions: [{ id: extensionId, name: 'Vast Native Basic', version: '1.0.0', description: 'Deterministic Vast Native API v1 fixture.', path: fixturePath, enabled: true, source: 'unpacked', runtime: 'vast', manifestVersion: 3, installedAt: now, updatedAt: now, allowFileAccess: false, grantedPermissions: ['vast.storage','vast.theme','vast.toolbar','vast.sidebar','vast.commands','vast.contextMenus','vast.notifications'] }] }, null, 2)}\n`)
@@ -108,8 +108,9 @@ async function main() {
   const contributions = await until(() => renderer.eval('window.vast.extensions.contributions()'), (value) => value?.contributions?.toolbar?.length === 1 && value?.contributions?.sidebar?.length === 1 && value?.contributions?.commands?.length === 1, 'native contributions')
   assert(contributions.contributions.theme.tokens.accentColor === '#8b5cf6', 'Theme overlay was not registered.')
   const storageFile = path.join(userDataDir, 'Extensions', 'Data', extensionId, 'storage.json')
-  const stored = await until(async () => JSON.parse(fs.readFileSync(storageFile, 'utf8')), (value) => value?.sandbox?.requireType === 'undefined' && value?.networkBlocked === true && value?.popupBlocked === true, 'sandbox evidence')
+  const stored = await until(async () => JSON.parse(fs.readFileSync(storageFile, 'utf8')), (value) => value?.sandbox?.requireType === 'undefined' && value?.networkBlocked === true && value?.tabsReadDenied === true && value?.popupBlocked === true, 'sandbox evidence')
   assert(stored.sandbox.processType === 'undefined' && stored.sandbox.ipcRendererType === 'undefined', 'Node or raw IPC leaked into the extension global.')
+  assert(stored.tabsReadDenied === true, 'An extension without vast.tabs.read obtained tab metadata.')
   assert(probeHits === 0, 'Native extension network request reached the local probe server.')
   const host = await target(port, (item) => item.type === 'page' && item.url.startsWith(`vast-extension://${extensionId}/`))
   assert(await host.eval("typeof require === 'undefined' && typeof process === 'undefined' && typeof ipcRenderer === 'undefined'"), 'Sandbox target exposed privileged globals.')
@@ -142,7 +143,7 @@ async function main() {
   assert(fs.existsSync(fixturePath), 'Uninstall deleted the unpacked source directory.')
   host.close(); renderer.close(); await stop()
   assert(!stderr.some((line) => /uncaught|unhandled rejection/i.test(line)), `Unexpected Electron stderr: ${stderr.join('')}`)
-  console.log('PASS Vast native extensions Electron E2E: isolated host/sidebar/custom popup, authenticated API storage, contributions, network/popup blocking, sandbox globals, disable cleanup, and uninstall cleanup.')
+  console.log('PASS Vast native extensions Electron E2E: isolated host/sidebar/custom popup, authenticated API storage, denied tab metadata without permission, contributions, network/popup blocking, sandbox globals, disable cleanup, and uninstall cleanup.')
 }
 
 async function cleanup() {

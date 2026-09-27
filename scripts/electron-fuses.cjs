@@ -3,12 +3,14 @@ const { join } = require('node:path')
 
 const REQUIRED_ELECTRON_FUSES = Object.freeze({
   RunAsNode: false,
-  EnableCookieEncryption: false,
+  EnableCookieEncryption: true,
   EnableNodeOptionsEnvironmentVariable: false,
   EnableNodeCliInspectArguments: false,
   EnableEmbeddedAsarIntegrityValidation: true,
   OnlyLoadAppFromAsar: true,
   LoadBrowserProcessSpecificV8Snapshot: false,
+  // Vast's packaged renderer currently loads from app.asar through file://.
+  // Electron 44 fails that startup path when this fuse is disabled.
   GrantFileProtocolExtraPrivileges: true,
   WasmTrapHandlers: true
 })

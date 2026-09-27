@@ -361,7 +361,6 @@ async function buildDemoData() {
       networkDevices: true,
       automation: true,
       ai: true,
-      passwordManager: true,
       advancedDiagnostics: true,
       spoofing: true
     },
@@ -408,7 +407,6 @@ async function buildDemoData() {
     makeTab('tab-site-data', 'Site Data', constants.INTERNAL_SITE_DATA_URL, workspaceId),
     makeTab('tab-diagnostics', 'Diagnostics', constants.INTERNAL_DIAGNOSTICS_URL, workspaceId),
     makeTab('tab-automation', 'Automation', constants.INTERNAL_AUTOMATION_URL, workspaceId),
-    makeTab('tab-passwords', 'Password Manager', constants.INTERNAL_PASSWORDS_URL, workspaceId)
   ]
   data.bookmarkFolders = [
     { id: 'folder-product', name: 'Product', order: 0, createdAt: now, updatedAt: now },
@@ -770,10 +768,6 @@ async function main() {
   await attemptShot('27-diagnostics-center.png', async () => {
     await saveScenario(session, data, 'tab-diagnostics', false)
   }, `document.querySelector('[data-testid="diagnostics-page"]')`, 15000)
-
-  await attemptShot('28-password-manager.png', async () => {
-    await saveScenario(session, data, 'tab-passwords', false)
-  }, `document.querySelector('[data-testid="passwords-page"]')`, 15000)
 
   await attemptShot('29-avidae.png', async () => {
     await saveScenario(session, data, 'tab-avidae', false)

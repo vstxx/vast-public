@@ -28,7 +28,7 @@ test('preload exposes only narrow extension operations and no raw filesystem or 
   assert.ok(extensionStart >= 0 && extensionEnd > extensionStart, 'extension preload bridge must remain a dedicated API section')
   const extensionBridge = preload.slice(extensionStart, extensionEnd)
 
-  for (const operation of ['list', 'loadUnpacked', 'enable', 'disable', 'reload', 'remove', 'prepareSurface', 'onChanged']) {
+  for (const operation of ['list', 'loadUnpacked', 'enable', 'disable', 'reload', 'remove', 'prepareSurface', 'onChanged', 'onOpenPopup']) {
     assert.match(extensionBridge, new RegExp(`${operation}:`))
   }
   assert.doesNotMatch(extensionBridge, /require\(|readFile|writeFile|fromPartition|loadExtension/)
@@ -41,7 +41,7 @@ test('extensions are wired to website partitions while Vast UI and private parti
     source('src/main/extensions/extension-manager.ts')
   ])
 
-  assert.match(main, /sessionProvider:\s*\(partition\)\s*=>\s*\{\s*const target = session\.fromPartition\(partition\)\s*configureDownloadsForSession\(target, partition\)/)
+  assert.match(main, /sessionProvider:\s*\(partition\)\s*=>\s*\{\s*const target = session\.fromPartition\(partition\)\s*extensionCompatibilityPartitions\.set\(target, partition\)\s*configureDownloadsForSession\(target, partition\)/)
   assert.doesNotMatch(main, /defaultSession\.extensions\.loadExtension/)
   assert.match(sessions, /will-attach-webview/)
   assert.match(sessions, /ensureForPartition\(partition\)/)

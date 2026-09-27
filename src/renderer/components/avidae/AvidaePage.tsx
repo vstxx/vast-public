@@ -1,5 +1,6 @@
-import { AlertTriangle, CheckCircle2, Loader2, Play, RefreshCw, Server, Square, Terminal } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Loader2, Play, Square, Terminal } from 'lucide-react'
 import { startTransition, useCallback, useEffect, useMemo, useState } from 'react'
+import { useBrowserRuntime } from '../../app/browser-runtime'
 import type { AvidaeStatus } from '../../../shared/types'
 import { VideoAudioBrand, VideoAudioMark } from './VideoAudioBrand'
 
@@ -12,6 +13,7 @@ function statusLabel(state: AvidaeStatus['state']): string {
 }
 
 export function AvidaePage(): JSX.Element {
+  const runtime = useBrowserRuntime()
   const [status, setStatus] = useState<AvidaeStatus | null>(null)
   const [iframeLoaded, setIframeLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -121,6 +123,16 @@ export function AvidaePage(): JSX.Element {
               <p className="mt-4 text-sm leading-7 text-vast-soft md:text-base">
                 Edit, convert, record and download video and audio — all in one place.
               </p>
+              <p className="mt-2 text-[13px] leading-6 text-vast-soft">
+                Video &amp; Audio is experimental Labs software, please report any bugs on our{" "}
+                <button
+                  type="button"
+                  onClick={() => runtime.openUrlInNewTab('https://discord.gg/QmQ54MArrB')}
+                  className="font-semibold text-vast-cyan underline decoration-vast-cyan/40 underline-offset-2 hover:decoration-vast-cyan"
+                >
+                  Discord
+                </button>
+              </p>
               {status?.error && (
                 <div className="mt-5 rounded-card border border-vast-amber/20 bg-vast-amber/[0.075] p-4 text-sm leading-6 text-vast-soft">
                   <span className="font-semibold text-vast-amber">Startup error:</span> {status.error}
@@ -133,7 +145,7 @@ export function AvidaePage(): JSX.Element {
                 type="button"
                 onClick={() => void start()}
                 disabled={busy || status?.state === 'starting' || status?.state === 'installing'}
-                className="flex h-11 items-center justify-center gap-2 rounded-card bg-vast-cyan px-4 text-sm font-semibold text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                className="vast-button vast-button--primary vast-button--md h-11 justify-center rounded-card"
               >
                 {busy || status?.state === 'starting' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
                 Start backend
@@ -142,7 +154,7 @@ export function AvidaePage(): JSX.Element {
                 type="button"
                 onClick={() => void installDependencies()}
                 disabled={busy || status?.state === 'installing' || status?.runtimeBundled}
-                className="flex h-11 items-center justify-center gap-2 rounded-card border border-white/10 bg-white/[0.055] px-4 text-sm font-semibold text-white transition hover:bg-white/[0.085] disabled:cursor-not-allowed disabled:opacity-60"
+                className="vast-button vast-button--secondary vast-button--md h-11 justify-center rounded-card"
               >
                 {status?.state === 'installing' ? <Loader2 className="h-4 w-4 animate-spin" /> : status?.runtimeBundled ? <CheckCircle2 className="h-4 w-4" /> : <Terminal className="h-4 w-4" />}
                 {status?.runtimeBundled ? 'Runtime bundled' : 'Install / repair deps'}
@@ -151,7 +163,7 @@ export function AvidaePage(): JSX.Element {
                 type="button"
                 onClick={() => void stop()}
                 disabled={busy || status?.state === 'stopped'}
-                className="flex h-11 items-center justify-center gap-2 rounded-card border border-white/10 bg-black/25 px-4 text-sm font-semibold text-vast-soft transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                className="vast-button vast-button--ghost vast-button--md h-11 justify-center rounded-card border border-white/10 bg-black/25 hover:bg-white/[0.06]"
               >
                 <Square className="h-4 w-4" />
                 Stop
@@ -159,16 +171,11 @@ export function AvidaePage(): JSX.Element {
             </div>
           </div>
 
-          <div className="mt-8 grid gap-4 md:grid-cols-3">
-            <StatusCard icon={Server} label="Runtime" value={status?.python ?? 'Checking runtime'} />
-            <StatusCard icon={CheckCircle2} label="Source" value={status?.sourcePath ? 'Bundled with Vast' : 'Checking local bundle'} />
-            <StatusCard icon={RefreshCw} label="Data" value={status?.dataPath ? 'Private Vast storage' : 'Checking local storage'} />
-          </div>
 
           <div className="mt-6 overflow-hidden rounded-card border border-white/10 bg-black/30">
             <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
               <div className="text-sm font-semibold text-white">Backend log</div>
-              <button type="button" onClick={() => void refresh()} className="text-xs font-semibold text-vast-cyan">
+              <button type="button" onClick={() => void refresh()} className="vast-button vast-button--quiet vast-button--xs text-xs font-semibold">
                 Refresh
               </button>
             </div>
@@ -182,14 +189,3 @@ export function AvidaePage(): JSX.Element {
   )
 }
 
-function StatusCard({ icon: Icon, label, value }: { icon: typeof Server; label: string; value: string }): JSX.Element {
-  return (
-    <div className="min-w-0 rounded-card border border-white/[0.075] bg-white/[0.04] p-4">
-      <Icon className="mb-3 h-4 w-4 text-vast-cyan" />
-      <div className="text-xs font-semibold uppercase tracking-[0.14em] text-vast-soft">{label}</div>
-      <div className="mt-2 truncate text-sm font-semibold text-white" title={value}>
-        {value}
-      </div>
-    </div>
-  )
-}

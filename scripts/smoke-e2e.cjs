@@ -9,8 +9,8 @@ const artifactsDir = process.env.VAST_E2E_ARTIFACTS_DIR
   ? path.resolve(process.env.VAST_E2E_ARTIFACTS_DIR)
   : path.join(root, '.vast-test-artifacts')
 const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vast-e2e-profile-'))
+const openingVisualOnlyRequested = process.argv.includes('--opening-visual-only')
 const downloadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vast-e2e-downloads-'))
-const passwordImportCsvPath = path.join(userDataDir, 'password-import.csv')
 const localPdfPath = path.join(userDataDir, 'vast-local-open.pdf')
 const port = 9400 + Math.floor(Math.random() * 400)
 const electronVersion = require('electron/package.json').version
@@ -39,16 +39,6 @@ if (seedPartition) {
     }
   }
 }
-fs.writeFileSync(
-  passwordImportCsvPath,
-  [
-    'name,url,username,password,note',
-    '"Imported Login",https://import.example.com/login,import-user,"Import-Smoke-Secret-456!","imported note, with comma"',
-    'Missing Password,https://missing.example.com,user,,missing secret'
-  ].join('\n') + '\n',
-  'utf8'
-)
-
 const electronExe = require('electron')
 const packagedExecutable = process.env.VAST_E2E_EXECUTABLE
   ? path.resolve(process.env.VAST_E2E_EXECUTABLE)
@@ -65,7 +55,6 @@ const env = {
   ...process.env,
   VAST_TEST_USER_DATA_DIR: userDataDir,
   VAST_TEST_DOWNLOAD_DIR: downloadDir,
-  VAST_TEST_PASSWORD_IMPORT_CSV: passwordImportCsvPath,
   VAST_RELAY_TEST_OFFLINE: '1'
 }
 delete env.ELECTRON_RUN_AS_NODE
@@ -93,15 +82,17 @@ function assert(condition, message) {
 
 function isExpectedRendererIssue(issue) {
   const normalized = String(issue).trim()
-  // Electron 42 can report these two exact internal messages when a sandboxed
-  // about:blank OAuth popup is destroyed immediately after its callback. The
-  // popup routing assertions verify that flow before this narrow exception is
-  // applied; every application exception and every other Electron error still
-  // fails the smoke run.
+  // Electron can report these exact internal teardown messages after the
+  // corresponding popup/webview behavior has already completed successfully.
+  // The assertions verify those flows before this narrow exception is applied;
+  // every application exception and every other Electron error still fails.
   return (
     normalized === 'Electron sandboxed_renderer.bundle.js script failed to run' ||
     (normalized.includes("Cannot destructure property 'preloadScripts' of 'binding.startupData' as it is null.") &&
-      normalized.includes('node:electron/js2c/sandbox_bundle'))
+      normalized.includes('node:electron/js2c/sandbox_bundle')) ||
+    (normalized.includes('Error: Invalid guestInstanceId:') &&
+      normalized.includes('at WebViewElement.disconnectedCallback (node:electron/js2c/isolated_bundle') &&
+      normalized.includes('at commitDeletionEffectsOnFiber'))
   )
 }
 
@@ -413,7 +404,6 @@ async function typeInActiveWebview(session, selector, value) {
     input.value = '';
     return true;
   })()`)
-  // Autofill configuration can arrive just after focus and intentionally place
   // the saved username. Let that one-shot action settle, then model the user
   // replacing it with trusted keyboard input.
   await wait(120)
@@ -651,6 +641,14 @@ async function setSelectByLabel(session, labelText, value) {
     const custom = label?.querySelector('[data-settings-select]') ??
       document.querySelector('[data-settings-select=' + CSS.escape(${quotedLabel}) + ']');
     const trigger = custom?.querySelector('button[aria-haspopup="listbox"]');
+    const choiceGroup = document.querySelector('[role="group"][aria-label=' + CSS.escape(${quotedLabel}) + ']');
+    const choice = [...(choiceGroup?.querySelectorAll('button') ?? [])].find((button) =>
+      button.getAttribute('aria-label')?.toLowerCase() === String(${quotedValue}).toLowerCase()
+    );
+    if (choice) {
+      choice.click();
+      return true;
+    }
     if (!custom || !trigger) throw new Error('Select not found for label: ' + ${quotedLabel});
     trigger.click();
     return false;
@@ -879,27 +877,6 @@ async function startDownloadServer() {
         </script></body>`)
         return
       }
-      if (parsedRequestUrl.pathname === '/password-login') {
-        response.writeHead(200, { 'Content-Type': 'text/html' })
-        response.end(`<!doctype html><title>Vast Password Login</title>
-          <form>
-            <label>Username <input id="login-user" name="username" autocomplete="username" type="email"></label>
-            <label>Password <input id="login-password" name="password" autocomplete="current-password" type="password"></label>
-            <button id="login-submit" type="submit">Sign in</button>
-          </form>
-          <script>
-            document.querySelector('form').addEventListener('submit', (event) => {
-              event.preventDefault()
-              window.setTimeout(() => location.assign('/password-login-complete'), 120)
-            })
-          </script>`)
-        return
-      }
-      if (parsedRequestUrl.pathname === '/password-login-complete') {
-        response.writeHead(200, { 'Content-Type': 'text/html' })
-        response.end('<!doctype html><title>Vast Password Login Complete</title><h1>Login complete</h1>')
-        return
-      }
       if (request.url === '/pdf-auth') {
         response.writeHead(200, {
           'Content-Type': 'text/html',
@@ -926,87 +903,6 @@ async function startDownloadServer() {
         response.end(pdfBuffer)
         return
       }
-      if (parsedRequestUrl.pathname === '/password-login-fail') {
-        response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' })
-        response.end(`<!doctype html><title>Vast Password Login Failed</title>
-          <form>
-            <label>Użytkownik <input id="fail-user" name="username" autocomplete="username" type="email"></label>
-            <label>Hasło <input id="fail-password" name="password" autocomplete="current-password" type="password"></label>
-            <button id="fail-submit" type="submit" aria-label="Submit"><span aria-hidden="true">→</span></button>
-          </form><main id="fail-result"></main>
-          <script>document.querySelector('form').addEventListener('submit', (event) => {
-            event.preventDefault(); setTimeout(() => {
-              document.querySelector('#fail-result').innerHTML = '<div role="alert">Nieprawidłowe dane</div>';
-              document.querySelector('#fail-password').focus();
-            }, 80)
-          })</script>`)
-        return
-      }
-      if (parsedRequestUrl.pathname === '/password-spa') {
-        response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' })
-        response.end(`<!doctype html><title>Vast Password SPA</title><main id="spa-root">
-          <div role="form"><input id="spa-user" name="email" autocomplete="section-login username" type="email">
-          <input id="spa-password" autocomplete="section-login current-password" type="password">
-          <button id="spa-submit" type="button">Zaloguj</button></div></main>
-          <script>document.querySelector('#spa-submit').addEventListener('click', () => setTimeout(() => {
-            history.pushState({}, '', '/password-spa/home'); document.title = 'Vast Password SPA Complete';
-            document.querySelector('#spa-root').innerHTML = '<h1>Authenticated</h1>';
-          }, 80))</script>`)
-        return
-      }
-      if (parsedRequestUrl.pathname === '/password-formless-enter') {
-        response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' })
-        response.end(`<!doctype html><title>Vast Formless Login</title><main id="formless-root">
-          <div><input id="formless-user" name="email" autocomplete="username" type="email"></div>
-          <div><input id="formless-password" autocomplete="current-password" type="password"></div>
-          <div><button id="formless-submit" type="button" aria-label="Continue">→</button></div>
-          </main><script>
-            const complete = () => setTimeout(() => {
-              history.pushState({}, '', '/password-formless-enter/home')
-              document.querySelector('#formless-root').innerHTML = '<h1>Authenticated</h1>'
-            }, 80)
-            document.querySelector('#formless-password').addEventListener('keydown', (event) => {
-              if (event.key === 'Enter') { event.preventDefault(); complete() }
-            })
-            document.querySelector('#formless-submit').addEventListener('click', complete)
-          </script>`)
-        return
-      }
-      if (parsedRequestUrl.pathname === '/password-username-first') {
-        response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' })
-        response.end(`<!doctype html><title>Vast Username First</title><main id="multi-root">
-          <form id="username-step"><input id="multi-user" type="email" autocomplete="section-account username"><button type="submit">Dalej</button></form>
-          </main><script>document.querySelector('#username-step').addEventListener('submit', (event) => {
-            event.preventDefault(); history.pushState({}, '', '/password-username-first/password');
-            document.querySelector('#multi-root').innerHTML = '<form id="password-step"><input id="multi-password" type="password" autocomplete="section-account current-password"><button type="submit">→</button></form>';
-            document.querySelector('#password-step').addEventListener('submit', (nextEvent) => {
-              nextEvent.preventDefault(); setTimeout(() => { history.pushState({}, '', '/password-username-first/home'); document.querySelector('#multi-root').innerHTML = '<h1>Welcome</h1>'; }, 80)
-            })
-          })</script>`)
-        return
-      }
-      if (parsedRequestUrl.pathname === '/password-signup') {
-        response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' })
-        response.end(`<!doctype html><title>Vast Password Signup</title><main id="signup-root"><form>
-          <input id="signup-user" type="email" autocomplete="username"><input id="signup-password" type="password" autocomplete="new-password">
-          <input id="signup-confirm" type="password" autocomplete="new-password"><button type="submit">Utwórz</button>
-          </form></main><script>document.querySelector('form').addEventListener('submit', (event) => {
-            event.preventDefault(); setTimeout(() => { history.replaceState({}, '', '/password-signup/complete'); document.querySelector('#signup-root').innerHTML = '<h1>Created</h1>'; }, 80)
-          })</script>`)
-        return
-      }
-      if (parsedRequestUrl.pathname === '/password-change') {
-        response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' })
-        response.end(`<!doctype html><title>Vast Password Change</title><main id="change-root"><form>
-          <input id="change-user" type="email" autocomplete="username">
-          <input id="change-current" type="password" autocomplete="current-password">
-          <input id="change-new" type="password" autocomplete="new-password">
-          <input id="change-confirm" type="password" autocomplete="new-password"><button type="submit">Zmień</button>
-          </form></main><script>document.querySelector('form').addEventListener('submit', (event) => {
-            event.preventDefault(); setTimeout(() => { history.replaceState({}, '', '/password-change/complete'); document.querySelector('#change-root').innerHTML = '<h1>Changed</h1>'; }, 80)
-          })</script>`)
-        return
-      }
       if (parsedRequestUrl.pathname === '/session-start') {
         response.writeHead(302, {
           Location: `http://localhost:${downloadServer.address().port}/session-finish`,
@@ -1022,18 +918,6 @@ async function startDownloadServer() {
           : 'session-missing'
         response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' })
         response.end(`<!doctype html><title>Cross-site session ${sessionState}</title><body data-cross-site-session="${sessionState}"><h1>${sessionState}</h1></body>`)
-        return
-      }
-      if (parsedRequestUrl.pathname === '/password-dynamic') {
-        response.writeHead(200, { 'Content-Type': 'text/html' })
-        response.end(`<!doctype html><title>Vast Dynamic Login</title>
-          <button id="show-login" type="button">Show login</button>
-          <main id="login-root"></main>
-          <script>
-            document.querySelector('#show-login').addEventListener('click', () => {
-              document.querySelector('#login-root').innerHTML = '<form><input id="dynamic-user" name="username" autocomplete="username"><input id="dynamic-password" type="password" autocomplete="current-password"><button type="submit">Sign in</button></form>'
-            })
-          </script>`)
         return
       }
       if (parsedRequestUrl.pathname.startsWith('/split-')) {
@@ -1086,218 +970,6 @@ async function startDownloadServer() {
     })
     downloadServer.listen(0, '127.0.0.1', () => resolve(downloadServer.address().port))
   })
-}
-
-async function runPasswordManagerSmoke(session, localServerPort) {
-  await openCommand(session, 'Open settings')
-  await clickByText(session, 'Open settings')
-  await waitFor(session, 'Boolean(document.querySelector(".settings-modal-shell"))', 'Password Manager smoke settings')
-  await clickByText(session, 'Labs')
-  await setCheckboxByLabel(session, 'Password Manager', true)
-  await waitForStorage(session, '(data) => data.settings.labs.passwordManager === true', 'Password Manager enabled')
-  await clickByTitle(session, 'Close settings')
-
-  const lockedState = await session.evaluate('window.vast.passwords.sessionStatus()')
-  assert(lockedState.ok === true && lockedState.state?.locked === true, 'Password Manager did not begin the automatic-capture test locked.')
-
-  const origin = `http://127.0.0.1:${localServerPort}`
-  const vaultPath = path.join(userDataDir, 'password-vault.json')
-  const readVault = () => JSON.parse(fs.readFileSync(vaultPath, 'utf8'))
-  const waitForVault = async (predicate, label) => {
-    const started = Date.now()
-    while (Date.now() - started < 15_000) {
-      if (fs.existsSync(vaultPath)) {
-        const vault = readVault()
-        if (predicate(vault)) return vault
-      }
-      await wait(100)
-    }
-    fail(`Timed out waiting for Password Manager vault state: ${label}`)
-  }
-  const assertNoPrompt = async (label, delay = 2_200) => {
-    await wait(delay)
-    const text = await session.bodyText()
-    assert(!text.includes('Save password?') && !text.includes('Save this new account?') && !text.includes('Update saved password?'), label)
-  }
-  const resolvePrompt = async (action = 'save') => {
-    const selector = action === 'save' || action === 'update'
-      ? '[data-testid="password-save-confirm"]'
-      : action === 'never'
-        ? '[data-testid="password-save-never"]'
-        : '[data-testid="password-save-not-now"]'
-    await session.evaluate(`document.querySelector(${JSON.stringify(selector)})?.click()`)
-    await waitFor(session, '!document.querySelector("[data-testid=\\"password-save-prompt\\"]")', `password prompt ${action}`)
-  }
-  const submitLogin = async (username, password, method = 'requestSubmit', captureExpected = true) => {
-    await setAddress(session, `${origin}/password-login`)
-    await waitForActiveWebview(session, 'document.title === "Vast Password Login" && Boolean(document.querySelector("#login-submit"))', 'password login fixture')
-    const captureStatus = await session.evaluate(`(() => {
-      const webview = [...document.querySelectorAll('webview.browser-webview')].find((item) => item.getClientRects().length > 0);
-      if (!webview) throw new Error('Missing active password webview.');
-      return window.vast.passwords.captureStatus(webview.getWebContentsId(), ${JSON.stringify(origin)});
-    })()`)
-    assert(
-      captureStatus.ok === true && captureStatus.enabled === captureExpected,
-      `Automatic capture status did not match the fixture expectation: ${JSON.stringify(captureStatus)}`
-    )
-    await typeInActiveWebview(session, '#login-user', username)
-    await typeInActiveWebview(session, '#login-password', password)
-    if (method === 'enter') {
-      await executeInActiveWebview(session, 'document.querySelector("#login-password").focus(); true')
-      await keyInActiveWebview(session, 'Enter')
-    } else if (method === 'click') {
-      await trustedClickInActiveWebview(session, '#login-submit')
-    } else {
-      await executeInActiveWebview(session, 'document.querySelector("form").requestSubmit(); true')
-    }
-    await waitForActiveWebview(session, 'document.title === "Vast Password Login Complete"', 'successful password login')
-  }
-
-  await setAddress(session, `${origin}/password-login-fail`)
-  await waitForActiveWebview(session, 'Boolean(document.querySelector("#fail-submit"))', 'failed password login fixture')
-  await typeInActiveWebview(session, '#fail-user', 'wrong@example.test')
-  await typeInActiveWebview(session, '#fail-password', 'Wrong-Smoke-Secret-000!')
-  await trustedClickInActiveWebview(session, '#fail-submit')
-  await waitForActiveWebview(session, 'Boolean(document.querySelector("[role=alert]"))', 'failed login feedback')
-  await assertNoPrompt('A failed localized/icon-button login produced a save prompt.')
-  record('password failure inference', 'validation feedback, retained form, and password refocus suppress saving')
-
-  const firstSecret = 'Captured-Smoke-Secret-789!'
-  await submitLogin('captured-user@example.test', firstSecret, 'enter')
-  await waitFor(session, 'document.body.innerText.includes("Save password?") && Boolean(document.querySelector("[data-testid=\\"password-save-prompt\\"]"))', 'locked-vault save prompt')
-  assert(!(await session.bodyText()).includes(firstSecret), 'The password save prompt exposed its plaintext secret.')
-  await resolvePrompt('save')
-  const vaultAfterSave = await waitForVault((vault) => vault.records?.filter((record) => record.origin === origin).length === 1, 'first captured login')
-  const firstRecord = vaultAfterSave.records.find((record) => record.origin === origin)
-  assert(firstRecord && !JSON.stringify(vaultAfterSave).includes(firstSecret), 'The first captured password was not stored exclusively as ciphertext.')
-  record('password save while locked', 'Enter submission saves after success evidence without unlocking the management UI')
-
-  await submitLogin('captured-user@example.test', firstSecret)
-  await assertNoPrompt('Unchanged credentials produced another prompt.', 1_300)
-  const unchangedVault = readVault()
-  const unchangedRecord = unchangedVault.records.find((record) => record.id === firstRecord.id)
-  assert(unchangedRecord?.encryptedPassword === firstRecord.encryptedPassword, 'Unchanged login was unnecessarily re-encrypted.')
-  assert(unchangedVault.records.filter((record) => record.origin === origin).length === 1, 'Username case differences created a duplicate credential.')
-  record('canonical unchanged match', 'requestSubmit and unchanged ciphertext resolve to one account without a duplicate')
-
-  const secondSecret = 'Captured-Smoke-Changed-012!'
-  await submitLogin('captured-user@example.test', secondSecret, 'click')
-  await waitFor(session, 'document.body.innerText.includes("Update saved password?")', 'changed-password update prompt')
-  await resolvePrompt('update')
-  const vaultAfterUpdate = await waitForVault((vault) => {
-    const record = vault.records?.find((item) => item.id === firstRecord.id)
-    return record?.encryptedPassword && record.encryptedPassword !== firstRecord.encryptedPassword
-  }, 'updated captured password')
-  assert(vaultAfterUpdate.records.filter((record) => record.origin === origin).length === 1, 'Updating a captured password created a duplicate.')
-  assert(!JSON.stringify(vaultAfterUpdate).includes(secondSecret), 'The updated password leaked into the vault file.')
-  record('password update matching', 'native click updates the existing canonical account without duplication')
-
-  const submitChange = async (currentPassword, newPassword, confirmation = newPassword) => {
-    await setAddress(session, `${origin}/password-change`)
-    await waitForActiveWebview(session, 'Boolean(document.querySelector("#change-confirm"))', 'password-change fixture')
-    await typeInActiveWebview(session, '#change-user', 'captured-user@example.test')
-    await typeInActiveWebview(session, '#change-current', currentPassword)
-    await typeInActiveWebview(session, '#change-new', newPassword)
-    await typeInActiveWebview(session, '#change-confirm', confirmation)
-    await executeInActiveWebview(session, 'document.querySelector("form").requestSubmit(); true')
-    await waitForActiveWebview(session, 'document.body.innerText.includes("Changed")', 'password-change completion')
-  }
-  await submitChange('wrong-current-password', 'Must-Not-Replace-333!')
-  await assertNoPrompt('A wrong current password offered to update a stored account.', 1_400)
-  await submitChange(secondSecret, 'Captured-Smoke-Changed-Again-444!')
-  await waitFor(session, 'document.body.innerText.includes("Update saved password?")', 'safe password-change update prompt')
-  await resolvePrompt('update')
-  await submitChange('Captured-Smoke-Changed-Again-444!', 'Mismatch-New-A!', 'Mismatch-New-B!')
-  await assertNoPrompt('Mismatching change-password confirmation produced a prompt.', 1_300)
-  record('password-change resolution', 'current password identifies the account; wrong current and mismatching confirmation are rejected')
-
-  await setAddress(session, `${origin}/password-spa`)
-  await waitForActiveWebview(session, 'Boolean(document.querySelector("#spa-submit"))', 'SPA password fixture')
-  await typeInActiveWebview(session, '#spa-user', 'spa-user@example.test')
-  await typeInActiveWebview(session, '#spa-password', 'SPA-Smoke-Secret-111!')
-  await trustedClickInActiveWebview(session, '#spa-submit')
-  await waitForActiveWebview(session, 'document.title === "Vast Password SPA Complete"', 'SPA authentication completion')
-  await waitFor(session, 'document.body.innerText.includes("Save password?")', 'SPA password prompt')
-  await resolvePrompt('save')
-  record('SPA credential capture', 'custom no-form control, history navigation, and DOM replacement produce one save decision')
-
-  await setAddress(session, `${origin}/password-formless-enter`)
-  await waitForActiveWebview(session, 'Boolean(document.querySelector("#formless-password"))', 'form-less Enter login fixture')
-  await typeInActiveWebview(session, '#formless-user', 'formless-user@example.test')
-  await typeInActiveWebview(session, '#formless-password', 'Formless-Smoke-Secret-112!')
-  await executeInActiveWebview(session, 'document.querySelector("#formless-password").focus(); true')
-  await keyInActiveWebview(session, 'Enter')
-  await waitForActiveWebview(session, 'document.body.innerText.includes("Authenticated")', 'form-less Enter authentication completion')
-  await waitFor(session, 'document.body.innerText.includes("formless-user@example.test") && document.body.innerText.includes("Save password?")', 'form-less Enter password prompt')
-  await resolvePrompt('save')
-  record('form-less Enter capture', 'sibling input wrappers resolve to one bounded credential scope without language or form markup')
-
-  await setAddress(session, `${origin}/password-username-first`)
-  await waitForActiveWebview(session, 'Boolean(document.querySelector("#multi-user"))', 'username-first fixture')
-  await typeInActiveWebview(session, '#multi-user', 'multi-user@example.test')
-  await executeInActiveWebview(session, 'document.querySelector("#username-step").requestSubmit(); true')
-  await waitForActiveWebview(session, 'Boolean(document.querySelector("#multi-password"))', 'username-first password step')
-  await typeInActiveWebview(session, '#multi-password', 'Multi-Smoke-Secret-222!')
-  await executeInActiveWebview(session, 'document.querySelector("#password-step").requestSubmit(); true')
-  await waitForActiveWebview(session, 'document.body.innerText.includes("Welcome")', 'username-first completion')
-  await waitFor(session, 'document.body.innerText.includes("multi-user@example.test")', 'username-first correlated prompt')
-  await resolvePrompt('save')
-  record('username-first capture', 'the user-entered first step is correlated to the later password in the same tab and origin')
-
-  await setAddress(session, `${origin}/password-signup`)
-  await waitForActiveWebview(session, 'Boolean(document.querySelector("#signup-confirm"))', 'signup mismatch fixture')
-  await typeInActiveWebview(session, '#signup-user', 'mismatch@example.test')
-  await typeInActiveWebview(session, '#signup-password', 'Signup-Mismatch-A!')
-  await typeInActiveWebview(session, '#signup-confirm', 'Signup-Mismatch-B!')
-  await executeInActiveWebview(session, 'document.querySelector("form").requestSubmit(); true')
-  await waitForActiveWebview(session, 'document.body.innerText.includes("Created")', 'mismatched signup completion')
-  await assertNoPrompt('Mismatching signup confirmation produced a prompt.', 1_300)
-
-  await setAddress(session, `${origin}/password-signup`)
-  await waitForActiveWebview(session, 'Boolean(document.querySelector("#signup-confirm"))', 'signup fixture')
-  await typeInActiveWebview(session, '#signup-user', 'signup-user@example.test')
-  await typeInActiveWebview(session, '#signup-password', 'Signup-Smoke-Secret-333!')
-  await typeInActiveWebview(session, '#signup-confirm', 'Signup-Smoke-Secret-333!')
-  await executeInActiveWebview(session, 'document.querySelector("form").requestSubmit(); true')
-  await waitForActiveWebview(session, 'document.body.innerText.includes("Created")', 'signup completion')
-  await waitFor(session, 'document.body.innerText.includes("Save this new account?")', 'signup save prompt')
-  await resolvePrompt('save')
-  record('signup capture', 'matching new-password fields save; mismatching confirmation does not')
-
-  await setAddress(session, `${origin}/password-dynamic`)
-  await waitForActiveWebview(session, 'Boolean(document.querySelector("#show-login"))', 'dynamic login fixture')
-  await clickInActiveWebview(session, '#show-login')
-  await waitForActiveWebview(session, 'Boolean(document.querySelector("#dynamic-password"))', 'dynamically inserted login form')
-  await typeInActiveWebview(session, '#dynamic-user', 'dynamic-user@example.test')
-  await typeInActiveWebview(session, '#dynamic-password', 'Dynamic-Smoke-Secret-555!')
-  await executeInActiveWebview(session, 'document.querySelector("form").requestSubmit(); true')
-  await waitFor(session, 'document.body.innerText.includes("Save password?")', 'dynamic login save prompt')
-  await resolvePrompt('save')
-  record('dynamic credential capture', 'one batched observer discovers a late-mounted form without polling')
-
-  await submitLogin('never-save@example.test', 'Never-Save-Smoke-345!')
-  await waitFor(session, 'document.body.innerText.includes("Save password?")', 'Never-for-site prompt')
-  await resolvePrompt('never')
-  const suppressedVault = await waitForVault((vault) => vault.savePromptNeverOrigins?.includes(origin), 'Never-for-site persistence')
-  assert(!JSON.stringify(suppressedVault).includes('Never-Save-Smoke-345!'), 'Never-for-site retained a dismissed plaintext candidate.')
-  await submitLogin('never-save-again@example.test', 'Never-Save-Again-Smoke-678!', 'requestSubmit', false)
-  await assertNoPrompt('A suppressed origin produced a repeated password prompt.', 1_300)
-  record('Never for this site', 'origin-scoped durable suppression prevents later capture before another decision is created')
-
-  const finalVaultRaw = fs.readFileSync(vaultPath, 'utf8')
-  for (const secret of [
-    'Wrong-Smoke-Secret-000!', firstSecret, secondSecret, 'Must-Not-Replace-333!',
-    'Captured-Smoke-Changed-Again-444!', 'Mismatch-New-A!', 'Mismatch-New-B!',
-    'SPA-Smoke-Secret-111!', 'Formless-Smoke-Secret-112!', 'Multi-Smoke-Secret-222!', 'Signup-Mismatch-A!',
-    'Signup-Mismatch-B!', 'Signup-Smoke-Secret-333!', 'Dynamic-Smoke-Secret-555!',
-    'Never-Save-Smoke-345!', 'Never-Save-Again-Smoke-678!'
-  ]) assert(!finalVaultRaw.includes(secret), `Plaintext credential leaked into password-vault.json: ${secret}`)
-  const normalStorageLeaks = await session.evaluate(`window.vast.storage.load().then((data) => ${JSON.stringify([
-    firstSecret, secondSecret, 'Captured-Smoke-Changed-Again-444!', 'SPA-Smoke-Secret-111!',
-    'Formless-Smoke-Secret-112!', 'Multi-Smoke-Secret-222!', 'Signup-Smoke-Secret-333!', 'Dynamic-Smoke-Secret-555!'
-  ])}.some((secret) => JSON.stringify(data).includes(secret)))`)
-  assert(normalStorageLeaks === false, 'A plaintext credential leaked into normal Vast persisted storage.')
-  record('password plaintext boundary', 'prompt DOM, normal browser storage, and encrypted vault files contain no submitted plaintext')
 }
 
 async function runSplitViewSmoke(session, localServerPort) {
@@ -1419,6 +1091,13 @@ async function main() {
   if (process.argv.includes('--local-pdf-only')) {
     fs.writeFileSync(localPdfPath, createPdfBuffer('Vast Local PDF Smoke'))
   }
+  if (openingVisualOnlyRequested) {
+    const { DEFAULT_DATA } = await import(require('node:url').pathToFileURL(path.join(root, 'src/shared/constants.ts')).href)
+    const seed = structuredClone(DEFAULT_DATA)
+    seed.settings.animations = true
+    seed.settings.openingAnimation = true
+    fs.writeFileSync(path.join(userDataDir, 'vast-data.json'), JSON.stringify(seed))
+  }
 
   appProcess = spawn(launchExecutable, launchArgs, {
     cwd: root,
@@ -1434,7 +1113,7 @@ async function main() {
     }
   })
 
-  const openingVisualOnly = process.argv.includes('--opening-visual-only')
+  const openingVisualOnly = openingVisualOnlyRequested
   const session = await pageSession(openingVisualOnly)
   if (openingVisualOnly) {
     await waitFor(
@@ -1445,7 +1124,7 @@ async function main() {
     const openingViewport = await session.evaluate('[window.innerWidth, window.innerHeight]')
     assert(openingViewport[0] <= 700 && openingViewport[1] <= 420, `Opening window is not compact: ${openingViewport.join('x')}.`)
     const metrics = {}
-    for (const frameMs of [0, 1100, 3000, 4500]) {
+    for (const frameMs of [0, 1000, 2000, 2600]) {
       metrics[frameMs] = await session.evaluate(`(() => {
         document.querySelector('.vast-opening-overlay')?.style.setProperty('--vast-opening-delay', '0ms');
         for (const animation of document.getAnimations()) {
@@ -1471,14 +1150,22 @@ async function main() {
       await session.screenshot(`opening-${String(frameMs).padStart(4, '0')}`)
     }
     fs.writeFileSync(path.join(artifactsDir, 'opening-visual-metrics.json'), `${JSON.stringify(metrics, null, 2)}\n`, 'utf8')
-    record('opening visual sequence', 'deterministic frames captured at 0, 1100, 3000, and 4500 ms')
+    record('opening visual sequence', 'deterministic splash frames captured at 0, 1000, 2000, and 2600 ms')
     session.close()
     cleanup()
     console.log(`\n${checks.length} targeted app checks passed.`)
     console.log(`Artifacts: ${artifactsDir}`)
     return
   }
-  await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"new-tab-identity\\"]")) && document.body.innerText.includes("New tab")', 'initial new tab')
+  // A fresh profile now starts in first-run onboarding. Complete it through the
+  // defaults route so the rest of the suite exercises the normal browser, and so
+  // onboarding itself is covered end-to-end.
+  await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"onboarding-page\\"]"))', 'first-run onboarding page', 60000)
+  await clickByText(session, 'Use defaults')
+  await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"onboarding-enter-vast\\"]"))', 'onboarding ready step', 60000)
+  await clickByText(session, 'Enter Vast')
+  record('first-run onboarding', 'fresh profile completed onboarding and landed in the browser')
+  await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"new-tab-identity\\"]")) && document.body.innerText.includes("New tab")', 'initial new tab', 60000)
   if (process.argv.includes('--local-pdf-only')) {
     const activationArgs = packagedExecutable ? [localPdfPath] : [root, localPdfPath]
     const activationProcess = spawn(launchExecutable, activationArgs, {
@@ -1596,16 +1283,6 @@ async function main() {
     console.log(`Artifacts: ${artifactsDir}`)
     return
   }
-  if (process.argv.includes('--password-manager-only')) {
-    await runPasswordManagerSmoke(session, localServerPort)
-    const unexpectedRendererIssues = rendererIssues.filter((issue) => !isExpectedRendererIssue(issue))
-    if (unexpectedRendererIssues.length) fail(`Renderer errors observed:\n${unexpectedRendererIssues.join('\n')}`)
-    session.close()
-    cleanup()
-    console.log(`\n${checks.length} targeted app checks passed.`)
-    console.log(`Artifacts: ${artifactsDir}`)
-    return
-  }
   if (process.argv.includes('--purist-visual-only')) {
     await openCommand(session, 'Open settings')
     await clickByText(session, 'Open settings')
@@ -1703,8 +1380,6 @@ async function main() {
 
     const searchCases = [
       ['ram limit', 'Memory target (best effort)', 'Advanced'],
-      ['menedżer haseł', 'Password Manager', 'Data'],
-      ['passwrod manager', 'Password Manager', 'Data'],
       ['mikrofon', 'Microphone', 'Site Data']
     ]
     for (const [query, expectedLabel, expectedSection] of searchCases) {
@@ -1912,7 +1587,7 @@ async function main() {
 
   await openCommand(session, 'Open Privacy Settings')
   await clickByText(session, 'Open Privacy Settings')
-  await waitFor(session, 'document.body.innerText.includes("Customize Vast without sending data anywhere.")', 'settings modal for vertical layout')
+  await waitFor(session, 'Boolean(document.querySelector(".settings-modal-shell"))', 'settings modal for vertical layout')
   await setSelectByLabel(session, 'Layout', 'vertical')
   await waitForStorage(session, '(data) => data.settings.layoutMode === "vertical"', 'vertical layout persisted')
   await clickByTitle(session, 'Close settings')
@@ -2567,7 +2242,7 @@ async function main() {
   await closeWorkspacePopover(session)
   await openCommand(session, 'Open Privacy Settings')
   await clickByText(session, 'Open Privacy Settings')
-  await waitFor(session, 'document.body.innerText.includes("Customize Vast without sending data anywhere.")', 'settings modal')
+  await waitFor(session, 'Boolean(document.querySelector(".settings-modal-shell"))', 'settings modal')
   const labsSectionState = await session.evaluate(`(() => {
     const section = document.querySelector('section#Labs')
     return {
@@ -2613,13 +2288,12 @@ async function main() {
   await setCheckboxByLabel(session, 'Video & Audio', true)
   await setCheckboxByLabel(session, 'Network Devices', true)
   await setCheckboxByLabel(session, 'Automation', true)
-  await setCheckboxByLabel(session, 'Password Manager', true)
   await setCheckboxByLabel(session, 'Diagnostics', true)
   await setSelectByLabel(session, 'Sidebar mode', 'docked')
   await setSelectByLabel(session, 'Layout', 'horizontal')
   await waitForStorage(
     session,
-    '(data) => data.settings.layoutMode === "horizontal" && data.settings.sidePanel.mode === "docked" && data.settings.bookmarksBarVisible === true && data.settings.bookmarksBarOnlyOnNewTab === false && data.settings.newTabBehavior === "blank" && data.settings.labs.avidae === true && data.settings.labs.networkDevices === true && data.settings.labs.automation === true && data.settings.labs.passwordManager === true && data.settings.labs.advancedDiagnostics === true',
+    '(data) => data.settings.layoutMode === "horizontal" && data.settings.sidePanel.mode === "docked" && data.settings.bookmarksBarVisible === true && data.settings.bookmarksBarOnlyOnNewTab === false && data.settings.newTabBehavior === "blank" && data.settings.labs.avidae === true && data.settings.labs.networkDevices === true && data.settings.labs.automation === true && data.settings.labs.advancedDiagnostics === true',
     'horizontal settings persisted'
   )
   await waitFor(
@@ -2663,7 +2337,7 @@ async function main() {
   await clickHorizontalBrowserTools(session)
   await waitFor(
     session,
-    'document.body.innerText.includes("Incognito window") && document.body.innerText.includes("Video & Audio") && document.body.innerText.includes("Network Devices") && document.body.innerText.includes("Password Manager") && !document.body.innerText.includes("Developer tools")',
+    'document.body.innerText.includes("Incognito window") && document.body.innerText.includes("Video & Audio") && document.body.innerText.includes("Network Devices") && !document.body.innerText.includes("Developer tools")',
     'toolbar overflow'
   )
   await clickByText(session, 'Video & Audio')
@@ -2718,275 +2392,6 @@ async function main() {
   await waitForStorage(session, '(data) => data.settings.network.activeProbing === false', 'network active probing restored')
   await clickByTitle(session, 'Close settings')
   record('network settings', 'network settings toggles persist')
-
-  if (process.argv.includes('--password-vault-visuals')) {
-    await clickHorizontalBrowserTools(session)
-    await clickByText(session, 'Password Manager')
-  await waitForStorage(session, '(data) => data.tabs.some((tab) => tab.url === "vast://passwords")', 'password manager tab opened from overflow')
-  await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"passwords-page\\"]"))', 'password manager page visible')
-  record('password manager overflow', 'browser tools menu opens the native password vault page')
-
-  await clickByText(session, 'Add login')
-  await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"password-origin-input\\"]"))', 'password form open')
-  await session.evaluate(`(() => {
-    const values = {
-      'password-title-input': 'Smoke Login',
-      'password-origin-input': 'https://login.example.com/sign-in',
-      'password-username-input': 'vast-user',
-      'password-secret-input': 'Vast-Smoke-Secret-123!'
-    };
-    for (const [testId, value] of Object.entries(values)) {
-      const input = document.querySelector('[data-testid="' + testId + '"]');
-      if (!input) throw new Error('Missing password input: ' + testId);
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-      setter.call(input, value);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-    return true;
-  })()`)
-  await clickByText(session, 'Save login')
-  await waitFor(session, 'document.body.innerText.includes("Smoke Login") && document.body.innerText.includes("login.example.com")', 'saved password visible')
-  await assertEqualActionGrid(session, 'password-vault-header-actions', 6, 2)
-  await assertEqualActionGrid(session, 'password-entry-actions', 4, 1)
-  await session.screenshot('04b-password-actions')
-  const passwordList = await session.evaluate('window.vast.passwords.list()')
-  assert(passwordList.ok === true, 'Password list IPC failed.')
-  assert(
-    passwordList.items.some((item) => item.title === 'Smoke Login' && item.origin === 'https://login.example.com' && item.username === 'vast-user'),
-    'Saved login is missing from password vault list.'
-  )
-  assert(!JSON.stringify(passwordList.items).includes('Vast-Smoke-Secret-123!'), 'Password list leaked a plaintext password.')
-  const normalStorageContainsPassword = await session.evaluate(
-    'window.vast.storage.load().then((data) => JSON.stringify(data).includes("Vast-Smoke-Secret-123!"))'
-  )
-  assert(normalStorageContainsPassword === false, 'Plaintext password leaked into normal Vast storage.')
-  const vaultRaw = fs.readFileSync(path.join(userDataDir, 'password-vault.json'), 'utf8')
-  assert(!vaultRaw.includes('Vast-Smoke-Secret-123!'), 'Plaintext password leaked into password-vault.json.')
-  record('password vault save', 'sample login is encrypted separately from normal browser storage')
-
-  await clickByText(session, 'Import CSV')
-  await waitFor(session, 'document.body.innerText.includes("Imported Login") && document.body.innerText.includes("Imported 1 password from CSV")', 'password CSV import rendered')
-  const importedPasswordList = await session.evaluate('window.vast.passwords.list()')
-  assert(importedPasswordList.ok === true, 'Password list IPC failed after CSV import.')
-  const importedLogin = importedPasswordList.items.find((item) => item.title === 'Imported Login')
-  assert(importedLogin?.origin === 'https://import.example.com' && importedLogin.username === 'import-user', 'CSV imported login is missing or normalized incorrectly.')
-  assert(importedLogin.notes === 'imported note, with comma', 'CSV import did not preserve notes.')
-  assert(!JSON.stringify(importedPasswordList.items).includes('Import-Smoke-Secret-456!'), 'Password list leaked imported plaintext password.')
-  const vaultAfterImportRaw = fs.readFileSync(path.join(userDataDir, 'password-vault.json'), 'utf8')
-  assert(!vaultAfterImportRaw.includes('Import-Smoke-Secret-456!'), 'Imported plaintext password leaked into password-vault.json.')
-  assert(!vaultAfterImportRaw.includes('import-user'), 'Imported plaintext username leaked into password-vault.json.')
-  assert(!vaultAfterImportRaw.includes('imported note, with comma'), 'Imported plaintext note leaked into password-vault.json.')
-  record('password CSV import', 'Chrome-style CSV import preserves encrypted passwords, usernames, notes, and skipped-row counts')
-
-  await session.evaluate(`(() => {
-    const input = document.querySelector('[data-testid="password-search-input"]');
-    if (!input) throw new Error('Password search input not found.');
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-    setter.call(input, 'Smoke');
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    return true;
-  })()`)
-  await waitFor(session, 'document.body.innerText.includes("Smoke Login")', 'password search result')
-  body = await session.bodyText()
-  assert(body.includes('Import CSV') && body.includes('Export CSV'), 'Password CSV import/export UI is missing.')
-  record('password vault search and CSV', 'search filters saved logins and manual CSV controls are visible')
-
-  await openCommand(session, 'Password Manager')
-  await clickByText(session, 'Open Password Manager')
-  await waitForStorage(session, '(data) => data.tabs.filter((tab) => tab.url === "vast://passwords").length >= 2', 'password manager command opened')
-  await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"passwords-page\\"]"))', 'password manager command page visible')
-  record('password manager command', 'command palette opens the built-in password vault')
-
-  const capturedOrigin = `http://127.0.0.1:${localServerPort}`
-  const submitCapturedLogin = async (username, password, submission = 'requestSubmit') => {
-    await setAddress(session, `${capturedOrigin}/password-login`)
-    await waitForActiveWebview(session, 'document.title === "Vast Password Login" && Boolean(document.querySelector("#login-submit"))', 'password capture fixture')
-    await wait(350)
-    await typeInActiveWebview(session, '#login-user', username)
-    await typeInActiveWebview(session, '#login-password', password)
-    if (submission === 'enter') {
-      await executeInActiveWebview(session, 'document.querySelector("#login-password").focus(); true')
-      await keyInActiveWebview(session, 'Enter')
-    } else if (submission === 'click') {
-      await trustedClickInActiveWebview(session, '#login-submit')
-    } else {
-      await executeInActiveWebview(session, `(() => {
-        const form = document.querySelector('form');
-        if (!form) throw new Error('Missing password fixture form.');
-        form.requestSubmit();
-        return true;
-      })()`)
-    }
-    await waitForActiveWebview(session, 'document.title === "Vast Password Login Complete"', 'password fixture completion')
-  }
-
-  await setAddress(session, `${capturedOrigin}/password-login-fail`)
-  await waitForActiveWebview(session, 'Boolean(document.querySelector("#fail-submit"))', 'failed password fixture')
-  await typeInActiveWebview(session, '#fail-user', 'wrong@example.test')
-  await typeInActiveWebview(session, '#fail-password', 'Wrong-Smoke-Secret-000!')
-  await executeInActiveWebview(session, 'document.querySelector("form").requestSubmit(); true')
-  await waitForActiveWebview(session, 'Boolean(document.querySelector("[role=alert]"))', 'failed login error')
-  await wait(2_100)
-  body = await session.bodyText()
-  assert(!body.includes('Save password?') && !body.includes('Update saved password?'), 'Failed login produced a password prompt.')
-  record('failed login rejection', 'validation failure and a refocused password field do not produce a save prompt')
-
-  await submitCapturedLogin('captured-user@example.test', 'Captured-Smoke-Secret-789!', 'enter')
-  await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"password-save-prompt\\"]")) && document.body.innerText.includes("Save password?")', 'automatic password save prompt')
-  body = await session.bodyText()
-  assert(!body.includes('Captured-Smoke-Secret-789!'), 'Automatic save prompt exposed a plaintext password.')
-  await session.evaluate('document.querySelector("[data-testid=\\"password-save-confirm\\"]")?.click()')
-  await waitFor(session, '!document.querySelector("[data-testid=\\"password-save-prompt\\"]")', 'automatic password save prompt resolved')
-  let capturedList
-  let capturedLogin
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    capturedList = await session.evaluate('window.vast.passwords.list()')
-    capturedLogin = capturedList.items?.find((item) => item.origin === capturedOrigin && item.username === 'captured-user@example.test')
-    if (capturedLogin) break
-    await wait(100)
-  }
-  assert(capturedList.ok === true && capturedLogin, 'Automatically captured login is missing from the vault.')
-  const capturedVaultRaw = fs.readFileSync(path.join(userDataDir, 'password-vault.json'), 'utf8')
-  assert(!capturedVaultRaw.includes('Captured-Smoke-Secret-789!'), 'Automatically captured password leaked into password-vault.json.')
-  record('automatic password save', 'secure origin-bound capture asks once and persists only OS-encrypted secret material')
-
-  await submitCapturedLogin('captured-user@example.test', 'Captured-Smoke-Secret-789!')
-  await wait(900)
-  body = await session.bodyText()
-  assert(!body.includes('Save password?') && !body.includes('Update saved password?'), 'Unchanged captured credentials prompted again.')
-  record('unchanged password recognition', 'matching credentials update usage without repeating the save prompt')
-
-  const encryptedBeforeUpdate = JSON.parse(fs.readFileSync(path.join(userDataDir, 'password-vault.json'), 'utf8'))
-    .records.find((item) => item.id === capturedLogin.id)?.encryptedPassword
-  await submitCapturedLogin('captured-user@example.test', 'Captured-Smoke-Changed-012!', 'click')
-  await waitFor(session, 'document.body.innerText.includes("Update saved password?")', 'automatic password update prompt')
-  await session.evaluate('document.querySelector("[data-testid=\\"password-save-confirm\\"]")?.click()')
-  await waitFor(session, '!document.body.innerText.includes("Update saved password?")', 'automatic password update prompt resolved')
-  let vaultAfterUpdate
-  let encryptedAfterUpdate
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    vaultAfterUpdate = JSON.parse(fs.readFileSync(path.join(userDataDir, 'password-vault.json'), 'utf8'))
-    encryptedAfterUpdate = vaultAfterUpdate.records.find((item) => item.id === capturedLogin.id)?.encryptedPassword
-    if (encryptedAfterUpdate && encryptedAfterUpdate !== encryptedBeforeUpdate) break
-    await wait(100)
-  }
-  assert(encryptedAfterUpdate && encryptedAfterUpdate !== encryptedBeforeUpdate, 'Changed captured password did not replace the encrypted record.')
-  assert(!JSON.stringify(vaultAfterUpdate).includes('Captured-Smoke-Changed-012!'), 'Updated captured password leaked into password-vault.json.')
-  record('automatic password update', 'changed credentials produce an explicit update prompt and replace the encrypted secret')
-
-  const submitPasswordChange = async (currentPassword, nextPassword) => {
-    await setAddress(session, `${capturedOrigin}/password-change`)
-    await waitForActiveWebview(session, 'Boolean(document.querySelector("#change-confirm"))', 'password change fixture')
-    await typeInActiveWebview(session, '#change-user', 'captured-user@example.test')
-    await typeInActiveWebview(session, '#change-current', currentPassword)
-    await typeInActiveWebview(session, '#change-new', nextPassword)
-    await typeInActiveWebview(session, '#change-confirm', nextPassword)
-    await executeInActiveWebview(session, 'document.querySelector("form").requestSubmit(); true')
-    await waitForActiveWebview(session, 'document.body.innerText.includes("Changed")', 'password change completion')
-  }
-  await submitPasswordChange('wrong-current-password', 'Must-Not-Replace-333!')
-  await wait(1_400)
-  body = await session.bodyText()
-  assert(!body.includes('Update saved password?'), 'Wrong current password offered to update an existing credential.')
-  await submitPasswordChange('Captured-Smoke-Changed-012!', 'Captured-Smoke-Changed-Again-444!')
-  await waitFor(session, 'document.body.innerText.includes("Update saved password?")', 'password change update prompt')
-  await session.evaluate('document.querySelector("[data-testid=\\"password-save-confirm\\"]")?.click()')
-  await waitFor(session, '!document.body.innerText.includes("Update saved password?")', 'password change update resolved')
-  record('password change resolution', 'current/new/confirm updates only the matching stored account and rejects a wrong current password')
-
-  await submitCapturedLogin('never-save@example.test', 'Never-Save-Smoke-345!')
-  await waitFor(session, 'document.body.innerText.includes("Save password?")', 'never-save password prompt')
-  await clickByText(session, 'Never for this site')
-  await waitFor(session, '!document.body.innerText.includes("Save password?")', 'never-save password prompt resolved')
-  let suppressedList
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    suppressedList = await session.evaluate('window.vast.passwords.list()')
-    if (suppressedList.suppressedOrigins?.includes(capturedOrigin)) break
-    await wait(100)
-  }
-  assert(suppressedList.suppressedOrigins?.includes(capturedOrigin), 'Never-for-this-site preference was not persisted.')
-  await submitCapturedLogin('never-save-again@example.test', 'Never-Save-Again-Smoke-678!')
-  await wait(900)
-  body = await session.bodyText()
-  assert(!body.includes('Save password?'), 'Suppressed origin produced another password save prompt.')
-  const allowAgain = await session.evaluate(`window.vast.passwords.allowSavePrompts(${JSON.stringify(capturedOrigin)})`)
-  assert(allowAgain.ok === true, 'Could not restore automatic save prompts for a suppressed origin.')
-  const restoredPromptList = await session.evaluate('window.vast.passwords.list()')
-  assert(!restoredPromptList.suppressedOrigins?.includes(capturedOrigin), 'Restored origin remained suppressed.')
-  record('password prompt site preference', 'Never is durable, prevents repeat prompts, and can be reversed from Password Manager')
-
-  await setAddress(session, `${capturedOrigin}/password-spa`)
-  await waitForActiveWebview(session, 'Boolean(document.querySelector("#spa-submit"))', 'SPA password fixture')
-  await typeInActiveWebview(session, '#spa-user', 'spa-user@example.test')
-  await typeInActiveWebview(session, '#spa-password', 'SPA-Smoke-Secret-111!')
-  await trustedClickInActiveWebview(session, '#spa-submit')
-  await waitForActiveWebview(session, 'document.title === "Vast Password SPA Complete"', 'SPA login completion')
-  await waitFor(session, 'document.body.innerText.includes("Save password?")', 'SPA save prompt')
-  await session.evaluate('document.querySelector("[data-testid=\\"password-save-confirm\\"]")?.click()')
-  await waitFor(session, '!document.querySelector("[data-testid=\\"password-save-prompt\\"]")', 'SPA save resolved')
-  record('SPA password save', 'custom localized control, History API navigation, and removed login UI produce one prompt')
-
-  await setAddress(session, `${capturedOrigin}/password-username-first`)
-  await waitForActiveWebview(session, 'Boolean(document.querySelector("#multi-user"))', 'username-first fixture')
-  await typeInActiveWebview(session, '#multi-user', 'multi-user@example.test')
-  await executeInActiveWebview(session, 'document.querySelector("#username-step").requestSubmit(); true')
-  await waitForActiveWebview(session, 'Boolean(document.querySelector("#multi-password"))', 'username-first password step')
-  await typeInActiveWebview(session, '#multi-password', 'Multi-Smoke-Secret-222!')
-  await executeInActiveWebview(session, 'document.querySelector("#password-step").requestSubmit(); true')
-  await waitForActiveWebview(session, 'document.body.innerText.includes("Welcome")', 'username-first completion')
-  await waitFor(session, 'document.body.innerText.includes("multi-user@example.test") && document.body.innerText.includes("Save password?")', 'username-first correlated prompt')
-  await session.evaluate('document.querySelector("[data-testid=\\"password-save-confirm\\"]")?.click()')
-  await waitFor(session, '!document.querySelector("[data-testid=\\"password-save-prompt\\"]")', 'username-first save resolved')
-  record('username-first password save', 'the user-entered first step is correlated only with the later password in the same tab and origin')
-
-  await setAddress(session, `${capturedOrigin}/password-signup`)
-  await waitForActiveWebview(session, 'Boolean(document.querySelector("#signup-confirm"))', 'signup fixture')
-  await typeInActiveWebview(session, '#signup-user', 'signup-user@example.test')
-  await typeInActiveWebview(session, '#signup-password', 'Signup-Smoke-Secret-333!')
-  await typeInActiveWebview(session, '#signup-confirm', 'Signup-Smoke-Secret-333!')
-  await executeInActiveWebview(session, 'document.querySelector("form").requestSubmit(); true')
-  await waitForActiveWebview(session, 'document.body.innerText.includes("Created")', 'signup completion')
-  await waitFor(session, 'document.body.innerText.includes("Save this new account?")', 'signup save prompt')
-  await session.evaluate('document.querySelector("[data-testid=\\"password-save-confirm\\"]")?.click()')
-  await waitFor(session, '!document.querySelector("[data-testid=\\"password-save-prompt\\"]")', 'signup save resolved')
-  record('signup password save', 'matching new-password confirmation is recognized as account creation')
-
-  const disableAutofillConfirmation = await session.evaluate(`window.vast.storage.load().then((data) => {
-    data.settings.security.alwaysConfirmAutofill = false;
-    return window.vast.storage.save(data);
-  })`)
-  assert(disableAutofillConfirmation.ok === true, 'Could not disable the optional second autofill confirmation for deterministic testing.')
-  await setAddress(session, `${capturedOrigin}/password-dynamic`)
-  await waitForActiveWebview(session, 'document.title === "Vast Dynamic Login"', 'dynamic password fixture')
-  await clickInActiveWebview(session, '#show-login')
-  await waitForActiveWebview(session, 'Boolean(document.querySelector("#__vast_af_root"))', 'dynamic autofill suggestions attached', 30_000)
-  await executeInActiveWebview(session, 'document.querySelector("#dynamic-user").focus(); true')
-  await waitForActiveWebview(session, 'document.querySelector("#__vast_af_root")?.classList.contains("visible")', 'dynamic autofill suggestions visible')
-  await keyInActiveWebview(session, 'Down')
-  await keyInActiveWebview(session, 'Enter')
-  await waitForActiveWebview(
-    session,
-    'document.querySelector("#dynamic-user")?.value === "captured-user@example.test" && document.querySelector("#dynamic-password")?.value.length > 0',
-    'dynamic saved login filled',
-    30_000
-  )
-  const restoreAutofillConfirmation = await session.evaluate(`window.vast.storage.load().then((data) => {
-    data.settings.security.alwaysConfirmAutofill = true;
-    return window.vast.storage.save(data);
-  })`)
-  assert(restoreAutofillConfirmation.ok === true, 'Could not restore the default autofill confirmation setting.')
-  record('dynamic password autofill', 'saved login suggestions discover SPA-inserted forms and fill only after explicit selection')
-
-  const lockedCapture = await session.evaluate('window.vast.passwords.lockSession()')
-  assert(lockedCapture.ok === true && lockedCapture.state?.locked === true, 'Could not lock Password Manager before locked-capture regression.')
-  await submitCapturedLogin('locked-capture@example.test', 'Locked-Capture-Smoke-444!')
-  await waitFor(session, 'document.body.innerText.includes("Save password?")', 'locked vault capture prompt')
-  await clickByText(session, 'Not now')
-  await waitFor(session, '!document.body.innerText.includes("Save password?")', 'locked vault capture dismissed')
-  record('locked vault capture', 'routine successful-login detection remains available while management and reveal actions are locked')
-
-    await waitFor(session, '!document.body.innerText.includes("Password prompts disabled")', 'password preference toast cleared', 10_000)
-  }
 
   await clickHorizontalBrowserTools(session)
   body = await session.bodyText()
@@ -3145,7 +2550,7 @@ async function main() {
   await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"timeline-primary-actions\\"]"))', 'session timeline page visible')
   await assertEqualActionGrid(session, 'timeline-primary-actions', 2, 1)
   await session.screenshot('04f-timeline-actions')
-  record('Labs action symmetry', 'Notes, Password Manager, Automation, Video & Audio, Diagnostics, Network, and Session Timeline use equal action grids')
+  record('Labs action symmetry', 'Notes, Automation, Video & Audio, Diagnostics, Network, and Session Timeline use equal action grids')
 
   await clickHorizontalBrowserTools(session)
   await clickByText(session, 'Incognito window')

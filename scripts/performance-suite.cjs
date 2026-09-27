@@ -242,8 +242,9 @@ async function runScenario(name, profileDir, options = {}) {
   const metricsResult = await session.send('Performance.getMetrics')
   const rendererMetrics = Object.fromEntries(metricsResult.metrics.map((metric) => [metric.name, metric.value]))
   const memory = aggregateProcesses(processSnapshot())
-  // Operation, idle and close measurements begin after the native opening reveal.
-  await waitFor(session, `!document.querySelector('.vast-opening-overlay')`, 15000)
+  // Operation, idle and close measurements begin after the parallel startup reveal:
+  // the splash runs in its own window, so readiness here is the hydrated app shell.
+  await waitFor(session, `Boolean(document.querySelector('.app-shell'))`, 15000)
   if (options.verified) {
     await waitFor(session, `innerWidth >= 980 && document.visibilityState === 'visible'`, 15000)
     await wait(2000)

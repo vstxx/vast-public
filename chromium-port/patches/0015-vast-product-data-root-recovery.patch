@@ -542,8 +542,8 @@ index 0000000000000000000000000000000000000000..630f3684c3bfc86caede630b5660edfc
 +  VastDataMigrationTransaction CommitFixture(const base::FilePath& source,
 +                                             const base::FilePath& parent) {
 +    Write(source.Append(FILE_PATH_LITERAL("vast-data.json")), kValidVastData);
-+    Write(source.Append(FILE_PATH_LITERAL("password-vault.json")),
-+          "opaque vault fixture");
++    Write(source.Append(FILE_PATH_LITERAL("legacy-metadata.json")),
++          "opaque legacy metadata fixture");
 +    VastDataMigrationTransaction transaction = PrepareVastDataMigration(
 +        source, parent, parent.Append(FILE_PATH_LITERAL("Vast2Data")));
 +    EXPECT_EQ(transaction.state, VastDataMigrationState::kPrepared)

@@ -1,0 +1,98 @@
+diff --git a/shell/browser/electron_browser_client.cc b/shell/browser/electron_browser_client.cc
+index 398527c..5740c97 100644
+--- a/shell/browser/electron_browser_client.cc
++++ b/shell/browser/electron_browser_client.cc
+@@ -1484,11 +1484,14 @@ void ElectronBrowserClient::CreateWebSocket(
+   DCHECK(web_request);
+ 
+ #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  LOG(INFO) << "[vast-compat] websocket app_listener="
++            << web_request->HasListener() << " url=" << url;
+   if (!web_request->HasListener()) {
+     auto* web_request_api = extensions::BrowserContextKeyedAPIFactory<
+         extensions::WebRequestAPI>::Get(browser_context);
+ 
+     if (web_request_api && web_request_api->MayHaveProxies()) {
++      LOG(INFO) << "[vast-compat] websocket route=extension";
+       web_request_api->ProxyWebSocket(
+           frame, std::move(factory), url, site_for_cookies, user_agent,
+           std::move(handshake_client), std::move(options.header_client));
+@@ -1497,6 +1500,7 @@ void ElectronBrowserClient::CreateWebSocket(
+   }
+ #endif
+ 
++  LOG(INFO) << "[vast-compat] websocket route=electron";
+   ProxyingWebSocket::StartProxying(
+       web_request, std::move(factory), url, site_for_cookies, user_agent,
+       std::move(handshake_client), true, frame->GetProcess()->GetDeprecatedID(),
+@@ -1531,6 +1535,10 @@ void ElectronBrowserClient::WillCreateURLLoaderFactory(
+   // no frame and are not routed through extensions.
+   const bool is_browser_process_request =
+       type == URLLoaderFactoryType::kNavigation && !frame_host;
++  LOG(INFO) << "[vast-compat] factory app_listener="
++            << web_request->HasListener()
++            << " browser_process=" << is_browser_process_request
++            << " type=" << static_cast<int>(type);
+   if (!web_request->HasListener() && !is_browser_process_request) {
+     auto* web_request_api = extensions::BrowserContextKeyedAPIFactory<
+         extensions::WebRequestAPI>::Get(browser_context);
+@@ -1544,11 +1552,14 @@ void ElectronBrowserClient::WillCreateURLLoaderFactory(
+ 
+     if (bypass_redirect_checks)
+       *bypass_redirect_checks = used_proxy_for_web_request;
+-    if (used_proxy_for_web_request)
++    if (used_proxy_for_web_request) {
++      LOG(INFO) << "[vast-compat] factory route=extension";
+       return;
++    }
+   }
+ #endif
+ 
++  LOG(INFO) << "[vast-compat] factory route=electron";
+   auto [proxied_receiver, target_factory_remote] = factory_builder.Append();
+ 
+   // Renderer-facing factories get an IO-thread gate in front of the proxy, so
+@@ -1655,6 +1666,8 @@ void ElectronBrowserClient::RegisterAssociatedInterfaceBindersForServiceWorker(
+     const content::ServiceWorkerVersionBaseInfo& service_worker_version_info,
+     blink::AssociatedInterfaceRegistry& associated_registry) {
+   CHECK(service_worker_version_info.process_id);
++  LOG(INFO) << "[vast-compat] register worker binders process="
++            << service_worker_version_info.process_id;
+   associated_registry.AddInterface<mojom::ElectronApiIPC>(
+       base::BindRepeating(&ElectronApiSWIPCHandlerImpl::BindReceiver,
+                           service_worker_version_info.process_id,
+diff --git a/shell/browser/extensions/electron_extension_loader.cc b/shell/browser/extensions/electron_extension_loader.cc
+index 1b5879b..6a56e95 100644
+--- a/shell/browser/extensions/electron_extension_loader.cc
++++ b/shell/browser/extensions/electron_extension_loader.cc
+@@ -146,6 +146,10 @@ void ElectronExtensionLoader::FinishExtensionLoad(
+   scoped_refptr<const Extension> extension = result.first;
+   if (extension) {
+     ExtensionPrefs* extension_prefs = ExtensionPrefs::Get(browser_context_);
++    LOG(INFO) << "[vast-compat] extension load id=" << extension->id()
++              << " previous_version="
++              << extension_prefs->GetVersionString(extension->id())
++              << " incoming_version=" << extension->version().GetString();
+ 
+     if (BackgroundInfo::IsServiceWorkerBased(extension.get())) {
+       // Tell Chromium that it needs to start the extension's service worker.
+@@ -159,6 +163,8 @@ void ElectronExtensionLoader::FinishExtensionLoad(
+     }
+ 
+     extension_registrar_->AddExtension(extension);
++    LOG(INFO) << "[vast-compat] extension registered id="
++              << extension->id();
+ 
+     // Write extension install time to ExtensionPrefs.
+     // This is required by extensions::WebRequestAPI
+@@ -203,7 +209,9 @@ void ElectronExtensionLoader::PreAddExtension(const Extension* extension,
+ }
+ 
+ void ElectronExtensionLoader::PostActivateExtension(
+-    scoped_refptr<const Extension> extension) {}
++    scoped_refptr<const Extension> extension) {
++  LOG(INFO) << "[vast-compat] extension activated id=" << extension->id();
++}
+ 
+ void ElectronExtensionLoader::PostDeactivateExtension(
+     scoped_refptr<const Extension> extension) {}

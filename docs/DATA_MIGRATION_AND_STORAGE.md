@@ -20,7 +20,6 @@ Vast-owned data under the data root includes:
 
 - `vast-data.json`: workspaces, tabs, tab groups, bookmarks, history, downloads metadata, notes, reading list, site memory, macros, macro logs, session snapshots, recent commands, settings, Labs state, shortcuts, permissions, reader settings, spoofing settings, and UI preferences.
 - `storage-backups/`: rolling/manual/pre-restore storage JSON backups.
-- `password-vault.json`: OS-encrypted password vault records and readable metadata.
 - `vast-network-devices.json`: remembered local Network Devices aliases, cache, and logs.
 - `integrations.json`: optional local integration credentials/config if the user created it.
 - `avidae/`: local Video & Audio data directory (legacy compatibility name).
@@ -39,7 +38,7 @@ Settings -> Data -> Export all Vast data writes a `.vastbackup` file. The archiv
 - `README.md` with human-readable migration notes.
 - `data/` with exportable Vast profile files.
 
-The export includes Vast JSON storage, backups, notes, tabs/session/workspaces, bookmarks, history, reading list, settings, Labs state, local feature data, the password vault file, and browser profile state where present.
+The export includes Vast JSON storage, backups, notes, tabs/session/workspaces, bookmarks, history, reading list, settings, Labs state, local feature data, and browser profile state where present.
 
 New exports exclude the deprecated `license-cache.json` and `license-device.json` files. Older archives that declare those entries still receive full ZIP, checksum, and manifest verification during import, but the two files are intentionally not restored.
 
@@ -81,7 +80,6 @@ Website session continuity is handled explicitly:
 
 ## Machine-Bound And Sensitive Data
 
-- Password vault: encrypted with Electron `safeStorage`, which can be OS/account-bound. The backup includes the encrypted vault and matching Chromium encryption state where present, but passwords may not decrypt on another Windows account or computer. Use the Password Manager CSV export only when an explicit plaintext export is needed and store that file securely.
 - Website sessions/cookies: Chromium profile state is included where present, but website login sessions are not guaranteed to transfer across computers or OS accounts.
 - `integrations.json`: can contain local provider credentials. If present, keep backups private.
 
@@ -89,4 +87,4 @@ Website session continuity is handled explicitly:
 
 - Import currently uses the safe "import into a new data directory and restart" path. In-place replacement and merge modes are not exposed yet.
 - A first-launch data directory wizard is not implemented in 0.2.7; users can choose the app install path in the installer and choose/migrate the data path in Settings.
-- Password and website session portability depends on OS/browser encryption behavior and should not be presented as guaranteed.
+- Website session portability depends on OS/browser encryption behavior and should not be presented as guaranteed.

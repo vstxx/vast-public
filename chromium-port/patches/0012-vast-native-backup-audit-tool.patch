@@ -52,7 +52,7 @@ index 0000000000000000000000000000000000000000..edd3e481d7a7cd21bf6f53a5c5079629
 +  result.Set("extractedProductFiles",
 +             static_cast<int>(extraction.extracted_product_files));
 +  result.Set("verifiedBytes", base::NumberToString(extraction.verified_bytes));
-+  result.Set("passwordVaultPresent", extraction.password_vault_present);
++  result.Set("legacyMetadataPresent", extraction.legacy_metadata_present);
 +  result.Set("temporaryDataCleaned", temporary_data_cleaned);
 +  if (!extraction.error.empty()) {
 +    result.Set("error", extraction.error);

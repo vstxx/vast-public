@@ -27,9 +27,9 @@ index b92320ef053c5a4a1e43796b8bc1ec497a3cfc97..2e6180a03b73fe5295e4a980996a68e3
 +        `${preview.workspaces} workspace(s), ${preview.tabs} tab(s), ` +
 +            `${preview.bookmarks} bookmark(s), ${preview.notes} note(s), and ` +
 +            `${preview.history} history item(s). ` +
-+            (preview.passwordVaultPresent ?
-+                 'Password vault detected but excluded from preview.' :
-+                 'No password vault detected.'));
++            (preview.legacyMetadataPresent ?
++                 'Legacy metadata detected but excluded from preview.' :
++                 'No legacy metadata detected.'));
 +    document.documentElement.dataset['migrationPreview'] = 'compatible';
 +  } else if (preview.available) {
 +    setText('migration-summary', 'Fixture requires attention');
@@ -53,7 +53,7 @@ index 565870ce7deb80f7807c129f7f4405c0b105a57b..c6b2b0d340704b404c6e576086672589
 -      <article class="status-card">
 -        <div class="status-line"><span class="status-dot active"></span><span>Vast product layer</span></div>
 -        <strong>UI and services in migration</strong>
--        <p>Workspaces, settings, notes, backups, and the vault will move behind typed, profile-scoped native adapters.</p>
+-        <p>Workspaces, settings, notes, backups, and legacy metadata will move behind typed, profile-scoped native adapters.</p>
 +      <article class="status-card" data-testid="migration-card">
 +        <div class="status-line"><span class="status-dot active"></span><span>Data compatibility</span></div>
 +        <strong id="migration-summary">Read-only preview ready</strong>
@@ -91,7 +91,7 @@ index d0da394e859dfd24021e0c365b1db058d5f6d0d4..a89a011b265faa7aa516bf8cca9518f5
 +  uint32 bookmarks;
 +  uint32 notes;
 +  uint32 history;
-+  bool password_vault_present;
++  bool legacy_metadata_present;
 +  string error;
 +};
 +
@@ -137,7 +137,7 @@ index fdce2a6293307bcfdf28910bb7e522afa077977a..88feada25d71b10eb77433d3731ac8c1
 +  preview->bookmarks = source.bookmarks;
 +  preview->notes = source.notes;
 +  preview->history = source.history;
-+  preview->password_vault_present = source.password_vault_present;
++  preview->legacy_metadata_present = source.legacy_metadata_present;
 +  preview->error = source.error;
 +  return preview;
 +}
@@ -264,8 +264,8 @@ index 0000000000000000000000000000000000000000..10b66e40b32767ffa080e6ef065629ee
 +  }
 +
 +  preview.available = true;
-+  preview.password_vault_present = base::PathExists(
-+      data_root.Append(FILE_PATH_LITERAL("password-vault.json")));
++  preview.legacy_metadata_present = base::PathExists(
++      data_root.Append(FILE_PATH_LITERAL("legacy-metadata.json")));
 +
 +  const std::optional<int64_t> file_size = base::GetFileSize(data_path);
 +  if (!file_size || *file_size < 0 ||
@@ -397,11 +397,11 @@ index 0000000000000000000000000000000000000000..18ab3394d07b21d4b6ab98a0585d119f
 +  uint32_t bookmarks = 0;
 +  uint32_t notes = 0;
 +  uint32_t history = 0;
-+  bool password_vault_present = false;
++  bool legacy_metadata_present = false;
 +  std::string error;
 +};
 +
-+// Reads only vast-data.json metadata and checks for the presence of the vault.
++// Reads only vast-data.json metadata and checks for the presence of legacy metadata.
 +// The source directory is never modified.
 +VastDataMigrationPreview ReadVastDataMigrationPreview(
 +    const base::FilePath& data_root);

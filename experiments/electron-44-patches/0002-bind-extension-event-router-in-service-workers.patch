@@ -1,0 +1,17 @@
+diff --git a/shell/browser/electron_browser_client.cc b/shell/browser/electron_browser_client.cc
+index 4463378..b4d651e 100644
+--- a/shell/browser/electron_browser_client.cc
++++ b/shell/browser/electron_browser_client.cc
+@@ -1672,6 +1672,12 @@ void ElectronBrowserClient::RegisterAssociatedInterfaceBindersForServiceWorker(
+                           service_worker_version_info.version_id));
+ 
+ #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
++  // Extension service workers register persistent event listeners through this
++  // interface. Without the binder, events such as alarms.onAlarm never reach
++  // the worker even though addListener() succeeds in JavaScript.
++  associated_registry.AddInterface<extensions::mojom::EventRouter>(
++      base::BindRepeating(&extensions::EventRouter::BindForRenderer,
++                          service_worker_version_info.process_id));
+   associated_registry.AddInterface<extensions::mojom::RendererHost>(
+       base::BindRepeating(&extensions::RendererStartupHelper::BindForRenderer,
+                           service_worker_version_info.process_id));

@@ -74,12 +74,12 @@ test('new release packages are scanned for backend and activation markers', () =
   assert.match(verifier, /\['vast', 'license'\]\.join\(':'\)/)
 })
 
-test('legacy license metadata is ignored only at the backup compatibility boundary', () => {
+test('retired product files are ignored only at the backup compatibility boundary', () => {
   const backup = read('src/main/vast-backup.ts')
-  assert.match(backup, /legacyProductMetadataFiles = new Set\(\['license-cache\.json', 'license-device\.json'\]\)/)
-  assert.match(backup, /function isLegacyProductMetadataPath\(relativePath: string\)/)
-  assert.match(backup, /isLegacyProductMetadataPath\(normalized\)/)
-  assert.match(backup, /isLegacyProductMetadataPath\(entry\.path\)/)
+  assert.match(backup, /retiredProductFiles = new Set\(\['license-cache\.json', 'license-device\.json', 'password-vault\.json'\]\)/)
+  assert.match(backup, /function isRetiredProductFilePath\(relativePath: string\)/)
+  assert.match(backup, /isRetiredProductFilePath\(normalized\)/)
+  assert.match(backup, /isRetiredProductFilePath\(entry\.path\)/)
 })
 
 test('legacy updater edition input is accepted but does not select or block a payload', () => {

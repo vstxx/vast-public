@@ -11,3 +11,11 @@ scripts/build-vast-ffmpeg.ps1 text eol=lf
 scripts/avidae-ffmpeg-capabilities.cjs text eol=lf
 scripts/generate-vast-ffmpeg-provenance.cjs text eol=lf
 scripts/check-ffmpeg-release-compliance.cjs text eol=lf
+resources/first-party-extensions/adblocker-for-vast/assets/**/*.js text eol=lf
+resources/first-party-extensions/adblocker-for-vast/assets/**/*.txt text eol=lf
+resources/first-party-extensions/adblocker-for-vast/assets/**/*.json text eol=lf
+resources/first-party-extensions/adblocker-for-vast/assets/source/** text=auto eol=lf
+experiments/electron-chrome-extensions-4.9.0/*.patch text eol=lf
+patches/*.patch text eol=lf -whitespace
+LICENSE text eol=lf
+experiments/electron-44-patches/*.patch text eol=lf

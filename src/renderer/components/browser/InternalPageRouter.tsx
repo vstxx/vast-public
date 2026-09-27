@@ -7,10 +7,11 @@ import {
   INTERNAL_NETWORK_URL,
   INTERNAL_NEW_TAB_URL,
   INTERNAL_NOTES_URL,
-  INTERNAL_PASSWORDS_URL,
+  INTERNAL_ONBOARDING_URL,
   INTERNAL_PDF_VIEWER_URL,
   INTERNAL_SESSION_TIMELINE_URL,
-  INTERNAL_SITE_DATA_URL
+  INTERNAL_SITE_DATA_URL,
+  INTERNAL_UNSUPPORTED_EXTENSION_STORE_URL
 } from '../../../shared/constants'
 import { featureGateForInternalUrl, getFeatureStateForGate } from '../../../shared/feature-gates'
 import type { BrowserSettings, Tab } from '../../../shared/types'
@@ -19,6 +20,7 @@ import { useBrowserStore } from '../../store/browser-store'
 import { LocalErrorBoundary } from '../ui/LocalErrorBoundary'
 import { FeatureGatePage } from '../internal/FeatureGatePage'
 import { NewTabPage } from '../new-tab/NewTabPage'
+import { UnsupportedExtensionStorePage } from '../extensions/UnsupportedExtensionStorePage'
 
 const AvidaePage = lazy(() => import('../avidae/AvidaePage').then((module) => ({ default: module.AvidaePage })))
 const AutomationPage = lazy(() => import('../automation/AutomationPage').then((module) => ({ default: module.AutomationPage })))
@@ -26,7 +28,7 @@ const DiagnosticsPage = lazy(() => import('../diagnostics/DiagnosticsPage').then
 const ExtensionsPage = lazy(() => import('../extensions/ExtensionsPage').then((module) => ({ default: module.ExtensionsPage })))
 const NetworkPage = lazy(() => import('../network/NetworkPage').then((module) => ({ default: module.NetworkPage })))
 const NotesPage = lazy(() => import('../notes/NotesPage').then((module) => ({ default: module.NotesPage })))
-const PasswordsPage = lazy(() => import('../passwords/PasswordsPage').then((module) => ({ default: module.PasswordsPage })))
+const OnboardingPage = lazy(() => import('../onboarding/OnboardingPage').then((module) => ({ default: module.OnboardingPage })))
 const PdfViewerPage = lazy(() => import('../pdf/PdfViewerPage').then((module) => ({ default: module.PdfViewerPage })))
 const SessionTimelinePage = lazy(() => import('../session-timeline/SessionTimelinePage').then((module) => ({ default: module.SessionTimelinePage })))
 const SiteDataPage = lazy(() => import('../site-data/SiteDataPage').then((module) => ({ default: module.SiteDataPage })))
@@ -81,8 +83,6 @@ export function InternalPageRouter({ tab }: { tab: Tab }): JSX.Element {
         <AvidaePage />
       ) : tab.url === INTERNAL_AUTOMATION_URL ? (
         <AutomationPage />
-      ) : tab.url === INTERNAL_PASSWORDS_URL ? (
-        <PasswordsPage />
       ) : tab.url === INTERNAL_NOTES_URL ? (
         <NotesPage />
       ) : tab.url === INTERNAL_NETWORK_URL ? (
@@ -100,6 +100,10 @@ export function InternalPageRouter({ tab }: { tab: Tab }): JSX.Element {
         />
       ) : tab.url === INTERNAL_SESSION_TIMELINE_URL ? (
         <SessionTimelinePage />
+      ) : tab.url === INTERNAL_UNSUPPORTED_EXTENSION_STORE_URL ? (
+        <UnsupportedExtensionStorePage tab={tab} />
+      ) : matchesInternalUrl(tab.url, INTERNAL_ONBOARDING_URL) ? (
+        <OnboardingPage />
       ) : (
         <UnknownInternalPage url={tab.url} />
       )

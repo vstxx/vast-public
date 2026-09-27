@@ -9,6 +9,7 @@ export default {
       checkbox: 'var(--vast-radius-checkbox)',
       swatch: 'var(--vast-radius-swatch)',
       control: 'var(--vast-radius-control)',
+      tile: 'var(--vast-radius-tile)',
       card: 'var(--vast-radius-card)',
       panel: 'var(--vast-radius-panel)',
       modal: 'var(--vast-radius-modal)'

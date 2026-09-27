@@ -25,7 +25,7 @@ test('external URL parser accepts HTTP(S), spaces, Unicode, long URLs, and quote
 })
 
 test('external URL parser rejects unsafe schemes and limits the public vast protocol', () => {
-  for (const input of ['file:///C:/secret.txt', 'javascript:alert(1)', 'data:text/html,test', 'ftp://example.com/file', 'vast://passwords']) {
+  for (const input of ['file:///C:/secret.txt', 'javascript:alert(1)', 'data:text/html,test', 'ftp://example.com/file', 'vast://unknown']) {
     assert.equal(externalNavigationTarget(input), undefined, input)
   }
   assert.equal(externalNavigationTarget('vast://newtab'), 'vast://newtab')

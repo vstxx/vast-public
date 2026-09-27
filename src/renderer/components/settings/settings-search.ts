@@ -33,7 +33,7 @@ const groups: Record<SettingsSearchSectionId, readonly SearchDefinition[]> = {
     ['Layout', 'tab layout vertical horizontal purist rozmieszczenie układ zakladki zakładki'],
     ['Theme', 'dark light dim mode color scheme motyw tryb ciemny jasny'],
     ['Force dark mode on websites', 'website dark mode night pages ciemne strony nocny tryb ciemny stron'],
-    ['Background', 'wallpaper canvas backdrop tlo tło'],
+    ['New Tab background', 'wallpaper canvas backdrop custom image tlo tło'],
     ['Accent color', 'primary colour highlight kolor akcentu'],
     ['Secondary accent', 'second accent colour drugi kolor'],
     ['Background tint', 'canvas color tlo kolor'],
@@ -57,6 +57,7 @@ const groups: Record<SettingsSearchSectionId, readonly SearchDefinition[]> = {
     ['Opening sound', 'startup audio launch sound dzwiek startowy'],
     ['Bookmarks bar', 'favorites bar pasek zakladek ulubione'],
     ['Show bookmarks bar only on New Tab', 'new tab favorites only zakladki tylko nowa karta'],
+    ['Clean toolbar icons', 'minimal toolbar buttons icons no background czyste ikony paska bez tla'],
     ['Visual style', 'window effects appearance style styl wizualny']
   ],
   Advanced: [
@@ -79,7 +80,6 @@ const groups: Record<SettingsSearchSectionId, readonly SearchDefinition[]> = {
     ['Video & Audio', 'media downloader video audio av idae pobieranie filmow muzyki'],
     ['Network Devices', 'lan devices discovery urzadzenia sieciowe'],
     ['Automation', 'macros automate workflow automatyzacja makra'],
-    ['Password Manager', 'password vault passwords credentials logins menedzer hasel hasla sejf'],
     ['Diagnostics', 'advanced debug diagnostics logs troubleshooting diagnostyka'],
     ['Spoofing', 'tools fingerprint identity user agent privacy spoofing maskowanie']
   ],
@@ -160,7 +160,6 @@ const groups: Record<SettingsSearchSectionId, readonly SearchDefinition[]> = {
     ['HTTPS-only mode', 'secure connections force https tylko https'],
     ['External link confirmation', 'open other apps protocol warning potwierdz linki zewnetrzne'],
     ['Dangerous download warnings', 'malware executable download alert ostrzezenia pobierania'],
-    ['Always confirm autofill', 'password fill confirmation potwierdz autouzupelnianie'],
     ['Reset security settings', 'restore protection defaults resetuj bezpieczenstwo'],
     ['Unsafe protocols', 'blocked schemes dangerous links niebezpieczne protokoly'],
     ['WebSecurity', 'same origin cors electron web security'],
@@ -226,7 +225,6 @@ const groups: Record<SettingsSearchSectionId, readonly SearchDefinition[]> = {
     ['Change Vast data directory', 'move profile storage location zmien folder danych'],
     ['Clear history', 'delete browsing history wyczysc historie'],
     ['Session timeline', 'browsing activity history os czasu sesji'],
-    ['Password Manager', 'password vault credentials logins menedzer hasel sejf hasla'],
     ['Export all Vast data', 'full backup migrate archive eksport kopia danych'],
     ['Import Vast data', 'restore full backup migrate import przywroc dane'],
     ['Backup report', 'migration result backup status raport kopii']

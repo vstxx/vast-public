@@ -358,7 +358,7 @@ index 0000000000000000000000000000000000000000..565870ce7deb80f7807c129f7f4405c0
 +      <article class="status-card">
 +        <div class="status-line"><span class="status-dot active"></span><span>Vast product layer</span></div>
 +        <strong>UI and services in migration</strong>
-+        <p>Workspaces, settings, notes, backups, and the vault will move behind typed, profile-scoped native adapters.</p>
++        <p>Workspaces, settings, notes, backups, and legacy metadata will move behind typed, profile-scoped native adapters.</p>
 +      </article>
 +    </section>
 +

@@ -4,6 +4,7 @@ const { mkdirSync, mkdtempSync, writeFileSync } = require('node:fs')
 const { join } = require('node:path')
 const { tmpdir } = require('node:os')
 const root = join(__dirname, '..')
+const previousPublicVersion = require('./release-config.json').previousPublicVersion
 const npm = process.env.npm_execpath
 if (!npm) throw new Error('Run npm run release:preflight so the active npm CLI is used.')
 const env = { ...process.env, VAST_RELEASE_CHANNEL: 'dev', VAST_PRIVATE_BUILD: '1', VAST_DISTRIBUTION_CHANNEL: 'direct', VAST_PUBLIC_UNSIGNED_RELEASE: '0', VAST_UPDATE_ENABLED: '0', VAST_RELAY_ENABLED: '0', VAST_RELAY_TEST_OFFLINE: '1' }
@@ -23,10 +24,10 @@ function run(label, args) {
   if (!ok) console.error(((result.stderr || result.stdout || result.error?.message || '')).slice(-2500))
   return ok
 }
-for (const script of ['release:version-check', 'audit:ci', 'lint', 'test', 'test:store', 'test:release']) run(`npm run ${script}`, [npm, 'run', script])
+for (const script of ['release:version-check', 'audit:ci', 'license:gpl:check', 'lint', 'test', 'test:store', 'test:release']) run(`npm run ${script}`, [npm, 'run', script])
 run('npm run check --prefix relay', [npm, 'run', 'check', '--prefix', 'relay'])
 run('npm run build:signer --prefix extensions-hub', [npm, 'run', 'build:signer', '--prefix', 'extensions-hub'])
-for (const script of ['hub:typecheck', 'hub:test', 'hub:build', 'extension:adblock:typecheck', 'test:electron-version', 'updater:stage', 'test:updater', 'test:fuses:integration', 'release:audit', 'test:extensions:e2e', 'test:extensions:native-e2e', 'test:adblock:extension-e2e', 'test:app', 'test:updater:background', 'build:obfuscated']) run(`npm run ${script}`, [npm, 'run', script])
+for (const script of ['hub:typecheck', 'hub:test', 'hub:build', 'extension:adblock:typecheck', 'test:electron-version', 'updater:stage', 'test:updater', 'test:fuses:integration', 'test:cookie-encryption', 'release:audit', 'test:extensions:e2e', 'test:extensions:native-e2e', 'test:adblock:extension-e2e', 'test:app', 'test:updater:background', 'build:obfuscated']) run(`npm run ${script}`, [npm, 'run', script])
 run('node scripts/secret-scan.cjs', [join(root, 'scripts/secret-scan.cjs')])
 const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' })
 env.VAST_RELEASE_COMMIT = head.stdout.trim()
@@ -36,7 +37,7 @@ const manual = [
   'Commit the reviewed changes; run preflight again on the clean final SHA before dispatch.',
   'Verify Partner Center highest consumed package version and update Store inputs; run WACK and isolated elevated install/upgrade/uninstall checks.',
   'Signing credentials, production Relay synthetic writes and Hub production trust verification remain protected release-workflow gates.',
-  'Final signed/MSIX artifact size, package integrity and real 0.2.7 upgrade gates require a built release candidate; local preflight does not create or install one.'
+  `Final signed/MSIX artifact size, package integrity and real ${previousPublicVersion} upgrade gates require a built release candidate; local preflight does not create or install one.`
 ]
 const report = { version: require('../package.json').version, sourceCommit: env.VAST_RELEASE_COMMIT, results, manual, snapshot }
 writeFileSync(join(directory, 'report.json'), JSON.stringify(report, null, 2) + '\n')

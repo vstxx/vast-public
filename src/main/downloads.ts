@@ -9,7 +9,7 @@ import { DEFAULT_SETTINGS } from '../shared/constants'
 import type { BrowserSettings, DownloadItem } from '../shared/types'
 import { alertScanResult, scanDownloadedFile } from './scanner'
 import { performanceProbeEnabled, recordDownloadDurableWrite, recordDownloadProgressEvent } from './performance-probe'
-import { loadData, upsertDownload } from './storage'
+import { clearCompletedDownloads, loadData, upsertDownload } from './storage'
 import { windowRegistry } from './windows/WindowRegistry'
 import { claimPdfDownload } from './pdf-resources'
 
@@ -295,7 +295,6 @@ export async function listCurrentDownloads(): Promise<DownloadItem[]> {
 }
 
 export async function clearCompletedDownloadHistory(): Promise<void> {
-  const { clearCompletedDownloads } = await import('./storage')
   await clearCompletedDownloads()
   for (const [key, item] of runtimeDownloads) {
     if (item.state !== 'completed' && item.state !== 'cancelled') continue

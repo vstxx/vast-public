@@ -71,6 +71,7 @@ test('Store package relies on Partner Center signing and keeps a recursive PE in
   assert.doesNotMatch(storeVerifier, /report\.validCount !== report\.peCount/)
   assert.match(storeVerifier, /mainBundle\.includes\(metadata\.relay\.endpoint\)/)
   assert.match(storeVerifier, /mainBundle\.includes\(metadata\.relay\.keyId\)/)
+  assert.match(storeVerifier, /if \(!development\) \{\s*if \(!packagedMainContains\(asar, appAsar, 'https:\/\/extensions\.vastbrowser\.com'\)\)/)
   assert.match(storeVerifier, /relay-staging\.vastbrowser\.com/)
   assert.match(storeVerifier, /reserved Store name/)
   assert.match(peVerifier, /Join-Path \$PSHOME 'Modules\\Microsoft\.PowerShell\.Security/)

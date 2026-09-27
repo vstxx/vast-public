@@ -1,34 +1,39 @@
 import { initializeDownloads, configureDownloadsForSession } from './downloads'
-import { BrowserWindow, app, nativeTheme, protocol, session, webContents } from 'electron/main'
+import { BrowserWindow, app, dialog, ipcMain, nativeTheme, protocol, session, webContents } from 'electron/main'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { createMainWindow } from './window'
-import { applySpoofingToAllWebContents, checkpointBrowserSessionData, clearSiteData, prepareBrowserSessionSecurity, setupTrackerBlocking, setupUserAgent } from './sessions'
+import { applySpoofingToAllWebContents, checkpointBrowserSessionData, clearSiteData, dispatchExtensionCompatibilityTabOpen, prepareBrowserSessionSecurity, setupTrackerBlocking, setupUserAgent } from './sessions'
 import { loadData } from './storage'
 import { DEFAULT_DATA, DEFAULT_SETTINGS } from '../shared/constants'
+import { matchesExtensionMatchPattern } from '../shared/extension-match-pattern'
 import { isOpeningAnimationEnabled } from '../shared/opening-startup'
+import { OPENING_PRESENTATION } from '../shared/opening-sequence'
+import { createOpeningSplashWindow, type OpeningSplashController } from './opening-splash'
 import type { BrowserSettings, DetachedTabPayload } from '../shared/types'
 import { assertPublicDistributionGuards, getBuildMetadata } from './build-info'
 import { setAppUserModelId, watchWindowShortcuts } from './electron-runtime'
-import { configureVastUserDataPath } from './data-path'
+import { configureVastCrashDumpPath, configureVastUserDataPath } from './data-path'
 import { setupIpc } from './ipc'
 import { ExternalNavigationRouter } from './windows/ExternalNavigationRouter'
 import { windowRegistry } from './windows/WindowRegistry'
 import { recordDiagnosticsEvent } from './diagnostics-events'
 import { flushPerformanceReport, markPerformance, registerPerformanceProbeIpc } from './performance-probe'
 import { completeLegacyDefaultSessionMigration, prepareLegacyDefaultSessionMigration, type LegacySessionMigrationPlan } from './session-continuity'
-import { initializePasswordVaultSessionLifecycle, lockPasswordVaultSession } from './password-vault-session'
 import { settingsAllowedByRuntimeFeaturePolicy } from './runtime-feature-policy'
 import { createVastRelayService } from './relay/runtime'
 import type { ExtensionManager } from './extensions/extension-manager'
-import { extensionHubOrigin } from './extensions/extension-hub-config'
 import { VAST_EXTENSION_SCHEME } from './extensions/extension-resource-protocol'
-import { disposePdfResources } from './pdf-resources'
+import { setupExtensionNetworkBridge } from './extensions/extension-network-bridge'
+import { disposePdfResources, pdfViewerUrlForResource, registerLocalPdfResource } from './pdf-resources'
+import { StartupHealthTracker, type StartupRecoveryInfo } from './startup-health'
 
 declare const __VAST_INCLUDE_INTERNAL_TEST_HARNESS__: boolean
 
 // Set the stable product identity before resolving userData/sessionData.
 app.setName('Vast')
 configureVastUserDataPath()
+configureVastCrashDumpPath()
 protocol.registerSchemesAsPrivileged([{ scheme: VAST_EXTENSION_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false, allowServiceWorkers: false } }])
 markPerformance('main-module-ready')
 registerPerformanceProbeIpc()
@@ -41,6 +46,13 @@ if (process.platform === 'win32' && getBuildMetadata().distributionChannel === '
 assertPublicDistributionGuards()
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
+const startupHealth = new StartupHealthTracker(app.getPath('userData'))
+const startupHealthBeginning: Promise<StartupRecoveryInfo> = hasSingleInstanceLock
+  ? startupHealth.begin().catch((error) => {
+      console.warn('[startup-health] Could not write the startup marker:', error)
+      return { safeStartup: false, consecutiveFailedStartups: 0 }
+    })
+  : Promise.resolve({ safeStartup: false, consecutiveFailedStartups: 0 })
 const pendingExternalArguments: string[][] = []
 const pendingExternalUrls: string[] = []
 const pendingExternalFiles: string[] = []
@@ -84,6 +96,7 @@ let relayService: ReturnType<typeof createVastRelayService> | undefined
 let extensionManager: ExtensionManager | undefined
 let extensionUpdateStartupTimer: NodeJS.Timeout | undefined
 let extensionUpdateInterval: NodeJS.Timeout | undefined
+let startupStableTimer: NodeJS.Timeout | undefined
 const gpuCrashTimes: number[] = []
 let shutdownCleanupStarted = false
 let shutdownCleanupComplete = false
@@ -151,9 +164,14 @@ function syncTitleBarOverlay(): void {
 
 if (hasSingleInstanceLock) void app.whenReady().then(async () => {
   initializeDownloads(() => currentSettings)
+  const startupRecovery = await startupHealthBeginning
   if (process.platform === 'win32' && app.isPackaged) {
     const { applyPendingUpdateAtStartup } = await import('./updater-startup')
-    if (await applyPendingUpdateAtStartup()) { app.exit(0); return }
+    if (await applyPendingUpdateAtStartup()) {
+      await startupHealth.markCleanExit().catch((error) => console.warn('[startup-health] Could not mark the updater exit as clean:', error))
+      app.exit(0)
+      return
+    }
   }
   markPerformance('app-ready')
   if (getBuildMetadata().distributionChannel === 'direct') setAppUserModelId('app.vast.browser')
@@ -161,13 +179,17 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
     watchWindowShortcuts(window)
   })
   app.on('browser-window-focus', () => relayService?.refreshPresentationTarget())
-  initializePasswordVaultSessionLifecycle()
 
   const [storageResult] = await Promise.allSettled([loadData()])
   let startupData = DEFAULT_DATA
   if (storageResult.status === 'fulfilled') {
     const data = storageResult.value
     startupData = data
+    if (startupRecovery.safeStartup) {
+      await startupHealth.preserveRecoverySnapshot(data).catch((error) => {
+        console.warn('[startup-health] Could not preserve the recovery session snapshot:', error)
+      })
+    }
     currentSettings = data.settings
     nativeTheme.themeSource = nativeThemeSource(data.settings)
     markPerformance('startup-storage-loaded')
@@ -187,21 +209,92 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
       console.warn('[session-continuity] Could not complete legacy browser session migration:', error)
     }
   }
-  const [{ ExtensionManager }, { matchesExtensionMatchPattern }] = await Promise.all([
+  const [{ ExtensionManager }, { ExtensionCompatibilityRuntime, extensionCompatibilityGate, readPackagedCompatibilityEvidence }, { default: compatibilityManifest }, { extensionHubOrigin }] = await Promise.all([
     import('./extensions/extension-manager'),
-    import('../shared/extension-match-pattern')
+    import('./extensions/extension-compatibility-runtime'),
+    import('../../patches/extension-compatibility-runtime.json'),
+    import('./extensions/extension-hub-config')
   ])
-  const { setupExtensionNetworkBridge } = await import('./extensions/extension-network-bridge')
   setupExtensionNetworkBridge()
+  const extensionCompatibilityPartitions = new WeakMap<import('electron/main').Session, string>()
+  const packagedCompatibilityEvidence = app.isPackaged
+    ? readPackagedCompatibilityEvidence({ appPath: app.getAppPath(), executablePath: process.execPath })
+    : {}
+  if (packagedCompatibilityEvidence.error) {
+    console.warn(`[extensions:compatibility] ${packagedCompatibilityEvidence.error}`)
+  }
+  const compatibilityGate = extensionCompatibilityGate({
+    isPackaged: app.isPackaged,
+    appVersion: app.getVersion(),
+    electronVersion: process.versions.electron,
+    executablePath: process.execPath,
+    env: process.env,
+    approvedRuntime: compatibilityManifest,
+    packagedEvidence: packagedCompatibilityEvidence.evidence
+  })
+  const compatibilityRuntime = new ExtensionCompatibilityRuntime({
+    gate: compatibilityGate,
+    focusedWindow: () => windowRegistry.focusedVastWindow(),
+    windowById: (id) => windowRegistry.vastWindows().find((window) => window.id === id),
+    dispatchTabOpen: (window, request) => dispatchExtensionCompatibilityTabOpen(window, request),
+    dispatchTabCommand: (window, command) => {
+      if (!window.webContents.isDestroyed()) window.webContents.send('vast:extension-compat:tab-command', command)
+    },
+    dispatchPopupOpen: (window, extensionId) => {
+      if (window.webContents.isDestroyed() || !windowRegistry.isRendererReady(window)) return false
+      window.webContents.send('vast:extensions:open-popup', extensionId)
+      return true
+    },
+    getGrantedPermissions: (extension) => extensionManager?.getChromePermissionGrants(extension) ?? { permissions: [], origins: [] },
+    persistGrantedPermissions: (extension, permissions) => extensionManager?.addChromePermissionGrants(extension, permissions) ?? Promise.resolve(false),
+    removeGrantedPermissions: (extension, permissions) => extensionManager?.removeChromePermissionGrants(extension, permissions) ?? Promise.resolve(false),
+    privacyStatePathForSession: (targetSession) => {
+      const partition = extensionCompatibilityPartitions.get(targetSession)
+      if (!partition) throw new Error('Extension compatibility session partition is unavailable.')
+      return join(
+        app.getPath('userData'),
+        'extension-compatibility',
+        'privacy',
+        `${createHash('sha256').update(partition).digest('hex')}.json`
+      )
+    },
+    requestPermissionApproval: async (extension, request) => {
+      const requested = [
+        ...(request.permissions ?? []).map((permission) => `Chrome API: ${permission}`),
+        ...(request.origins ?? []).map((origin) => `Website access: ${origin}`)
+      ]
+      if (requested.length === 0) return false
+      const options = {
+        type: 'question' as const,
+        title: 'Extension permission request',
+        message: `${extension.name} requests additional access`,
+        detail: requested.join('\n'),
+        buttons: ['Allow', 'Block'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true
+      }
+      const parent = windowRegistry.focusedVastWindow()
+      const result = parent && !parent.isDestroyed()
+        ? await dialog.showMessageBox(parent, options)
+        : await dialog.showMessageBox(options)
+      return result.response === 0
+    },
+    allowTestPermissionGrant: process.env.VAST_EXTENSION_COMPATIBILITY_AUTO_GRANT_PERMISSIONS === '1'
+  })
+  console.info(`[extensions:compatibility] ${compatibilityRuntime.enabled ? 'enabled' : 'disabled'}: ${compatibilityRuntime.reason}`)
   extensionManager = new ExtensionManager({
     userDataRoot: app.getPath('userData'),
     hubOrigin: extensionHubOrigin(app.isPackaged),
+    appVersion: app.getVersion(),
     sessionProvider: (partition) => {
       const target = session.fromPartition(partition)
+      extensionCompatibilityPartitions.set(target, partition)
       configureDownloadsForSession(target, partition)
       return target
     },
     nativeSurfacePreloadPath: join(app.getAppPath(), 'out', 'preload', 'extension-host.js'),
+    compatibilityRuntime,
     reloadMatchingTabs: (patterns) => {
       for (const contents of webContents.getAllWebContents()) {
         if (contents.isDestroyed() || contents.getType() !== 'webview') continue
@@ -248,29 +341,84 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
     onDataSaved,
     onDetachTab: openDetachedTabWindow,
     relayService,
-    extensionManager
+    extensionManager,
+    storageDataForRenderer: (data) => startupHealth.dataForRenderer(data),
+    prepareStorageSave: (current, incoming) => startupHealth.preserveStoredSession(current, incoming)
   })
 
   const watchExternalNavigation = (window: BrowserWindow): BrowserWindow => {
     window.webContents.on('did-finish-load', () => externalNavigationRouter?.rendererReady(window))
     return window
   }
-  externalNavigationRouter = new ExternalNavigationRouter(windowRegistry, () =>
-    watchExternalNavigation(
+  externalNavigationRouter = new ExternalNavigationRouter(
+    windowRegistry,
+    () => watchExternalNavigation(
       createMainWindow(onDataSaved, () => currentSettings, {
         kind: 'normal',
         extensionManager,
         onDetachTab: openDetachedTabWindow
       })
-    )
+    ),
+    async (webContentsId, path) => pdfViewerUrlForResource(await registerLocalPdfResource(webContentsId, path))
   )
   const openingEnabled = isOpeningAnimationEnabled(currentSettings)
+  // Parallel startup: the splash window appears immediately while the real primary
+  // browser window is constructed hidden at its final bounds and initializes in the
+  // background. The browser is revealed only when BOTH the opening animation has
+  // finished AND the renderer reports a hydrated, usable UI (vast:renderer-ui-ready).
+  let openingAnimationComplete = !openingEnabled
+  let primaryBrowserReady = !openingEnabled
+  let primaryRevealed = !openingEnabled
+  let openingEmergencyTimer: NodeJS.Timeout | undefined
+  let openingSplash: OpeningSplashController | undefined
+
+  const revealPrimaryBrowser = (): void => {
+    if (primaryRevealed || mainWindow.isDestroyed()) return
+    if (!openingAnimationComplete || !primaryBrowserReady) return
+    primaryRevealed = true
+    if (openingEmergencyTimer) clearTimeout(openingEmergencyTimer)
+    mainWindow.show()
+    mainWindow.focus()
+    markPerformance('primary-browser-revealed', { windowId: mainWindow.id })
+    openingSplash?.beginExit(() => markPerformance('opening-splash-destroyed', { windowId: mainWindow.id }))
+  }
+  const markPrimaryBrowserReady = (): void => {
+    if (primaryBrowserReady) return
+    primaryBrowserReady = true
+    markPerformance('primary-ui-ready')
+    revealPrimaryBrowser()
+  }
+  const markOpeningAnimationComplete = (): void => {
+    if (openingAnimationComplete) return
+    openingAnimationComplete = true
+    markPerformance('opening-animation-complete')
+    revealPrimaryBrowser()
+  }
+
+  if (openingEnabled) {
+    openingSplash = createOpeningSplashWindow({
+      platform: process.platform,
+      cornerRadius: currentSettings.appearance.cornerRadius,
+      soundVolume: currentSettings.openingAnimationSoundVolume,
+      onAnimationComplete: markOpeningAnimationComplete,
+      onClosed: revealPrimaryBrowser
+    })
+    openingEmergencyTimer = setTimeout(() => {
+      void recordDiagnosticsEvent('window', 'opening-splash-emergency-reveal', {})
+      markOpeningAnimationComplete()
+      primaryBrowserReady = true
+      revealPrimaryBrowser()
+    }, OPENING_PRESENTATION.fallbackTimeoutMs)
+    openingEmergencyTimer.unref()
+  }
+  ipcMain.on('vast:renderer-ui-ready', (event) => {
+    if (mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return
+    markPrimaryBrowserReady()
+  })
   const mainWindow = watchExternalNavigation(createMainWindow(onDataSaved, () => currentSettings, {
     kind: 'primary',
-    openingHandledBySplash: false,
-    openingPresentation: openingEnabled,
+    openingHandledBySplash: openingEnabled,
     showInitially: !openingEnabled,
-    showWhenReady: openingEnabled,
     extensionManager,
     onDetachTab: openDetachedTabWindow
   }))
@@ -281,6 +429,10 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
   for (const path of pendingExternalFiles.splice(0)) externalNavigationRouter.acceptFile(path)
   syncTitleBarOverlay()
   mainWindow.webContents.once('did-finish-load', () => {
+    startupStableTimer = setTimeout(() => {
+      void startupHealth.markStable().catch((error) => console.warn('[startup-health] Could not mark startup as stable:', error))
+    }, 10_000)
+    startupStableTimer.unref()
     // Relay is intentionally started only after the primary browser shell is usable.
     // The service itself delays its first request and never blocks window creation.
     void relayService?.start()
@@ -322,10 +474,10 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', (event) => {
+  if (startupStableTimer) clearTimeout(startupStableTimer)
   if (extensionUpdateStartupTimer) clearTimeout(extensionUpdateStartupTimer)
   if (extensionUpdateInterval) clearInterval(extensionUpdateInterval)
   relayService?.stop()
-  lockPasswordVaultSession('system-lock')
   if (shutdownCleanupComplete) return
   event.preventDefault()
   if (shutdownCleanupStarted) return
@@ -348,6 +500,9 @@ app.on('before-quit', (event) => {
     } catch (error) {
       console.warn('[main] Failed during shutdown cleanup:', error)
     } finally {
+      await startupHealth.markCleanExit().catch((error) => {
+        console.warn('[startup-health] Could not write the clean-exit marker:', error)
+      })
       shutdownCleanupComplete = true
       app.quit()
     }
