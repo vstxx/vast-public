@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logos/vast.png" alt="Vast Browser" width="220" />
+  <img src="assets/logos/vasticon.png" alt="Vast Browser" width="96" />
   <h1>Vast Browser</h1>
   <p><strong>A local-first desktop browser built for deep customization and fast workflows.</strong></p>
   <p>
@@ -12,6 +12,9 @@
 </div>
 
 Vast combines Chromium page rendering through Electron with a React application shell built around workspaces, flexible tab layouts, local tools, privacy controls, and a deliberately configurable interface.
+
+> [!WARNING]
+> **Vast is beta software under active development.** Bugs, regressions, incomplete features, and unexpected behavior may occur. If you run into an issue, please report it so it can be investigated and improved.
 
 ## What Vast focuses on
 
