@@ -2,10 +2,16 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { tmpdir } = require('node:os')
 const { spawnSync } = require('node:child_process')
+const { publicSourceCommitMessage, snapshotDigest } = require('./local-public-release.cjs')
 const snapshot = path.resolve(process.argv[2] || '')
 const provenance = JSON.parse(fs.readFileSync(path.join(snapshot, '.vast-source-provenance.json'), 'utf8'))
 const version = require('../package.json').version
 if (provenance.worktreePreview || provenance.version !== version || provenance.sourceCommit !== process.env.VAST_RELEASE_COMMIT) throw new Error('Only an audited exact-commit snapshot may be published.')
+const expectedSnapshotDigest = String(process.env.VAST_PUBLIC_SNAPSHOT_SHA256 || '').trim()
+function verifySnapshotDigest() {
+  if (expectedSnapshotDigest && snapshotDigest(snapshot) !== expectedSnapshotDigest) throw new Error('Audited source snapshot bytes changed after preparation.')
+}
+verifySnapshotDigest()
 function run(command, args, cwd, binary = false) {
   const result = spawnSync(command, args, { cwd, encoding: binary ? null : 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true })
   if (result.error || result.status !== 0) throw new Error(`${command} failed: ${result.stderr || result.error?.message}`)
@@ -14,6 +20,7 @@ function run(command, args, cwd, binary = false) {
 // Recheck at the publication boundary, including when resuming an existing tag.
 run(process.execPath, [path.join(snapshot, 'scripts/public-release-audit.cjs')], snapshot)
 run(process.execPath, [path.join(__dirname, 'secret-scan.cjs'), snapshot], snapshot)
+verifySnapshotDigest()
 run('gh', ['auth', 'setup-git', '--hostname', 'github.com'])
 const repo = path.join(fs.mkdtempSync(path.join(tmpdir(), 'vast-public-publish-')), 'repo')
 run('gh', ['repo', 'clone', 'vstxx/vast-public', repo])
@@ -43,7 +50,7 @@ if (run('git', ['tag', '--list', tag], repo).trim()) {
   run('git', ['add', '-A'], repo)
   run('git', ['config', 'user.name', 'Vast Release Bot'], repo)
   run('git', ['config', 'user.email', 'release@vastbrowser.com'], repo)
-  run('git', ['commit', '-m', `Publish Vast ${version} source snapshot (${provenance.sourceCommit})`], repo)
+  run('git', ['commit', '-m', publicSourceCommitMessage(version, provenance.sourceCommit)], repo)
   run('git', ['tag', '-a', tag, '-m', `Vast ${version} from ${provenance.sourceCommit}`], repo)
   run('git', ['push', '--atomic', 'origin', 'HEAD:main', `refs/tags/${tag}`], repo)
 }

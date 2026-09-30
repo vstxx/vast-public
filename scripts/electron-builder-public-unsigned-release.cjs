@@ -23,7 +23,7 @@ module.exports = {
   forceCodeSigning: false,
   win: {
     ...pkg.build.win,
-    signAndEditExecutable: false,
+    signAndEditExecutable: true,
     signExecutable: false,
     signtoolOptions: undefined
   }

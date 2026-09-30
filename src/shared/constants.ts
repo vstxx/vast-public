@@ -97,7 +97,7 @@ export const DEFAULT_SETTINGS: BrowserSettings = {
     chromeOpacity: 84,
     saturation: 100,
     forceDarkModeWebsites: false,
-    cleanToolbarIcons: false
+    cleanToolbarIcons: true
   },
   sidebarDensity: 'comfortable',
   layoutMode: 'horizontal',
@@ -281,7 +281,12 @@ export const DEFAULT_DATA: PersistedData = {
   macroLogs: [],
   sessionSnapshots: [],
   recentCommandIds: [],
-  settings: DEFAULT_SETTINGS,
+  settings: {
+    ...DEFAULT_SETTINGS,
+    // A fresh onboarding profile presents the available Labs as selected.
+    // The generic settings baseline remains fail-closed for other callers.
+    labs: { enabled: true, avidae: true, networkDevices: true, automation: true, advancedDiagnostics: true, spoofing: true }
+  },
   onboarding: { completed: false }
 }
 

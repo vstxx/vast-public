@@ -1378,16 +1378,18 @@ button:disabled {
 }
 
 .settings-nav-item {
-  height: 38px;
+  min-height: 42px;
   background: transparent !important;
   color: var(--vast-muted);
-  font-size: 0.8rem;
-  font-weight: 500;
+  font-size: 0.9rem;
+  font-weight: 550;
+  line-height: 1.25;
 }
 
 .settings-nav-item svg {
-  width: 15px;
-  height: 15px;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
 }
 
 .settings-nav-item.is-active svg {
@@ -4185,6 +4187,8 @@ button:disabled {
 
 .onboarding-pill-wide { min-width: 8.4rem; justify-content: center; }
 
+.onboarding-pill-icon { display: block; width: 20px; height: 20px; flex: none; object-fit: contain; }
+
 .onboarding-profile-select { width: min(340px, 100%); text-align: left; }
 
 .onboarding-rows { width: min(680px, 100%); display: grid; gap: 8px; text-align: left; }
@@ -4230,7 +4234,7 @@ button:disabled {
 }
 
 .onboarding-extension-slot {
-  min-height: 126px;
+  min-height: 152px;
   padding: 15px;
   border: 1px solid color-mix(in srgb, var(--vast-border) 58%, transparent);
   border-radius: calc(var(--vast-radius-base) * 0.55);
@@ -4238,7 +4242,7 @@ button:disabled {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 18px;
+  gap: 10px;
   text-align: left;
   transition: background 0.18s ease, border-color 0.18s ease, border-radius var(--vast-motion-swift), transform 0.18s ease;
 }
@@ -4269,9 +4273,18 @@ button:disabled {
 .onboarding-extension-title { display: block; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .onboarding-extension-sub { display: block; margin-top: 4px; font-size: 10px; color: var(--vast-color-text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.onboarding-extension-bottom { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.onboarding-extension-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: 0;
+  color: var(--vast-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
 
-.onboarding-hub-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--vast-color-text-tertiary); }
+.onboarding-extension-bottom { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 
 .onboarding-summary-chips { display: flex; justify-content: center; flex-wrap: wrap; gap: 7px; margin-top: 28px; }
 

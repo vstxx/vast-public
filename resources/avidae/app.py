@@ -131,12 +131,12 @@ from services.video_compress import run_video_compress_job
 from services.audio_record import run_audio_record_job, list_audio_devices
 from services.audio_trim import run_audio_trim_job
 from services.browse_session import BrowseSessionManager
+from security import is_public_url, validated_browse_session_id, validated_media_format
 from services.logger import read_job_log
 from services.storage import (
     get_file_path, get_output_files, get_disk_usage, format_size, save_upload
 )
 from utils.playwright_helper import analyze_page_sync
-from security import is_public_url
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
@@ -319,7 +319,11 @@ def on_request_job_update(data):
 
 @socketio.on("browse_start")
 def on_browse_start(data):
-    url = (data.get("url") or "").strip()
+    if not isinstance(data, dict):
+        socketio.emit("browse_error", {"error": "Invalid browse request", "session_id": ""})
+        return
+    raw_url = data.get("url")
+    url = raw_url.strip() if isinstance(raw_url, str) else ""
     if not url or not _is_safe_analysis_url(url):
         socketio.emit("browse_error", {"error": "URL is required", "session_id": ""})
         return
@@ -327,11 +331,17 @@ def on_browse_start(data):
     if not sid:
         import uuid
         sid = uuid.uuid4().hex[:12]
+    try:
+        sid = validated_browse_session_id(sid)
+        output_format = validated_media_format("browse", data.get("format", "mp4"))
+    except ValueError as exc:
+        socketio.emit("browse_error", {"error": str(exc), "session_id": ""})
+        return
     browse_manager.start_session(
         sid, url, socketio,
         resolution=data.get("resolution", "1920x1080"),
         auto_record=data.get("auto_record", True),
-        output_format=data.get("format", "mp4"),
+        output_format=output_format,
         bitrate=data.get("bitrate", "5M"),
     )
 
@@ -452,6 +462,15 @@ def api_create_job():
 
     if job_type not in RUNNERS:
         return jsonify({"ok": False, "error": f"Unknown job type: {job_type}"}), 400
+
+    format_key = "audio_format" if job_type == "extract_audio" else "format"
+    if job_type in ("record", "convert", "video_merge", "audio_convert", "audio_record", "extract_audio"):
+        defaults = {"record": config.DEFAULT_FORMAT, "convert": "mp4", "video_merge": "mp4",
+                    "audio_convert": "ogg", "audio_record": "mp3", "extract_audio": "mp3"}
+        try:
+            params[format_key] = validated_media_format(job_type, params.get(format_key, defaults[job_type]))
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
 
     if job_type == "record" and not params.get("url"):
         return jsonify({"ok": False, "error": "URL is required for recording"}), 400

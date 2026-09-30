@@ -21,6 +21,7 @@ function sourceLabel(extension: VastExtensionInfo): string {
   if (extension.source === 'upstream') return 'Installed from upstream'
   if (extension.source === 'hub') return 'From Vast Extensions'
   if (extension.source === 'local-vext') return extension.trust === 'official' ? 'Verified package installed from file' : 'Local package'
+  if (extension.source === 'local-chromium') return 'Local / Unverified · Imported from Chromium'
   return 'Developer extension'
 }
 

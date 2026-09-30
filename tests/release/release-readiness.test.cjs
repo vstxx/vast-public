@@ -15,7 +15,7 @@ test('resuming requires identical version, source, channel, signature mode and e
 test('snapshot audit rejects internal paths and credentials anywhere in the tree', () => {
   const directory = fs.mkdtempSync(path.join(tmpdir(), 'vast-snapshot-audit-test-'))
   try {
-    const files = ['README.md','SECURITY.md','CONTRIBUTING.md','LICENSE','THIRD_PARTY_NOTICES.md','RELEASE.md','ROADMAP.md','docs/README.md','docs/PRIVACY.md','docs/FEATURE_STATUS.md','docs/SECURITY_ARCHITECTURE.md','docs/IPC_SECURITY.md','docs/OPEN_SOURCE_LICENSE_AUDIT.md','docs/RELEASE_CHECKLIST.md','scripts/public-release-audit.cjs','scripts/check-gpl-release-compliance.cjs','scripts/prepare-extension-compat-runtime.cjs','scripts/prepare-patched-electron-dist.cjs','scripts/verify-extension-compat-runtime.cjs','patches/extension-compatibility-runtime.json','patches/electron-chrome-extensions-4.9.0-vast.patch','experiments/electron-chrome-extensions-4.9.0/README.md','experiments/electron-chrome-extensions-4.9.0/upstream-lock.json','experiments/electron-chrome-extensions-4.9.0/0001-vast-browser-compatibility.patch','experiments/electron-44-patches/0004-electron-composed-webrequest-lifecycle.patch','experiments/electron-44-patches/0005-chromium-lifecycle-auth-support.patch','experiments/electron-44-patches/0006-electron-messaging-split-view-compat.patch','experiments/electron-44-patches/0007-electron-action-open-popup-event.patch','experiments/electron-44-patches/0008-electron-extensions-reload-api.patch']
+    const files = ['README.md','SECURITY.md','CONTRIBUTING.md','LICENSE','THIRD_PARTY_NOTICES.md','RELEASE.md','ROADMAP.md','docs/README.md','docs/PRIVACY.md','docs/FEATURE_STATUS.md','docs/SECURITY_ARCHITECTURE.md','docs/IPC_SECURITY.md','docs/OPEN_SOURCE_LICENSE_AUDIT.md','docs/RELEASE_CHECKLIST.md','scripts/public-release-audit.cjs','scripts/check-gpl-release-compliance.cjs','scripts/prepare-extension-compat-runtime.cjs','scripts/prepare-patched-electron-dist.cjs','scripts/verify-extension-compat-runtime.cjs','patches/extension-compatibility-runtime.json','patches/electron-chrome-extensions-4.9.0-vast.patch','experiments/electron-chrome-extensions-4.9.0/README.md','experiments/electron-chrome-extensions-4.9.0/upstream-lock.json','experiments/electron-chrome-extensions-4.9.0/0001-vast-browser-compatibility.patch', ...require('../../patches/extension-compatibility-runtime.json').electron.patches.map(patch => patch.path)]
     for (const file of files) { fs.mkdirSync(path.dirname(path.join(directory, file)), { recursive: true }); fs.copyFileSync(path.join(root, file), path.join(directory, file)) }
     const pkg = structuredClone(require('../../package.json')); pkg.scripts['release:audit'] = 'node scripts/public-release-audit.cjs'
     fs.writeFileSync(path.join(directory, 'package.json'), JSON.stringify(pkg))
@@ -38,9 +38,11 @@ test('snapshot audit rejects internal paths and credentials anywhere in the tree
 })
 test('release workflows default to candidate-only, guard every publication and preserve resume verification', () => {
   const yaml = require('js-yaml')
+  const version = require('../../package.json').version
   for (const name of ['public-release', 'public-unsigned-beta']) {
     const workflow = yaml.load(fs.readFileSync(path.join(root, `.github/workflows/${name}.yml`), 'utf8'))
     assert.equal(workflow.on.workflow_dispatch.inputs.publish.default, false)
+    assert.equal(workflow.on.workflow_dispatch.inputs.expected_version.default, version)
     const steps = Object.values(workflow.jobs)[0].steps
     assert.ok(steps.some(step => step.if === "inputs.publish && inputs.resume_run_id == ''" && step.run.startsWith('throw ')))
     for (const step of steps) {
@@ -59,9 +61,9 @@ test('release workflows default to candidate-only, guard every publication and p
       assert.equal(steps[restage].if, "inputs.resume_run_id != ''")
       assert.equal(steps[restage].run, 'npm run updater:stage')
       const publication = steps.find(step => /publish-release-assets/.test(step.run || ''))
-      assert.match(publication.run, /Get-Content -Raw -Encoding utf8 'docs\/PUBLIC_RELEASE_0\.4\.0\.md'/)
+      assert.ok(publication.run.includes(`Get-Content -Raw -Encoding utf8 'docs/PUBLIC_RELEASE_${version}.md'`))
       assert.match(publication.run, /\$releaseDetails/)
-      const notes = fs.readFileSync(path.join(root, 'docs/PUBLIC_RELEASE_0.4.0.md'), 'utf8')
+      const notes = fs.readFileSync(path.join(root, `docs/PUBLIC_RELEASE_${version}.md`), 'utf8')
       assert.match(notes, /exhaustive formal password-manager gate is still open/)
       assert.match(notes, /intentionally unsigned|unsigned direct/i)
     }

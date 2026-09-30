@@ -64,25 +64,31 @@ updaterCacheDirName: ${cacheName}
     const first = make()
     first.on('download-progress',()=>progress++)
     first.on('update-downloaded',()=>ready++)
+    console.log('[updater-e2e] initial download')
     const [file] = await download(first)
     assert.equal(ready,1)
     assert(progress > 0)
     assert.equal(downloads,1)
     assert.equal(createHash('sha512').update(await fs.readFile(file)).digest('base64'),digest)
+    console.log('[updater-e2e] restart cache')
     await download(make()) // new updater instance = another app launch
     assert.equal(downloads,1,'verified cache survives restart without downloading bytes again')
+    console.log('[updater-e2e] corrupted cache')
     await fs.writeFile(file,'truncated')
     await download(make())
     assert.equal(downloads,2,'corrupt cached executable is downloaded again')
+    console.log('[updater-e2e] interrupted transfer')
     await fs.rm(cache,{recursive:true,force:true})
     interrupt = true
     await assert.rejects(download(make()))
     interrupt = false
     await download(make())
     assert.equal(downloads,4,'interrupted transfer never becomes ready and can retry')
+    console.log('[updater-e2e] corrupt SHA512')
     await fs.rm(cache,{recursive:true,force:true})
     corruptHash = true
     await assert.rejects(download(make()),/sha512|checksum/i)
+    console.log('[updater-e2e] publisher rejection')
     corruptHash = false
     await fs.appendFile(config,'publisherName: VastProductions\n')
     const rejected = make()

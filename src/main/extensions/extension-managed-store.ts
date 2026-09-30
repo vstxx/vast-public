@@ -14,6 +14,7 @@ import {
   type VextTrustedKey
 } from '../../shared/vext-format.ts'
 import type { ExtensionInstallSource } from '../../shared/extension-marketplace.ts'
+import type { LocalChromiumStage } from './local-chromium-stage.ts'
 
 const retryDelays = [60, 180, 450, 900]
 const retryableCodes = new Set(['EBUSY', 'EPERM', 'EACCES'])
@@ -38,12 +39,51 @@ export interface ManagedExtensionState {
   versions: ManagedVersionState[]
 }
 
-export interface StagedManagedPackage {
+interface StagedManagedPackageBase {
   id: string
   root: string
   contentRoot: string
-  source: Exclude<ExtensionInstallSource, 'unpacked' | 'bundled'>
+}
+
+export interface StagedVextPackage extends StagedManagedPackageBase {
+  format: 'vext'
+  source: 'local-vext' | 'hub' | 'upstream'
   parsed: ParsedVextPackage
+}
+
+export interface StagedLocalChromiumPackage extends StagedManagedPackageBase {
+  format: 'local-chromium'
+  source: 'local-chromium'
+  local: LocalChromiumStage
+}
+
+export type StagedManagedPackage = StagedVextPackage | StagedLocalChromiumPackage
+
+export interface ManagedPackageIdentity {
+  extensionId: string
+  version: string
+  packageSha256: string
+  manifestSha256: string
+  publisherId?: string
+  signatureKeyId?: string
+}
+
+export function stagedPackageIdentity(staged: StagedManagedPackage): ManagedPackageIdentity {
+  if (staged.format === 'local-chromium') return {
+    extensionId: staged.local.sourceExtensionId,
+    version: staged.local.version,
+    packageSha256: staged.local.fingerprint,
+    manifestSha256: staged.local.manifestSha256
+  }
+  const metadata = staged.parsed.metadata
+  return {
+    extensionId: metadata.extension_id,
+    version: metadata.version,
+    packageSha256: staged.parsed.packageSha256,
+    manifestSha256: metadata.manifest_sha256,
+    ...(metadata.publisher_id ? { publisherId: metadata.publisher_id } : {}),
+    ...(staged.parsed.verifiedKeyId ? { signatureKeyId: staged.parsed.verifiedKeyId } : {})
+  }
 }
 
 export interface VerifiedUpstreamPackage {
@@ -94,7 +134,7 @@ function stateFromUnknown(value: unknown): ManagedExtensionState | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
   const input = value as Record<string, unknown>
   if (input.schemaVersion !== 1 || !VEXT_EXTENSION_ID.test(String(input.extensionId)) || !VEXT_VERSION.test(String(input.activeVersion))) return undefined
-  if (input.source !== 'local-vext' && input.source !== 'hub' && input.source !== 'upstream') return undefined
+  if (input.source !== 'local-vext' && input.source !== 'local-chromium' && input.source !== 'hub' && input.source !== 'upstream') return undefined
   const failedVersions = Array.isArray(input.failedVersions) ? input.failedVersions.filter((version): version is string => typeof version === 'string' && VEXT_VERSION.test(version)).slice(0, 32) : []
   const versions = Array.isArray(input.versions) ? input.versions.flatMap((candidate): ManagedVersionState[] => {
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return []
@@ -147,7 +187,7 @@ export class ExtensionManagedStore {
     }
   }
 
-  async stagePackage(bytes: Uint8Array, source: Exclude<ExtensionInstallSource, 'unpacked' | 'bundled'>, trustedKeys: readonly VextTrustedKey[]): Promise<StagedManagedPackage> {
+  async stagePackage(bytes: Uint8Array, source: 'local-vext' | 'hub', trustedKeys: readonly VextTrustedKey[]): Promise<StagedVextPackage> {
     let parsed = await parseVextPackage(bytes)
     if (source === 'hub') {
       parsed = await verifyVextPackage(bytes, trustedKeys, true)
@@ -164,14 +204,14 @@ export class ExtensionManagedStore {
         await mkdir(dirname(destination), { recursive: true })
         await writeFile(destination, data, { flag: 'wx' })
       }
-      return { id: randomUUID(), root, contentRoot, source, parsed }
+      return { format: 'vext', id: randomUUID(), root, contentRoot, source, parsed }
     } catch (error) {
       await rm(root, { recursive: true, force: true }).catch(() => undefined)
       throw error
     }
   }
 
-  async stageUpstreamPackage(input: VerifiedUpstreamPackage): Promise<StagedManagedPackage> {
+  async stageUpstreamPackage(input: VerifiedUpstreamPackage): Promise<StagedVextPackage> {
     if (!VEXT_EXTENSION_ID.test(input.extensionId) || !VEXT_VERSION.test(input.version) || !/^[a-f0-9]{64}$/.test(input.packageSha256)) throw new Error('Upstream extension identity is invalid.')
     const manifest = input.files.get('manifest.json')
     if (!manifest) throw new Error('Upstream extension manifest is missing.')
@@ -200,21 +240,32 @@ export class ExtensionManagedStore {
         await mkdir(dirname(destination), { recursive: true })
         await writeFile(destination, data, { flag: 'wx' })
       }
-      return { id: randomUUID(), root, contentRoot, source: 'upstream', parsed }
+      return { format: 'vext', id: randomUUID(), root, contentRoot, source: 'upstream', parsed }
     } catch (error) {
       await rm(root, { recursive: true, force: true }).catch(() => undefined)
       throw error
     }
   }
 
+  adoptLocalChromiumStage(local: LocalChromiumStage): StagedLocalChromiumPackage {
+    if (!VEXT_EXTENSION_ID.test(local.sourceExtensionId) || !VEXT_VERSION.test(local.version) ||
+        !/^[a-f0-9]{64}$/.test(local.fingerprint) || !/^[a-f0-9]{64}$/.test(local.manifestSha256) ||
+        !isInside(this.stagingRoot, local.root) || !isInside(local.root, local.contentRoot)) {
+      throw new Error('Local Chromium stage is invalid.')
+    }
+    return { format: 'local-chromium', source: 'local-chromium', id: randomUUID(),
+      root: local.root, contentRoot: local.contentRoot, local }
+  }
+
   async commit(staged: StagedManagedPackage): Promise<string> {
-    const extensionRoot = this.extensionRoot(staged.parsed.metadata.extension_id)
+    const identity = stagedPackageIdentity(staged)
+    const extensionRoot = this.extensionRoot(identity.extensionId)
     const versionsRoot = join(extensionRoot, 'releases')
-    const destination = this.versionRoot(staged.parsed.metadata.extension_id, staged.parsed.metadata.version)
+    const destination = this.versionRoot(identity.extensionId, identity.version)
     await mkdir(versionsRoot, { recursive: true })
     if (await stat(destination).then((info) => info.isDirectory()).catch(() => false)) {
-      const state = await this.readState(staged.parsed.metadata.extension_id)
-      const matching = state?.versions.find((version) => version.version === staged.parsed.metadata.version && version.packageSha256 === staged.parsed.packageSha256)
+      const state = await this.readState(identity.extensionId)
+      const matching = state?.versions.find((version) => version.version === identity.version && version.packageSha256 === identity.packageSha256)
       if (!matching) throw new Error('A different package already uses this managed extension version.')
       await this.discard(staged)
       return destination
@@ -225,31 +276,31 @@ export class ExtensionManagedStore {
   }
 
   async activate(staged: StagedManagedPackage): Promise<ManagedExtensionState> {
-    const metadata = staged.parsed.metadata
-    const current = await this.readState(metadata.extension_id)
+    const identity = stagedPackageIdentity(staged)
+    const current = await this.readState(identity.extensionId)
     const version: ManagedVersionState = {
-      version: metadata.version,
-      packageSha256: staged.parsed.packageSha256,
-      manifestSha256: metadata.manifest_sha256,
-      ...(staged.parsed.verifiedKeyId ? { signatureKeyId: staged.parsed.verifiedKeyId } : {}),
+      version: identity.version,
+      packageSha256: identity.packageSha256,
+      manifestSha256: identity.manifestSha256,
+      ...(identity.signatureKeyId ? { signatureKeyId: identity.signatureKeyId } : {}),
       installedAt: Date.now()
     }
     const versions = [version, ...(current?.versions ?? []).filter((item) => item.version !== version.version)].slice(0, 3)
     const state: ManagedExtensionState = {
       schemaVersion: 1,
-      extensionId: metadata.extension_id,
-      activeVersion: metadata.version,
-      ...(current?.activeVersion && current.activeVersion !== metadata.version ? { previousVersion: current.activeVersion } : current?.previousVersion ? { previousVersion: current.previousVersion } : {}),
+      extensionId: identity.extensionId,
+      activeVersion: identity.version,
+      ...(current?.activeVersion && current.activeVersion !== identity.version ? { previousVersion: current.activeVersion } : current?.previousVersion ? { previousVersion: current.previousVersion } : {}),
       source: staged.source,
-      ...(metadata.publisher_id ? { publisherId: metadata.publisher_id } : {}),
+      ...(identity.publisherId ? { publisherId: identity.publisherId } : {}),
       ...(current?.runtimeRelativePath ? { runtimeRelativePath: current.runtimeRelativePath } : {}),
-      failedVersions: (current?.failedVersions ?? []).filter((item) => item !== metadata.version),
+      failedVersions: (current?.failedVersions ?? []).filter((item) => item !== identity.version),
       versions
     }
-    await atomicWriteJson(this.statePath(metadata.extension_id), state)
+    await atomicWriteJson(this.statePath(identity.extensionId), state)
     const retained = new Set(versions.map((item) => item.version))
-    const versionEntries = await readdir(join(this.extensionRoot(metadata.extension_id), 'releases'), { withFileTypes: true }).catch(() => [])
-    await Promise.all(versionEntries.filter((entry) => entry.isDirectory() && VEXT_VERSION.test(entry.name) && !retained.has(entry.name)).map((entry) => rm(this.versionRoot(metadata.extension_id, entry.name), { recursive: true, force: true }).catch(() => undefined)))
+    const versionEntries = await readdir(join(this.extensionRoot(identity.extensionId), 'releases'), { withFileTypes: true }).catch(() => [])
+    await Promise.all(versionEntries.filter((entry) => entry.isDirectory() && VEXT_VERSION.test(entry.name) && !retained.has(entry.name)).map((entry) => rm(this.versionRoot(identity.extensionId, entry.name), { recursive: true, force: true }).catch(() => undefined)))
     return state
   }
 
@@ -367,7 +418,7 @@ export class ExtensionManagedStore {
     await rm(this.versionRoot(extensionId, version), { recursive: true, force: true })
   }
 
-  metadata(staged: StagedManagedPackage): VextPackageMetadata {
+  metadata(staged: StagedVextPackage): VextPackageMetadata {
     return staged.parsed.metadata
   }
 

@@ -51,6 +51,12 @@ function exactPackageVersion(packageJson, name) {
   return value
 }
 
+function assertProductionEceDependency(packageJson, expectedVersion) {
+  if (packageJson.dependencies?.['electron-chrome-extensions'] !== expectedVersion) {
+    throw new Error('Approved ECE must be a production dependency so electron-builder packages the compatibility runtime.')
+  }
+}
+
 function validateReleaseSource({ head, expected, dirty }) {
   const normalizedHead = String(head || '').trim().toLowerCase()
   const normalizedExpected = String(expected || '').trim().toLowerCase()
@@ -126,6 +132,7 @@ async function verifyRuntime({ release = false, env = process.env } = {}) {
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
   if (exactPackageVersion(packageJson, 'electron') !== manifest.electron.version) throw new Error('Electron version does not match the compatibility manifest.')
   if (exactPackageVersion(packageJson, 'electron-chrome-extensions') !== manifest.ece.version) throw new Error('ECE version does not match the compatibility manifest.')
+  assertProductionEceDependency(packageJson, manifest.ece.version)
 
   const patchPaths = manifest.electron.patches.map((entry) => entry.path)
   for (const entry of manifest.electron.patches) {
@@ -188,6 +195,7 @@ if (require.main === module) {
 
 module.exports = {
   approvedElectronDist,
+  assertProductionEceDependency,
   hashEceRuntime,
   hashOrderedFiles,
   validateRuntimeFingerprint,

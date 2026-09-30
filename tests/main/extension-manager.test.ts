@@ -10,6 +10,7 @@ import type { Workspace } from '../../src/shared/types.ts'
 import { createVextPackage } from '../../src/shared/vext-format.ts'
 import type { ExtensionCompatibilityRuntime } from '../../src/main/extensions/extension-compatibility-runtime.ts'
 import { ICLOUD_PASSWORDS_EXTENSION_ID, type ICloudUpstreamClient } from '../../src/main/extensions/icloud-upstream.ts'
+import { discoverChromiumExtensions } from '../../src/main/import/chromium-extension-discovery.ts'
 
 const fixturePath = resolve('tests/fixtures/extensions/content-script-basic')
 const managedId = 'abcdefghijklmnopabcdefghijklmnop'
@@ -131,6 +132,101 @@ test('explicit disable and uninstall clear privacy control while reload preserve
   } finally {
     await rm(harness.root, { recursive: true, force: true })
   }
+})
+
+test('local Chromium import never loads before exact permission consent and preserves original ID', async () => {
+  const harness = await managerHarness()
+  const key = Buffer.alloc(128, 5).toString('base64')
+  const sourceId = chromeExtensionId('unused', key)
+  const profilePath = join(harness.root, 'Chrome', 'Default')
+  const source = join(profilePath, 'Extensions', sourceId, '1.0.0_0')
+  try {
+    await (await import('node:fs/promises')).mkdir(source, { recursive: true })
+    await writeFile(join(source, 'manifest.json'), JSON.stringify({ manifest_version: 3,
+      name: 'Controlled local extension', version: '1.0.0', key,
+      permissions: ['storage'], host_permissions: ['https://example.com/*'],
+      content_scripts: [{ matches: ['https://example.com/*'], js: ['content.js'] }] }))
+    await writeFile(join(source, 'content.js'), 'globalThis.controlled = true')
+    await writeFile(join(profilePath, 'Preferences'), JSON.stringify({ extensions: { settings: {
+      [sourceId]: { state: 1, manifest: { version: '1.0.0' } }
+    } } }))
+    await harness.manager.initialize([workspace('one')])
+    const [detected] = await discoverChromiumExtensions(profilePath)
+    const input = { profilePath, sourceExtensionId: sourceId, version: '1.0.0', fingerprint: detected.fingerprint, sourceEnabled: true }
+    const preview = await harness.manager.prepareLocalChromiumImport(input)
+    assert.equal(preview.source, 'local-chromium')
+    assert.equal(preview.trust, 'local')
+    assert.equal(preview.publisherName, 'Local / Unverified')
+    assert.deepEqual(preview.permissions, { chrome: ['storage'], hosts: ['https://example.com/*'], vast: [] })
+    assert.equal([...harness.sessions.values()].reduce((total, session) => total + session.loadCalls.length, 0), 0)
+    await assert.rejects(harness.manager.confirmLocalChromiumImport(preview.token, { chrome: [], hosts: [], vast: [] }), /permissions/i)
+    assert.equal([...harness.sessions.values()].reduce((total, session) => total + session.loadCalls.length, 0), 0)
+    const retry = await harness.manager.prepareLocalChromiumImport(input)
+    const installed = await harness.manager.confirmLocalChromiumImport(retry.token, retry.permissions)
+    assert.equal(installed.id, sourceId)
+    assert.equal(installed.source, 'local-chromium')
+    assert.equal(installed.trust, 'local')
+    assert.equal([...harness.sessions.values()].reduce((total, session) => total + session.loadCalls.length, 0), 1)
+    await assert.rejects(harness.manager.prepareLocalChromiumImport(input), /already installed/i)
+  } finally { await rm(harness.root, { recursive: true, force: true }) }
+})
+
+test('a source-disabled local Chromium extension stays disabled after install and manager restart', async () => {
+  const harness = await managerHarness()
+  const key = Buffer.alloc(128, 6).toString('base64')
+  const sourceId = chromeExtensionId('unused', key)
+  const profilePath = join(harness.root, 'Edge', 'Default')
+  const source = join(profilePath, 'Extensions', sourceId, '1.0.0_0')
+  try {
+    await (await import('node:fs/promises')).mkdir(source, { recursive: true })
+    await writeFile(join(source, 'manifest.json'), JSON.stringify({ manifest_version: 3,
+      name: 'Disabled source fixture', version: '1.0.0', key,
+      content_scripts: [{ matches: ['https://example.com/*'], js: ['content.js'] }] }))
+    await writeFile(join(source, 'content.js'), 'globalThis.controlled = true')
+    await writeFile(join(profilePath, 'Preferences'), JSON.stringify({ extensions: { settings: {
+      [sourceId]: { state: 0, manifest: { version: '1.0.0' } }
+    } } }))
+    await harness.manager.initialize([workspace('one')])
+    const [detected] = await discoverChromiumExtensions(profilePath)
+    const preview = await harness.manager.prepareLocalChromiumImport({ profilePath,
+      sourceExtensionId: sourceId, version: '1.0.0', fingerprint: detected.fingerprint, sourceEnabled: false })
+    const installed = await harness.manager.confirmLocalChromiumImport(preview.token, preview.permissions)
+    assert.equal(installed.enabled, false)
+    assert.equal([...harness.sessions.values()].reduce((total, session) => total + session.loadCalls.length, 0), 0)
+    const restartSessions = new Map<string, FakeExtensionRuntime>()
+    const restarted = new ExtensionManager({ userDataRoot: harness.root, sessionProvider: (partition) => {
+      let runtime = restartSessions.get(partition)
+      if (!runtime) { runtime = fakeRuntime(); restartSessions.set(partition, runtime) }
+      return runtime
+    } })
+    await restarted.initialize([workspace('one')])
+    assert.equal((await restarted.list()).find((item) => item.id === sourceId)?.enabled, false)
+    assert.equal([...restartSessions.values()].reduce((total, session) => total + session.loadCalls.length, 0), 0)
+  } finally { await rm(harness.root, { recursive: true, force: true }) }
+})
+
+test('local Chromium preparation refuses a changed source fingerprint without installing anything', async () => {
+  const harness = await managerHarness()
+  const key = Buffer.alloc(128, 8).toString('base64')
+  const sourceId = chromeExtensionId('unused', key)
+  const profilePath = join(harness.root, 'Chrome', 'Default')
+  const source = join(profilePath, 'Extensions', sourceId, '1.0.0_0')
+  try {
+    await (await import('node:fs/promises')).mkdir(source, { recursive: true })
+    const manifest = { manifest_version: 3, name: 'Before', version: '1.0.0', key,
+      content_scripts: [{ matches: ['https://example.com/*'], js: ['content.js'] }] }
+    await writeFile(join(source, 'manifest.json'), JSON.stringify(manifest))
+    await writeFile(join(source, 'content.js'), 'globalThis.controlled = true')
+    await writeFile(join(profilePath, 'Preferences'), JSON.stringify({ extensions: { settings: {
+      [sourceId]: { state: 1, manifest: { version: '1.0.0' } }
+    } } }))
+    const [detected] = await discoverChromiumExtensions(profilePath)
+    await writeFile(join(source, 'manifest.json'), JSON.stringify({ ...manifest, name: 'After' }))
+    await harness.manager.initialize([workspace('one')])
+    await assert.rejects(harness.manager.prepareLocalChromiumImport({ profilePath, sourceExtensionId: sourceId,
+      version: '1.0.0', fingerprint: detected.fingerprint, sourceEnabled: true }), /changed/i)
+    assert.deepEqual(await harness.manager.list(), [])
+  } finally { await rm(harness.root, { recursive: true, force: true }) }
 })
 
 test('a disabled compatibility gate never loads Chrome extensions into Electron sessions', async () => {

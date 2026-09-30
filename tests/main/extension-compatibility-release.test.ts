@@ -13,12 +13,17 @@ const electronDistPreparer = require('../../scripts/prepare-patched-electron-dis
 const manifest = require('../../patches/extension-compatibility-runtime.json')
 const COMMIT = 'a'.repeat(40)
 
+test('approved ECE is a production dependency, not just available to dev builds', () => {
+  assert.doesNotThrow(() => verifier.assertProductionEceDependency({ dependencies: { 'electron-chrome-extensions': manifest.ece.version } }, manifest.ece.version))
+  assert.throws(() => verifier.assertProductionEceDependency({ devDependencies: { 'electron-chrome-extensions': manifest.ece.version } }, manifest.ece.version), /production dependency/)
+})
+
 function verifiedFingerprint() {
   return {
     schemaVersion: 2,
     manifest: 'patches/extension-compatibility-runtime.json',
     electronVersion: '44.3.0',
-    electronPatchsetRevision: 'electron-44.3.0-vast-r3',
+    electronPatchsetRevision: manifest.electron.patchsetRevision,
     electronPatchsetSha256: manifest.electron.patchsetSha256,
     electronBinarySha256: manifest.electron.binary.sha256,
     eceVersion: '4.9.0',
@@ -257,7 +262,7 @@ test('every Electron builder route consumes the explicitly approved runtime dire
   for (const [config, extraEnv] of configs) {
     const result = spawnSync(process.execPath, [
       '-e',
-      'const config = require(process.argv[1]); process.stdout.write(String(config.electronDist || ""))',
+      'const config = require(process.argv[1]); process.stdout.write(JSON.stringify({ electronDist: config.electronDist, win: config.win }))',
       resolve(config)
     ], {
       cwd: resolve('.'),
@@ -266,7 +271,12 @@ test('every Electron builder route consumes the explicitly approved runtime dire
       env: { ...process.env, ...extraEnv, VAST_PATCHED_ELECTRON_DIST: directory }
     })
     assert.equal(result.status, 0, result.stderr)
-    assert.equal(result.stdout, resolve(directory), config)
+    const builderConfig = JSON.parse(result.stdout)
+    assert.equal(builderConfig.electronDist, resolve(directory), config)
+    if (config === 'scripts/electron-builder-public-unsigned-release.cjs') {
+      assert.equal(builderConfig.win.signAndEditExecutable, true, 'unsigned Vast must retain its Windows product name and version metadata')
+      assert.equal(builderConfig.win.signExecutable, false, 'public unsigned Vast must not be signed')
+    }
   }
 })
 
@@ -304,6 +314,7 @@ test('release metadata and packaged-ASAR verification bind the embedded fingerpr
   assert.match(writer, /extensionCompatibilityRuntime/)
   assert.match(writer, /VAST_EXTENSION_COMPATIBILITY_FINGERPRINT_REQUIRED/)
   assert.match(packageVerifier, /readPackagedAsarFile\('out\/extension-compatibility-runtime-fingerprint\.json'\)/)
+  assert.match(packageVerifier, /assertPackagedEceRuntime\(\)/)
   assert.match(packageVerifier, /validateRuntimeFingerprint/)
   assert.match(packageVerifier, /metadata\.extensionCompatibilityRuntime/)
   assert.match(releaseAudit, /extension compatibility runtime provenance is packaged and verified/)

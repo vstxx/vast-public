@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { redactAvidaeLogLine } from '../../src/main/avidae-log.ts'
+import { avidaeAuthorizationHeader, authorizeAvidaeInitiator, clearAvidaeAuthorization, setAvidaeAuthorization } from '../../src/main/avidae-auth.ts'
 
 const mainSource = readFileSync(new URL('../../src/main/avidae.ts', import.meta.url), 'utf8')
 const authSource = readFileSync(new URL('../../src/main/avidae-auth.ts', import.meta.url), 'utf8')
@@ -27,7 +28,20 @@ test('Video & Audio receives an explicit environment allowlist and per-launch se
   assert.match(mainSource, /AVIDAE_AUTH_TOKEN: launchToken/)
   assert.match(mainSource, /Bearer \$\{authToken\}/)
   assert.match(mainSource, /redactAvidaeLogLine\(line, authToken\)/)
-  assert.match(authSource, /new URL\(rawUrl\)\.origin === authorizationOrigin/)
+  assert.match(authSource, /authorizationOrigin/)
+})
+
+test('Video & Audio bearer header requires an explicitly authorized request initiator', () => {
+  setAvidaeAuthorization('http://127.0.0.1:51234', 'test-token')
+  try {
+    assert.equal(avidaeAuthorizationHeader('http://127.0.0.1:51234/api/stats', 12), undefined)
+    authorizeAvidaeInitiator(11)
+    assert.equal(avidaeAuthorizationHeader('http://127.0.0.1:51234/api/stats', 12), undefined)
+    assert.equal(avidaeAuthorizationHeader('http://127.0.0.1:51235/api/stats', 11), undefined)
+    assert.equal(avidaeAuthorizationHeader('http://127.0.0.1:51234/api/stats', 11), 'Bearer test-token')
+  } finally {
+    clearAvidaeAuthorization()
+  }
 })
 
 test('Video & Audio manager stays outside the critical startup bundle', () => {

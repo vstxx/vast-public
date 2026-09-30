@@ -1,0 +1,33 @@
+From: Chromium change I44779352fbbd2ec022821769f3097a9da72f2ccf
+Subject: Trim the fallback of an env() function
+Upstream: https://chromium-review.googlesource.com/c/chromium/src/+/8263272
+Bug: https://issues.chromium.org/issues/543070692
+
+Backport the upstream Blink fix to the pinned Chromium 152 runtime. Without it,
+env() can retain leading fallback whitespace; when the value is substituted as
+the first token of a var() fallback, Blink can hit a DCHECK and crash the tab.
+
+diff --git a/third_party/blink/renderer/core/css/resolver/style_cascade.cc b/third_party/blink/renderer/core/css/resolver/style_cascade.cc
+--- a/third_party/blink/renderer/core/css/resolver/style_cascade.cc
++++ b/third_party/blink/renderer/core/css/resolver/style_cascade.cc
+@@ -2360,15 +2360,9 @@ bool StyleCascade::ResolveEnvInto(CSSParserTokenStream& stream,
+ 
+   CSSVariableData* data =
+       GetEnvironmentVariable(variable_name, std::move(indices));
+-  if (data) {
+-    return out.Append(data, data->IsAttrTainted());
+-  }
+-
+-  // Fallback.
+-  if (ConsumeComma(stream)) {
+-    return ResolveTokensInto(stream, tree_scope, resolver, context,
+-                             /* function_context */ nullptr,
+-                             /* stop_type */ kEOFToken, out);
+-  }
+-  return false;
++  // Appending the fallback (if any) through the same path as var() gives it
++  // the same treatment: the whitespace and comments surrounding it are not
++  // part of the substitution value.
++  return AppendDataWithFallback(data, stream, tree_scope, resolver, context,
++                                /*function_context=*/nullptr, out);
+ }

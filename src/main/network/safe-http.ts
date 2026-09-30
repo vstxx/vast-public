@@ -1,6 +1,27 @@
 import net from 'node:net'
 
 export const MAX_NETWORK_REDIRECTS = 5
+export const MAX_NETWORK_RESPONSE_BYTES = 1024 * 1024
+
+async function readBoundedText(response: Response): Promise<string> {
+  if (!response.body) return ''
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let size = 0
+  let text = ''
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) return text + decoder.decode()
+      size += value.byteLength
+      if (size > MAX_NETWORK_RESPONSE_BYTES) throw new Error('Network discovery response is too large.')
+      text += decoder.decode(value, { stream: true })
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined)
+    reader.releaseLock()
+  }
+}
 
 export function isPrivateNetworkIp(ip: string): boolean {
   if (net.isIP(ip) !== 4) return false
@@ -34,6 +55,11 @@ export async function fetchPrivateNetworkText(
 
     for (let hop = 0; hop <= MAX_NETWORK_REDIRECTS; hop += 1) {
       const response = await fetchImpl(currentUrl, { signal: controller.signal, redirect: 'manual' })
+      const contentLength = response.headers.get('content-length')
+      if (contentLength && /^\d+$/.test(contentLength) && Number(contentLength) > MAX_NETWORK_RESPONSE_BYTES) {
+        await response.body?.cancel().catch(() => undefined)
+        throw new Error('Network discovery response is too large.')
+      }
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get('location')
         await response.body?.cancel().catch(() => undefined)
@@ -44,8 +70,11 @@ export async function fetchPrivateNetworkText(
         currentUrl = nextUrl
         continue
       }
-      if (!response.ok) throw new Error(`Network discovery request failed with status ${response.status}.`)
-      return { text: await response.text(), headers: response.headers, url: currentUrl }
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => undefined)
+        throw new Error(`Network discovery request failed with status ${response.status}.`)
+      }
+      return { text: await readBoundedText(response), headers: response.headers, url: currentUrl }
     }
     throw new Error('Network discovery redirect limit exceeded.')
   } finally {

@@ -26,7 +26,8 @@ with patch("threading.Thread.start"):
     # production scheduler here races TemporaryDirectory cleanup on Windows
     # while its SQLite connection is open.
     from app import app, socketio, _approved_path, _spreadsheet_safe  # noqa: E402
-from security import _SafeRedirectHandler, _connect_approved, is_public_url, resolve_public_url  # noqa: E402
+from security import _SafeRedirectHandler, _connect_approved, contained_job_path, is_public_url, resolve_public_url, validated_media_format  # noqa: E402
+from services.browse_session import BrowseSession  # noqa: E402
 
 
 class VideoAudioSecurityTests(unittest.TestCase):
@@ -103,6 +104,91 @@ class VideoAudioSecurityTests(unittest.TestCase):
         for value in ("=cmd()", "+SUM(A1)", "-1+2", "@IMPORTXML(A1)"):
             self.assertEqual(_spreadsheet_safe(value), "'" + value)
         self.assertEqual(_spreadsheet_safe("ordinary"), "ordinary")
+
+    def test_browse_session_rejects_traversal_and_unsafe_formats_before_start(self):
+        for sid in ("../outside", "..\\outside", "C:\\outside", "/tmp/outside", "a/b", "a\x00b", 123):
+            with self.subTest(sid=sid), self.assertRaises(ValueError):
+                BrowseSession(sid, "https://example.com", socketio)
+        with self.assertRaises(ValueError):
+            BrowseSession("valid-id", "https://example.com", socketio, output_format="../outside")
+
+    def test_browse_start_rejects_malicious_socket_payloads_without_starting_a_thread(self):
+        client = socketio.test_client(app, headers=self.authorized)
+        try:
+            with patch("app._is_safe_analysis_url", return_value=True), patch("app.browse_manager.start_session") as start:
+                client.emit("browse_start", {"url": "https://example.com", "session_id": "../outside"})
+                client.emit("browse_start", {"url": "https://example.com", "session_id": "safe", "format": "../outside"})
+                start.assert_not_called()
+                self.assertEqual([item["name"] for item in client.get_received()].count("browse_error"), 2)
+        finally:
+            client.disconnect()
+
+    def test_browse_cleanup_never_follows_a_replaced_session_directory(self):
+        outside = Path(_temp.name).parent / "vast-avidae-cleanup-outside"
+        outside.mkdir(exist_ok=True)
+        marker = outside / "keep.txt"
+        marker.write_text("keep", encoding="utf-8")
+        session = BrowseSession("safe-id", "https://example.com", socketio)
+        session_dir = Path(session._tmp)
+        session_dir.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            session_dir.symlink_to(outside, target_is_directory=True)
+        except OSError:
+            marker.unlink(missing_ok=True)
+            outside.rmdir()
+            self.skipTest("Creating a directory symlink is unavailable")
+        try:
+            session._cleanup()
+            self.assertEqual(marker.read_text(encoding="utf-8"), "keep")
+        finally:
+            session_dir.unlink(missing_ok=True)
+            marker.unlink(missing_ok=True)
+            outside.rmdir()
+
+    def test_browse_cleanup_rejects_outside_target_even_without_symlinks(self):
+        outside = Path(_temp.name).parent / "vast-avidae-cleanup-guard.txt"
+        outside.write_text("keep", encoding="utf-8")
+        try:
+            session = BrowseSession("safe-id", "https://example.com", socketio)
+            session._tmp = str(outside)
+            session._cleanup()
+            self.assertEqual(outside.read_text(encoding="utf-8"), "keep")
+        finally:
+            outside.unlink(missing_ok=True)
+
+    def test_job_output_path_rejects_traversal(self):
+        job_folder = Path(_temp.name) / "jobs" / "job-safe"
+        (job_folder / "output").mkdir(parents=True, exist_ok=True)
+        with self.assertRaises(ValueError):
+            contained_job_path(str(job_folder), "output", "../../outside.mp4")
+        self.assertEqual(contained_job_path(str(job_folder), "output", "recording.mp4"), str((job_folder / "output" / "recording.mp4").resolve()))
+
+    def test_media_format_allowlist_preserves_supported_formats_only(self):
+        supported = {
+            "browse": ("mp4", "webm", "mkv"), "record": ("mp4", "webm", "mkv"),
+            "convert": ("mp4", "webm", "mkv", "avi"), "video_merge": ("mp4", "mkv", "webm"),
+            "audio_convert": ("ogg", "mp3", "opus", "wav", "flac", "aac", "m4a"),
+            "audio_record": ("mp3", "wav", "ogg", "flac", "aac", "m4a"),
+            "extract_audio": ("mp3", "wav", "ogg", "flac", "aac"),
+        }
+        for kind, formats in supported.items():
+            for media_format in formats:
+                self.assertEqual(validated_media_format(kind, media_format), media_format)
+            for malicious in ("../outside", "mp4/../../outside", "MP4", "mp4\x00", None, 1):
+                with self.subTest(kind=kind, malicious=malicious), self.assertRaises(ValueError):
+                    validated_media_format(kind, malicious)
+
+    def test_media_job_rejects_traversal_format_without_creating_job(self):
+        with patch("app.create_job") as create_job:
+            for job_type, key in (("audio_record", "format"), ("record", "format"), ("extract_audio", "audio_format")):
+                params = {key: "../outside"}
+                if job_type == "record":
+                    params["url"] = "https://example.com"
+                if job_type == "extract_audio":
+                    params["input_file"] = "not-found"
+                response = self.client.post("/api/jobs", json={"type": job_type, "params": params}, headers=self.authorized)
+                self.assertEqual(response.status_code, 400, job_type)
+            create_job.assert_not_called()
 
 
 if __name__ == "__main__":

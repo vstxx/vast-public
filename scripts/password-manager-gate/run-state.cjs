@@ -140,7 +140,9 @@ function buildRuntimeFingerprint(config) {
     path.join(config.root, 'experiments', 'electron-44-patches', '0005-chromium-lifecycle-auth-support.patch'),
     path.join(config.root, 'experiments', 'electron-44-patches', '0006-electron-messaging-split-view-compat.patch'),
     path.join(config.root, 'experiments', 'electron-44-patches', '0007-electron-action-open-popup-event.patch'),
-    path.join(config.root, 'experiments', 'electron-44-patches', '0008-electron-extensions-reload-api.patch')
+    path.join(config.root, 'experiments', 'electron-44-patches', '0008-electron-extensions-reload-api.patch'),
+    path.join(config.root, 'experiments', 'electron-44-patches', '0009-chromium-css-env-fallback.patch'),
+    path.join(config.root, 'experiments', 'electron-44-patches', '0010-chromium-css-var-fallback-leading-space.patch')
   ]
   const ecePatchPath = config.ecePatchPath || path.join(config.root, 'patches', 'electron-chrome-extensions-4.9.0-vast.patch')
 

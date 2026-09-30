@@ -5,11 +5,13 @@ import { DEFAULT_DATA, STORAGE_SCHEMA_VERSION } from '../shared/constants'
 import { migrateLegacyInternalTab, migrateLegacySessionSnapshot, stripRetiredReaderState } from '../shared/legacy-internal-url-migration'
 import { resolveLayoutMode } from '../shared/layout-mode'
 import { mergePersistedDataForMigration } from '../shared/storage-schema-migration'
+import { preserveExistingProfileFeatureDefaults } from '../shared/existing-profile-defaults'
 import { sanitizeStoredExtensionMenuSize } from '../shared/extension-menu-sizing'
 import type { BrowserSettings, DownloadItem, PersistedData, SitePermissionOverride, StorageBackupInfo, StorageRecoveryState } from '../shared/types'
+import type { BrowserImportCommitReceipt, BrowserImportExtensionReceipt } from '../shared/browser-import'
 import { dataFilePath, vastDataPath } from './data-path'
 import { recordStorageWrite } from './performance-probe'
-import { LatestTaskQueue } from './latest-task-queue'
+import { SerializedTaskQueue } from './serialized-task-queue'
 import { readTextWithRetry } from './storage-read-retry'
 
 const storageFileName = 'vast-data.json'
@@ -113,7 +115,7 @@ function hasSettingsShape(value: unknown): boolean {
 }
 
 export function assertStorageTextSize(raw: string): void {
-  if (raw.length > maxStorageBytes) {
+  if (Buffer.byteLength(raw, 'utf8') > maxStorageBytes) {
     throw new Error('Vast data file is too large to import safely.')
   }
 }
@@ -233,6 +235,42 @@ function optionalId(value: unknown): boolean {
   return value === undefined || safeId(value)
 }
 
+function optionalBookmarkSource(value: unknown, folder: boolean): boolean {
+  if (value === undefined) return true
+  if (!isRecord(value)) return false
+  if (!['chrome', 'edge', 'firefox'].includes(String(value.browser))) return false
+  if (!safeId(value.profileId) || !safeId(value.itemId)) return false
+  return !folder || ['bar', 'other', 'mobile', 'menu', 'unfiled'].includes(String(value.root))
+}
+
+function validImportState(value: unknown): boolean {
+  if (value === undefined) return true
+  if (!isRecord(value) || !finiteNumber(value.generation, 0, 1_000_000_000) || !Number.isSafeInteger(value.generation) ||
+      !['idle', 'extensions-pending', 'completed'].includes(String(value.phase))) return false
+  if (value.pendingExtensionIds !== undefined && (!Array.isArray(value.pendingExtensionIds) ||
+      value.pendingExtensionIds.length > 100 || !value.pendingExtensionIds.every(safeId))) return false
+  if (value.extensionReceipts !== undefined && (!Array.isArray(value.extensionReceipts) ||
+      value.extensionReceipts.length > 100 || value.extensionReceipts.some((receipt: unknown) =>
+        !isRecord(receipt) || !safeId(receipt.id) ||
+        !['installed', 'partial compatibility', 'unsupported', 'failed', 'already installed', 'declined'].includes(String(receipt.status)) ||
+        !finiteNumber(receipt.recordedAt) ||
+        (receipt.message !== undefined && (typeof receipt.message !== 'string' || receipt.message.length > 512))))) return false
+  if (value.receipt === undefined) return true
+  const receipt = value.receipt
+  if (!isRecord(receipt) || !safeId(receipt.operationId) || !['chrome', 'edge', 'firefox'].includes(String(receipt.sourceId)) ||
+      !safeId(receipt.profileId) || !finiteNumber(receipt.committedAt)) return false
+  const counts = receipt.counts
+  if (!isRecord(counts)) return false
+  for (const kind of ['bookmarks', 'history']) {
+    const count = counts[kind]
+    if (!isRecord(count)) return false
+    for (const key of ['added', 'updated', 'skipped', 'failed', 'evicted']) {
+      if (!finiteNumber(count[key], 0, 1_000_000) || !Number.isSafeInteger(count[key])) return false
+    }
+  }
+  return true
+}
+
 function storedUrl(value: unknown, allowInternal = true): value is string {
   if (!safeString(value, 128 * 1024, false)) return false
   try {
@@ -276,10 +314,10 @@ const entityGuards = {
     return isRecord(item) && safeId(item.id) && safeId(item.workspaceId) && safeString(item.title, 4_096) && storedUrl(item.url) && optionalFavicon(item.favicon) && finiteNumber(item.closedAt)
   },
   bookmark(item: unknown): item is PersistedData['bookmarks'][number] {
-    return isRecord(item) && safeId(item.id) && safeString(item.title, 4_096) && storedUrl(item.url) && optionalFavicon(item.favicon) && optionalId(item.folderId) && optionalId(item.workspaceId) && finiteNumber(item.createdAt) && finiteNumber(item.updatedAt)
+    return isRecord(item) && safeId(item.id) && safeString(item.title, 4_096) && storedUrl(item.url) && optionalFavicon(item.favicon) && optionalId(item.folderId) && optionalId(item.workspaceId) && finiteNumber(item.createdAt) && finiteNumber(item.updatedAt) && optionalBookmarkSource(item.importSource, false)
   },
   bookmarkFolder(item: unknown): item is PersistedData['bookmarkFolders'][number] {
-    return isRecord(item) && safeId(item.id) && safeString(item.name, 1_024, false) && optionalId(item.parentId) && finiteNumber(item.order, -10_000, 10_000) && finiteNumber(item.createdAt) && (item.updatedAt === undefined || finiteNumber(item.updatedAt))
+    return isRecord(item) && safeId(item.id) && safeString(item.name, 1_024, false) && optionalId(item.parentId) && finiteNumber(item.order, -10_000, 10_000) && finiteNumber(item.createdAt) && (item.updatedAt === undefined || finiteNumber(item.updatedAt)) && optionalBookmarkSource(item.importSource, true)
   },
   history(item: unknown): item is PersistedData['history'][number] {
     return isRecord(item) && safeId(item.id) && safeString(item.title, 4_096) && storedUrl(item.url) && optionalFavicon(item.favicon) && finiteNumber(item.visitCount, 0, 1_000_000) && finiteNumber(item.lastVisitedAt) && optionalId(item.workspaceId)
@@ -436,7 +474,8 @@ export function isPersistedData(value: unknown): value is PersistedData {
     arrayWithinLimit(value.macroLogs, 'macroLogs', false) &&
     arrayWithinLimit(value.sessionSnapshots, 'sessionSnapshots', false) &&
     arrayWithinLimit(value.recentCommandIds, 'recentCommandIds', false) &&
-    hasSettingsShape(value.settings)
+    hasSettingsShape(value.settings) &&
+    validImportState(value.importState)
   )
 }
 
@@ -447,8 +486,12 @@ export function migrateData(data: PersistedData): PersistedData {
     legacyAdvanced && 'ramLimitMb' in legacyAdvanced
       ? sanitizeRamLimitMb(legacyAdvanced.ramLimitMb)
       : deriveLegacyRamLimitMb(legacyAdvanced)
-  const settingsInput = JSON.parse(JSON.stringify(data.settings ?? {})) as Record<string, unknown>
+  let settingsInput = JSON.parse(JSON.stringify(data.settings ?? {})) as Record<string, unknown>
   const legacyAppearance = isRecord(settingsInput.appearance) ? settingsInput.appearance : {}
+  // Defaults changed for new 0.4 profiles. A saved profile that predates a
+  // setting keeps its previous effective value instead of silently opting in.
+  const existingProfile = data.onboarding?.completed === true || data.onboarding === undefined
+  if (existingProfile) settingsInput = preserveExistingProfileFeatureDefaults(settingsInput)
   const newTabInput = isRecord(settingsInput.newTab) ? { ...settingsInput.newTab } : {}
   if (typeof newTabInput.background !== 'string' && typeof legacyAppearance.backgroundStyle === 'string') {
     const legacyBackgrounds: Record<string, BrowserSettings['newTab']['background']> = {
@@ -670,21 +713,36 @@ async function backupRejectedStorageFile(file: string, expectedRaw: string): Pro
 let mainDownloads: DownloadItem[] | undefined
 
 export async function saveRendererData(data: PersistedData): Promise<void> {
-  const current = await loadData()
-  mainDownloads ??= current.downloads
-  await saveData({ ...data, downloads: mainDownloads })
+  await loadData()
+  await durableSaveQueue.run(async () => {
+    const current = cachedData!
+    if (JSON.stringify(data.importState ?? null) !== JSON.stringify(current.importState ?? null)) {
+      throw new Error('Stale or modified storage import state or generation; reload the latest Vast data before saving.')
+    }
+    mainDownloads ??= current.downloads
+    await writeData({ ...data, downloads: mainDownloads })
+  })
 }
 
-async function writeData(data: PersistedData): Promise<void> {
+function importGeneration(data: PersistedData | null): number {
+  return data?.importState?.generation ?? 0
+}
+
+async function writeData(data: PersistedData, allowGenerationAdvance = false): Promise<void> {
   const writeStartedAt = performance.now()
+  const expectedGeneration = importGeneration(cachedData)
+  const proposedGeneration = importGeneration(data)
+  if (proposedGeneration !== expectedGeneration + (allowGenerationAdvance ? 1 : 0)) {
+    throw new Error('Stale or invalid storage import generation; reload the latest Vast data before saving.')
+  }
   const next = normalizePersistedData(mainDownloads ? { ...data, downloads: mainDownloads } : data)
   const file = storagePath()
   const tmp = `${file}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
   const serialized = JSON.stringify(next)
   if (serialized === lastWrittenSerialized) return
-  assertStorageTextSize(serialized)
+  assertStorageTextSize(`${serialized}\n`)
   await mkdir(dirname(file), { recursive: true })
-  await writeFile(tmp, `${serialized}\n`, 'utf8')
+  await writeFile(tmp, `${serialized}\n`, { encoding: 'utf8', flush: true })
   let rollingBackupCreated = false
   if (Date.now() - lastRollingBackupAt >= rollingBackupIntervalMs) {
     await copyActiveStorageToBackup('rolling').then((backup) => {
@@ -711,16 +769,88 @@ async function writeData(data: PersistedData): Promise<void> {
   recordStorageWrite(Buffer.byteLength(serialized) + 1, performance.now() - writeStartedAt, rollingBackupCreated)
 }
 
-const durableSaveQueue = new LatestTaskQueue<PersistedData>(writeData)
-let pendingSaveData: PersistedData | undefined
+const durableSaveQueue = new SerializedTaskQueue()
 
 export async function saveData(data: PersistedData): Promise<void> {
-  pendingSaveData = data
-  try {
-    await durableSaveQueue.run(data)
-  } finally {
-    if (pendingSaveData === data) pendingSaveData = undefined
+  await durableSaveQueue.run(() => writeData(data))
+}
+
+export async function commitImportData(
+  operationId: string,
+  merge: (current: PersistedData) => { data: PersistedData; receipt: BrowserImportCommitReceipt }
+): Promise<{ data: PersistedData; receipt: BrowserImportCommitReceipt; generation: number }> {
+  if (!safeId(operationId)) throw new Error('Invalid import operation ID.')
+  await loadData()
+  return durableSaveQueue.run(async () => {
+    const current = cachedData!
+    const prior = current.importState?.receipt
+    if (prior?.operationId === operationId) {
+      const verified = await readTextWithRetry(storagePath())
+      assertStorageTextSize(verified)
+      const disk = normalizePersistedData(JSON.parse(verified) as unknown)
+      if (disk.importState?.receipt?.operationId !== operationId ||
+          disk.importState.generation !== current.importState?.generation) {
+        throw new Error('Import receipt readback does not match current storage.')
+      }
+      return { data: disk, receipt: prior, generation: disk.importState.generation }
+    }
+    const result = merge(current)
+    if (result.receipt.operationId !== operationId || !validImportState({
+      generation: importGeneration(current) + 1, phase: 'extensions-pending', receipt: result.receipt
+    })) throw new Error('Invalid import receipt.')
+    if (result.data.importState?.generation !== undefined && result.data.importState.generation !== importGeneration(current)) {
+      throw new Error('Import merge returned a stale or forged generation.')
+    }
+    const generation = importGeneration(current) + 1
+    const candidate: PersistedData = {
+      ...result.data,
+      importState: {
+        generation, phase: 'extensions-pending', receipt: result.receipt,
+        pendingExtensionIds: result.data.importState?.pendingExtensionIds ?? []
+      }
+    }
+    await writeData(candidate, true)
+    const verified = await readTextWithRetry(storagePath())
+    assertStorageTextSize(verified)
+    const disk = normalizePersistedData(JSON.parse(verified) as unknown)
+    if (disk.importState?.receipt?.operationId !== operationId || disk.importState.generation !== generation ||
+        JSON.stringify(disk) !== JSON.stringify(cachedData)) {
+      throw new Error('Import write readback did not match the committed candidate.')
+    }
+    return { data: disk, receipt: result.receipt, generation }
+  })
+}
+
+export async function recordImportExtensionResult(operationId: string, result: BrowserImportExtensionReceipt): Promise<BrowserImportExtensionReceipt> {
+  if (!safeId(operationId) || !safeId(result.id) || !validImportState({ generation: 0, phase: 'extensions-pending', extensionReceipts: [result] })) {
+    throw new Error('Invalid extension import result.')
   }
+  await loadData()
+  return durableSaveQueue.run(async () => {
+    const current = cachedData!
+    const importState = current.importState
+    if (importState?.receipt?.operationId !== operationId) throw new Error('Import operation no longer matches the current profile.')
+    const prior = importState.extensionReceipts?.find((entry) => entry.id === result.id)
+    if (prior && prior.status !== 'failed') return prior
+    if (!importState.pendingExtensionIds?.includes(result.id)) throw new Error('Extension was not selected for this import.')
+    const final = result.status !== 'failed'
+    const pendingExtensionIds = final ? importState.pendingExtensionIds.filter((id) => id !== result.id) : importState.pendingExtensionIds
+    const candidate: PersistedData = {
+      ...current,
+      importState: {
+        ...importState,
+        phase: pendingExtensionIds.length ? 'extensions-pending' : 'completed',
+        pendingExtensionIds,
+        extensionReceipts: [...(importState.extensionReceipts ?? []).filter((entry) => entry.id !== result.id), result]
+      }
+    }
+    await writeData(candidate)
+    const verified = await readTextWithRetry(storagePath())
+    assertStorageTextSize(verified)
+    const disk = normalizePersistedData(JSON.parse(verified) as unknown)
+    if (JSON.stringify(disk.importState) !== JSON.stringify(candidate.importState)) throw new Error('Extension import result readback failed.')
+    return result
+  })
 }
 
 export async function clearHistory(): Promise<PersistedData> {
@@ -731,28 +861,40 @@ export async function clearHistory(): Promise<PersistedData> {
 }
 
 export async function upsertDownload(download: DownloadItem): Promise<void> {
-  const loaded = await loadData()
-  const data = pendingSaveData ?? loaded
-  const downloads = (mainDownloads ?? data.downloads).filter((item) => item.id !== download.id)
-  downloads.unshift(download)
-  mainDownloads = downloads.slice(0, 200)
-  await saveData({ ...data, downloads: mainDownloads })
+  await loadData()
+  await durableSaveQueue.run(async () => {
+    const data = cachedData!
+    const downloads = (mainDownloads ?? data.downloads).filter((item) => item.id !== download.id)
+    downloads.unshift(download)
+    mainDownloads = downloads.slice(0, 200)
+    await writeData({ ...data, downloads: mainDownloads })
+  })
 }
 
 export async function clearCompletedDownloads(): Promise<void> {
-  const loaded = await loadData()
-  const data = pendingSaveData ?? loaded
-  const downloads = (mainDownloads ?? data.downloads).filter((item) => item.state !== 'completed' && item.state !== 'cancelled')
-  mainDownloads = downloads
-  await saveData({ ...data, downloads })
+  await loadData()
+  await durableSaveQueue.run(async () => {
+    const data = cachedData!
+    const downloads = (mainDownloads ?? data.downloads).filter((item) => item.state !== 'completed' && item.state !== 'cancelled')
+    mainDownloads = downloads
+    await writeData({ ...data, downloads })
+  })
 }
 
 export async function replaceDataFromImport(data: PersistedData): Promise<PersistedData> {
-  const next = migrateData(data)
-  await createStorageBackup('pre-import')
-  mainDownloads = next.downloads
-  await saveData(next)
-  return next
+  const replacement = migrateData(data)
+  await loadData()
+  return durableSaveQueue.run(async () => {
+    await createStorageBackup('pre-import')
+    const next: PersistedData = {
+      ...replacement,
+      importState: { generation: importGeneration(cachedData) + 1, phase: 'idle' }
+    }
+    const priorDownloads = mainDownloads
+    mainDownloads = next.downloads
+    try { await writeData(next, true) } catch (error) { mainDownloads = priorDownloads; throw error }
+    return cachedData!
+  })
 }
 
 export async function restoreStorageBackup(id: string): Promise<PersistedData> {
@@ -761,9 +903,17 @@ export async function restoreStorageBackup(id: string): Promise<PersistedData> {
   assertStorageTextSize(raw)
   const parsed = JSON.parse(raw) as unknown
   if (!isPersistedData(parsed)) throw new Error('Selected backup is not valid Vast data.')
-  mainDownloads = undefined
-  await createStorageBackup('pre-restore')
-  const next = migrateData(parsed)
-  await saveData(next)
-  return next
+  const restored = migrateData(parsed)
+  await loadData()
+  return durableSaveQueue.run(async () => {
+    await createStorageBackup('pre-restore')
+    const next: PersistedData = {
+      ...restored,
+      importState: { generation: importGeneration(cachedData) + 1, phase: 'idle' }
+    }
+    const priorDownloads = mainDownloads
+    mainDownloads = next.downloads
+    try { await writeData(next, true) } catch (error) { mainDownloads = priorDownloads; throw error }
+    return cachedData!
+  })
 }

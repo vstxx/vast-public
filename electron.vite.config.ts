@@ -47,7 +47,11 @@ export default defineConfig({
         // remains independently hash-verifiable. electron-builder packages the
         // pinned production dependency after the compatibility gates pass.
         external: ['electron-chrome-extensions'],
-        input: resolve(__dirname, 'src/main/main.ts')
+        input: {
+          main: resolve(__dirname, 'src/main/main.ts'),
+          'browser-import-worker': resolve(__dirname, 'src/main/import/source-worker.ts'),
+          'local-chromium-stage-worker': resolve(__dirname, 'src/main/extensions/local-chromium-stage-worker.ts')
+        }
       }
     }
   },

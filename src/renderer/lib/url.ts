@@ -176,6 +176,15 @@ export function resolveAddressInput(input: string, searchEngineId: string): stri
   return engine.searchUrl.replace('%s', encodeURIComponent(trimmed))
 }
 
+/** New Tab treats bare internal-page aliases as search terms; the omnibox
+ * keeps its shortcut behavior and explicit vast:// URLs remain navigable. */
+export function resolveNewTabSearchInput(input: string, searchEngineId: string): string {
+  const trimmed = input.trim()
+  const resolved = resolveAddressInput(trimmed, searchEngineId)
+  if (!trimmed || trimmed.toLowerCase().startsWith('vast://') || !isKnownInternalUrl(resolved)) return resolved
+  return getSearchEngine(searchEngineId).searchUrl.replace('%s', encodeURIComponent(trimmed))
+}
+
 export function displayUrl(url: string): string {
   if (matchesInternalUrl(url, INTERNAL_NEW_TAB_URL)) return 'New tab'
   if (matchesInternalUrl(url, INTERNAL_AVIDAE_URL)) return 'Video & Audio'

@@ -4,7 +4,7 @@ import type { Note, Tab } from '../../../shared/types'
 import { INTERNAL_SESSION_TIMELINE_URL } from '../../../shared/constants'
 import vastLogo from '../../../../assets/logos/vast.png'
 import { formatRelativeTime } from '../../lib/format'
-import { isSafeLoadUrl, resolveAddressInput } from '../../lib/url'
+import { isSafeLoadUrl, resolveAddressInput, resolveNewTabSearchInput } from '../../lib/url'
 import { useBrowserRuntime } from '../../app/browser-runtime'
 import { useBrowserStore, selectActiveWorkspace } from '../../store/browser-store'
 import { Favicon } from '../ui/Favicon'
@@ -149,7 +149,7 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
               <ClockWidget compact />
             </div>
           </div>
-          <SearchForm query={query} setQuery={setQuery} onSubmit={(value) => runtime.navigateActive(value)} />
+          <SearchForm query={query} setQuery={setQuery} onSubmit={(value) => runtime.navigateActive(resolveNewTabSearchInput(value, defaultSearchEngine))} />
           {newTabSettings.showQuickLinks && quickLinks.length > 0 && (
             <div className="mt-8">
               <QuickLinkGrid
@@ -249,7 +249,7 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
           </div>
 
           <div className="relative mt-3 w-full max-w-2xl">
-            <SearchForm query={query} setQuery={setQuery} onSubmit={(value) => runtime.navigateActive(value)} />
+            <SearchForm query={query} setQuery={setQuery} onSubmit={(value) => runtime.navigateActive(resolveNewTabSearchInput(value, defaultSearchEngine))} />
             <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-[10px] text-vast-soft">
               <span className="rounded-control border border-white/[0.08] bg-white/[0.03] px-2.5 py-1">Ctrl/Cmd+K</span>
               <span className="rounded-control border border-white/[0.08] bg-white/[0.03] px-2.5 py-1">g / yt / w</span>

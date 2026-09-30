@@ -7,6 +7,7 @@ import subprocess
 from datetime import datetime, timezone
 
 import config
+from security import validated_media_format, contained_job_path
 from services.job_manager import update_job, is_cancelled, emit_job_update
 from services.logger import get_job_logger, append_log_event
 from services.storage import get_job_folder
@@ -36,7 +37,7 @@ def run_record_job(job_id, cancel_flag):
     bitrate = params.get("bitrate", config.DEFAULT_BITRATE)
     max_duration = int(params.get("max_duration", config.DEFAULT_MAX_DURATION))
     delay = int(params.get("delay", config.DEFAULT_DELAY))
-    output_format = params.get("format", config.DEFAULT_FORMAT)
+    output_format = validated_media_format("record", params.get("format", config.DEFAULT_FORMAT))
     play_selector = params.get("play_selector", "")
     video_selector = params.get("video_selector", "")
     trim_start = params.get("trim_start")
@@ -57,13 +58,13 @@ def run_record_job(job_id, cancel_flag):
     logger.info("Phase: Recording")
     append_log_event(job_folder, "phase", "Recording started")
 
-    temp_dir = os.path.join(job_folder, "temp")
-    output_dir = os.path.join(job_folder, "output")
+    temp_dir = contained_job_path(job_folder, "temp")
+    output_dir = contained_job_path(job_folder, "output")
     os.makedirs(temp_dir, exist_ok=True)
     os.makedirs(output_dir, exist_ok=True)
 
-    raw_output = os.path.join(temp_dir, "raw_recording.webm")
-    final_output = os.path.join(output_dir, f"recording.{output_format}")
+    raw_output = contained_job_path(job_folder, "temp", "raw_recording.webm")
+    final_output = contained_job_path(job_folder, "output", f"recording.{output_format}")
 
     try:
         asyncio.run(_record_with_cdp(
@@ -105,7 +106,7 @@ def run_record_job(job_id, cancel_flag):
     # Trim if requested
     if trim_start or trim_end:
         logger.info(f"Trimming: start={trim_start}, end={trim_end}")
-        trimmed = os.path.join(temp_dir, f"trimmed.{output_format}")
+        trimmed = contained_job_path(job_folder, "temp", f"trimmed.{output_format}")
         cmd = build_trim_command(raw_output, trimmed, start=trim_start, end=trim_end)
         ok, err = run_ffmpeg(cmd, logger=logger, timeout=300)
         if ok:
@@ -118,10 +119,10 @@ def run_record_job(job_id, cancel_flag):
         if getattr(config, "FFMPEG_IS_PLAYWRIGHT", False):
             logger.warning("Production FFmpeg not found; saving WebM output instead")
             output_format = "webm"
-            final_output = os.path.join(output_dir, "recording.webm")
+            final_output = contained_job_path(job_folder, "output", "recording.webm")
         else:
             logger.info(f"Converting from webm to {output_format}")
-            converted = os.path.join(temp_dir, f"converted.{output_format}")
+            converted = contained_job_path(job_folder, "temp", f"converted.{output_format}")
             cmd = [
                 config.FFMPEG_PATH, "-y", "-i", raw_output,
                 "-c:v", "libx264", "-preset", "fast",
@@ -135,14 +136,14 @@ def run_record_job(job_id, cancel_flag):
             else:
                 logger.warning(f"Conversion failed: {err}; saving WebM output instead")
                 output_format = "webm"
-                final_output = os.path.join(output_dir, "recording.webm")
+                final_output = contained_job_path(job_folder, "output", "recording.webm")
 
     shutil.copy2(raw_output, final_output)
     logger.info(f"Output saved: {final_output}")
     update_job(job_id, progress=85)
 
     # Generate thumbnail
-    thumb_path = os.path.join(job_folder, "thumbnail.jpg")
+    thumb_path = contained_job_path(job_folder, "thumbnail.jpg")
     if not getattr(config, "FFMPEG_IS_PLAYWRIGHT", False):
         cmd = build_thumbnail_command(final_output, thumb_path)
         ok, _ = run_ffmpeg(cmd, logger=logger, timeout=30)
@@ -157,7 +158,7 @@ def run_record_job(job_id, cancel_flag):
     # Extract audio if requested
     if extract_audio_flag:
         logger.info("Extracting audio track")
-        audio_output = os.path.join(output_dir, "audio.mp3")
+        audio_output = contained_job_path(job_folder, "output", "audio.mp3")
         cmd = build_extract_audio_command(final_output, audio_output)
         ok, err = run_ffmpeg(cmd, logger=logger, timeout=300)
         if ok:

@@ -4,6 +4,7 @@ import type { ContextMenuItem } from '../store/browser-store'
 import { useBrowserStore } from '../store/browser-store'
 import { displayUrl, isInternalUrl } from './url'
 import type { Tab } from '../../shared/types'
+import { findOwnTabBookmark } from '../../shared/bookmark-identity'
 
 function separator(id: string): ContextMenuItem {
   return { id, label: '', separator: true }
@@ -15,7 +16,7 @@ export function openTabContextMenu(tab: Tab, x: number, y: number): void {
   const tabIndex = workspaceTabs.findIndex((item) => item.id === tab.id)
   const closeTargetsRight = tabIndex >= 0 ? workspaceTabs.slice(tabIndex + 1).filter((item) => !item.pinned) : []
   const closeTargetsOther = workspaceTabs.filter((item) => item.id !== tab.id && !item.pinned)
-  const bookmarked = store.bookmarks.some((bookmark) => bookmark.url === tab.url)
+  const bookmarked = Boolean(findOwnTabBookmark(store.bookmarks, tab.url, tab.workspaceId))
   const canBookmark = !isInternalUrl(tab.url)
 
   store.openContextMenu({
@@ -54,7 +55,7 @@ export function openTabContextMenu(tab: Tab, x: number, y: number): void {
         detail: canBookmark ? displayUrl(tab.url) : 'Internal Vast page',
         action: () => {
           const current = useBrowserStore.getState()
-          const existing = current.bookmarks.find((bookmark) => bookmark.url === tab.url)
+          const existing = findOwnTabBookmark(current.bookmarks, tab.url, tab.workspaceId)
           if (existing) {
             current.removeBookmark(existing.id)
           } else {

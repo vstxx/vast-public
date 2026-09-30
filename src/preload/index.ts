@@ -90,7 +90,14 @@ const api = {
   },
   importer: {
     discover: () => ipcRenderer.invoke('vast:importer:discover'),
-    run: (request) => ipcRenderer.invoke('vast:importer:run', request)
+    prepare: (request) => ipcRenderer.invoke('vast:importer:prepare', request),
+    preview: (token) => ipcRenderer.invoke('vast:importer:preview', token),
+    commit: (request) => ipcRenderer.invoke('vast:importer:commit', request),
+    status: () => ipcRenderer.invoke('vast:importer:status'),
+    prepareExtension: (operationId, extensionId) => ipcRenderer.invoke('vast:importer:extension-prepare', operationId, extensionId),
+    confirmExtension: (request) => ipcRenderer.invoke('vast:importer:extension-confirm', request),
+    declineExtension: (operationId, extensionId) => ipcRenderer.invoke('vast:importer:extension-decline', operationId, extensionId),
+    discard: (token) => ipcRenderer.invoke('vast:importer:discard', token)
   },
   extensions: {
     list: () => ipcRenderer.invoke('vast:extensions:list'),

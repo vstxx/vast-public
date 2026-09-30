@@ -3,6 +3,7 @@ const { spawnSync } = require('node:child_process')
 const { createHash } = require('node:crypto')
 const { createReadStream, appendFileSync } = require('node:fs')
 const { basename } = require('node:path')
+const { verifiedCandidateAssets, assertExpectedReleaseAssets } = require('./local-public-release.cjs')
 function gh(args) {
   const result = spawnSync('gh', args, { encoding: 'utf8', windowsHide: true, maxBuffer: 16 * 1024 * 1024 })
   if (result.error || result.status !== 0) throw new Error(`gh ${args[0]} failed: ${result.stderr || result.error?.message}`)
@@ -11,11 +12,15 @@ function gh(args) {
 async function hash(stream) { const result = createHash('sha256'); for await (const chunk of stream) result.update(chunk); return result.digest('hex') }
 async function main() {
   const [notes, ...requested] = process.argv.slice(2)
-  const assets = require('./release-files.cjs').publishedReleaseFiles(require('../package.json').version, process.env.VAST_PUBLIC_UNSIGNED_RELEASE === '1').map(file => `release/${file}`)
+  const assets = process.env.VAST_CANDIDATE_ROOT
+    ? verifiedCandidateAssets(process.env.VAST_CANDIDATE_ROOT, require('./release-candidate.cjs').identity())
+    : require('./release-files.cjs').publishedReleaseFiles(require('../package.json').version, process.env.VAST_PUBLIC_UNSIGNED_RELEASE === '1').map(file => `release/${file}`)
   if (requested.length) throw new Error('Publication assets must come from release-files.cjs, not caller-supplied paths')
   if (!notes || !assets.length) throw new Error('Pass a notes file and exact verified candidate assets.')
-  const seal = spawnSync(process.execPath, [require.resolve('./release-candidate.cjs'), 'verify'], { stdio: 'inherit', windowsHide: true })
-  if (seal.error || seal.status !== 0) throw new Error('Candidate changed since verification; refuse publication.')
+  if (!process.env.VAST_CANDIDATE_ROOT) {
+    const seal = spawnSync(process.execPath, [require.resolve('./release-candidate.cjs'), 'verify'], { stdio: 'inherit', windowsHide: true })
+    if (seal.error || seal.status !== 0) throw new Error('Candidate changed since verification; refuse publication.')
+  }
   const version = require('../package.json').version, tag = `v${version}`, repo = 'vstxx/vast-public'
   const releases = JSON.parse(gh(['api', '--paginate', '--slurp', `repos/${repo}/releases?per_page=100`])).flat()
   let release = releases.find(item => item.tag_name === tag)
@@ -26,6 +31,7 @@ async function main() {
     release = JSON.parse(gh(['api', `repos/${repo}/releases/tags/${tag}`]))
   }
   if (release.prerelease !== (process.env.VAST_RELEASE_CHANNEL === 'beta')) throw new Error('Existing release channel differs from the candidate.')
+  assertExpectedReleaseAssets(release.assets, assets.map(file => basename(file)))
   const missing = []
   // Validate all existing files first, before uploading any missing file.
   for (const file of assets) {

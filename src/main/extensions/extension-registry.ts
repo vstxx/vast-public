@@ -42,7 +42,7 @@ export function parseInstalledExtensionRecord(value: unknown): InstalledExtensio
 
   if (!id || !EXTENSION_ID.test(id) || !name || !version || !path || !isAbsolute(path)) return undefined
   if (input.enabled !== true && input.enabled !== false) return undefined
-  if (!['unpacked', 'local-vext', 'hub', 'upstream', 'bundled'].includes(String(input.source)) || !['chrome', 'vast', 'hybrid', undefined].includes(input.runtime as VastExtensionKind | undefined)) return undefined
+  if (!['unpacked', 'local-vext', 'local-chromium', 'hub', 'upstream', 'bundled'].includes(String(input.source)) || !['chrome', 'vast', 'hybrid', undefined].includes(input.runtime as VastExtensionKind | undefined)) return undefined
   if (input.manifestVersion !== 2 && input.manifestVersion !== 3) return undefined
   if (!installedAt || !updatedAt) return undefined
 

@@ -1,7 +1,9 @@
 import { copyText } from '../lib/clipboard'
 import { lazy, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { INTERNAL_AUTOMATION_URL, INTERNAL_NEW_TAB_URL } from '../../shared/constants'
+import { findOwnTabBookmark } from '../../shared/bookmark-identity'
 import { getFeatureState, VastFeatures } from '../../shared/feature-gates'
+import { electronFindOptions } from '../../shared/find-in-page'
 import { resolveLayoutMode } from '../../shared/layout-mode'
 import { mouseNavigationActionForButton, shouldTriggerMouseNavigation } from '../../shared/mouse-navigation'
 import { normalizeShortcutKey, parseShortcut } from '../../shared/shortcuts'
@@ -1096,7 +1098,7 @@ export function App(): JSX.Element {
       findInPage: (query, options) => {
         const webview = activeWebview()
         if (!webview || !query.trim()) return
-        webview.findInPage(query, options)
+        webview.findInPage(query, electronFindOptions(options))
       },
       stopFindInPage: () => activeWebview()?.stopFindInPage('clearSelection'),
       copyCurrentUrl: async () => {
@@ -1129,7 +1131,7 @@ export function App(): JSX.Element {
           window.dispatchEvent(new Event('vast:persist-navigation'))
           return
         }
-        const existing = state.bookmarks.find((bookmark) => bookmark.url === activeUrl)
+        const existing = findOwnTabBookmark(state.bookmarks, activeUrl, active.workspaceId)
         if (existing) {
           state.removeBookmark(existing.id)
           window.dispatchEvent(new Event('vast:persist-navigation'))

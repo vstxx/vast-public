@@ -85,6 +85,20 @@ beforeEach(async () => {
 })
 
 describe('public catalog and security envelope', () => {
+  it('attributes Vast-owned Hub source without claiming publisher extensions share its license', async () => {
+    const response = await call('/')
+    expect(response.status).toBe(200)
+    const html = await response.text()
+    expect(html).toContain('Vast-owned source is GPL-3.0-only licensed.')
+    expect(html).toContain('Publisher extensions retain their own licenses.')
+    expect(html).not.toContain('Vast-owned source is MIT licensed.')
+    const copyright = await call('/legal/copyright')
+    expect(copyright.status).toBe(200)
+    const legalHtml = await copyright.text()
+    expect(legalHtml).toContain('Vast-owned source code is licensed under GPL-3.0-only.')
+    expect(legalHtml).not.toContain('The MIT license covers source code owned by Vast')
+  })
+
   it('returns a fixed deployment-bound proof from the private signer', async () => {
     const response = await signerWorker.fetch(new Request('https://signer.internal/v1/proof'), {
       SIGNING_KEY_ID: TEST_SIGNING_KEY_ID,
@@ -105,7 +119,7 @@ describe('public catalog and security envelope', () => {
     expect(optionalLegalConfig(production('Jan Nowacki', 'https://example.com/TODO'))).toBeUndefined()
     expect(optionalLegalConfig(production(' Jan Nowacki ', 'https://vastbrowser.com/legal'))).toEqual({ operatorName: 'Jan Nowacki', contactUrl: 'https://vastbrowser.com/legal' })
   })
-  it('exposes password managers only to Vast 0.4.0', async () => {
+  it('exposes password managers to Vast 0.4.1 and newer stable versions only', async () => {
     const bitwardenId = 'nngceckbapebfimnlniiiahkandclblb'
     const iCloudId = 'pejdijmoenmkgeppbflobdenhhabjlaj'
     await seedPublishedPasswordManager(bitwardenId)
@@ -118,10 +132,13 @@ describe('public catalog and security envelope', () => {
     const hiddenBody = await hidden.json() as { items: Array<{ id: string }>; featured: Array<{ id: string }> }
     expect(hiddenBody.items.some((item) => item.id === bitwardenId || item.id === iCloudId)).toBe(false)
     expect(hiddenBody.featured.some((item) => item.id === bitwardenId || item.id === iCloudId)).toBe(false)
-    const wrongVersion = await call('/v1/catalog', { headers: { 'x-vast-version': '0.4.1' } })
-    expect((await wrongVersion.json() as { items: Array<{ id: string }> }).items.some((item) => item.id === bitwardenId || item.id === iCloudId)).toBe(false)
+    for (const version of ['0.4.0', '0.3.9', '0.4.1-beta.1', '0.4.1x', '999999999999999999999.0.0']) {
+      const rejected = await call('/v1/catalog', { headers: { 'x-vast-version': version } })
+      expect((await rejected.json() as { items: Array<{ id: string }> }).items.some((item) => item.id === bitwardenId || item.id === iCloudId)).toBe(false)
+      expect((await call(`/v1/extensions/${bitwardenId}`, { headers: { 'x-vast-version': version } })).status).toBe(404)
+    }
 
-    const versionHeaders = { 'x-vast-version': '0.4.0' }
+    const versionHeaders = { 'x-vast-version': '0.4.1' }
     const response = await call('/v1/catalog', { headers: versionHeaders })
     expect(response.status).toBe(200)
     expect(response.headers.get('content-security-policy')).toContain("default-src 'none'")
@@ -146,6 +163,13 @@ describe('public catalog and security envelope', () => {
     expect((await call(`/v1/extensions/${bitwardenId}`, { headers: versionHeaders })).status).toBe(200)
     expect((await call(`/v1/install/${bitwardenId}`)).status).toBe(404)
     expect((await call(`/v1/install/${bitwardenId}`, { headers: versionHeaders })).status).toBe(200)
+    for (const version of ['0.4.2', '0.4.10', '0.5.0', '1.0.0']) {
+      const headers = { 'x-vast-version': version }
+      const catalog = await call('/v1/catalog', { headers })
+      expect((await catalog.json() as { items: Array<{ id: string }> }).items.some((item) => item.id === bitwardenId)).toBe(true)
+      expect((await call(`/v1/extensions/${bitwardenId}`, { headers })).status).toBe(200)
+      expect((await call(`/v1/install/${bitwardenId}`, { headers })).status).toBe(200)
+    }
     const details = await call(`/v1/extensions/${iCloudId}`, { headers: versionHeaders })
     expect(details.status).toBe(200)
     expect(await details.json()).toEqual(expect.objectContaining({ distribution: 'upstream', sourceUrl: 'https://chromewebstore.google.com/detail/icloud-passwords/pejdijmoenmkgeppbflobdenhhabjlaj' }))
@@ -297,6 +321,66 @@ describe('public catalog and security envelope', () => {
 })
 
 describe('publisher upload and role-aware review', () => {
+  it('cannot re-upload a release after submission or replace its reviewed staging object', async () => {
+    await seedPublisher(publisherId, 'publisher', sessionToken, csrfToken)
+    const id = await createListing()
+    const bytes = await fixturePackage(id)
+    const upload = await call(`/v1/publisher/extensions/${id}/releases`, { method: 'POST', headers: { ...authHeaders(), 'content-type': 'application/vnd.vast.extension+zip' }, body: bytes.slice().buffer })
+    expect(upload.status).toBe(201)
+    const releaseId = String((await upload.json() as { releaseId: string }).releaseId)
+    const before = await env.DB.prepare('SELECT staging_key FROM releases WHERE id=?1').bind(releaseId).first<{ staging_key: string }>()
+    const submit = await call(`/v1/publisher/releases/${releaseId}/submit`, { method: 'POST', headers: { ...authHeaders(), 'content-type': 'application/json' }, body: JSON.stringify({ warrantyAccepted: true }) })
+    expect(submit.status).toBe(200)
+    const retry = await call(`/v1/publisher/extensions/${id}/releases`, { method: 'POST', headers: { ...authHeaders(), 'content-type': 'application/vnd.vast.extension+zip' }, body: bytes.slice().buffer })
+    expect(retry.status).toBe(409)
+    expect(await env.DB.prepare('SELECT status,staging_key FROM releases WHERE id=?1').bind(releaseId).first()).toEqual({ status: 'pending', staging_key: before?.staging_key })
+  })
+
+  it('publishes versions monotonically and rejects an older pending release after a newer approval', async () => {
+    await seedPublisher(publisherId, 'publisher', sessionToken, csrfToken)
+    await seedPublisher(reviewerId, 'reviewer', reviewerSessionToken, reviewerCsrfToken)
+    const id = await createListing()
+    const submissions: string[] = []
+    for (const version of ['2.0.0', '3.0.0']) {
+      const bytes = await fixturePackage(id, version)
+      const upload = await call(`/v1/publisher/extensions/${id}/releases`, { method: 'POST', headers: { ...authHeaders(), 'content-type': 'application/vnd.vast.extension+zip' }, body: bytes.slice().buffer })
+      expect(upload.status).toBe(201)
+      const releaseId = String((await upload.json() as { releaseId: string }).releaseId)
+      const submit = await call(`/v1/publisher/releases/${releaseId}/submit`, { method: 'POST', headers: { ...authHeaders(), 'content-type': 'application/json' }, body: JSON.stringify({ warrantyAccepted: true }) })
+      expect(submit.status).toBe(200)
+      submissions.push(String((await submit.json() as { submissionId: string }).submissionId))
+    }
+    const review = (submissionId: string) => call(`/v1/review/submissions/${submissionId}`, { method: 'POST', headers: { ...authHeaders(reviewerSessionToken, reviewerCsrfToken), 'content-type': 'application/json' }, body: JSON.stringify({ action: 'approve', note: 'Reviewed for monotonic publication.' }) })
+    expect((await review(submissions[1])).status).toBe(200)
+    expect((await review(submissions[0])).status).toBe(409)
+    const current = await env.DB.prepare('SELECT r.version FROM extensions e JOIN releases r ON r.id=e.current_release_id WHERE e.id=?1').bind(id).first<{ version: string }>()
+    expect(current?.version).toBe('3.0.0')
+    const stale = await fixturePackage(id, '2.5.0')
+    expect((await call(`/v1/publisher/extensions/${id}/releases`, { method: 'POST', headers: { ...authHeaders(), 'content-type': 'application/vnd.vast.extension+zip' }, body: stale.slice().buffer })).status).toBe(409)
+  })
+
+  it('keeps the current-release pointer monotonic under concurrent approvals', async () => {
+    await seedPublisher(publisherId, 'publisher', sessionToken, csrfToken)
+    await seedPublisher(reviewerId, 'reviewer', reviewerSessionToken, reviewerCsrfToken)
+    const id = await createListing()
+    const submissions: string[] = []
+    for (const version of ['2.0.0', '3.0.0']) {
+      const bytes = await fixturePackage(id, version)
+      const upload = await call(`/v1/publisher/extensions/${id}/releases`, { method: 'POST', headers: { ...authHeaders(), 'content-type': 'application/vnd.vast.extension+zip' }, body: bytes.slice().buffer })
+      const releaseId = String((await upload.json() as { releaseId: string }).releaseId)
+      const submit = await call(`/v1/publisher/releases/${releaseId}/submit`, { method: 'POST', headers: { ...authHeaders(), 'content-type': 'application/json' }, body: JSON.stringify({ warrantyAccepted: true }) })
+      expect(submit.status).toBe(200)
+      submissions.push(String((await submit.json() as { submissionId: string }).submissionId))
+    }
+    const responses = await Promise.all(submissions.map((submissionId) => call(`/v1/review/submissions/${submissionId}`, { method: 'POST', headers: { ...authHeaders(reviewerSessionToken, reviewerCsrfToken), 'content-type': 'application/json' }, body: JSON.stringify({ action: 'approve', note: 'Reviewed during concurrent approval test.' }) })))
+    const statuses = responses.map((response) => response.status).sort()
+    expect([[200, 200], [200, 409]]).toContainEqual(statuses)
+    const published = (await env.DB.prepare("SELECT version FROM releases WHERE extension_id=?1 AND status='published'").bind(id).all<{ version: string }>()).results
+    const current = await env.DB.prepare('SELECT r.version FROM extensions e JOIN releases r ON r.id=e.current_release_id WHERE e.id=?1').bind(id).first<{ version: string }>()
+    expect(published).toHaveLength(statuses.filter((status) => status === 200).length)
+    expect(current?.version).toBe(published.map((release) => release.version).sort().at(-1))
+  })
+
   it('allows a publisher to reserve the stable ID embedded in an existing package', async () => {
     await seedPublisher(publisherId, 'publisher', sessionToken, csrfToken)
     const stableId = 'kbbfoeemomglhdhohnkcnfnpikedcoka'
@@ -363,7 +447,7 @@ describe('publisher upload and role-aware review', () => {
     expect(parsed.metadata.extension_id).toBe(id)
     expect(parsed.metadata.version).toBe('1.0.0')
 
-    const catalog = await call('/v1/catalog', { headers: { 'x-vast-version': '0.4.0' } })
+    const catalog = await call('/v1/catalog', { headers: { 'x-vast-version': '0.4.1' } })
     expect(catalog.headers.get('cache-control')).toBe('no-store')
     const catalogBody = await catalog.json() as { items: Array<{ id: string; downloads: number }> }
     expect(catalogBody.items).toEqual(expect.arrayContaining([expect.objectContaining({ id, downloads: 1 }), expect.objectContaining({ id: 'pejdijmoenmkgeppbflobdenhhabjlaj', distribution: 'upstream' })]))

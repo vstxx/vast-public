@@ -5,8 +5,8 @@
     "electronBaseCommit": "07e460719c75b2ec5ee4893f7d2192ef31c7b8c2",
     "chromiumVersion": "152.0.7977.78",
     "chromiumBaseCommit": "82ccee2d3b4f0bc4aa5d5c9c3c88ed3b283571f3",
-    "patchsetRevision": "electron-44.3.0-vast-r3",
-    "patchsetSha256": "183e7b4461f7b8e79cb5721d79367cd3e237cc9d4ae0f2ed3c280e3742449332",
+    "patchsetRevision": "electron-44.3.0-vast-r5",
+    "patchsetSha256": "00a5271d7366331d826162825e62f9ae96e2022d0a03ea915bd5f443a27292a3",
     "patches": [
       {
         "root": "electron",
@@ -32,6 +32,16 @@
         "root": "electron",
         "path": "experiments/electron-44-patches/0008-electron-extensions-reload-api.patch",
         "sha256": "762378e295472227d338622509ba2262d053ca3447b2dc0ffa35fcc568e2e223"
+      },
+      {
+        "root": "chromium",
+        "path": "experiments/electron-44-patches/0009-chromium-css-env-fallback.patch",
+        "sha256": "d904c4681ec5608728026a8faec42ada73bb40b3230a53c52aef1df88c0f82a3"
+      },
+      {
+        "root": "chromium",
+        "path": "experiments/electron-44-patches/0010-chromium-css-var-fallback-leading-space.patch",
+        "sha256": "a63410fca3bca397ab526cfd4e49af26e5d3d6d3684a59794f91671902eeaa64"
       }
     ],
     "binary": {
@@ -39,7 +49,7 @@
       "arch": "x64",
       "fileName": "electron.exe",
       "size": 388690944,
-      "sha256": "3faafae4f5e7ae36a992346b40ab56c87f5ae395f7d7dfebf125ff3844f16a6b"
+      "sha256": "9852044080509748de7b0577dad0bdcd6d31d1e4f57655fcc390c015ca9c4e98"
     }
   },
   "ece": {

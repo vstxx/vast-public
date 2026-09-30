@@ -19,6 +19,10 @@ The locked npm dependency tree contains permissive licenses including MIT, ISC, 
 
 The authoritative versions are pinned in `package-lock.json`. `node_modules` is not committed.
 
+## Onboarding provider identifiers
+
+The locally bundled Google, DuckDuckGo, Brave Search, Perplexity, Chrome, Edge, and Firefox icons identify those third-party services in onboarding. Their respective owners retain all rights in the names and marks; no affiliation or endorsement is implied. Exact provider-hosted source URLs are recorded in `assets/logos/onboarding/README.md`. These trademarked images are not relicensed as Vast-owned GPL source.
+
 ## Video & Audio runtime
 
 Public Windows packages can bundle a generated Python/Playwright/media runtime. `scripts/prepare-avidae-runtime.cjs` inventories and hashes the license files copied into that runtime.

@@ -71,7 +71,7 @@ interface CatalogRow {
 }
 
 const ICLOUD_PASSWORDS_ID = 'pejdijmoenmkgeppbflobdenhhabjlaj'
-const PASSWORD_MANAGER_VAST_VERSION = '0.4.0'
+const PASSWORD_MANAGER_MIN_VAST_VERSION = '0.4.1'
 const HOSTED_PASSWORD_MANAGER_IDS = ['nngceckbapebfimnlniiiahkandclblb', 'ghmbeldphafepmbegfdlkpapadhbakde'] as const
 const PASSWORD_MANAGER_IDS = new Set<string>([...HOSTED_PASSWORD_MANAGER_IDS, ICLOUD_PASSWORDS_ID])
 const ICLOUD_PASSWORDS_ITEM = Object.freeze({
@@ -97,7 +97,8 @@ function iCloudMatches(url: URL): boolean {
 }
 
 function passwordManagersAvailable(request: Request): boolean {
-  return request.headers.get('x-vast-version') === PASSWORD_MANAGER_VAST_VERSION
+  const version = request.headers.get('x-vast-version')
+  return version !== null && semver.valid(version) !== null && semver.prerelease(version) === null && semver.gte(version, PASSWORD_MANAGER_MIN_VAST_VERSION)
 }
 
 function assertPasswordManagerAvailable(request: Request, id: string): void {
@@ -443,7 +444,7 @@ async function uploadRelease(request: Request, env: Env, extension: string): Pro
   requireLegalConfig(env)
   await requirePublisherTerms(env, session.publisher.id)
   await enforceRateLimit(request, env.HUB_PUBLISH_RATE_LIMIT, `upload-${session.publisher.id}`)
-  await ownedExtension(env, extension, session.publisher.id)
+  const owner = await ownedExtension(env, extension, session.publisher.id)
   const type = request.headers.get('content-type')?.split(';')[0].toLowerCase()
   if (type !== 'application/vnd.vast.extension+zip' && type !== 'application/octet-stream') throw new HttpError(415, 'Expected a .vext package.')
   const bytes = await readBounded(request, VEXT_LIMITS.maxCompressedBytes)
@@ -463,12 +464,19 @@ async function uploadRelease(request: Request, env: Env, extension: string): Pro
   const timestamp = now()
   try {
     if (existing) {
-      await env.DB.prepare(`UPDATE releases SET staging_key=?1,manifest_summary=?2,permissions_snapshot=?3,validation_json=?4,status='draft',submitted_at=NULL WHERE id=?5`).bind(stagingKey, JSON.stringify({ name: summary.name, description: summary.description, kind: summary.kind }), JSON.stringify(summary.permissions), JSON.stringify(summary.validation), releaseId).run()
-      await env.DB.prepare(`UPDATE submissions SET status='withdrawn',resolved_at=?1 WHERE release_id=?2 AND status='pending'`).bind(timestamp, releaseId).run()
+      const results = await env.DB.batch([
+        env.DB.prepare(`UPDATE releases SET staging_key=?1,manifest_summary=?2,permissions_snapshot=?3,validation_json=?4,status='draft',submitted_at=NULL WHERE id=?5 AND staging_key IS ?6 AND status IN ('draft','changes','rejected') AND EXISTS(SELECT 1 FROM extensions e WHERE e.id=releases.extension_id AND e.current_release_id IS ?7)`).bind(stagingKey, JSON.stringify({ name: summary.name, description: summary.description, kind: summary.kind }), JSON.stringify(summary.permissions), JSON.stringify(summary.validation), releaseId, existing.staging_key, owner.current_release_id),
+        env.DB.prepare(`UPDATE submissions SET status='withdrawn',resolved_at=?1 WHERE release_id=?2 AND status='pending' AND EXISTS(SELECT 1 FROM releases WHERE id=?2 AND staging_key=?3)`).bind(timestamp, releaseId, stagingKey),
+        env.DB.prepare(`INSERT INTO audit_log(id,actor_id,target_type,target_id,action,note,created_at) SELECT ?1,?2,'release',?3,'upload','',?4 WHERE EXISTS(SELECT 1 FROM releases WHERE id=?3 AND staging_key=?5)`).bind(`audit_${randomHex(12)}`, session.publisher.id, releaseId, timestamp, stagingKey)
+      ])
+      if (results[0].meta.changes !== 1) throw new HttpError(409, 'Release changed during upload; retry with the latest state.')
     } else {
-      await env.DB.prepare('INSERT INTO releases(id,extension_id,version,staging_key,manifest_summary,permissions_snapshot,validation_json,status,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)').bind(releaseId, extension, summary.version, stagingKey, JSON.stringify({ name: summary.name, description: summary.description, kind: summary.kind }), JSON.stringify(summary.permissions), JSON.stringify(summary.validation), 'draft', timestamp).run()
+      const inserted = await env.DB.batch([
+        env.DB.prepare(`INSERT INTO releases(id,extension_id,version,staging_key,manifest_summary,permissions_snapshot,validation_json,status,created_at) SELECT ?1,?2,?3,?4,?5,?6,?7,'draft',?8 FROM extensions WHERE id=?2 AND current_release_id IS ?9`).bind(releaseId, extension, summary.version, stagingKey, JSON.stringify({ name: summary.name, description: summary.description, kind: summary.kind }), JSON.stringify(summary.permissions), JSON.stringify(summary.validation), timestamp, owner.current_release_id),
+        env.DB.prepare(`INSERT INTO audit_log(id,actor_id,target_type,target_id,action,note,created_at) SELECT ?1,?2,'release',?3,'upload','',?4 WHERE EXISTS(SELECT 1 FROM releases WHERE id=?3 AND staging_key=?5)`).bind(`audit_${randomHex(12)}`, session.publisher.id, releaseId, timestamp, stagingKey)
+      ])
+      if (inserted[0].meta.changes !== 1) throw new HttpError(409, 'Published release changed during upload; retry with the latest state.')
     }
-    await env.DB.prepare('INSERT INTO audit_log(id,actor_id,target_type,target_id,action,note,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7)').bind(`audit_${randomHex(12)}`, session.publisher.id, 'release', releaseId, 'upload', '', timestamp).run()
   } catch (error) {
     await deleteR2ObjectBestEffort(env, stagingKey, 'hub_staging_rollback_cleanup_failed')
     throw error
@@ -483,7 +491,7 @@ async function submitRelease(request: Request, env: Env, releaseId: string): Pro
   await requirePublisherTerms(env, session.publisher.id)
   await enforceRateLimit(request, env.HUB_PUBLISH_RATE_LIMIT, `submit-${session.publisher.id}`)
   if (!/^release_[a-f0-9]{32}$/.test(releaseId)) throw new HttpError(404, 'Release was not found.')
-  const release = await env.DB.prepare(`SELECT r.id,r.status,r.staging_key,e.id extension_id,e.data_practice,e.privacy_policy_url,e.remote_services FROM releases r JOIN extensions e ON e.id=r.extension_id JOIN extension_owners o ON o.extension_id=e.id WHERE r.id=?1 AND o.publisher_id=?2`).bind(releaseId, session.publisher.id).first<{ id: string; status: string; staging_key: string | null; extension_id: string; data_practice: 'undisclosed' | 'local-only' | 'external-processing'; privacy_policy_url: string | null; remote_services: string }>()
+  const release = await env.DB.prepare(`SELECT r.id,r.status,r.staging_key,e.id extension_id,e.current_release_id,e.data_practice,e.privacy_policy_url,e.remote_services FROM releases r JOIN extensions e ON e.id=r.extension_id JOIN extension_owners o ON o.extension_id=e.id WHERE r.id=?1 AND o.publisher_id=?2`).bind(releaseId, session.publisher.id).first<{ id: string; status: string; staging_key: string | null; extension_id: string; current_release_id: string | null; data_practice: 'undisclosed' | 'local-only' | 'external-processing'; privacy_policy_url: string | null; remote_services: string }>()
   if (!release || !release.staging_key) throw new HttpError(404, 'Release was not found.')
   if (!['draft', 'changes', 'rejected'].includes(release.status)) throw new HttpError(409, 'Release cannot be submitted in its current state.')
   if (release.data_practice === 'undisclosed' || (release.data_practice === 'external-processing' && (!release.privacy_policy_url || !release.remote_services))) {
@@ -494,12 +502,13 @@ async function submitRelease(request: Request, env: Env, releaseId: string): Pro
   const priorSubmission = await env.DB.prepare('SELECT id FROM submissions WHERE release_id=?1').bind(releaseId).first<{ id: string }>()
   const submissionId = priorSubmission?.id ?? `submission_${randomHex(16)}`
   const timestamp = now()
-  await env.DB.batch([
-    env.DB.prepare(`INSERT INTO submissions(id,release_id,publisher_id,status,submitted_at,warranty_version,warranty_accepted_at) VALUES(?1,?2,?3,'pending',?4,?5,?4) ON CONFLICT(release_id) DO UPDATE SET publisher_id=excluded.publisher_id,status='pending',submitted_at=excluded.submitted_at,resolved_at=NULL,warranty_version=excluded.warranty_version,warranty_accepted_at=excluded.warranty_accepted_at`).bind(submissionId, releaseId, session.publisher.id, timestamp, PUBLISHER_WARRANTY_VERSION),
-    env.DB.prepare(`UPDATE releases SET status='pending',submitted_at=?1 WHERE id=?2`).bind(timestamp, releaseId),
-    env.DB.prepare(`UPDATE extensions SET status=CASE WHEN current_release_id IS NULL THEN 'pending' ELSE status END,updated_at=?1 WHERE id=?2`).bind(timestamp, release.extension_id),
-    env.DB.prepare('INSERT INTO audit_log(id,actor_id,target_type,target_id,action,note,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7)').bind(`audit_${randomHex(12)}`, session.publisher.id, 'release', releaseId, 'submit', '', timestamp)
+  const results = await env.DB.batch([
+    env.DB.prepare(`UPDATE releases SET status='pending',submitted_at=?1 WHERE id=?2 AND staging_key=?3 AND status IN ('draft','changes','rejected') AND EXISTS(SELECT 1 FROM extensions e WHERE e.id=releases.extension_id AND e.current_release_id IS ?4)`).bind(timestamp, releaseId, release.staging_key, release.current_release_id),
+    env.DB.prepare(`INSERT INTO submissions(id,release_id,publisher_id,status,submitted_at,warranty_version,warranty_accepted_at) SELECT ?1,?2,?3,'pending',?4,?5,?4 FROM releases WHERE id=?2 AND status='pending' AND submitted_at=?4 AND NOT EXISTS(SELECT 1 FROM submissions WHERE release_id=?2 AND status='pending') ON CONFLICT(release_id) DO UPDATE SET publisher_id=excluded.publisher_id,status='pending',submitted_at=excluded.submitted_at,resolved_at=NULL,warranty_version=excluded.warranty_version,warranty_accepted_at=excluded.warranty_accepted_at`).bind(submissionId, releaseId, session.publisher.id, timestamp, PUBLISHER_WARRANTY_VERSION),
+    env.DB.prepare(`UPDATE extensions SET status=CASE WHEN current_release_id IS NULL THEN 'pending' ELSE status END,updated_at=?1 WHERE id=?2 AND EXISTS(SELECT 1 FROM releases WHERE id=?3 AND status='pending' AND submitted_at=?1)`).bind(timestamp, release.extension_id, releaseId),
+    env.DB.prepare(`INSERT INTO audit_log(id,actor_id,target_type,target_id,action,note,created_at) SELECT ?1,?2,'release',?3,'submit','',?4 WHERE EXISTS(SELECT 1 FROM releases WHERE id=?3 AND status='pending' AND submitted_at=?4)`).bind(`audit_${randomHex(12)}`, session.publisher.id, releaseId, timestamp)
   ])
+  if (results[0].meta.changes !== 1 || results[1].meta.changes !== 1) throw new HttpError(409, 'Release changed during submission; retry with the latest state.')
   return json({ submissionId, status: 'pending' })
 }
 
@@ -511,6 +520,10 @@ function bytesToBase64(bytes: Uint8Array): string {
 
 async function approveRelease(env: Env, session: HubSession, submissionId: string, note: string, row: ReleaseRow): Promise<void> {
   requireLegalConfig(env)
+  if (row.current_release_id) {
+    const current = await env.DB.prepare('SELECT version FROM releases WHERE id=?1 AND status=\'published\'').bind(row.current_release_id).first<{ version: string }>()
+    if (!current || !semver.gt(row.version, current.version)) throw new HttpError(409, 'A published release cannot be replaced by the same or an older version.')
+  }
   if (!row.staging_key) throw new HttpError(409, 'The staged package has expired; ask the publisher to upload again.')
   const object = await env.PACKAGES.get(row.staging_key)
   if (!object) throw new HttpError(409, 'The staged package has expired; ask the publisher to upload again.')
@@ -562,14 +575,17 @@ async function approveRelease(env: Env, session: HubSession, submissionId: strin
   const signed: SignedVastHubReleaseDescriptor = { descriptor, signature: { signature_version: 1, algorithm: 'Ed25519', key_id: env.SIGNING_KEY_ID, signature: descriptorSignature } }
   await env.PACKAGES.put(packageKey, official, { httpMetadata: { contentType: 'application/vnd.vast.extension+zip', cacheControl: 'public, max-age=31536000, immutable' }, customMetadata: { extensionId: row.extension_id, version: row.version, sha256: packageHash } })
   try {
-    await env.DB.batch([
-      env.DB.prepare(`UPDATE releases SET package_key=?1,package_sha256=?2,package_size=?3,signature_key_id=?4,descriptor_json=?5,descriptor_signature=?6,manifest_summary=?7,permissions_snapshot=?8,validation_json=?9,status='published',published_at=?10 WHERE id=?11 AND status='reviewing'`).bind(packageKey, packageHash, official.byteLength, env.SIGNING_KEY_ID, canonicalJson(descriptor), descriptorSignature, JSON.stringify({ name: summary.name, description: summary.description, kind: summary.kind }), JSON.stringify(summary.permissions), JSON.stringify(summary.validation), publishedAt, row.id),
-      env.DB.prepare(`UPDATE submissions SET status='approved',resolved_at=?1 WHERE id=?2 AND status='reviewing'`).bind(publishedAt, submissionId),
-      env.DB.prepare(`INSERT INTO submission_reviews(id,submission_id,reviewer_id,decision,note,created_at) VALUES(?1,?2,?3,'approve',?4,?5)`).bind(`review_${randomHex(12)}`, submissionId, session.publisher.id, note, publishedAt),
-      env.DB.prepare(`UPDATE extensions SET current_release_id=?1,status='published',kind=?2,updated_at=?3 WHERE id=?4`).bind(row.id, summary.kind, publishedAt, row.extension_id),
-      env.DB.prepare(`INSERT INTO download_counters(extension_id,count,updated_at) VALUES(?1,0,?2) ON CONFLICT(extension_id) DO NOTHING`).bind(row.extension_id, publishedAt),
-      env.DB.prepare('INSERT INTO audit_log(id,actor_id,target_type,target_id,action,note,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7)').bind(`audit_${randomHex(12)}`, session.publisher.id, 'release', row.id, row.publisher_id === session.publisher.id ? 'admin-self-approve-and-sign' : 'approve-and-sign', note, publishedAt)
+    const published = await env.DB.batch([
+      env.DB.prepare(`UPDATE extensions SET current_release_id=?1,status='published',kind=?2,updated_at=?3 WHERE id=?4 AND current_release_id IS ?5 AND EXISTS(SELECT 1 FROM releases r JOIN submissions s ON s.release_id=r.id WHERE r.id=?1 AND r.extension_id=extensions.id AND r.status='reviewing' AND s.id=?6 AND s.status='reviewing')`).bind(row.id, summary.kind, publishedAt, row.extension_id, row.current_release_id, submissionId),
+      env.DB.prepare(`UPDATE releases SET package_key=?1,package_sha256=?2,package_size=?3,signature_key_id=?4,descriptor_json=?5,descriptor_signature=?6,manifest_summary=?7,permissions_snapshot=?8,validation_json=?9,status='published',published_at=?10 WHERE id=?11 AND status='reviewing' AND EXISTS(SELECT 1 FROM extensions WHERE id=?12 AND current_release_id=?11)`).bind(packageKey, packageHash, official.byteLength, env.SIGNING_KEY_ID, canonicalJson(descriptor), descriptorSignature, JSON.stringify({ name: summary.name, description: summary.description, kind: summary.kind }), JSON.stringify(summary.permissions), JSON.stringify(summary.validation), publishedAt, row.id, row.extension_id),
+      env.DB.prepare(`UPDATE submissions SET status='approved',resolved_at=?1 WHERE id=?2 AND status='reviewing' AND EXISTS(SELECT 1 FROM releases WHERE id=?3 AND status='published')`).bind(publishedAt, submissionId, row.id),
+      env.DB.prepare(`INSERT INTO submission_reviews(id,submission_id,reviewer_id,decision,note,created_at) SELECT ?1,?2,?3,'approve',?4,?5 WHERE EXISTS(SELECT 1 FROM submissions WHERE id=?2 AND status='approved')`).bind(`review_${randomHex(12)}`, submissionId, session.publisher.id, note, publishedAt),
+      env.DB.prepare(`INSERT INTO download_counters(extension_id,count,updated_at) SELECT ?1,0,?2 WHERE EXISTS(SELECT 1 FROM releases WHERE id=?3 AND status='published') ON CONFLICT(extension_id) DO NOTHING`).bind(row.extension_id, publishedAt, row.id),
+      env.DB.prepare(`INSERT INTO audit_log(id,actor_id,target_type,target_id,action,note,created_at) SELECT ?1,?2,'release',?3,?4,?5,?6 WHERE EXISTS(SELECT 1 FROM submissions WHERE id=?7 AND status='approved')`).bind(`audit_${randomHex(12)}`, session.publisher.id, row.id, row.publisher_id === session.publisher.id ? 'admin-self-approve-and-sign' : 'approve-and-sign', note, publishedAt, submissionId)
     ])
+    if (published[0].meta.changes !== 1 || published[1].meta.changes !== 1 || published[2].meta.changes !== 1) {
+      throw new HttpError(409, 'The published release changed during review; retry against the latest version.')
+    }
   } catch (error) {
     await deleteR2ObjectBestEffort(env, packageKey, 'hub_package_rollback_cleanup_failed')
     throw error
@@ -597,9 +613,11 @@ async function reviewDecision(request: Request, env: Env, submissionId: string):
     ? `Administrator self-review authorized.${note ? ` ${note}` : ''}`
     : note
   const claimedAt = now()
-  const claim = await env.DB.prepare(`UPDATE submissions SET status='reviewing',resolved_at=?1 WHERE id=?2 AND status='pending' RETURNING id`).bind(claimedAt, submissionId).first<{ id: string }>()
-  if (!claim) throw new HttpError(409, 'This submission is already being reviewed.')
-  await env.DB.prepare(`UPDATE releases SET status='reviewing' WHERE id=?1 AND status='pending'`).bind(row.id).run()
+  const claim = await env.DB.batch([
+    env.DB.prepare(`UPDATE submissions SET status='reviewing',resolved_at=?1 WHERE id=?2 AND status='pending' AND EXISTS(SELECT 1 FROM releases WHERE id=?3 AND status='pending')`).bind(claimedAt, submissionId, row.id),
+    env.DB.prepare(`UPDATE releases SET status='reviewing' WHERE id=?1 AND status='pending' AND EXISTS(SELECT 1 FROM submissions WHERE id=?2 AND status='reviewing' AND resolved_at=?3)`).bind(row.id, submissionId, claimedAt)
+  ])
+  if (claim[0].meta.changes !== 1 || claim[1].meta.changes !== 1) throw new HttpError(409, 'This submission is already being reviewed.')
   try {
     if (action === 'approve') {
       await approveRelease(env, session, submissionId, reviewNote, row)
@@ -754,7 +772,7 @@ const LEGAL_COPY: Record<string, { title: string; paragraphs: string[] }> = {
     'Each publisher must separately disclose an extension\'s data practices and remote services. Vast review does not replace the publisher\'s privacy obligations.'
   ] },
   copyright: { title: 'Copyright and IP Notice', paragraphs: [
-    'The MIT license covers source code owned by Vast where the repository says so. Extensions, libraries, names, icons, screenshots, and other third-party materials remain the property of their respective owners and are governed by their own licenses.',
+    'Vast-owned source code is licensed under GPL-3.0-only. Extensions, libraries, names, icons, screenshots, and other third-party materials remain the property of their respective owners and are governed by their own licenses.',
     'Use Report extension to submit copyright, trademark, impersonation, or other rights concerns. Reports are preserved and reviewed; they do not cause automatic delisting.'
   ] },
   'platform-terms': { title: 'Platform Terms', paragraphs: [

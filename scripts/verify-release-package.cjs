@@ -4,6 +4,7 @@ const { closeSync, existsSync, mkdtempSync, openSync, readFileSync, readSync, re
 const { join, relative } = require('node:path')
 const { tmpdir } = require('node:os')
 const { inspectTrustedAuthenticode, inspectUnsignedPe } = require('./windows-authenticode.cjs')
+const { inspectWindowsPeVersion, assertVastPeIdentity } = require('./windows-pe-version.cjs')
 const { validateRuntimeFingerprint } = require('./verify-extension-compat-runtime.cjs')
 
 const root = join(__dirname, '..')
@@ -155,6 +156,30 @@ function readPackagedAsarFile(relativePath) {
   }
 }
 
+function assertPackagedEceRuntime() {
+  const appAsarPath = join(releaseRoot, `Vast-${version}`, 'win-unpacked', 'resources', 'app.asar')
+  if (!existsSync(appAsarPath)) return
+  const asar = require('@electron/asar')
+  const packageRoot = 'node_modules/electron-chrome-extensions'
+  const readEceFile = (relativePath) => asar.extractFile(appAsarPath, `${packageRoot}/${relativePath}`.replace(/\//g, '\\'))
+  try {
+    const packaged = JSON.parse(readEceFile('package.json').toString('utf8'))
+    if (packaged.version !== compatibilityManifest.ece.version) {
+      fail(`packaged ECE version ${packaged.version} does not match the approved runtime`)
+    }
+    // electron-builder intentionally omits .d.ts files. Compare every shipped
+    // executable runtime file byte-for-byte with the locally attested patch.
+    for (const relativePath of compatibilityManifest.ece.runtimeFiles.filter(path => !path.endsWith('.d.ts'))) {
+      const approved = readFileSync(join(root, packageRoot, relativePath))
+      if (!readEceFile(relativePath).equals(approved)) {
+        fail(`packaged ECE runtime differs from the approved patched source: ${relativePath}`)
+      }
+    }
+  } catch (error) {
+    fail(`packaged ECE runtime is missing or unreadable: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
 function assertCompatibilityRuntimeFingerprint() {
   const fingerprintText = readPackagedAsarFile('out/extension-compatibility-runtime-fingerprint.json')
   if (!fingerprintText) return undefined
@@ -163,6 +188,19 @@ function assertCompatibilityRuntimeFingerprint() {
     return validateRuntimeFingerprint({ fingerprint, manifest: compatibilityManifest, expectedSourceCommit })
   } catch (error) {
     fail(`packaged extension compatibility fingerprint is invalid: ${error instanceof Error ? error.message : String(error)}`)
+    return undefined
+  }
+}
+
+function inspectPackagedPeIdentity(relativePath) {
+  const executable = join(releaseRoot, relativePath)
+  if (!existsSync(executable)) return undefined
+  try {
+    const identity = inspectWindowsPeVersion(executable)
+    assertVastPeIdentity(identity, version)
+    return identity
+  } catch (error) {
+    fail(`packaged Windows executable identity is invalid for ${relativePath}: ${error instanceof Error ? error.message : String(error)}`)
     return undefined
   }
 }
@@ -300,6 +338,7 @@ const packagedRuntimeFingerprint = assertCompatibilityRuntimeFingerprint()
 const packagedBuildMetadata = assertReleaseBuildMetadata(packagedRuntimeFingerprint)
 const obfuscation = assertObfuscationReport()
 const electronFuses = inspectElectronFuses(`Vast-${version}/win-unpacked/Vast.exe`)
+const packagedPeIdentity = inspectPackagedPeIdentity(`Vast-${version}/win-unpacked/Vast.exe`)
 const authenticode = {
   installer: inspectAuthenticode(`Installer/Vast-Setup-${version}.exe`),
   portable: inspectAuthenticode(`Installer/Vast-${version}-Portable.exe`),
@@ -388,6 +427,7 @@ function inspectReleaseArtifactForExcludedExtensions(relativePath, { extractionR
 }
 
 const packagedResourcesRoot = join(releaseRoot, `Vast-${version}`, 'win-unpacked', 'resources')
+assertPackagedEceRuntime()
 for (const relativePath of [
   'licenses/Vast-GPL-3.0.txt',
   'licenses/electron-chrome-extensions-GPL-3.0.txt',
@@ -549,6 +589,7 @@ const report = {
   packagedRuntimeFingerprint,
   obfuscation,
   electronFuses,
+  packagedPeIdentity,
   ffmpegCompliance,
   updateArchive,
   authenticode,

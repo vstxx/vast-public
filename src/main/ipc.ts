@@ -2,14 +2,15 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, screen, webContents, ty
 import { writeFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
-  BrowserImportRequest,
   BrowserSettings,
   DetachedTabPayload,
   PersistedData,
   Tab
 } from '../shared/types'
 import { getDefaultBrowserStatus, openDefaultBrowserSettings } from './default-browser'
-import { discoverImportSources, runBrowserImport } from './browser-import'
+import type { ImportCoordinator } from './import/import-coordinator'
+import { commitImportData, recordImportExtensionResult } from './storage'
+import type { BrowserImportCommitRequest, BrowserImportExtensionConfirmRequest, BrowserImportPrepareRequest } from '../shared/browser-import'
 import { takeExtensionDocumentRules } from './extensions/extension-network-bridge'
 import {
   getGoogleAuthDiagnostics,
@@ -60,6 +61,7 @@ import { registerNewTabBackgroundIpc } from './ipc/new-tab-background'
 import { registerNoticesIpc } from './ipc/notices'
 import { registerPdfIpc } from './ipc/pdf'
 import { registerPrivacyIpc } from './ipc/privacy'
+import { assertGuestOwnedBySender } from './ipc/guest-ownership'
 import { fail, ok } from './ipc/registration'
 import type { ExtensionManager } from './extensions/extension-manager'
 
@@ -93,10 +95,7 @@ function senderWindowFor(event: IpcMainInvokeEvent): BrowserWindow {
 function resolveTrustedGuestWebContents(hostContents: Electron.WebContents, guestId: number): Electron.WebContents {
   if (!Number.isInteger(guestId) || guestId <= 0) throw new Error('Invalid webContents id.')
   const target = webContents.fromId(guestId)
-  if (!target || target.isDestroyed()) throw new Error('Target webContents is unavailable.')
-  if (target.hostWebContents?.id !== hostContents.id) {
-    throw new Error('Rejected guest webContents outside this window.')
-  }
+  assertGuestOwnedBySender(hostContents.id, target)
   return target
 }
 
@@ -155,6 +154,25 @@ export function setupIpc(services: IpcServices = {}): void {
   if (ipcRegistered) throw new Error('Vast IPC handlers must be registered exactly once.')
   ipcRegistered = true
   const { onDataSaved, onDetachTab, featureRegistrars = [], relayService, extensionManager, storageDataForRenderer, prepareStorageSave } = services
+  let importCoordinatorPromise: Promise<ImportCoordinator> | undefined
+  const importCoordinator = (): Promise<ImportCoordinator> => {
+    importCoordinatorPromise ??= Promise.all([
+      import('./import/import-coordinator'),
+      import('./import/profile-discovery'),
+      import('./import/worker-client')
+    ]).then(([{ ImportCoordinator }, { resolveImportProfile }, { readBrowserSource }]) => new ImportCoordinator({
+      resolveProfile: resolveImportProfile,
+      readSource: readBrowserSource,
+      loadData,
+      commitData: commitImportData,
+      ...(extensionManager ? { extensionManager } : {}),
+      recordExtensionResult: recordImportExtensionResult
+    })).catch((error) => {
+      importCoordinatorPromise = undefined
+      throw error
+    })
+    return importCoordinatorPromise
+  }
   ipcMain.on('vast:extensions:document-rules', (event, requestedUrl: unknown) => {
     let rules: string[] = []
     try {
@@ -296,9 +314,23 @@ export function setupIpc(services: IpcServices = {}): void {
     }
   })
 
-  handle('vast:importer:discover', async () => discoverImportSources())
+  handle('vast:importer:discover', async () => (await import('./import/profile-discovery')).discoverImportSources())
 
-  handle('vast:importer:run', async (_event, request: unknown) => runBrowserImport(request as BrowserImportRequest))
+  handle('vast:importer:prepare', async (_event, request: unknown) =>
+    (await importCoordinator()).prepare(request as BrowserImportPrepareRequest))
+  handle('vast:importer:preview', async (_event, token: unknown) =>
+    (await importCoordinator()).preview(token as string))
+  handle('vast:importer:commit', async (_event, request: unknown) =>
+    (await importCoordinator()).commit(request as BrowserImportCommitRequest))
+  handle('vast:importer:status', async () => (await importCoordinator()).status())
+  handle('vast:importer:extension-prepare', async (_event, operationId: unknown, extensionId: unknown) =>
+    (await importCoordinator()).prepareSelectedExtension(operationId as string, extensionId as string))
+  handle('vast:importer:extension-confirm', async (_event, request: unknown) =>
+    (await importCoordinator()).confirmSelectedExtension(request as BrowserImportExtensionConfirmRequest))
+  handle('vast:importer:extension-decline', async (_event, operationId: unknown, extensionId: unknown) =>
+    (await importCoordinator()).declineSelectedExtension(operationId as string, extensionId as string))
+  handle('vast:importer:discard', async (_event, token: unknown) =>
+    (await importCoordinator()).discard(token as string))
 
   registerAvidaeIpc(handle)
   registerDownloadsIpc(handle)
@@ -325,7 +357,7 @@ export function setupIpc(services: IpcServices = {}): void {
     return relayService.performAction(presentationId)
   })
   registerPdfIpc(handle, senderWindowFor, resolveTrustedGuestWebContents, showRendererNotification)
-  registerPrivacyIpc(handle)
+  registerPrivacyIpc(handle, resolveTrustedGuestWebContents)
 
   handle('vast:updater:install', async () => {
     try {

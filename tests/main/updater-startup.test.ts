@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -30,6 +31,7 @@ function fixture(mode: 'ready' | 'error' | 'exit' | 'timeout', pending = true) {
         spawned = true
         assert.ok(args.includes('-Handshake'))
         assert.equal(options.windowsHide, true)
+        assert.equal(options.detached, false, 'Windows update waiter must not use detached PowerShell creation')
         queueMicrotask(() => {
           child.emit('spawn') // Process existence alone must never approve a handoff.
           if (mode === 'ready') { output.emit('data', Buffer.from('VAST_UPDATE_')); output.emit('data', Buffer.from('READY\r\n')) }
@@ -59,4 +61,20 @@ test('ordinary startup does not spawn a helper without a pending update', async 
   const empty = fixture('ready', false)
   assert.equal(await empty.run(), false)
   assert.equal(empty.state().spawned, false)
+})
+
+test('Windows Node-to-PowerShell readiness pipe delivers a handshake', { skip: process.platform !== 'win32' }, async () => {
+  const helper = spawn(`${process.env.SystemRoot || 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`, [
+    '-NoProfile', '-NonInteractive', '-Command', '[Console]::Out.WriteLine("VAST_UPDATE_READY"); [Console]::Out.Flush()'
+  ], { windowsHide: true, detached: false, stdio: ['ignore', 'pipe', 'pipe'] })
+  let output = '', errors = ''
+  helper.stdout.on('data', chunk => { output += String(chunk) })
+  helper.stderr.on('data', chunk => { errors += String(chunk) })
+  const code = await new Promise<number | null>((resolve, reject) => {
+    const timeout = setTimeout(() => { helper.kill(); reject(new Error('PowerShell readiness handshake timed out.')) }, 8_000)
+    helper.once('error', error => { clearTimeout(timeout); reject(error) })
+    helper.once('close', exitCode => { clearTimeout(timeout); resolve(exitCode) })
+  })
+  assert.equal(code, 0, errors)
+  assert.match(output, /VAST_UPDATE_READY/)
 })

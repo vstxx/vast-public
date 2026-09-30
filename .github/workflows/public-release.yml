@@ -6,7 +6,7 @@ on:
       expected_version:
         description: Exact package version authorized for this release
         required: true
-        default: 0.4.0
+        default: 0.4.1
         type: string
       publish:
         description: Publish the verified candidate (false only builds and verifies)
@@ -52,6 +52,8 @@ jobs:
     environment: public-release
     env:
       VAST_RELEASE_CHANNEL: ${{ inputs.channel }}
+      VAST_EXPECTED_VERSION: ${{ inputs.expected_version }}
+      VAST_BOOTSTRAP_FIRST_BETA: ${{ inputs.bootstrap_first_beta }}
       VAST_PRIVATE_BUILD: '0'
       VAST_RELEASE_REPO: vstxx/vast-public
       VAST_PREVIOUS_VERSION: ${{ inputs.previous_version }}
@@ -130,7 +132,7 @@ jobs:
           git diff --exit-code
           git diff --cached --exit-code
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
-          if ($version -ne '${{ inputs.expected_version }}') { throw "package.json version $version does not match the authorized version." }
+          if ($version -ne $env:VAST_EXPECTED_VERSION) { throw "package.json version $version does not match the authorized version." }
           $head = git rev-parse HEAD
           if ($head -ne '${{ github.sha }}') { throw "Checked out $head instead of workflow SHA ${{ github.sha }}." }
           "VAST_RELEASE_COMMIT=$head" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -173,7 +175,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
-          if ('${{ inputs.channel }}' -ne 'beta') { throw 'The first-release bootstrap is beta-only.' }
+          if ($env:VAST_RELEASE_CHANNEL -ne 'beta') { throw 'The first-release bootstrap is beta-only.' }
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           if ($version -notmatch '-beta\.1$') { throw "Bootstrap requires a beta.1 package version, got $version." }
           $headers = @{
@@ -317,7 +319,7 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           $notes = Join-Path $env:RUNNER_TEMP 'vast-release-notes.md'
-          $upgradeGate = if ('${{ inputs.bootstrap_first_beta }}' -eq 'true') { 'Upgrade gate: not applicable to the first signed beta; beta.2 must upgrade from this release.' } else { "Upgrade gate: verified from $env:VAST_PREVIOUS_VERSION." }
+          $upgradeGate = if ($env:VAST_BOOTSTRAP_FIRST_BETA -eq 'true') { 'Upgrade gate: not applicable to the first signed beta; beta.2 must upgrade from this release.' } else { "Upgrade gate: verified from $env:VAST_PREVIOUS_VERSION." }
           @("Vast $version ($env:VAST_RELEASE_CHANNEL)", "", "Source commit: $env:VAST_RELEASE_COMMIT", "", "Built, timestamp-signed and verified by the public distribution gate.", $upgradeGate) | Set-Content -LiteralPath $notes -Encoding utf8
           node scripts/publish-release-assets.cjs $notes
       - name: Re-download and verify draft assets from production repository

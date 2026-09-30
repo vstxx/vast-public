@@ -20,6 +20,6 @@ test('clean launch keeps the new tab configurable but hides non-neutral dashboar
   assert.deepEqual(DEFAULT_SETTINGS.extensionMenu, { width: 368, height: 452 })
 })
 
-test('new profiles keep outlined toolbar controls until clean icons are enabled', () => {
-  assert.equal(DEFAULT_SETTINGS.appearance.cleanToolbarIcons, false)
+test('new profiles start with clean toolbar icons', () => {
+  assert.equal(DEFAULT_SETTINGS.appearance.cleanToolbarIcons, true)
 })

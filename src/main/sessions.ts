@@ -391,7 +391,7 @@ function configureSpoofingForSession(targetSession: Session, getSettings: () => 
         if (name.toLowerCase() === 'cookie') delete requestHeaders[name]
       }
     }
-    const avidaeAuthorization = avidaeAuthorizationHeader(details.url)
+    const avidaeAuthorization = avidaeAuthorizationHeader(details.url, details.webContentsId)
     if (avidaeAuthorization) requestHeaders.Authorization = avidaeAuthorization
     callback({ requestHeaders })
   })

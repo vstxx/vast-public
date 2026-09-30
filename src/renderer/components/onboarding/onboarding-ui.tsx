@@ -56,7 +56,7 @@ export function AccentRow({ value, onChange }: { value: string; onChange: (accen
   )
 }
 
-export type OnboardingPillOption<T extends string> = { id: T; label: string; hint?: string; disabled?: boolean }
+export type OnboardingPillOption<T extends string> = { id: T; label: string; iconUrl?: string; hint?: string; disabled?: boolean }
 
 export function PillRow<T extends string>({
   value,
@@ -84,6 +84,7 @@ export function PillRow<T extends string>({
           className={`vast-button vast-button--secondary ${value === option.id ? 'vast-button--selected' : ''} ${wide ? 'onboarding-pill-wide' : ''}`}
           onClick={() => onChange(option.id)}
         >
+          {option.iconUrl && <img src={option.iconUrl} alt="" className="onboarding-pill-icon" />}
           {option.label}
         </button>
       ))}

@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { parseHubCatalog, parseHubExtensionDetails, parseSignedReleaseDescriptor, verifySignedReleaseDescriptor } from '../src/shared/extension-marketplace.ts'
 import { verifyHubSignerProof } from '../src/shared/hub-signer-proof.ts'
 import { TRUSTED_VAST_HUB_KEYS } from '../src/main/extensions/trusted-hub-keys.ts'
 import { verifyVextPackage } from '../src/shared/vext-format.ts'
 
 const origin = 'https://extensions.vastbrowser.com'
-const vastHeaders = { Accept: 'application/json', 'X-Vast-Version': '0.4.0' }
+const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+const vastHeaders = { Accept: 'application/json', 'X-Vast-Version': version }
 const healthResponse = await fetch(`${origin}/health`, { headers: { Accept: 'application/json' } })
 if (!healthResponse.ok) throw new Error(`Production Hub health returned HTTP ${healthResponse.status}.`)
 const health = await healthResponse.json()

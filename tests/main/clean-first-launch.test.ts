@@ -35,6 +35,9 @@ test('a fresh profile is a clean, silent, single-workspace launch', () => {
   assert.equal(DEFAULT_SETTINGS.bookmarksBarVisible, true)
   assert.equal(DEFAULT_SETTINGS.bookmarksBarOnlyOnNewTab, false)
   assert.equal(DEFAULT_SETTINGS.labs.enabled, false)
+  assert.equal(DEFAULT_DATA.settings.labs.enabled, true)
+  assert.equal(DEFAULT_DATA.settings.labs.spoofing, true)
+  assert.equal(DEFAULT_SETTINGS.network.allowScans, false)
   assert.equal(DEFAULT_SETTINGS.newTabBehavior, 'search')
   assert.deepEqual(DEFAULT_DATA.quickLinks, [])
   assert.deepEqual(

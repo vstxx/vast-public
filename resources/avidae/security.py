@@ -1,11 +1,61 @@
 import ipaddress
 import http.client
+import os
+import re
 import socket
 import ssl
 import urllib.parse
 import urllib.request
 
 MAX_REDIRECTS = 5
+
+_MEDIA_FORMATS = {
+    "browse": frozenset(("mp4", "webm", "mkv")),
+    "record": frozenset(("mp4", "webm", "mkv")),
+    "convert": frozenset(("mp4", "webm", "mkv", "avi")),
+    "video_merge": frozenset(("mp4", "mkv", "webm")),
+    "audio_convert": frozenset(("ogg", "mp3", "opus", "wav", "flac", "aac", "m4a")),
+    "audio_record": frozenset(("mp3", "wav", "ogg", "flac", "aac", "m4a")),
+    "extract_audio": frozenset(("mp3", "wav", "ogg", "flac", "aac")),
+}
+
+
+def validated_media_format(kind, value):
+    if not isinstance(value, str) or value not in _MEDIA_FORMATS[kind]:
+        raise ValueError("Unsupported media output format")
+    return value
+
+
+def validated_browse_session_id(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", value):
+        raise ValueError("Invalid browse session ID")
+    return value
+
+
+def contained_path(root, *parts):
+    """Resolve existing symlinks/junctions; reject descendants outside root."""
+    root_real = os.path.realpath(root)
+    candidate = os.path.realpath(os.path.join(root, *parts))
+    try:
+        if os.path.commonpath((root_real, candidate)) != root_real or candidate == root_real:
+            raise ValueError("Path is outside the approved directory")
+    except ValueError as exc:
+        raise ValueError("Path is outside the approved directory") from exc
+    return candidate
+
+
+def contained_job_path(job_folder, *parts):
+    import config
+    jobs_root = contained_path(config.DATA_DIR, "jobs")
+    job = os.path.realpath(job_folder)
+    if os.path.commonpath((jobs_root, job)) != jobs_root or job == jobs_root or os.path.islink(job_folder) or getattr(os.path, "isjunction", lambda _path: False)(job_folder):
+        raise ValueError("Job path is outside Video & Audio storage")
+    if not parts:
+        return job
+    directory = contained_path(job, parts[0])
+    if os.path.islink(os.path.join(job, parts[0])) or getattr(os.path, "isjunction", lambda _path: False)(os.path.join(job, parts[0])):
+        raise ValueError("Job output directory is a link")
+    return contained_path(directory, *parts[1:]) if len(parts) > 1 else directory
 
 
 def resolve_public_url(raw_url):

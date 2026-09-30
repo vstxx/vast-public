@@ -35,20 +35,21 @@ async function writeChromiumFixture(
     roots: {
       bookmark_bar: {
         children: [
-          { type: 'url', name: 'Vast Docs', url: 'https://docs.vastbrowser.com/' },
+          { id: '10', type: 'url', name: 'Vast Docs', url: 'https://docs.vastbrowser.com/' },
           {
+            id: '11',
             type: 'folder',
             name: 'Dev',
             children: [
-              { type: 'url', name: 'GitHub', url: 'https://github.com/' },
-              { type: 'url', name: 'Duplicate', url: 'https://github.com/' }
+              { id: '12', type: 'url', name: 'GitHub', url: 'https://github.com/' },
+              { id: '13', type: 'url', name: 'Duplicate', url: 'https://github.com/' }
             ]
           },
-          { type: 'url', name: 'Bad scheme', url: 'javascript:void 0' },
-          { type: 'folder', name: 'Dev', children: [{ type: 'url', name: 'Nested Dev', url: 'https://gitlab.com/' }] }
+          { id: '14', type: 'url', name: 'Bad scheme', url: 'javascript:void 0' },
+          { id: '15', type: 'folder', name: 'Dev', children: [{ id: '16', type: 'url', name: 'Nested Dev', url: 'https://gitlab.com/' }] }
         ]
       },
-      other: { children: [{ type: 'url', name: 'Other Bookmarks', url: 'https://example.org/' }] },
+      other: { children: [{ id: '17', type: 'url', name: 'Other Bookmarks', url: 'https://example.org/' }] },
       synced: {}
     }
   }), 'utf8')
@@ -65,12 +66,17 @@ async function writeChromiumFixture(
   db.close()
 
   if (options.withExtensions) {
-    const extensionsDir = join(profileDir, 'Extensions', 'a'.repeat(32), '1.2.0_0')
+    const extensionId = 'a'.repeat(32)
+    const extensionsDir = join(profileDir, 'Extensions', extensionId, '1.2.0_0')
     await mkdir(extensionsDir, { recursive: true })
     await writeFile(join(extensionsDir, 'manifest.json'), JSON.stringify({
+      manifest_version: 3,
       name: 'Nice Extension',
       version: '1.2.0',
       default_locale: 'en'
+    }), 'utf8')
+    await writeFile(join(profileDir, 'Preferences'), JSON.stringify({
+      extensions: { settings: { [extensionId]: { state: 1, manifest: { version: '1.2.0' } } } }
     }), 'utf8')
   }
   return profileDir
@@ -83,6 +89,8 @@ async function writeFirefoxFixture(ctx: TestContext, profileId: string): Promise
   db.exec(`
     CREATE TABLE moz_places (id INTEGER PRIMARY KEY, url TEXT, title TEXT, hidden INTEGER DEFAULT 0, visit_count INTEGER DEFAULT 0, last_visit_date INTEGER);
     CREATE TABLE moz_bookmarks (id INTEGER PRIMARY KEY, type INTEGER, title TEXT, fk INTEGER, parent INTEGER);
+    CREATE TABLE moz_bookmarks_roots (root_name TEXT, folder_id INTEGER);
+    CREATE TABLE moz_historyvisits (id INTEGER PRIMARY KEY, place_id INTEGER, visit_date INTEGER);
   `)
   const now = Date.now()
   const insertPlace = db.prepare('INSERT INTO moz_places (url, title, hidden, visit_count, last_visit_date) VALUES (?, ?, ?, ?, ?)')
@@ -90,11 +98,14 @@ async function writeFirefoxFixture(ctx: TestContext, profileId: string): Promise
   insertPlace.run('https://example.net/', 'Net Example', 0, 1, (now - 6_000) * 1_000)
   const insertBookmark = db.prepare('INSERT INTO moz_bookmarks (type, title, fk, parent) VALUES (?, ?, ?, ?)')
   const toolbarRoot = insertBookmark.run(2, 'toolbar', null, 0)
+  db.prepare('INSERT INTO moz_bookmarks_roots VALUES (?, ?)').run('toolbar', Number(toolbarRoot.lastInsertRowid))
   const devFolder = insertBookmark.run(2, 'Firefox Dev', null, Number(toolbarRoot.lastInsertRowid))
   const mozillaPlaceId = (db.prepare('SELECT id FROM moz_places WHERE url = ?').get('https://mozilla.org/') as { id: number }).id
   insertBookmark.run(1, 'Mozilla', mozillaPlaceId, Number(devFolder.lastInsertRowid))
   const netPlaceId = (db.prepare('SELECT id FROM moz_places WHERE url = ?').get('https://example.net/') as { id: number }).id
   insertBookmark.run(1, 'Net Example', netPlaceId, Number(toolbarRoot.lastInsertRowid))
+  db.prepare('INSERT INTO moz_historyvisits (place_id, visit_date) VALUES (?, ?)').run(mozillaPlaceId, (now - 5_000) * 1_000)
+  db.prepare('INSERT INTO moz_historyvisits (place_id, visit_date) VALUES (?, ?)').run(netPlaceId, (now - 6_000) * 1_000)
   db.close()
   return profileDir
 }
@@ -169,18 +180,19 @@ test('imports Chromium bookmarks with folder structure and normalized urls', asy
   assert.ok(urls.includes('https://github.com/'))
   assert.ok(urls.includes('https://gitlab.com/'))
   assert.ok(urls.includes('https://example.org/'))
-  assert.equal(urls.filter((url) => url === 'https://github.com/').length, 1, 'duplicate urls collapse to one entry')
+  assert.equal(urls.filter((url) => url === 'https://github.com/').length, 2, 'distinct bookmark items retain the same URL')
   assert.equal(urls.includes('javascript:void 0'), false, 'non-http schemes are dropped')
 
   const github = result.bookmarks.find((bookmark) => bookmark.url === 'https://github.com/')
   assert.deepEqual(github?.folderPath, ['Dev'])
   const nested = result.bookmarks.find((bookmark) => bookmark.url === 'https://gitlab.com/')
-  assert.equal(nested?.folderPath[0], 'Dev', 'same-named folders merge instead of duplicating')
+  assert.equal(nested?.folderPath[0], 'Dev')
+  assert.notEqual(nested?.folderSourceIds[0], github?.folderSourceIds[0], 'same-named folders keep separate source identity')
   const topLevel = result.bookmarks.find((bookmark) => bookmark.url === 'https://docs.vastbrowser.com/')
   assert.deepEqual(topLevel?.folderPath, [], 'bookmarks-bar roots land at top level')
 })
 
-test('imports Chromium history through a temp copy and never mutates the source profile', async () => {
+test('imports Chromium history through an online snapshot and never mutates the source profile', async () => {
   const profileDir = await writeChromiumFixture(ctx(), 'Google/Chrome', 'Default', 'Personal')
   const historyPath = join(profileDir, 'History')
   const before = await readFile(historyPath)
@@ -190,7 +202,7 @@ test('imports Chromium history through a temp copy and never mutates the source 
 
   assert.deepEqual(before, await readFile(historyPath), 'the source History database is byte-identical after import')
   const tmpAfter = (await readdir(tmpdir())).filter((entry) => entry.startsWith('vast-import-') && !tmpBefore.has(entry))
-  assert.deepEqual(tmpAfter, [], 'temp database copies are cleaned up')
+  assert.deepEqual(tmpAfter, [], 'temporary snapshot directories are cleaned up')
   assert.equal(result.ok, true)
   assert.equal(result.categories.history.status, 'imported')
   assert.equal(result.history.length, 2, 'chrome:// and hidden rows are excluded')
@@ -207,6 +219,8 @@ test('detects Chromium extensions including plain manifest names', async () => {
   assert.equal(result.extensions.length, 1)
   assert.equal(result.extensions[0]?.name, 'Nice Extension')
   assert.equal(result.extensions[0]?.version, '1.2.0')
+  assert.equal(result.extensions[0]?.sourceEnabled, true)
+  assert.equal(result.extensions[0]?.manifestVersion, 3)
 })
 
 test('empty extension detection is reported honestly', async () => {

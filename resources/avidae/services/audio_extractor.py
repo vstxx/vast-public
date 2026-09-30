@@ -3,6 +3,7 @@ import re
 from datetime import datetime, timezone
 
 import config
+from security import validated_media_format, contained_job_path
 from services.job_manager import update_job, is_cancelled
 from services.logger import get_job_logger, append_log_event
 from services.storage import get_job_folder
@@ -19,7 +20,7 @@ def run_extract_audio_job(job_id, cancel_flag):
     params = meta.get("params", {})
 
     input_file = params.get("input_file", "")
-    audio_format = params.get("audio_format", "mp3")
+    audio_format = validated_media_format("extract_audio", params.get("audio_format", "mp3"))
     acodec = params.get("acodec", "libmp3lame")
     bitrate = params.get("audio_bitrate", "192k")
 
@@ -45,7 +46,7 @@ def run_extract_audio_job(job_id, cancel_flag):
     basename = os.path.splitext(os.path.basename(input_file))[0]
     safe_name = re.sub(r'[^\w\-_]', '_', basename)
     output_name = f"{safe_name}.{audio_format}"
-    output_path = os.path.join(job_folder, "output", output_name)
+    output_path = contained_job_path(job_folder, "output", output_name)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     update_job(job_id, status="recording", progress=20)

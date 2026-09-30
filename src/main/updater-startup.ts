@@ -30,7 +30,7 @@ export async function applyPendingUpdateAtStartup(): Promise<boolean> {
     const processRef = spawn(join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), [
       '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', helper,
       '-RecordPath', file, '-LaunchPath', executable, '-ArgumentsPath', argsFile, '-ParentProcessId', String(process.pid), '-Handshake'
-    ], { windowsHide: true, detached: true, stdio: ['ignore', 'pipe', 'ignore'], cwd: dirname(file) })
+    ], { windowsHide: true, detached: false, stdio: ['ignore', 'pipe', 'ignore'], cwd: dirname(file) })
     // A spawned PowerShell process can still be blocked by policy or fail to load
     // its script. Keep this browser alive until the waiter accepts the handoff.
     await new Promise<void>((resolve, reject) => {

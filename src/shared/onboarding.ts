@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, SEARCH_ENGINES } from './constants.ts'
+import { DEFAULT_DATA, DEFAULT_SETTINGS, SEARCH_ENGINES } from './constants.ts'
 import type { BrowserSettings, PersistedData, SearchEngine } from './types'
 
 /**
@@ -56,13 +56,15 @@ export const ONBOARDING_BACKGROUNDS: ReadonlyArray<{ id: BrowserSettings['newTab
 ]
 
 /**
- * Settings the onboarding "Use defaults" route resets to their canonical
- * defaults. Sourced live from DEFAULT_SETTINGS so the two never drift.
+ * Settings the onboarding "Use defaults" route resets to the fresh-profile
+ * defaults. Labs differ from the fail-closed generic settings baseline.
  */
 export function onboardingDefaultChoices(): {
   theme: BrowserSettings['theme']
   accentColor: string
   cornerRadius: number
+  cleanToolbarIcons: boolean
+  labs: BrowserSettings['labs']
   defaultSearchEngine: string
   newTabBackground: BrowserSettings['newTab']['background']
 } {
@@ -70,6 +72,8 @@ export function onboardingDefaultChoices(): {
     theme: DEFAULT_SETTINGS.theme,
     accentColor: DEFAULT_SETTINGS.accentColor,
     cornerRadius: DEFAULT_SETTINGS.appearance.cornerRadius,
+    cleanToolbarIcons: DEFAULT_SETTINGS.appearance.cleanToolbarIcons,
+    labs: { ...DEFAULT_DATA.settings.labs },
     defaultSearchEngine: DEFAULT_SETTINGS.defaultSearchEngine,
     newTabBackground: DEFAULT_SETTINGS.newTab.background
   }

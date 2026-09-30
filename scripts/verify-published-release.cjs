@@ -6,6 +6,7 @@ const { Readable } = require('node:stream')
 const { tmpdir } = require('node:os')
 const { basename, join, resolve, sep } = require('node:path')
 const { inspectTrustedAuthenticode, inspectUnsignedPe } = require('./windows-authenticode.cjs')
+const { verifiedCandidateAssets } = require('./local-public-release.cjs')
 
 const root = join(__dirname, '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
@@ -31,6 +32,14 @@ const tempRoot = mkdtempSync(join(tmpdir(), `vast-published-${version}-`))
 const assets = require('./release-files.cjs').publishedReleaseFiles(version, publicUnsignedRelease).map(local => ({
   name: basename(local), local, signed: /(?:Vast-Setup-|VastUpdater-|Vast-.*-Portable\.exe$)/.test(basename(local)) && local.endsWith('.exe')
 }))
+const candidateAssets = process.env.VAST_CANDIDATE_ROOT
+  ? new Map(verifiedCandidateAssets(process.env.VAST_CANDIDATE_ROOT, {
+    version,
+    sourceCommit: expectedSourceCommit,
+    channel: process.env.VAST_RELEASE_CHANNEL,
+    unsigned: publicUnsignedRelease
+  }).map(file => [basename(file), file]))
+  : null
 
 if (legacyPublicUnsignedBeta) assets.push({ name: 'PUBLIC-UNSIGNED-BETA.md', local: 'PUBLIC-UNSIGNED-BETA.md' })
 
@@ -122,7 +131,7 @@ async function download(asset, apiUrls) {
   const size = statSync(target).size
   if (size <= 0 || size > maximumDownloadBytes) throw new Error(`Production asset has an invalid size: ${asset.name}`)
   if (!skipLocalMatch) {
-    const local = join(root, 'release', ...asset.local.split('/'))
+    const local = candidateAssets?.get(asset.name) || join(root, 'release', ...asset.local.split('/'))
     if (!existsSync(local)) throw new Error(`Local release asset is missing for comparison: ${asset.local}`)
     if (sha256(local) !== sha256(target)) throw new Error(`Production asset differs from the locally verified artifact: ${asset.name}`)
   }

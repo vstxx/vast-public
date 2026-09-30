@@ -32,8 +32,7 @@ import { cleanTrackingUrl } from '../../shared/url-cleaning'
 import { DEFAULT_WORKSPACE_IDENTITY } from '../../shared/workspace-identity'
 import { routeTopLevelNavigationUrl, sanitizeRestoredTopLevelUrl } from '../../shared/top-level-navigation-policy'
 import { shouldRestoreTabsOnStartup } from '../../shared/startup-recovery'
-import type { BrowserImportRunResult } from '../../shared/browser-import'
-import { mergeImportedEntries, type ImportedDataMergeCounts } from './imported-data-merge'
+import { findOwnTabBookmark } from '../../shared/bookmark-identity'
 import { applyOnboardingStart } from './onboarding-hydration'
 
 type SettingsPatch = Omit<Partial<BrowserSettings>, 'appearance' | 'advanced' | 'privacy' | 'spoofing' | 'security' | 'network' | 'labs' | 'newTab' | 'sidePanel' | 'extensionMenu' | 'commandPalette' | 'keyboardShortcuts'> & {
@@ -160,7 +159,6 @@ interface BrowserState extends PersistedData {
   removeTodo: (todoId: ID) => void
   recordCommand: (commandId: string) => void
   completeOnboarding: () => void
-  mergeImportedData: (result: Pick<BrowserImportRunResult, 'bookmarks' | 'history'>) => ImportedDataMergeCounts
 }
 
 export interface PromptDialogState {
@@ -414,7 +412,8 @@ function withoutVolatileState(state: BrowserState): PersistedData {
     todos: state.todos,
     recentCommandIds: state.recentCommandIds.slice(0, 12),
     settings: state.settings,
-    onboarding: state.onboarding
+    onboarding: state.onboarding,
+    importState: state.importState
   }
 }
 
@@ -1005,7 +1004,8 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
   clearHistory: () => set({ history: [] }),
 
   addBookmark: (bookmark) => {
-    if (get().bookmarks.some((item) => item.url === bookmark.url)) return
+    if (get().bookmarks.some((item) => item.url === bookmark.url && item.folderId === bookmark.folderId &&
+      item.workspaceId === bookmark.workspaceId && !item.importSource)) return
     const now = Date.now()
     set((state) => ({
       bookmarks: [
@@ -1049,7 +1049,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
     const workspace = currentWorkspace(state)
     const tab = state.tabs.find((item) => item.id === workspace?.activeTabId)
     if (!tab || isInternalUrl(tab.url)) return
-    const existing = state.bookmarks.find((bookmark) => bookmark.url === tab.url)
+    const existing = findOwnTabBookmark(state.bookmarks, tab.url, tab.workspaceId)
     if (existing) {
       get().removeBookmark(existing.id)
     } else {
@@ -1557,22 +1557,6 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
 
   completeOnboarding: () => set({ onboarding: { completed: true } }),
 
-  mergeImportedData: (result) => {
-    const next = mergeImportedEntries(
-      { bookmarks: get().bookmarks, bookmarkFolders: get().bookmarkFolders, history: get().history },
-      { bookmarks: result.bookmarks, history: result.history }
-    )
-    set({
-      bookmarks: next.bookmarks,
-      bookmarkFolders: next.bookmarkFolders,
-      history: next.history
-    })
-    return {
-      bookmarksAdded: next.bookmarksAdded,
-      foldersCreated: next.foldersCreated,
-      historyAdded: next.historyAdded
-    }
-  }
 }))
 
 export const selectActiveWorkspace = (state: BrowserState): Workspace | undefined =>

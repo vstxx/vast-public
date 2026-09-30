@@ -2,7 +2,7 @@ import type { RelayActionResult, RelayClientSnapshot } from './relay-types'
 import type { VastExtensionKind, VastNativeRuntimeState, VastNativePermission, VastPermissionMetadata, VastExtensionContributionSnapshot, VastUiBrokerRequest, VastUiBrokerResponse } from './extension-native-api'
 import type { ExtensionInstallSource, ExtensionPackagePreview, ExtensionTrustLevel, ExtensionUpdateState, VastHubCatalogResult, VastHubExtensionDetails } from './extension-marketplace'
 import type { OnboardingState } from './onboarding'
-import type { BrowserImportCatalog, BrowserImportRequest, BrowserImportRunResult } from './browser-import'
+import type { BrowserImportCatalog, BrowserImportCommitReceipt, BrowserImportCommitRequest, BrowserImportExtensionConfirmRequest, BrowserImportExtensionPreparation, BrowserImportExtensionReceipt, BrowserImportPrepareRequest, BrowserImportPreview, BrowserImportRequest, BrowserImportRunResult, BrowserImportStatus } from './browser-import'
 
 export type ID = string
 
@@ -185,6 +185,8 @@ export interface BookmarkFolder {
   order: number
   createdAt: number
   updatedAt?: number
+  /** Optional source identity for migration-safe browser imports. */
+  importSource?: { browser: 'chrome' | 'edge' | 'firefox'; profileId: string; root: 'bar' | 'other' | 'mobile' | 'menu' | 'unfiled'; itemId: string }
 }
 
 export interface Bookmark {
@@ -196,6 +198,8 @@ export interface Bookmark {
   workspaceId?: ID
   createdAt: number
   updatedAt: number
+  /** Optional source identity; URL is deliberately not an identity key. */
+  importSource?: { browser: 'chrome' | 'edge' | 'firefox'; profileId: string; itemId: string }
 }
 
 export interface HistoryEntry {
@@ -850,6 +854,13 @@ export interface PersistedData {
   recentCommandIds: string[]
   settings: BrowserSettings
   onboarding?: OnboardingState
+  importState?: {
+    generation: number
+    phase: 'idle' | 'extensions-pending' | 'completed'
+    receipt?: BrowserImportCommitReceipt
+    pendingExtensionIds?: string[]
+    extensionReceipts?: BrowserImportExtensionReceipt[]
+  }
   startupRecovery?: {
     safeStartup: boolean
     consecutiveFailedStartups: number
@@ -954,7 +965,14 @@ export interface VastApi {
   }
   importer: {
     discover: () => Promise<BrowserImportCatalog>
-    run: (request: BrowserImportRequest) => Promise<BrowserImportRunResult>
+    prepare: (request: BrowserImportPrepareRequest) => Promise<BrowserImportPreview>
+    preview: (token: string) => Promise<BrowserImportPreview>
+    commit: (request: BrowserImportCommitRequest) => Promise<BrowserImportCommitReceipt>
+    status: () => Promise<BrowserImportStatus>
+    prepareExtension: (operationId: string, extensionId: string) => Promise<BrowserImportExtensionPreparation>
+    confirmExtension: (request: BrowserImportExtensionConfirmRequest) => Promise<BrowserImportExtensionReceipt>
+    declineExtension: (operationId: string, extensionId: string) => Promise<BrowserImportExtensionReceipt>
+    discard: (token: string) => Promise<void>
   }
   newTabBackground: {
     get: () => Promise<{ ok: boolean; dataUrl?: string; error?: string }>

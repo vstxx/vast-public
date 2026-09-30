@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { DEFAULT_DATA, INTERNAL_ONBOARDING_URL } from '../../src/shared/constants.ts'
-import { displayUrl, isKnownInternalUrl, matchesInternalUrl, resolveAddressInput, titleFromUrl } from '../../src/renderer/lib/url.ts'
+import { displayUrl, isKnownInternalUrl, matchesInternalUrl, resolveAddressInput, resolveNewTabSearchInput, titleFromUrl } from '../../src/renderer/lib/url.ts'
 
 test('vast://onboarding is a recognized internal page', () => {
   assert.equal(INTERNAL_ONBOARDING_URL, 'vast://onboarding')
@@ -12,6 +12,15 @@ test('vast://onboarding is a recognized internal page', () => {
   assert.equal(titleFromUrl('vast://onboarding'), 'Onboarding')
   assert.equal(resolveAddressInput('onboarding', 'google'), 'vast://onboarding')
   assert.equal(resolveAddressInput('vast://onboarding', 'google'), 'vast://onboarding')
+})
+
+test('New Tab searches bare internal aliases but honors explicit vast URLs and the omnibox shortcuts', () => {
+  for (const phrase of ['avidae', 'onboarding', 'notes', 'extensions', 'new tab']) {
+    assert.equal(resolveNewTabSearchInput(phrase, 'google'), `https://www.google.com/search?q=${encodeURIComponent(phrase)}`)
+  }
+  assert.equal(resolveNewTabSearchInput('vast://onboarding', 'google'), INTERNAL_ONBOARDING_URL)
+  assert.equal(resolveAddressInput('onboarding', 'google'), INTERNAL_ONBOARDING_URL)
+  assert.equal(resolveNewTabSearchInput('example.com', 'google'), 'https://example.com')
 })
 
 test('a fresh DEFAULT_DATA ships onboarding incomplete; existing profiles migrate complete', () => {

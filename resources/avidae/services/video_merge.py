@@ -3,6 +3,7 @@ import re
 from datetime import datetime, timezone
 
 import config
+from security import validated_media_format, contained_job_path
 from services.job_manager import update_job, is_cancelled
 from services.logger import get_job_logger, append_log_event
 from services.storage import get_job_folder
@@ -19,7 +20,7 @@ def run_video_merge_job(job_id, cancel_flag):
     params = meta.get("params", {})
 
     input_files = params.get("input_files", [])
-    output_format = params.get("format", "mp4")
+    output_format = validated_media_format("video_merge", params.get("format", "mp4"))
     reencode = params.get("reencode", False)
 
     update_job(job_id, status="analyzing", progress=5)
@@ -57,7 +58,7 @@ def run_video_merge_job(job_id, cancel_flag):
     logger.info(f"Total input duration: {total_duration:.1f}s")
 
     output_name = f"merged.{output_format}"
-    output_path = os.path.join(job_folder, "output", output_name)
+    output_path = contained_job_path(job_folder, "output", output_name)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     update_job(job_id, status="recording", progress=15)

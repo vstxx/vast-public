@@ -6,7 +6,7 @@ on:
       expected_version:
         description: Exact package version authorized for this candidate
         required: true
-        default: 0.4.0
+        default: 0.4.1
         type: string
       store_package_version:
         description: Store identity version; must exceed every version consumed by Partner Center
@@ -38,6 +38,7 @@ jobs:
     environment: public-release
     env:
       VAST_RELEASE_CHANNEL: ${{ inputs.channel }}
+      VAST_EXPECTED_VERSION: ${{ inputs.expected_version }}
       VAST_MSIX_PACKAGE_VERSION: ${{ inputs.store_package_version }}
       VAST_MSIX_PREVIOUS_PACKAGE_VERSION: ${{ inputs.previous_store_package_version }}
       VAST_DISTRIBUTION_CHANNEL: microsoft-store
@@ -89,7 +90,7 @@ jobs:
           git diff --exit-code
           git diff --cached --exit-code
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
-          if ($version -ne '${{ inputs.expected_version }}') { throw "Expected ${{ inputs.expected_version }}, got $version." }
+          if ($version -ne $env:VAST_EXPECTED_VERSION) { throw "Expected $env:VAST_EXPECTED_VERSION, got $version." }
           $head = git rev-parse HEAD
           if ($head -ne '${{ github.sha }}') { throw "Checked out $head instead of ${{ github.sha }}." }
           "VAST_RELEASE_COMMIT=$head" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -121,7 +122,9 @@ jobs:
         run: npm run dist:store
       - name: Run Windows App Certification Kit
         shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-windows-app-certification.ps1 -PackagePath release/store/Vast-${{ inputs.expected_version }}-Store-${{ inputs.store_package_version }}-x64.msix
+        run: |
+          $package = "release/store/Vast-$($env:VAST_EXPECTED_VERSION)-Store-$($env:VAST_MSIX_PACKAGE_VERSION)-x64.msix"
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-windows-app-certification.ps1 -PackagePath $package
       - name: Preserve verified MSIX and evidence in private source repository
         shell: pwsh
         env:
@@ -130,8 +133,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
           $head = git rev-parse HEAD
-          $tag = "ci-store-v${{ inputs.expected_version }}-${{ inputs.store_package_version }}-$head"
-          $stem = "release/store/Vast-${{ inputs.expected_version }}-Store-${{ inputs.store_package_version }}-x64"
+          $tag = "ci-store-v$($env:VAST_EXPECTED_VERSION)-$($env:VAST_MSIX_PACKAGE_VERSION)-$head"
+          $stem = "release/store/Vast-$($env:VAST_EXPECTED_VERSION)-Store-$($env:VAST_MSIX_PACKAGE_VERSION)-x64"
           $files = @(
             "$stem.msix",
             "$stem-verification.json",
@@ -143,7 +146,7 @@ jobs:
           foreach ($file in $files) { if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Store evidence is missing: $file" } }
           $existing = gh release list --repo vstxx/vast --limit 1000 --json tagName | ConvertFrom-Json
           if (@($existing | Where-Object tagName -EQ $tag).Count -ne 0) { throw "Private Store candidate tag already exists: $tag; refusing to overwrite it." }
-          gh release create $tag @files --repo vstxx/vast --target $head --draft --prerelease --latest=false --title "Private Store candidate ${{ inputs.expected_version }} / ${{ inputs.store_package_version }}" --notes "Unsigned MSIX for Partner Center submission only. Source commit: $head. Inspect WACK, identity, manifest, hashes, and version before upload. Not a public release."
+          gh release create $tag @files --repo vstxx/vast --target $head --draft --prerelease --latest=false --title "Private Store candidate $env:VAST_EXPECTED_VERSION / $env:VAST_MSIX_PACKAGE_VERSION" --notes "Unsigned MSIX for Partner Center submission only. Source commit: $head. Inspect WACK, identity, manifest, hashes, and version before upload. Not a public release."
           if ($LASTEXITCODE -ne 0) { throw 'Could not preserve the verified private Store candidate.' }
           $assets = (gh release view $tag --repo vstxx/vast --json assets | ConvertFrom-Json).assets
           foreach ($file in $files) {

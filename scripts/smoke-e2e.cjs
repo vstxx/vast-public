@@ -1,4 +1,5 @@
 const { spawn, execFileSync } = require('node:child_process')
+const assertStrict = require('node:assert/strict')
 const fs = require('node:fs')
 const http = require('node:http')
 const os = require('node:os')
@@ -1161,6 +1162,50 @@ async function main() {
   // defaults route so the rest of the suite exercises the normal browser, and so
   // onboarding itself is covered end-to-end.
   await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"onboarding-page\\"]"))', 'first-run onboarding page', 60000)
+  await clickByText(session, 'Configure')
+  await waitFor(session, 'Boolean(document.querySelector("[data-onboarding-step-content=\\"1\\"]"))', 'onboarding appearance step')
+  await clickByText(session, 'Next')
+  await waitFor(session, 'Boolean(document.querySelector("[data-onboarding-step-content=\\"2\\"]"))', 'onboarding search step')
+  await waitFor(session, '[...document.querySelectorAll(\'[role="radiogroup"][aria-label="Search engine"] img\')].length === 4 && [...document.querySelectorAll(\'[role="radiogroup"][aria-label="Search engine"] img\')].every((icon) => icon.complete && icon.naturalWidth > 0)', 'onboarding search logos')
+  const searchBrands = await session.evaluate(`[...document.querySelectorAll('[role="radiogroup"][aria-label="Search engine"] [role="radio"]')].map((button) => ({
+    label: button.textContent.trim(),
+    iconLoaded: Boolean(button.querySelector('img')?.complete && button.querySelector('img')?.naturalWidth > 0),
+    iconLocal: Boolean(button.querySelector('img')?.currentSrc && !button.querySelector('img').currentSrc.startsWith('http'))
+  }))`)
+  assertStrict.deepEqual(searchBrands, ['Google', 'DuckDuckGo', 'Brave Search', 'Perplexity'].map((label) => ({ label, iconLoaded: true, iconLocal: true })), 'Search engine choices must show local official logos alongside their names.')
+  await session.screenshot('onboarding-search-brands')
+  await clickByText(session, 'Next')
+  await waitFor(session, 'Boolean(document.querySelector("[data-onboarding-step-content=\\"3\\"]"))', 'onboarding import step')
+  await waitFor(session, '[...document.querySelectorAll(\'[role="radiogroup"][aria-label="Import from"] img\')].length === 3 && [...document.querySelectorAll(\'[role="radiogroup"][aria-label="Import from"] img\')].every((icon) => icon.complete && icon.naturalWidth > 0)', 'onboarding browser logos')
+  const browserBrands = await session.evaluate(`[...document.querySelectorAll('[role="radiogroup"][aria-label="Import from"] [role="radio"]')].map((button) => ({
+    label: button.textContent.trim(),
+    iconLoaded: Boolean(button.querySelector('img')?.complete && button.querySelector('img')?.naturalWidth > 0),
+    iconLocal: Boolean(button.querySelector('img')?.currentSrc && !button.querySelector('img').currentSrc.startsWith('http'))
+  }))`)
+  assertStrict.deepEqual(browserBrands, [
+    { label: 'Chrome', iconLoaded: true, iconLocal: true },
+    { label: 'Edge', iconLoaded: true, iconLocal: true },
+    { label: 'Firefox', iconLoaded: true, iconLocal: true },
+    { label: 'Fresh start', iconLoaded: false, iconLocal: false }
+  ], 'Browser import choices must show local official logos while Fresh start remains unbranded.')
+  await session.screenshot('onboarding-import-brands')
+  await clickByText(session, 'Next')
+  await waitFor(session, 'Boolean(document.querySelector("[data-onboarding-step-content=\\"4\\"]"))', 'onboarding extensions step')
+  const extensionCopy = await session.evaluate('document.querySelector("[data-onboarding-step-content=\\"4\\"]").textContent')
+  assert(!extensionCopy.includes('Extensions Hub'), 'The onboarding extensions step must not show Extensions Hub labels.')
+  await session.screenshot('onboarding-extensions-copy')
+  record('onboarding provider branding', 'local logos load for search and browser choices; Hub labels are absent')
+  if (process.argv.includes('--onboarding-brand-only')) {
+    session.close()
+    cleanup()
+    console.log(`\n${checks.length} targeted app checks passed.`)
+    return
+  }
+  for (const previousStep of [3, 2, 1, 0]) {
+    await session.evaluate(`document.querySelector('nav[aria-label="Onboarding navigation"] button')?.click()`)
+    await waitFor(session, `Boolean(document.querySelector('[data-onboarding-step-content="${previousStep}"]'))`, `onboarding return to step ${previousStep}`)
+  }
+  await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"onboarding-use-defaults\\"]"))', 'onboarding welcome step')
   await clickByText(session, 'Use defaults')
   await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"onboarding-enter-vast\\"]"))', 'onboarding ready step', 60000)
   await clickByText(session, 'Enter Vast')

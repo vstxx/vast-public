@@ -1,7 +1,7 @@
 {
   "name": "vast-browser",
   "productName": "Vast",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "A local-first desktop browser for power users, built with Electron, React, TypeScript, Vite, and Tailwind CSS.",
   "author": "VastProductions",
   "main": "out/main/main.js",
@@ -42,6 +42,7 @@
     "dist:upgrader": "node scripts/build-release.cjs upgrader",
     "lint": "node scripts/check-radius.cjs && tsc --noEmit",
     "test": "node scripts/run-node-tests.cjs",
+    "test:browser-import-data:e2e": "npm run build && node scripts/browser-import-data-e2e.cjs",
     "test:unit": "node scripts/run-node-tests.cjs",
     "test:updater": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/updater/vast-updater.test.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File tests/updater/vast-bootstrapper-release.test.ps1",
     "test:updater:background": "node scripts/run-updater-download-e2e.cjs && powershell -NoProfile -ExecutionPolicy Bypass -File tests/updater/background-install-guard.test.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File tests/updater/background-startup.test.ps1",
@@ -50,6 +51,7 @@
     "test:fuses:integration": "node scripts/test-electron-fuses-integration.cjs",
     "test:cookie-encryption": "node scripts/test-cookie-encryption-upgrade.cjs",
     "test:electron-version": "node scripts/verify-electron-version.cjs",
+    "test:electron:css-env": "node scripts/run-css-env-regression.cjs",
     "test:store": "node --test tests/store/*.test.cjs",
     "test:store:upgrade": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/store/store-msix-upgrade.test.ps1",
     "store:policy:refresh": "node scripts/check-store-browser-recency.cjs --refresh",
@@ -93,6 +95,7 @@
     "release:local": "node scripts/local-release-from-env.cjs",
     "release:internal": "node scripts/local-release-from-env.cjs --internal-unsigned",
     "release:public-unsigned": "node scripts/local-release-from-env.cjs --public-unsigned-release",
+    "release:local:public": "node scripts/local-public-release.cjs",
     "release:check:local": "node scripts/local-release-from-env.cjs release:check",
     "release:verify:published": "node scripts/verify-published-release.cjs",
     "dist:private": "npm run release:audit && npm run dist",
@@ -107,6 +110,7 @@
     "performance:regressions": "node scripts/check-production-regressions.cjs"
   },
   "dependencies": {
+    "electron-chrome-extensions": "4.9.0",
     "electron-updater": "6.8.9",
     "fflate": "0.8.3",
     "semver": "^7.8.5"
@@ -125,7 +129,6 @@
     "clsx": "2.1.1",
     "electron": "44.3.0",
     "electron-builder": "26.15.3",
-    "electron-chrome-extensions": "4.9.0",
     "electron-vite": "5.0.0",
     "javascript-obfuscator": "^5.4.3",
     "lucide-react": "1.16.0",
@@ -146,10 +149,19 @@
     "js-yaml": "4.3.2",
     "tmp": "0.2.7",
     "esbuild": "0.28.1",
-    "fast-uri": "3.1.6",
+    "fast-uri": "3.1.8",
     "@xmldom/xmldom": "0.8.15",
     "@electron/get": {
-      "undici": "7.29.0"
+      "undici": "7.30.0"
+    },
+    "miniflare": {
+      "undici": "7.30.0"
+    },
+    "@vercel/blob": {
+      "undici": "6.29.0"
+    },
+    "node-gyp": {
+      "undici": "6.29.0"
     }
   },
   "build": {

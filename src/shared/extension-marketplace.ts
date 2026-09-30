@@ -1,7 +1,7 @@
 import { VAST_NATIVE_PERMISSIONS, type VastExtensionKind, type VastNativePermission } from './extension-native-api.ts'
 import { canonicalJson, verifyEd25519Signature, VEXT_EXTENSION_ID, VEXT_PUBLISHER_ID, VEXT_VERSION, type VextTrustedKey } from './vext-format.ts'
 
-export type ExtensionInstallSource = 'unpacked' | 'local-vext' | 'hub' | 'upstream' | 'bundled'
+export type ExtensionInstallSource = 'unpacked' | 'local-vext' | 'local-chromium' | 'hub' | 'upstream' | 'bundled'
 export type ExtensionTrustLevel = 'developer' | 'local' | 'reviewed' | 'upstream' | 'official'
 export type ExtensionDistribution = 'hub' | 'upstream'
 export type ExtensionUpdateState = 'not-applicable' | 'up-to-date' | 'checking' | 'available' | 'updating' | 'pending-approval' | 'failed'
@@ -26,6 +26,9 @@ export interface ExtensionPackagePreview {
   permissions: ExtensionPermissionSnapshot
   isUpdate: boolean
   permissionEscalation: ExtensionPermissionSnapshot
+  compatibility?: 'compatible' | 'partial compatibility' | 'unsupported'
+  limitations?: string[]
+  sourceEnabled?: boolean
 }
 
 export interface VastHubCatalogItem {

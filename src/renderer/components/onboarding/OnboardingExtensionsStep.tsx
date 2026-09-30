@@ -73,9 +73,9 @@ export function OnboardingExtensionsStep({ onInstalledCountChange }: OnboardingE
 
   return (
     <>
-      <p className="onboarding-subtitle">Install now or later from the Extensions Hub.</p>
+      <p className="onboarding-subtitle">Add extensions now or explore more after setup.</p>
       <div className="onboarding-setup-block">
-        <Group label="Recommended from Extensions Hub">
+        <Group label="Recommended extensions">
           {items.length > 0 && (
             <div className="onboarding-extension-grid">
               {items.map((item) => {
@@ -91,8 +91,8 @@ export function OnboardingExtensionsStep({ onInstalledCountChange }: OnboardingE
                         <span className="onboarding-extension-sub">{item.publisher.name}{item.publisher.verified ? ' · Verified' : ''}</span>
                       </span>
                     </div>
+                    <p className="onboarding-extension-summary">{item.summary}</p>
                     <div className="onboarding-extension-bottom">
-                      <span className="onboarding-hub-label">Extensions Hub</span>
                       <VastButton
                         size="sm"
                         variant={added ? 'selected' : 'secondary'}

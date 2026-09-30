@@ -5,10 +5,10 @@ import { appearanceStyle } from '../../src/renderer/app/appearance-style.ts'
 import { DEFAULT_SETTINGS } from '../../src/shared/constants.ts'
 
 test('clean toolbar icons enlarge only the toolbar glyph presentation', () => {
-  const outlined = appearanceStyle(DEFAULT_SETTINGS) as Record<string, string>
-  const cleanSettings = structuredClone(DEFAULT_SETTINGS)
-  cleanSettings.appearance.cleanToolbarIcons = true
-  const clean = appearanceStyle(cleanSettings) as Record<string, string>
+  const outlinedSettings = structuredClone(DEFAULT_SETTINGS)
+  outlinedSettings.appearance.cleanToolbarIcons = false
+  const outlined = appearanceStyle(outlinedSettings) as Record<string, string>
+  const clean = appearanceStyle(DEFAULT_SETTINGS) as Record<string, string>
 
   assert.equal(outlined['--vast-toolbar-icon-size'], '16px')
   assert.equal(clean['--vast-toolbar-icon-size'], '18px')

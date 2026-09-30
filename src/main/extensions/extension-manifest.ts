@@ -245,7 +245,7 @@ export function chromeExtensionId(rootPath: string, manifestKey?: string): strin
   return [...digest].map((byte) => `${String.fromCharCode(97 + (byte >> 4))}${String.fromCharCode(97 + (byte & 15))}`).join('')
 }
 
-export async function validateExtensionManifest(extensionPath: string): Promise<ValidatedExtensionManifest> {
+export async function validateExtensionManifest(extensionPath: string, options: { allowOrdinaryMv2?: boolean } = {}): Promise<ValidatedExtensionManifest> {
   if (typeof extensionPath !== 'string' || !extensionPath.trim() || !isAbsolute(extensionPath)) {
     throw new Error('Choose a valid extension directory.')
   }
@@ -284,7 +284,7 @@ export async function validateExtensionManifest(extensionPath: string): Promise<
   const mv2HostPermissions = permissions.filter(isHostPattern)
   const apiPermissions = permissions.filter((permission) => !isHostPattern(permission))
 
-  if (input.manifest_version === 2 && !isLegacyNetworkProvider(input, permissions)) {
+  if (input.manifest_version === 2 && !options.allowOrdinaryMv2 && !isLegacyNetworkProvider(input, permissions)) {
     throw new Error('Manifest V2 is restricted to explicit Vast network-provider extensions. Use Manifest V3 for ordinary extensions.')
   }
 

@@ -39,6 +39,7 @@ import {
   SEARCH_ENGINES
 } from '../../../shared/constants'
 import { getFeatureState, VastFeatures, type FeatureState } from '../../../shared/feature-gates'
+import { findOwnTabBookmark } from '../../../shared/bookmark-identity'
 import type { BrowserSettings, SiteInformation } from '../../../shared/types'
 import { useBrowserRuntime } from '../../app/browser-runtime'
 import { displayUrl, getEffectiveTabUrl, hostnameFor, isInternalUrl, isLikelySearch, isSecureUrl, resolveAddressInput, searchShortcutHint } from '../../lib/url'
@@ -196,7 +197,7 @@ export function AddressBar({
     activeTab &&
       effectiveActiveUrl &&
       !isInternalUrl(effectiveActiveUrl) &&
-      bookmarks.some((bookmark) => bookmark.url === effectiveActiveUrl)
+      Boolean(findOwnTabBookmark(bookmarks, effectiveActiveUrl, activeTab.workspaceId))
   )
   const featureStates = useMemo(
     () => ({

@@ -3,6 +3,7 @@ import re
 from datetime import datetime, timezone
 
 import config
+from security import validated_media_format, contained_job_path
 from services.job_manager import update_job, is_cancelled
 from services.logger import get_job_logger, append_log_event
 from services.storage import get_job_folder
@@ -52,7 +53,7 @@ def run_audio_convert_job(job_id, cancel_flag):
     params = meta.get("params", {})
 
     input_file = params.get("input_file", "")
-    output_format = params.get("format", "ogg")
+    output_format = validated_media_format("audio_convert", params.get("format", "ogg"))
     bitrate = params.get("bitrate", "192k")
     sample_rate = params.get("sample_rate")
     channels = params.get("channels")
@@ -80,7 +81,7 @@ def run_audio_convert_job(job_id, cancel_flag):
     basename = os.path.splitext(os.path.basename(input_file))[0]
     safe_name = re.sub(r'[^\w\-_]', '_', basename)
     output_name = f"{safe_name}.{output_format}"
-    output_path = os.path.join(job_folder, "output", output_name)
+    output_path = contained_job_path(job_folder, "output", output_name)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     # For same-format conversion (e.g. OGG→OGG) ensure we re-encode, not copy

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { ExtensionManagedStore } from '../../src/main/extensions/extension-managed-store.ts'
+import { stageLocalChromiumDirectory } from '../../src/main/extensions/local-chromium-stage.ts'
 import { createEd25519Signer, createVextPackage, type VextTrustedKey } from '../../src/shared/vext-format.ts'
 
 const id = 'abcdefghijklmnopabcdefghijklmnop'
@@ -48,6 +49,31 @@ test('stages only verified files and atomically activates a stable managed ident
     assert.equal(runtimePath, store.currentRoot(id))
     assert.equal(await stat(join(runtimePath, 'manifest.json')).then((value) => value.isFile()), true)
     assert.equal((await store.readState(id))?.activeVersion, '1.0.0')
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('persists a distinct local Chromium source without manufacturing a vext package or update channel', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'vast-managed-chromium-'))
+  try {
+    const source = join(root, 'Chrome', 'Default', 'Extensions', id, '1.0.0_0')
+    await mkdir(source, { recursive: true })
+    await writeFile(join(source, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Controlled', version: '1.0.0' }))
+    const store = new ExtensionManagedStore(join(root, 'Vast'))
+    await store.initialize()
+    const local = await stageLocalChromiumDirectory({ sourceRoot: source, sourceExtensionId: id,
+      expectedVersion: '1.0.0', stagingRoot: store.stagingRoot }, new AbortController().signal)
+    const staged = store.adoptLocalChromiumStage(local)
+    assert.equal(staged.format, 'local-chromium')
+    const release = await store.commit(staged)
+    const transaction = await store.prepareRuntime(id, '1.0.0')
+    await store.swapRuntime(transaction)
+    const state = await store.activate(staged)
+    await store.commitRuntime(transaction)
+    assert.equal(state.source, 'local-chromium')
+    assert.equal(state.publisherId, undefined)
+    assert.equal(state.versions[0].packageSha256, local.fingerprint)
+    assert.equal(await readFile(join(release, 'manifest.json'), 'utf8'), await readFile(join(source, 'manifest.json'), 'utf8'))
+    assert.equal((await new ExtensionManagedStore(join(root, 'Vast')).readState(id))?.source, 'local-chromium')
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 

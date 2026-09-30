@@ -1,0 +1,42 @@
+Subject: Normalize leading whitespace in nested CSS var() fallbacks
+Bug: Vast authenticated ChatGPT renderer crash on Electron 44.3.0 r4
+
+CSS Typed OM intentionally preserves leading whitespace in CSSUnparsedValue.
+When that custom property is substituted as the first value of a nested
+var() fallback, AppendFallback passes it to a scanner that requires leading
+whitespace to have already been removed. A value containing '/' takes the
+scanner's slow path and aborts the renderer on a DCHECK. Trim only the
+fallback's leading HTML whitespace; leave the original custom property intact.
+
+diff --git a/third_party/blink/renderer/core/css/resolver/style_cascade.cc b/third_party/blink/renderer/core/css/resolver/style_cascade.cc
+--- a/third_party/blink/renderer/core/css/resolver/style_cascade.cc
++++ b/third_party/blink/renderer/core/css/resolver/style_cascade.cc
+@@ -7,6 +7,7 @@
+ #include <bit>
+ #include <optional>
+ 
++#include "base/compiler_specific.h"
+ #include "base/containers/adapters.h"
+ #include "base/notreached.h"
+ #include "third_party/blink/renderer/core/animation/css/css_animations.h"
+@@ -67,6 +68,7 @@
+ #include "third_party/blink/renderer/core/frame/web_feature.h"
+ #include "third_party/blink/renderer/core/html/forms/html_select_element.h"
+ #include "third_party/blink/renderer/core/html/html_element.h"
++#include "third_party/blink/renderer/core/html/parser/html_parser_idioms.h"
+ #include "third_party/blink/renderer/core/layout/layout_view.h"
+ #include "third_party/blink/renderer/core/style/computed_style.h"
+ #include "third_party/blink/renderer/core/style_property_shorthand.h"
+@@ -1043,6 +1045,12 @@ bool StyleCascade::TokenSequence::AppendFallback(const TokenSequence& sequence,
+   size_t start = original_text_.length();
+ 
+   StringView other_text = sequence.original_text_;
++  // CSS Typed OM can preserve leading whitespace in a custom property. When
++  // that value is substituted at the start of a nested var() fallback, trim
++  // it just like the whitespace after a literal fallback comma.
++  while (!other_text.empty() && IsHTMLSpace(UNSAFE_BUFFERS(other_text[0]))) {
++    other_text = StringView(other_text, 1, other_text.length() - 1);
++  }
+   if (other_text.empty()) {
+     // There are no tokens, so this cannot affect anything.
+     // In particular, do not overwrite last_token_ with kEOFToken.

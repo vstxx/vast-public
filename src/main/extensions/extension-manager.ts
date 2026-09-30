@@ -29,13 +29,15 @@ import { effectiveNativeGrants, hasPendingNativePermissions } from './extension-
 import { randomUUID } from 'node:crypto'
 import { readFile, stat } from 'node:fs/promises'
 import semver from 'semver'
-import { ExtensionManagedStore, type ManagedRuntimeTransaction, type StagedManagedPackage } from './extension-managed-store.ts'
+import { ExtensionManagedStore, stagedPackageIdentity, type ManagedRuntimeTransaction, type StagedManagedPackage, type StagedVextPackage } from './extension-managed-store.ts'
 import { ExtensionHubClient } from './extension-hub-client.ts'
 import { ICLOUD_PASSWORDS_EXTENSION_ID, ICloudUpstreamClient } from './icloud-upstream.ts'
 import { TRUSTED_VAST_HUB_KEYS } from './trusted-hub-keys.ts'
 import { PRODUCTION_EXTENSION_HUB_ORIGIN } from './extension-hub-config.ts'
 import type { Extension } from 'electron/main'
 import type { ChromePermissionRequest, ExtensionCompatibilityRuntime } from './extension-compatibility-runtime.ts'
+import { validateLocalChromiumRoot } from './local-chromium-validation.ts'
+import { stageLocalChromiumInWorker, verifyLocalChromiumInWorker } from './local-chromium-stage-client.ts'
 
 const EXTENSION_ID = /^[a-p]{32}$/
 
@@ -51,6 +53,7 @@ interface PendingPackageInstall {
   preview: ExtensionPackagePreview
   staged?: StagedManagedPackage
   descriptor?: SignedVastHubReleaseDescriptor
+  sourceEnabled?: boolean
 }
 
 interface PreparedExtensionSurface {
@@ -183,7 +186,7 @@ export class ExtensionManager {
       for (const storedRecord of this.registry.list()) {
         if (storedRecord.source === 'unpacked' || storedRecord.source === 'bundled') continue
         try {
-          const legacyManifest = await validateExtensionManifest(storedRecord.path)
+          const legacyManifest = await this.validateInstalledRecord(storedRecord, true)
           const stableRoot = this.managedStore.currentRoot(storedRecord.id)
           // A key makes the Chromium identity path-independent. Keyless legacy
           // installs keep their old physical path as the stable runtime root;
@@ -317,6 +320,68 @@ export class ExtensionManager {
     })
   }
 
+  /** Main-process only: the worker revalidates this resolved profile before copying. */
+  async prepareLocalChromiumImport(input: { profilePath: string; sourceExtensionId: string; version: string; fingerprint: string; sourceEnabled: boolean }): Promise<ExtensionPackagePreview> {
+    return this.enqueue(async () => {
+      await this.ensureInitialized()
+      await this.cleanupPendingInstalls()
+      if (!EXTENSION_ID.test(input.sourceExtensionId) || this.registry.get(input.sourceExtensionId)) {
+        throw new Error('This extension ID is invalid or already installed.')
+      }
+      const local = await stageLocalChromiumInWorker({ profilePath: input.profilePath,
+        sourceExtensionId: input.sourceExtensionId, expectedVersion: input.version, fingerprint: input.fingerprint },
+      this.managedStore.stagingRoot, new AbortController().signal)
+      const staged = this.managedStore.adoptLocalChromiumStage(local)
+      try {
+        await verifyLocalChromiumInWorker(local.contentRoot, local.fingerprint)
+        const checked = await validateLocalChromiumRoot(local.contentRoot, input.sourceExtensionId, input.version)
+        const preview: ExtensionPackagePreview = {
+          token: randomUUID(), extensionId: input.sourceExtensionId,
+          name: checked.validated.manifest.name,
+          ...(checked.validated.manifest.description ? { description: checked.validated.manifest.description } : {}),
+          version: input.version, publisherName: 'Local / Unverified', source: 'local-chromium', trust: 'local',
+          kind: 'chrome', permissions: checked.permissions, isUpdate: false,
+          permissionEscalation: checked.permissions,
+          compatibility: checked.compatibility, limitations: checked.limitations,
+          sourceEnabled: input.sourceEnabled
+        }
+        this.pendingInstalls.set(preview.token, { token: preview.token, expiresAt: Date.now() + PENDING_INSTALL_TTL_MS,
+          preview, staged, sourceEnabled: input.sourceEnabled })
+        return preview
+      } catch (error) {
+        await this.managedStore.discard(staged).catch(() => undefined)
+        throw error
+      }
+    })
+  }
+
+  async confirmLocalChromiumImport(token: string, approval: ExtensionPermissionSnapshot): Promise<VastExtensionInfo> {
+    return this.enqueue(async () => {
+      await this.ensureInitialized()
+      await this.cleanupPendingInstalls()
+      const pending = this.pendingInstalls.get(token)
+      if (!pending || pending.expiresAt < Date.now() || pending.staged?.format !== 'local-chromium') {
+        throw new Error('Local extension installation confirmation expired.')
+      }
+      this.pendingInstalls.delete(token)
+      const staged = pending.staged
+      try {
+        if (!approval || !Array.isArray(approval.chrome) || !Array.isArray(approval.hosts) ||
+            !Array.isArray(approval.vast) || approval.vast.length !== 0 ||
+            !this.samePermissions(approval, pending.preview.permissions)) throw new Error('Required extension permissions were not approved.')
+        if (this.registry.get(staged.local.sourceExtensionId)) throw new Error('This extension ID is already installed.')
+        await verifyLocalChromiumInWorker(staged.contentRoot, staged.local.fingerprint)
+        const checked = await validateLocalChromiumRoot(staged.contentRoot, staged.local.sourceExtensionId, staged.local.version)
+        if (!this.samePermissions(checked.permissions, pending.preview.permissions)) throw new Error('Extension permissions changed after preview.')
+        if (checked.compatibility === 'unsupported') throw new Error('This extension has no supported entry point in Vast.')
+        return await this.activateManagedPackage(staged, checked.validated, 'Local / Unverified', false, 'local', pending.sourceEnabled)
+      } catch (error) {
+        await this.managedStore.discard(staged).catch(() => undefined)
+        throw error
+      }
+    })
+  }
+
   async prepareHubInstall(extensionId: string): Promise<ExtensionPackagePreview> {
     return this.enqueue(async () => {
       await this.ensureInitialized()
@@ -379,7 +444,7 @@ export class ExtensionManager {
         const bytes = await this.hubClient.download(pending.descriptor)
         staged = await this.managedStore.stagePackage(bytes, 'hub', TRUSTED_VAST_HUB_KEYS)
       }
-      if (!staged) throw new Error('Extension package is unavailable.')
+      if (!staged || staged.format !== 'vext') throw new Error('Extension package is unavailable.')
       try {
         const validated = await validateExtensionManifest(staged.contentRoot)
         this.assertPreparedPackage(pending, staged, validated)
@@ -518,9 +583,9 @@ export class ExtensionManager {
       await this.ensureInitialized()
       let record = this.requireRecord(id)
       const changed = !record.enabled
-      if (changed) record = (await this.registry.setEnabled(id, true)) ?? record
       const refreshed = await this.refreshRecord(record)
-      record = await this.loadRecordEverywhere(refreshed.record, refreshed.validated)
+      record = changed ? (await this.registry.setEnabled(id, true)) ?? refreshed.record : refreshed.record
+      record = await this.loadRecordEverywhere(record, refreshed.validated)
       await this.startNativeIfAllowed(record, refreshed.validated)
       if (changed) await this.reloadContentScriptTabsAfterToggle(record, refreshed.validated)
       this.onChanged?.()
@@ -534,7 +599,7 @@ export class ExtensionManager {
       let record = this.requireRecord(id)
       const changed = record.enabled
       if (changed) record = (await this.registry.setEnabled(id, false)) ?? record
-      const validated = this.manifests.get(record.id) ?? await validateExtensionManifest(record.path)
+      const validated = this.manifests.get(record.id) ?? await this.validateInstalledRecord(record)
       await this.stopNative(record.id, 'stopped')
       await this.unloadRecordEverywhere(record.id)
       if (changed) await this.compatibilityRuntime?.removePrivacyControl(record.runtimeExtensionId ?? record.id)
@@ -570,7 +635,7 @@ export class ExtensionManager {
       const record = this.registry.get(id)
       if (!record) return false
       const validated = record.source === 'hub' || record.source === 'upstream' || record.source === 'bundled'
-        ? this.manifests.get(record.id) ?? await validateExtensionManifest(record.path)
+        ? this.manifests.get(record.id) ?? await this.validateInstalledRecord(record)
         : undefined
       await this.stopNative(id, 'stopped')
       await this.unloadRecordEverywhere(id)
@@ -598,7 +663,7 @@ export class ExtensionManager {
   async approvePermissions(id: string, permissions: VastNativePermission[]): Promise<VastExtensionInfo> {
     return this.enqueue(async () => {
       const record = this.requireRecord(id)
-      const validated = await validateExtensionManifest(record.path)
+      const validated = await this.validateInstalledRecord(record)
       if (!validated.vast || validated.nativeCompatibilityError) throw new Error(validated.nativeCompatibilityError ?? 'Extension has no Vast-native runtime.')
       const requested = validated.vast.permissions
       if (!Array.isArray(permissions) || permissions.some((permission) => !requested.includes(permission))) throw new Error('Cannot grant a permission the extension did not request.')
@@ -613,7 +678,7 @@ export class ExtensionManager {
 
   async setPermission(id: string, permission: VastNativePermission, granted: boolean): Promise<VastExtensionInfo> {
     return this.enqueue(async () => {
-      const record = this.requireRecord(id); const validated = await validateExtensionManifest(record.path)
+      const record = this.requireRecord(id); const validated = await this.validateInstalledRecord(record)
       if (!validated.vast?.permissions.includes(permission)) throw new Error('Extension does not request this permission.')
       const grants = new Set(record.grantedPermissions)
       if (granted) grants.add(permission); else { grants.delete(permission); this.contributions.removePermission(id, permission) }
@@ -632,7 +697,7 @@ export class ExtensionManager {
     this.cleanupPreparedSurfaces()
     const record = this.requireRecord(id)
     if (!record.enabled) throw new Error('Enable the extension before opening its interface.')
-    const manifest = this.manifests.get(record.id) ?? await validateExtensionManifest(record.path)
+    const manifest = this.manifests.get(record.id) ?? await this.validateInstalledRecord(record)
     this.manifests.set(record.id, manifest)
     const declared = manifest.ui[kind]
     if (!declared) return undefined
@@ -672,7 +737,7 @@ export class ExtensionManager {
     const owner = this.contributions.ownerFor(key)
     if (!owner || owner.type !== 'sidebar') throw new Error('Extension sidebar is unavailable.')
     const record = this.requireRecord(owner.extensionId)
-    const manifest = this.manifests.get(record.id) ?? await validateExtensionManifest(record.path)
+    const manifest = this.manifests.get(record.id) ?? await this.validateInstalledRecord(record)
     if (!record.enabled || !record.grantedPermissions.includes('vast.sidebar') || !manifest.vast) throw new Error('Extension sidebar is not authorized.')
     const panel = this.contributions.snapshot().sidebar.find((item) => item.key === key)
     if (!panel) throw new Error('Extension sidebar is unavailable.')
@@ -926,12 +991,12 @@ export class ExtensionManager {
   }
 
   private async permissionSnapshotForRecord(record: InstalledExtensionRecord): Promise<ExtensionPermissionSnapshot> {
-    const validated = this.manifests.get(record.id) ?? await validateExtensionManifest(record.path)
+    const validated = this.manifests.get(record.id) ?? await this.validateInstalledRecord(record)
     return this.permissionSnapshot(validated)
   }
 
   private async requiredPermissionSnapshotForRecord(record: InstalledExtensionRecord): Promise<ExtensionPermissionSnapshot> {
-    const validated = this.manifests.get(record.id) ?? await validateExtensionManifest(record.path)
+    const validated = this.manifests.get(record.id) ?? await this.validateInstalledRecord(record)
     return this.requiredPermissionSnapshot(validated)
   }
 
@@ -944,13 +1009,14 @@ export class ExtensionManager {
     return canonicalJson(sorted(left)) === canonicalJson(sorted(right))
   }
 
-  private async packagePreview(staged: StagedManagedPackage, validated: ValidatedExtensionManifest, publisherName: string): Promise<ExtensionPackagePreview> {
+  private async packagePreview(staged: StagedVextPackage, validated: ValidatedExtensionManifest, publisherName: string): Promise<ExtensionPackagePreview> {
     const metadata = staged.parsed.metadata
     if (validated.manifest.version !== metadata.version) throw new Error('Package version does not match its manifest.')
     if (validated.vast?.extension_id && validated.vast.extension_id !== metadata.extension_id) throw new Error('Package identity does not match its manifest.')
     const existing = this.registry.get(metadata.extension_id)
     if (existing?.source === 'unpacked') throw new Error('A developer extension already uses this extension ID.')
     if (existing?.source === 'bundled') throw new Error('Extensions included with Vast cannot be replaced by a package.')
+    if (existing?.source === 'local-chromium') throw new Error('A local Chromium import already uses this extension ID.')
     if ((existing?.source === 'hub' && staged.source !== 'hub') || (existing?.source === 'upstream' && staged.source !== 'upstream')) throw new Error('A managed package cannot replace an extension from a different distribution channel.')
     if (existing && !semver.gt(metadata.version, existing.version)) throw new Error('Extension package downgrade or same-version replay is not allowed.')
     if (existing?.publisherId && metadata.publisher_id && existing.publisherId !== metadata.publisher_id) throw new Error('Extension publisher identity does not match the installed extension.')
@@ -973,7 +1039,7 @@ export class ExtensionManager {
     }
   }
 
-  private assertPreparedPackage(pending: PendingPackageInstall, staged: StagedManagedPackage, validated: ValidatedExtensionManifest): void {
+  private assertPreparedPackage(pending: PendingPackageInstall, staged: StagedVextPackage, validated: ValidatedExtensionManifest): void {
     const metadata = staged.parsed.metadata
     if (pending.preview.extensionId !== metadata.extension_id || pending.preview.version !== metadata.version || pending.preview.source !== staged.source) throw new Error('Prepared extension package identity changed.')
     const permissions = pending.descriptor ? this.requiredPermissionSnapshot(validated) : this.permissionSnapshot(validated)
@@ -981,7 +1047,7 @@ export class ExtensionManager {
     if (pending.descriptor) this.assertDescriptorPackage(pending.descriptor, staged, validated)
   }
 
-  private assertDescriptorPackage(descriptor: SignedVastHubReleaseDescriptor, staged: StagedManagedPackage, validated: ValidatedExtensionManifest): void {
+  private assertDescriptorPackage(descriptor: SignedVastHubReleaseDescriptor, staged: StagedVextPackage, validated: ValidatedExtensionManifest): void {
     const expected = descriptor.descriptor
     const metadata = staged.parsed.metadata
     if (staged.source !== 'hub' || !staged.parsed.verifiedKeyId || expected.extension_id !== metadata.extension_id || expected.publisher_id !== metadata.publisher_id || expected.version !== metadata.version || expected.sha256 !== staged.parsed.packageSha256 || expected.key_id !== staged.parsed.verifiedKeyId) {
@@ -990,15 +1056,29 @@ export class ExtensionManager {
     if (!this.samePermissions(expected.permissions, this.requiredPermissionSnapshot(validated))) throw new Error('Signed release permissions do not match the extension package.')
   }
 
-  private async activateManagedPackage(staged: StagedManagedPackage, validated: ValidatedExtensionManifest, publisherName: string, approveRequestedPermissions: boolean, trustOverride?: ExtensionPackagePreview['trust']): Promise<VastExtensionInfo> {
-    const metadata = staged.parsed.metadata
+  private async validateManagedCopy(staged: StagedManagedPackage, path: string): Promise<ValidatedExtensionManifest> {
+    if (staged.format === 'vext') return validateExtensionManifest(path)
+    await verifyLocalChromiumInWorker(path, staged.local.fingerprint)
+    return (await validateLocalChromiumRoot(path, staged.local.sourceExtensionId, staged.local.version)).validated
+  }
+
+  private async validateInstalledRecord(record: InstalledExtensionRecord, verifyBytes = false): Promise<ValidatedExtensionManifest> {
+    if (record.source !== 'local-chromium') return validateExtensionManifest(record.path)
+    if (!record.packageSha256) throw new Error('Local extension has no recorded file fingerprint.')
+    if (verifyBytes) await verifyLocalChromiumInWorker(record.path, record.packageSha256)
+    return (await validateLocalChromiumRoot(record.path, record.id, record.version)).validated
+  }
+
+  private async activateManagedPackage(staged: StagedManagedPackage, validated: ValidatedExtensionManifest, publisherName: string, approveRequestedPermissions: boolean, trustOverride?: ExtensionPackagePreview['trust'], initiallyEnabled = true): Promise<VastExtensionInfo> {
+    const identity = stagedPackageIdentity(staged)
+    const metadata = { extension_id: identity.extensionId, version: identity.version, publisher_id: identity.publisherId ?? null }
     const previous = this.registry.get(metadata.extension_id)
-    if (previous?.source === 'unpacked' || previous?.source === 'bundled' || (previous?.source === 'hub' && staged.source !== 'hub') || (previous?.source === 'upstream' && staged.source !== 'upstream')) throw new Error('Managed extension source cannot replace this installation.')
+    if (staged.source === 'local-chromium' ? Boolean(previous) : previous?.source === 'unpacked' || previous?.source === 'bundled' || previous?.source === 'local-chromium' || (previous?.source === 'hub' && staged.source !== 'hub') || (previous?.source === 'upstream' && staged.source !== 'upstream')) throw new Error('Managed extension source cannot replace this installation.')
     if (previous?.publisherId && previous.publisherId !== metadata.publisher_id) throw new Error('Extension publisher identity does not match the installed extension.')
     if (previous && !semver.gt(metadata.version, previous.version)) throw new Error('Extension package downgrade or same-version replay is not allowed.')
     const versionRoot = await this.managedStore.commit(staged)
     try {
-      validated = await validateExtensionManifest(versionRoot)
+      validated = await this.validateManagedCopy(staged, versionRoot)
     } catch (error) {
       if (!previous || metadata.version !== previous.version) await this.managedStore.removeVersion(metadata.extension_id, metadata.version).catch(() => undefined)
       throw new Error(`Extension activation failed before runtime startup. ${errorMessage(error)}`)
@@ -1018,7 +1098,7 @@ export class ExtensionManager {
     let stateActivated = false
     try {
       const currentRoot = await this.managedStore.swapRuntime(transaction)
-      validated = await validateExtensionManifest(currentRoot)
+      validated = await this.validateManagedCopy(staged, currentRoot)
       const runtimeExtensionId = validated.kind === 'vast'
         ? undefined
         : previous?.runtimeExtensionId
@@ -1034,13 +1114,13 @@ export class ExtensionManager {
         version: validated.manifest.version,
         ...(validated.manifest.description ? { description: validated.manifest.description } : {}),
         path: currentRoot,
-        enabled: previous?.enabled ?? true,
+        enabled: previous?.enabled ?? initiallyEnabled,
         source: staged.source,
-        trust: trustOverride ?? previous?.trust ?? (staged.source === 'upstream' ? 'upstream' : staged.source === 'hub' ? 'reviewed' : Boolean(staged.parsed.verifiedKeyId) ? 'official' : 'local'),
+        trust: trustOverride ?? previous?.trust ?? (staged.source === 'upstream' ? 'upstream' : staged.source === 'hub' ? 'reviewed' : Boolean(identity.signatureKeyId) ? 'official' : 'local'),
         ...(metadata.publisher_id ? { publisherId: metadata.publisher_id } : {}),
         publisherName,
-        packageSha256: staged.parsed.packageSha256,
-        ...(staged.parsed.verifiedKeyId ? { signatureKeyId: staged.parsed.verifiedKeyId } : {}),
+        packageSha256: identity.packageSha256,
+        ...(identity.signatureKeyId ? { signatureKeyId: identity.signatureKeyId } : {}),
         ...(previous && previous.version !== metadata.version ? { previousVersion: previous.version } : previous?.previousVersion ? { previousVersion: previous.previousVersion } : {}),
         updateState: staged.source === 'hub' || staged.source === 'upstream' ? 'up-to-date' : 'not-applicable',
         runtime: validated.kind,
@@ -1077,7 +1157,7 @@ export class ExtensionManager {
       if (!stateActivated) await this.managedStore.rollbackRuntime(transaction).catch(() => undefined)
       if (previous) {
         await this.registry.upsert(previous)
-        const previousManifest = await validateExtensionManifest(previous.path)
+        const previousManifest = await this.validateInstalledRecord(previous)
         this.manifests.set(previous.id, previousManifest)
         if (previous.enabled) {
           await this.loadRecordEverywhere(previous, previousManifest)
@@ -1142,7 +1222,7 @@ export class ExtensionManager {
     storedRecord: InstalledExtensionRecord,
     suppliedManifest?: ValidatedExtensionManifest
   ): Promise<{ record: InstalledExtensionRecord; validated: ValidatedExtensionManifest }> {
-    const validated = suppliedManifest ?? await validateExtensionManifest(storedRecord.path)
+    const validated = suppliedManifest ?? await this.validateInstalledRecord(storedRecord, true)
     const id = storedRecord.id
     const runtimeExtensionId = validated.kind === 'vast' ? undefined : storedRecord.runtimeExtensionId
     const chromeGrants = chromeGrantSnapshot(storedRecord, validated.manifest)
@@ -1260,6 +1340,10 @@ export class ExtensionManager {
       return loadedId
     }
     const extension = await targetSession.extensions.loadExtension(validated.rootPath, { allowFileAccess: false })
+    if (record.source === 'local-chromium' && extension.id !== record.id) {
+      targetSession.extensions.removeExtension(extension.id)
+      throw new Error('Local extension runtime ID does not match its original Chromium ID.')
+    }
     if (record.runtimeExtensionId && extension.id !== record.runtimeExtensionId) {
       targetSession.extensions.removeExtension(extension.id)
       throw new Error(`Extension runtime identity changed from ${record.runtimeExtensionId} to ${extension.id}.`)
@@ -1325,7 +1409,7 @@ export class ExtensionManager {
     let validated = this.manifests.get(record.id)
     const status = this.status(record.id)
     try {
-      validated = await validateExtensionManifest(record.path)
+      validated = await this.validateInstalledRecord(record)
       this.manifests.set(record.id, validated)
       status.validationError = undefined
     } catch (error) {

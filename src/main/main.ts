@@ -27,6 +27,7 @@ import { VAST_EXTENSION_SCHEME } from './extensions/extension-resource-protocol'
 import { setupExtensionNetworkBridge } from './extensions/extension-network-bridge'
 import { disposePdfResources, pdfViewerUrlForResource, registerLocalPdfResource } from './pdf-resources'
 import { StartupHealthTracker, type StartupRecoveryInfo } from './startup-health'
+import { cleanupStaleSnapshots } from './import/sqlite-snapshot'
 
 declare const __VAST_INCLUDE_INTERNAL_TEST_HARNESS__: boolean
 
@@ -165,6 +166,9 @@ function syncTitleBarOverlay(): void {
 if (hasSingleInstanceLock) void app.whenReady().then(async () => {
   initializeDownloads(() => currentSettings)
   const startupRecovery = await startupHealthBeginning
+  await cleanupStaleSnapshots(join(app.getPath('userData'), 'ImportStaging')).catch((error) => {
+    console.warn('[browser-import] Could not clean prior SQLite snapshots:', (error as NodeJS.ErrnoException).code ?? 'CLEANUP_FAILED')
+  })
   if (process.platform === 'win32' && app.isPackaged) {
     const { applyPendingUpdateAtStartup } = await import('./updater-startup')
     if (await applyPendingUpdateAtStartup()) {

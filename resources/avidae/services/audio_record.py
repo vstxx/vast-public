@@ -5,6 +5,7 @@ import threading
 from datetime import datetime, timezone
 
 import config
+from security import validated_media_format, contained_job_path
 from services.job_manager import update_job, is_cancelled
 from services.logger import get_job_logger, append_log_event
 from services.storage import get_job_folder
@@ -21,7 +22,7 @@ def run_audio_record_job(job_id, cancel_flag):
     params = meta.get("params", {})
 
     duration = int(params.get("duration", 60))
-    audio_format = params.get("format", "mp3")
+    audio_format = validated_media_format("audio_record", params.get("format", "mp3"))
     sample_rate = params.get("sample_rate", "44100")
     channels = params.get("channels", "2")
     device = params.get("device", "")
@@ -34,7 +35,7 @@ def run_audio_record_job(job_id, cancel_flag):
         return
 
     output_name = f"recording.{audio_format}"
-    output_path = os.path.join(job_folder, "output", output_name)
+    output_path = contained_job_path(job_folder, "output", output_name)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     # Build recording command based on OS

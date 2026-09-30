@@ -5,10 +5,10 @@ const { join } = require('node:path')
 const { tmpdir } = require('node:os')
 const root = join(__dirname, '..')
 const previousPublicVersion = require('./release-config.json').previousPublicVersion
+const { createPreflightEnvironment } = require('./release-preflight-environment.cjs')
 const npm = process.env.npm_execpath
 if (!npm) throw new Error('Run npm run release:preflight so the active npm CLI is used.')
-const env = { ...process.env, VAST_RELEASE_CHANNEL: 'dev', VAST_PRIVATE_BUILD: '1', VAST_DISTRIBUTION_CHANNEL: 'direct', VAST_PUBLIC_UNSIGNED_RELEASE: '0', VAST_UPDATE_ENABLED: '0', VAST_RELAY_ENABLED: '0', VAST_RELAY_TEST_OFFLINE: '1' }
-delete env.ELECTRON_RUN_AS_NODE
+const env = createPreflightEnvironment(process.env)
 const directory = join(root, '.vast-build', 'release-preflight')
 mkdirSync(directory, { recursive: true })
 const results = []

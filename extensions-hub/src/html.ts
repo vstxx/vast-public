@@ -50,7 +50,7 @@ function page(title: string, content: string, session?: HubSession, active: Page
         </div>
       </header>
       <main class="wrap">${content}</main>
-      <footer class="footer"><div class="footer__inner"><span class="footer__copyright">Vast-owned source is MIT licensed. Publisher extensions remain their owners' property.</span><nav class="footer__links" aria-label="Legal and documentation"><a href="https://docs.vastbrowser.com/extensions/extension-development/" rel="noreferrer">Documentation</a><a href="https://vastbrowser.com/legal" rel="noreferrer">Legal information</a><a href="/legal/privacy">Privacy</a><a href="/legal/copyright">Copyright/IP</a><a href="/legal/platform-terms">Platform Terms</a><a href="/legal/publisher-terms">Publisher Terms</a><a href="/legal/publishing-policy">Publishing Policy</a></nav></div></footer>
+      <footer class="footer"><div class="footer__inner"><span class="footer__copyright">Vast-owned source is GPL-3.0-only licensed. Publisher extensions retain their own licenses.</span><nav class="footer__links" aria-label="Legal and documentation"><a href="https://docs.vastbrowser.com/extensions/extension-development/" rel="noreferrer">Documentation</a><a href="https://vastbrowser.com/legal" rel="noreferrer">Legal information</a><a href="/legal/privacy">Privacy</a><a href="/legal/copyright">Copyright/IP</a><a href="/legal/platform-terms">Platform Terms</a><a href="/legal/publisher-terms">Publisher Terms</a><a href="/legal/publishing-policy">Publishing Policy</a></nav></div></footer>
     </div>
   </body>
 </html>`

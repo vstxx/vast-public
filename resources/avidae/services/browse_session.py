@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 import config
 from utils.playwright_helper import create_browser_context, close_context_and_browser
 from utils.ffmpeg_helper import run_ffmpeg, build_thumbnail_command
-from security import safe_urlopen
+from security import safe_urlopen, validated_browse_session_id, validated_media_format, contained_path, contained_job_path
 
 # Injected into every page to detect <video> play/pause/ended events
 # and iframe embeds from known video hosts
@@ -162,12 +162,12 @@ class BrowseSession:
 
     def __init__(self, sid, url, sio, resolution="1920x1080",
                  auto_record=True, output_format="mp4", bitrate="5M"):
-        self.sid = sid
+        self.sid = validated_browse_session_id(sid)
         self.url = url
         self.sio = sio
         self.resolution = resolution
         self.auto_record = auto_record
-        self.output_format = output_format
+        self.output_format = validated_media_format("browse", output_format)
         self.bitrate = bitrate
         self.running = False
         self._save = True
@@ -180,8 +180,8 @@ class BrowseSession:
         self._end_t = None        # offset (seconds) when video ended
         self._auto_started = False
         self._raw_video = None
-        self._tmp = os.path.join(config.DATA_DIR, "browse_sessions", sid)
-        self._viddir = os.path.join(self._tmp, "video")
+        self._tmp = contained_path(config.DATA_DIR, "browse_sessions", self.sid)
+        self._viddir = contained_path(config.DATA_DIR, "browse_sessions", self.sid, "video")
 
     # -- lifecycle --
 
@@ -265,6 +265,10 @@ class BrowseSession:
             pass
 
     async def _main(self):
+        if contained_path(config.DATA_DIR, "browse_sessions", self.sid, "video") != self._viddir:
+            raise ValueError("Browse session directory changed")
+        if os.path.islink(self._tmp) or getattr(os.path, "isjunction", lambda _path: False)(self._tmp):
+            raise ValueError("Browse session directory is a link")
         from playwright.async_api import async_playwright
 
         os.makedirs(self._viddir, exist_ok=True)
@@ -449,8 +453,8 @@ class BrowseSession:
         })
         jid = job['id']
         jfolder = get_job_folder(jid)
-        outdir = os.path.join(jfolder, "output")
-        tmpdir = os.path.join(jfolder, "temp")
+        outdir = contained_job_path(jfolder, "output")
+        tmpdir = contained_job_path(jfolder, "temp")
         os.makedirs(outdir, exist_ok=True)
         os.makedirs(tmpdir, exist_ok=True)
 
@@ -463,7 +467,7 @@ class BrowseSession:
         if self._play_t is not None:
             ts = max(0, self._play_t - 0.5)
             te = (self._end_t + 0.5) if self._end_t else None
-            trimmed = os.path.join(tmpdir, "trimmed.webm")
+            trimmed = contained_job_path(jfolder, "temp", "trimmed.webm")
             cmd = [config.FFMPEG_PATH, "-y", "-i", current]
             if ts > 0:
                 cmd += ["-ss", f"{ts:.1f}"]
@@ -479,16 +483,16 @@ class BrowseSession:
 
         # Convert to target format
         fmt = self.output_format
-        final = os.path.join(outdir, f"recording.{fmt}")
+        final = contained_job_path(jfolder, "output", f"recording.{fmt}")
 
         if fmt == "webm":
             shutil.copy2(current, final)
         elif getattr(config, "FFMPEG_IS_PLAYWRIGHT", False):
-            final = os.path.join(outdir, "recording.webm")
+            final = contained_job_path(jfolder, "output", "recording.webm")
             shutil.copy2(current, final)
             fmt = "webm"
         else:
-            conv = os.path.join(tmpdir, f"out.{fmt}")
+            conv = contained_job_path(jfolder, "temp", f"out.{fmt}")
             cmd = [
                 config.FFMPEG_PATH, "-y", "-i", current,
                 "-c:v", "libx264", "-preset", "fast",
@@ -500,14 +504,14 @@ class BrowseSession:
                 shutil.copy2(conv, final)
             else:
                 # Fallback: save as webm
-                final = os.path.join(outdir, "recording.webm")
+                final = contained_job_path(jfolder, "output", "recording.webm")
                 shutil.copy2(current, final)
                 fmt = "webm"
 
         update_job(jid, progress=85)
 
         # Generate thumbnail
-        thumb = os.path.join(jfolder, "thumbnail.jpg")
+        thumb = contained_job_path(jfolder, "thumbnail.jpg")
         if not getattr(config, "FFMPEG_IS_PLAYWRIGHT", False):
             cmd = build_thumbnail_command(final, thumb)
             ok, _ = run_ffmpeg(cmd, timeout=30)
@@ -523,9 +527,13 @@ class BrowseSession:
 
     def _cleanup(self):
         try:
-            shutil.rmtree(self._tmp, ignore_errors=True)
-        except Exception:
-            pass
+            target = contained_path(config.DATA_DIR, "browse_sessions", self.sid)
+            # A directory swapped for a symlink/junction since creation must
+            # never be recursively removed, even if its target is under DATA_DIR.
+            if target == self._tmp and not os.path.islink(self._tmp) and not getattr(os.path, "isjunction", lambda _path: False)(self._tmp):
+                shutil.rmtree(target, ignore_errors=True)
+        except ValueError:
+            return
 
     # -- interaction forwarding --
 

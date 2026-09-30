@@ -6,7 +6,7 @@ on:
       expected_version:
         description: Exact package version to publish as an unsigned release
         required: true
-        default: 0.4.0
+        default: 0.4.1
         type: string
       publish:
         description: Publish the verified candidate (false only builds and verifies)
@@ -42,6 +42,8 @@ jobs:
     environment: public-release
     env:
       VAST_RELEASE_CHANNEL: ${{ inputs.channel }}
+      VAST_EXPECTED_VERSION: ${{ inputs.expected_version }}
+      VAST_RESUME_RUN_ID: ${{ inputs.resume_run_id }}
       VAST_PRIVATE_BUILD: '0'
       VAST_PUBLIC_UNSIGNED_RELEASE: '1'
       VAST_UNSIGNED_RELEASE_ACK: ${{ inputs.risk_ack }}
@@ -105,9 +107,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
-          if ('${{ inputs.risk_ack }}' -ne 'I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK') { throw 'Exact unsigned-release risk acknowledgement is required.' }
+          if ($env:VAST_UNSIGNED_RELEASE_ACK -ne 'I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK') { throw 'Exact unsigned-release risk acknowledgement is required.' }
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
-          if ($version -ne '${{ inputs.expected_version }}') { throw "package.json version $version does not match the authorized version." }
+          if ($version -ne $env:VAST_EXPECTED_VERSION) { throw "package.json version $version does not match the authorized version." }
           git diff --exit-code
           git diff --cached --exit-code
           $head = git rev-parse HEAD
@@ -152,7 +154,7 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           npm ci
           npm ci --prefix relay
-          if ('${{ inputs.resume_run_id }}' -eq '') { python -m pip install -r resources/avidae/requirements.txt -r resources/avidae/requirements-build.txt }
+          if ($env:VAST_RESUME_RUN_ID -eq '') { python -m pip install -r resources/avidae/requirements.txt -r resources/avidae/requirements-build.txt }
       - name: Restore exact patched Electron runtime
         if: inputs.resume_run_id == ''
         uses: ./.github/actions/prepare-patched-electron
@@ -276,7 +278,7 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           $notes = Join-Path $env:RUNNER_TEMP 'vast-unsigned-release-notes.md'
-          $releaseDetails = Get-Content -Raw -Encoding utf8 'docs/PUBLIC_RELEASE_0.4.0.md'
+          $releaseDetails = Get-Content -Raw -Encoding utf8 'docs/PUBLIC_RELEASE_0.4.1.md'
           @(
             "# Vast $version — PUBLIC UNSIGNED RELEASE",
             "",
@@ -306,7 +308,7 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           $flags = @('--repo', 'vstxx/vast-public', '--draft=false')
-          if ('${{ inputs.channel }}' -eq 'beta') { $flags += '--prerelease' }
+          if ($env:VAST_RELEASE_CHANNEL -eq 'beta') { $flags += '--prerelease' }
           gh release edit "v$version" @flags
       - name: Re-download and verify public production URLs
         if: inputs.publish

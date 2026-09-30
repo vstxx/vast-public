@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { fetchPrivateNetworkText, MAX_NETWORK_REDIRECTS, safeHttpUrl } from '../../src/main/network/safe-http.ts'
+import { fetchPrivateNetworkText, MAX_NETWORK_REDIRECTS, MAX_NETWORK_RESPONSE_BYTES, safeHttpUrl } from '../../src/main/network/safe-http.ts'
 
 test('network discovery URL allowlist excludes localhost, loopback, and public hosts', () => {
   assert.equal(safeHttpUrl('http://192.168.1.20/device.xml'), 'http://192.168.1.20/device.xml')
@@ -49,4 +49,32 @@ test('network discovery rejects redirects to localhost, public hosts, and loops'
     /redirect limit/i
   )
   assert.equal(loopRequests, MAX_NETWORK_REDIRECTS + 1)
+})
+
+test('network discovery bounds streamed bodies without Content-Length', async () => {
+  let cancelled = false
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) { controller.enqueue(new Uint8Array(64 * 1024)) },
+    cancel() { cancelled = true }
+  })
+  await assert.rejects(
+    () => fetchPrivateNetworkText('http://192.168.1.20/device.xml', 1_000, async () => new Response(body)),
+    /response.*large/i
+  )
+  assert.equal(cancelled, true)
+})
+
+test('network discovery accepts the exact limit and rejects larger Content-Length on redirects', async () => {
+  const exact = new Uint8Array(MAX_NETWORK_RESPONSE_BYTES)
+  const result = await fetchPrivateNetworkText('http://192.168.1.20/device.xml', 1_000, async () => new Response(exact))
+  assert.equal(Buffer.byteLength(result.text), MAX_NETWORK_RESPONSE_BYTES)
+  let requests = 0
+  await assert.rejects(
+    () => fetchPrivateNetworkText('http://192.168.1.20/start', 1_000, async () => {
+      requests += 1
+      return new Response(null, { status: 302, headers: { location: '/next', 'content-length': String(MAX_NETWORK_RESPONSE_BYTES + 1) } })
+    }),
+    /response.*large/i
+  )
+  assert.equal(requests, 1)
 })
