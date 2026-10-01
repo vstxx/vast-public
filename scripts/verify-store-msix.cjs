@@ -13,6 +13,8 @@ const {
 const { windowsSdkTool } = require('./store-msix-tools.cjs')
 const { verifyStoreAssets } = require('./verify-store-assets.cjs')
 const { packagedMainContains } = require('./store-msix-bundles.cjs')
+const { assertVastPeIdentity, inspectWindowsPeVersion } = require('./windows-pe-version.cjs')
+const { assertPassiveGuestWheelListeners } = require('./verify-packaged-guest-scroll.cjs')
 
 const input = process.argv[2]
 const development = process.argv.includes('--development')
@@ -106,6 +108,7 @@ try {
 
   const vastExecutable = join(unpackRoot, 'Vast.exe')
   assertX64Pe(vastExecutable)
+  assertVastPeIdentity(inspectWindowsPeVersion(vastExecutable), packageVersion)
   const fuseCheck = spawnSync(process.execPath, [join(root, 'scripts', 'verify-electron-fuses.cjs'), vastExecutable], {
     cwd: root,
     encoding: 'utf8',
@@ -152,6 +155,7 @@ try {
 
   const asar = require('@electron/asar')
   const appAsar = join(unpackRoot, 'resources', 'app.asar')
+  const guestWheelListeners = assertPassiveGuestWheelListeners(asar.extractFile(appAsar, 'out\\preload\\guest.js').toString('utf8'))
   const metadata = JSON.parse(asar.extractFile(appAsar, 'out\\release-build-metadata.json').toString('utf8'))
   if (metadata.version !== packageVersion) throw new Error('Packaged build metadata version does not match package.json.')
   if (metadata.distributionChannel !== 'microsoft-store') throw new Error('Packaged build metadata is not Microsoft Store scoped.')
@@ -205,6 +209,7 @@ try {
     updaterEnabled: metadata.updateEnabled,
     relayEnvironment: metadata.relay?.environment,
     electronFuses: 'Verified',
+    guestWheelListeners,
     peInventory,
     signatureStatus,
     fileCount: files.length,

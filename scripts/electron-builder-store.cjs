@@ -27,7 +27,7 @@ module.exports = {
   win: {
     ...pkg.build.win,
     target: ['dir'],
-    signAndEditExecutable: false,
+    signAndEditExecutable: true,
     signExecutable: false,
     signtoolOptions: undefined
   }

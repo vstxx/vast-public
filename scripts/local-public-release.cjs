@@ -9,6 +9,15 @@ const requiredCanaryChecks = Object.freeze([
   'icloudBasic',
   'profilePersistence'
 ])
+const requiredHotfixCanaryChecks = Object.freeze([
+  'cleanInstall',
+  'publicUpgrade',
+  'updaterCanary',
+  'chatgptAuthenticated',
+  'scrollGmailChatgpt',
+  'extensionRuntime',
+  'profilePersistence'
+])
 
 function verifiedCandidateAssets(candidateRoot, info) {
   const path = require('node:path')
@@ -36,9 +45,10 @@ function assertExpectedReleaseAssets(existing, expectedNames) {
 
 function validateReleaseFileEnv(parsed, version, sourceCommit) {
   const baseUrl = `https://github.com/vstxx/vast-public/releases/download/v${version}`
+  const previousVersion = require('./release-config.json').previousPublicVersion
   const expected = {
     VAST_RELEASE_CHANNEL: 'stable', VAST_RELEASE_REPO: 'vstxx/vast-public',
-    VAST_PREVIOUS_VERSION: '0.3.0', VAST_RELAY_ENVIRONMENT: 'production',
+    VAST_PREVIOUS_VERSION: previousVersion, VAST_RELAY_ENVIRONMENT: 'production',
     VAST_PRIVATE_BUILD: '0', VAST_RELAY_ENABLED: '1',
     VAST_UPDATE_ENABLED: '1', VAST_OBFUSCATE: '1',
     VAST_RELEASE_COMMIT: sourceCommit,
@@ -93,7 +103,7 @@ function assertPublishReady(state, identity, canary) {
       throw new Error(`Release ${key === 'candidateManifestSha256' ? 'candidate' : key} mismatch.`)
     }
   }
-  for (const name of requiredCanaryChecks) {
+  for (const name of state.profile === 'hotfix' ? requiredHotfixCanaryChecks : requiredCanaryChecks) {
     if (canary.checks?.[name] !== true) throw new Error(`Canary check ${name} is not passed.`)
   }
 }
@@ -166,6 +176,22 @@ const releaseSteps = Object.freeze({
   verify: ['candidate-verify', 'clean-install', 'public-upgrade'].map((key) => ({ key })),
   publish: ['source', 'draft', 'draft-verify', 'make-public', 'public-verify'].map((key) => ({ key }))
 })
+const hotfixReleaseSteps = Object.freeze({
+  prepare: [
+    'compatibility-check', 'version-check', 'lint', 'targeted-test',
+    'release-tests', 'updater-stage', 'release-audit', 'avidae-runtime-check', 'archive',
+    'build', 'updater-background', 'package', 'packaged-scroll',
+    'secret-scan', 'snapshot', 'seal', 'stage'
+  ].map((key) => ({ key })),
+  verify: releaseSteps.verify,
+  publish: releaseSteps.publish
+})
+
+function assertReleaseProfile(version, requested, stored) {
+  if (requested === 'hotfix' && version !== '0.4.2') throw new Error('Hotfix route is approved only for Vast 0.4.2.')
+  if (requested === 'standard' && version !== '0.4.1') throw new Error('The standard local route is approved only for Vast 0.4.1; use --hotfix for 0.4.2.')
+  if (stored !== requested) throw new Error(`Existing release state has profile ${stored}; requested ${requested}.`)
+}
 
 async function main() {
   const fs = require('node:fs')
@@ -182,16 +208,17 @@ async function main() {
   const candidateRoot = path.join(stateDir, 'candidate')
   const command = process.argv[2] || 'status'
   const flags = new Set(process.argv.slice(3).filter((arg) => arg.startsWith('--')))
+  const profile = flags.has('--hotfix') ? 'hotfix' : 'standard'
   const canaryIndex = process.argv.indexOf('--canary')
   const canaryPath = canaryIndex < 0 ? null : process.argv[canaryIndex + 1]
   if (!['prepare', 'verify', 'publish', 'status'].includes(command)) throw new Error('Use prepare|verify|publish|status.')
-  if ([...flags].some((flag) => !['--retry', '--retry-build', '--canary'].includes(flag))) throw new Error('Unknown release option.')
+  if ([...flags].some((flag) => !['--retry', '--retry-build', '--canary', '--hotfix'].includes(flag))) throw new Error('Unknown release option.')
   if (command === 'status') {
     const state = fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, 'utf8')) : null
     console.log(JSON.stringify({ version, sourceCommit, statePath, state, currentPid: process.pid }, null, 2))
     return
   }
-  if (version !== '0.4.1') throw new Error('This local route is approved only for Vast 0.4.1.')
+  assertReleaseProfile(version, profile, profile)
   const status = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: root, encoding: 'utf8', windowsHide: true })
   if (status.status !== 0 || status.stdout.trim()) throw new Error('Release work requires a clean exact source commit.')
   if (!process.env.npm_execpath) throw new Error('Run through npm run release:local:public so npm_execpath is pinned.')
@@ -202,7 +229,7 @@ async function main() {
     try { process.kill(pid, 0); return true } catch { return false }
   }
   const initialState = {
-    schema: 1, version, sourceCommit, candidateRoot, candidateManifestSha256: null,
+    schema: 1, profile, version, sourceCommit, candidateRoot, candidateManifestSha256: null,
     phases: { prepare: 'pending', verify: 'pending', publish: 'pending' },
     steps: [], createdAt: new Date().toISOString()
   }
@@ -210,6 +237,7 @@ async function main() {
   if (state.schema !== 1 || state.version !== version || state.sourceCommit !== sourceCommit || state.candidateRoot !== candidateRoot) {
     throw new Error('Existing release state belongs to another source or schema.')
   }
+  assertReleaseProfile(version, profile, state.profile || 'standard')
   function save() {
     state.updatedAt = new Date().toISOString()
     const temporary = `${statePath}.${process.pid}.tmp`
@@ -217,7 +245,8 @@ async function main() {
     fs.renameSync(temporary, statePath)
   }
   function releaseEnv() {
-    const file = path.join(root, '.env.release.local')
+    const file = process.env.VAST_RELEASE_ENV_FILE || path.join(root, '.env.release.local')
+    if (!path.isAbsolute(file)) throw new Error('VAST_RELEASE_ENV_FILE must be an absolute path.')
     if (!fs.existsSync(file)) throw new Error('Missing .env.release.local for the pinned public build.')
     const parsed = {}
     for (const raw of fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/)) {
@@ -229,16 +258,20 @@ async function main() {
       if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1)
       parsed[match[1]] = value
     }
+    // The approved previous version is source-controlled, never taken from an
+    // older ignored env file shared with the previous release.
+    if (profile === 'hotfix') delete parsed.VAST_PREVIOUS_VERSION
     validateReleaseFileEnv(parsed, version, sourceCommit)
     const baseUrl = `https://github.com/vstxx/vast-public/releases/download/v${version}`
+    const previousVersion = require('./release-config.json').previousPublicVersion
     const env = {
       ...process.env, ...parsed,
       VAST_RELEASE_COMMIT: sourceCommit,
       VAST_RELEASE_CHANNEL: 'stable', VAST_DISTRIBUTION_CHANNEL: 'direct',
       VAST_PRIVATE_BUILD: '0', VAST_PUBLIC_UNSIGNED_RELEASE: '1',
       VAST_UNSIGNED_RELEASE_ACK: 'I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK',
-      VAST_RELEASE_REPO: 'vstxx/vast-public', VAST_PREVIOUS_VERSION: '0.3.0',
-      VAST_PREVIOUS_RELEASE_BASE_URL: 'https://github.com/vstxx/vast-public/releases/download/v0.3.0',
+      VAST_RELEASE_REPO: 'vstxx/vast-public', VAST_PREVIOUS_VERSION: previousVersion,
+      VAST_PREVIOUS_RELEASE_BASE_URL: `https://github.com/vstxx/vast-public/releases/download/v${previousVersion}`,
       VAST_UPDATE_MANIFEST_URL: `${baseUrl}/update-manifest.json`,
       VAST_PRODUCTION_RELEASE_BASE_URL: baseUrl,
       VAST_PREVIOUS_SIGNATURE_POLICY: 'unsigned', VAST_CURRENT_SIGNATURE_POLICY: 'unsigned',
@@ -267,6 +300,14 @@ async function main() {
       if (key === 'dependencies') return npm(['ci'])
       if (key === 'relay-dependencies') return npm(['ci', '--prefix', 'relay'])
       if (key === 'compatibility') return npm(['run', 'extension:compat:prepare'])
+      if (key === 'compatibility-check') return npm(['run', 'extension:compat:check'])
+      if (key === 'version-check') return npm(['run', 'release:version-check'])
+      if (key === 'lint') return npm(['run', 'lint'])
+      if (key === 'targeted-test') return { command: process.execPath, args: ['--test', path.join(root, 'tests', 'renderer', 'wheel-zoom.test.ts')], env }
+      if (key === 'release-tests') return npm(['run', 'test:release'])
+      if (key === 'updater-stage') return npm(['run', 'updater:stage'])
+      if (key === 'release-audit') return npm(['run', 'release:audit'])
+      if (key === 'avidae-runtime-check') return npm(['run', 'avidae:runtime:check'])
       if (key === 'preflight') return npm(['run', 'release:preflight'])
       if (key === 'relay') return npm(['run', 'verify:release-checkin', '--prefix', 'relay'])
       if (key === 'hub') return npm(['run', 'hub:verify:production'])
@@ -275,6 +316,7 @@ async function main() {
       if (key === 'build') return npm(['run', 'release:public-unsigned'])
       if (key === 'updater-background') return npm(['run', 'test:updater:background'])
       if (key === 'package') return node('verify-release-package.cjs')
+      if (key === 'packaged-scroll') return node('verify-packaged-guest-scroll.cjs')
       if (key === 'secret-scan') return node('secret-scan.cjs')
       if (key === 'snapshot') {
         const snapshot = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vast-release-snapshot-')), 'source')
@@ -383,7 +425,8 @@ async function main() {
     state.phases[command] = 'running'
     state.runnerPid = process.pid
     save()
-    const keys = releaseSteps[command].map((item) => item.key)
+    const steps = profile === 'hotfix' ? hotfixReleaseSteps : releaseSteps
+    const keys = steps[command].map((item) => item.key)
     if (command === 'prepare' && flags.has('--retry-build') && state.steps.some((step) => step.key === 'build' && ['failed', 'interrupted'].includes(step.status))) {
       state.retryArchive = archiveRelease(`failed-release-${Date.now()}`)
       save()
@@ -409,4 +452,4 @@ async function main() {
 
 if (require.main === module) main().catch((error) => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1 })
 
-module.exports = { assertPublishReady, requiredCanaryChecks, nextStep, executeSteps, publicSourceCommitMessage, verifiedCandidateAssets, assertExpectedReleaseAssets, validateReleaseFileEnv, snapshotDigest, assertCleanInstallAllowed, releaseSteps }
+module.exports = { assertPublishReady, requiredCanaryChecks, requiredHotfixCanaryChecks, nextStep, executeSteps, publicSourceCommitMessage, verifiedCandidateAssets, assertExpectedReleaseAssets, validateReleaseFileEnv, snapshotDigest, assertCleanInstallAllowed, releaseSteps, hotfixReleaseSteps, assertReleaseProfile }

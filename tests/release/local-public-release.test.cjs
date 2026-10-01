@@ -7,13 +7,16 @@ const { spawnSync } = require('node:child_process')
 const {
   assertPublishReady,
   requiredCanaryChecks,
+  requiredHotfixCanaryChecks,
   nextStep,
   publicSourceCommitMessage,
   verifiedCandidateAssets,
   executeSteps,
   releaseSteps,
+  hotfixReleaseSteps,
   assertExpectedReleaseAssets,
   validateReleaseFileEnv,
+  assertReleaseProfile,
   snapshotDigest,
   assertCleanInstallAllowed
 } = require('../../scripts/local-public-release.cjs')
@@ -40,6 +43,19 @@ test('publication requires the exact sealed candidate and every canary check', (
     assert.throws(() => assertPublishReady(readyState, identity, { ...completeCanary, checks: { ...completeCanary.checks, [name]: false } }), new RegExp(name))
   }
   assert.throws(() => assertPublishReady({ ...readyState, phases: { ...readyState.phases, verify: 'failed' } }, identity, completeCanary), /verify/i)
+})
+
+test('hotfix publication still binds the sealed candidate and requires its targeted canary', () => {
+  const hotfixState = { ...readyState, profile: 'hotfix' }
+  const hotfixCanary = { ...identity, checks: Object.fromEntries(requiredHotfixCanaryChecks.map((name) => [name, true])) }
+  assert.doesNotThrow(() => assertPublishReady(hotfixState, identity, hotfixCanary))
+  for (const name of requiredHotfixCanaryChecks) {
+    assert.throws(() => assertPublishReady(hotfixState, identity, {
+      ...hotfixCanary, checks: { ...hotfixCanary.checks, [name]: false }
+    }), new RegExp(name))
+  }
+  assert.throws(() => assertPublishReady(hotfixState, { ...identity, candidateManifestSha256: 'c'.repeat(64) }, hotfixCanary), /candidate/i)
+  assert.throws(() => assertPublishReady({ ...hotfixState, phases: { ...hotfixState.phases, verify: 'failed' } }, identity, hotfixCanary), /verify/i)
 })
 
 test('resume skips completed steps but never duplicates a running or uncertain command', () => {
@@ -112,6 +128,28 @@ test('local prepare includes production checks and seals only after package veri
   assert.deepEqual(releaseSteps.publish.map((step) => step.key), ['source', 'draft', 'draft-verify', 'make-public', 'public-verify'])
 })
 
+test('hotfix prepare skips broad gates but retains build, artifact checks and immutable publication', () => {
+  const keys = hotfixReleaseSteps.prepare.map((step) => step.key)
+  for (const name of ['compatibility-check', 'version-check', 'lint', 'targeted-test', 'updater-stage', 'release-audit', 'build', 'package', 'packaged-scroll', 'secret-scan', 'snapshot', 'seal', 'stage']) {
+    assert.ok(keys.includes(name), `${name} must be included in the hotfix gate`)
+  }
+  assert.ok(keys.indexOf('updater-stage') < keys.indexOf('release-audit'))
+  for (const name of ['dependencies', 'relay-dependencies', 'preflight', 'relay', 'hub']) {
+    assert.ok(!keys.includes(name), `${name} is not part of the targeted hotfix gate`)
+  }
+  assert.ok(keys.indexOf('package') < keys.indexOf('seal'))
+  assert.deepEqual(hotfixReleaseSteps.verify, releaseSteps.verify)
+  assert.deepEqual(hotfixReleaseSteps.publish, releaseSteps.publish)
+})
+
+test('hotfix mode is restricted to 0.4.2 and cannot resume under a different profile', () => {
+  assert.doesNotThrow(() => assertReleaseProfile('0.4.2', 'hotfix', 'hotfix'))
+  assert.doesNotThrow(() => assertReleaseProfile('0.4.1', 'standard', 'standard'))
+  assert.throws(() => assertReleaseProfile('0.4.2', 'standard', 'standard'), /hotfix/i)
+  assert.throws(() => assertReleaseProfile('0.4.1', 'hotfix', 'hotfix'), /0\.4\.2/i)
+  assert.throws(() => assertReleaseProfile('0.4.2', 'hotfix', 'standard'), /profile/i)
+})
+
 test('status command reports current source without starting release work', () => {
   const script = path.join(__dirname, '../../scripts/local-public-release.cjs')
   const result = spawnSync(process.execPath, [script, 'status'], { encoding: 'utf8' })
@@ -129,10 +167,19 @@ test('draft publication rejects unapproved extra assets before uploading', () =>
 })
 
 test('local release refuses stale feed and channel overrides from the ignored env file', () => {
-  assert.doesNotThrow(() => validateReleaseFileEnv({ VAST_RELEASE_CHANNEL: 'stable', VAST_PREVIOUS_VERSION: '0.3.0' }, '0.4.1', sourceCommit))
-  assert.throws(() => validateReleaseFileEnv({ VAST_UPDATE_MANIFEST_URL: 'https://example.test/v0.4.0/update-manifest.json' }, '0.4.1', sourceCommit), /VAST_UPDATE_MANIFEST_URL/)
-  assert.throws(() => validateReleaseFileEnv({ VAST_RELEASE_CHANNEL: 'beta' }, '0.4.1', sourceCommit), /VAST_RELEASE_CHANNEL/)
-  assert.throws(() => validateReleaseFileEnv({ VAST_RELEASE_COMMIT: 'c'.repeat(40) }, '0.4.1', sourceCommit), /VAST_RELEASE_COMMIT/)
+  const version = require('../../package.json').version
+  const previousVersion = require('../../scripts/release-config.json').previousPublicVersion
+  assert.doesNotThrow(() => validateReleaseFileEnv({ VAST_RELEASE_CHANNEL: 'stable', VAST_PREVIOUS_VERSION: previousVersion }, version, sourceCommit))
+  assert.throws(() => validateReleaseFileEnv({ VAST_PREVIOUS_VERSION: '0.3.0' }, version, sourceCommit), /VAST_PREVIOUS_VERSION/)
+  assert.throws(() => validateReleaseFileEnv({ VAST_UPDATE_MANIFEST_URL: 'https://example.test/v0.4.0/update-manifest.json' }, version, sourceCommit), /VAST_UPDATE_MANIFEST_URL/)
+  assert.throws(() => validateReleaseFileEnv({ VAST_RELEASE_CHANNEL: 'beta' }, version, sourceCommit), /VAST_RELEASE_CHANNEL/)
+  assert.throws(() => validateReleaseFileEnv({ VAST_RELEASE_COMMIT: 'c'.repeat(40) }, version, sourceCommit), /VAST_RELEASE_COMMIT/)
+})
+
+test('unsigned builder accepts the explicitly selected env file but keeps the previous version source-controlled', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'scripts', 'local-release-from-env.cjs'), 'utf8')
+  assert.match(source, /process\.env\.VAST_RELEASE_ENV_FILE/)
+  assert.match(source, /env\.VAST_PREVIOUS_VERSION\s*=\s*require\('\.\/release-config\.json'\)\.previousPublicVersion/)
 })
 
 test('source snapshot digest binds every path and byte and rejects symlinks', (t) => {

@@ -6,7 +6,7 @@ on:
       expected_version:
         description: Exact package version authorized for this candidate
         required: true
-        default: 0.4.1
+        default: 0.4.2
         type: string
       store_package_version:
         description: Store identity version; must exceed every version consumed by Partner Center

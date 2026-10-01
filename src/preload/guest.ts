@@ -30,15 +30,6 @@ let lastScrollAtTop: boolean | undefined
 let topOverscrollDistance = 0
 let topOverscrollVisible = false
 
-function onZoomWheel(event: WheelEvent): void {
-  if (!event.ctrlKey && !event.metaKey) return
-  if (!Number.isFinite(event.deltaY) || event.deltaY === 0) return
-  event.preventDefault()
-  event.stopImmediatePropagation()
-  const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1
-  ipcRenderer.sendToHost('vast:wheel-zoom', event.deltaY * scale)
-}
-
 function scrollTopFor(target: EventTarget | null): number {
   if (target instanceof Element && target.scrollHeight > target.clientHeight + 2) return target.scrollTop
   const scrollingElement = document.scrollingElement
@@ -90,7 +81,6 @@ function queueScrollBoundary(event?: Event): void {
 }
 
 document.addEventListener('scroll', queueScrollBoundary, { capture: true, passive: true })
-document.addEventListener('wheel', onZoomWheel, { capture: true, passive: false })
 document.addEventListener('wheel', onTopOverscrollWheel, { capture: true, passive: true })
 window.addEventListener('pageshow', () => queueScrollBoundary())
 if (document.readyState === 'loading') {

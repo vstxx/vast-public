@@ -6,7 +6,7 @@ on:
       expected_version:
         description: Exact package version to publish as an unsigned release
         required: true
-        default: 0.4.1
+        default: 0.4.2
         type: string
       publish:
         description: Publish the verified candidate (false only builds and verifies)
@@ -48,8 +48,8 @@ jobs:
       VAST_PUBLIC_UNSIGNED_RELEASE: '1'
       VAST_UNSIGNED_RELEASE_ACK: ${{ inputs.risk_ack }}
       VAST_RELEASE_REPO: vstxx/vast-public
-      VAST_PREVIOUS_VERSION: 0.3.0
-      VAST_PREVIOUS_RELEASE_BASE_URL: https://github.com/vstxx/vast-public/releases/download/v0.3.0
+      VAST_PREVIOUS_VERSION: 0.4.1
+      VAST_PREVIOUS_RELEASE_BASE_URL: https://github.com/vstxx/vast-public/releases/download/v0.4.1
       VAST_PREVIOUS_SIGNATURE_POLICY: unsigned
       VAST_CURRENT_SIGNATURE_POLICY: unsigned
       VAST_UPDATE_ENABLED: '1'
@@ -278,7 +278,7 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           $notes = Join-Path $env:RUNNER_TEMP 'vast-unsigned-release-notes.md'
-          $releaseDetails = Get-Content -Raw -Encoding utf8 'docs/PUBLIC_RELEASE_0.4.1.md'
+          $releaseDetails = Get-Content -Raw -Encoding utf8 'docs/PUBLIC_RELEASE_0.4.2.md'
           @(
             "# Vast $version — PUBLIC UNSIGNED RELEASE",
             "",

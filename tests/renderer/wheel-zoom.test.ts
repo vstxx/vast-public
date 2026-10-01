@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { runInNewContext } from 'node:vm'
+import ts from 'typescript'
 
 const appSource = readFileSync(new URL('../../src/renderer/app/App.tsx', import.meta.url), 'utf8')
 const stageSource = readFileSync(new URL('../../src/renderer/components/browser/BrowserStage.tsx', import.meta.url), 'utf8')
@@ -8,12 +10,30 @@ const stylesSource = readFileSync(new URL('../../src/renderer/styles/index.css',
 const webviewSource = readFileSync(new URL('../../src/renderer/components/browser/WebviewSurface.tsx', import.meta.url), 'utf8')
 const guestPreloadSource = readFileSync(new URL('../../src/preload/guest.ts', import.meta.url), 'utf8')
 
-test('Ctrl+wheel crosses the webview boundary and targets the hovered external tab', () => {
-  assert.match(guestPreloadSource, /event\.preventDefault\(\)[\s\S]*event\.deltaMode === 1[\s\S]*sendToHost\('vast:wheel-zoom', event\.deltaY \* scale\)/)
-  assert.match(guestPreloadSource, /addEventListener\('wheel', onZoomWheel, \{ capture: true, passive: false \}\)/)
-  assert.match(webviewSource, /message\.channel === 'vast:wheel-zoom'/)
-  assert.match(webviewSource, /runtime\.adjustZoom\([^\n]+, tab\.id\)/)
-  assert.doesNotMatch(webviewSource, /HTMLElement\)\.addEventListener\('wheel'/)
+test('guest preload never registers a scroll-blocking wheel listener', () => {
+  const wheelListeners: Array<{ passive?: boolean }> = []
+  const guestBundle = ts.transpileModule(guestPreloadSource, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
+  }).outputText
+  runInNewContext(guestBundle, {
+    exports: {},
+    require: (id: string) => {
+      if (id === 'electron/renderer') return { ipcRenderer: { sendSync: () => null, sendToHost: () => undefined } }
+      if (id === '../shared/spoofing') return {}
+      throw new Error(`Unexpected preload import: ${id}`)
+    },
+    document: {
+      readyState: 'loading',
+      addEventListener: (name: string, _listener: unknown, options?: { passive?: boolean }) => {
+        if (name === 'wheel') wheelListeners.push(options ?? {})
+      }
+    },
+    window: { addEventListener: () => undefined },
+    location: { href: 'https://example.test/', protocol: 'https:' },
+    process: { isMainFrame: false }
+  })
+  assert.ok(wheelListeners.length > 0, 'the passive overscroll listener must remain installed')
+  assert.ok(wheelListeners.every((options) => options.passive === true), 'all guest wheel listeners must be passive')
 })
 
 test('Ctrl+wheel zooms the hovered internal pane and applies its stored zoom', () => {

@@ -12,7 +12,7 @@ function usage() {
 
 const args = process.argv.slice(2)
 let target = 'dist:upgrader'
-let envFile = join(root, '.env.release.local')
+let envFile = process.env.VAST_RELEASE_ENV_FILE || join(root, '.env.release.local')
 let internalUnsigned = false
 let publicUnsignedRelease = false
 
@@ -72,6 +72,7 @@ function flag(env, name, fallback = false) {
   return fallback
 }
 
+if (!isAbsolute(envFile)) throw new Error('VAST_RELEASE_ENV_FILE must be an absolute path.')
 if (!existsSync(envFile)) {
   console.error(`Missing ${envFile}. Copy .env.release.example to .env.release.local and fill in local values.`)
   process.exit(1)
@@ -102,6 +103,8 @@ if (internalUnsigned) {
 }
 
 if (publicUnsignedRelease) {
+  env.VAST_PREVIOUS_VERSION = require('./release-config.json').previousPublicVersion
+  env.VAST_PREVIOUS_RELEASE_BASE_URL = `https://github.com/vstxx/vast-public/releases/download/v${env.VAST_PREVIOUS_VERSION}`
   env.VAST_RELEASE_CHANNEL = env.VAST_RELEASE_CHANNEL || 'stable'
   env.VAST_PRIVATE_BUILD = '0'
   env.VAST_UPDATE_ENABLED = '1'

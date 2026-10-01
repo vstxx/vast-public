@@ -1,7 +1,7 @@
 {
   "name": "vast-browser",
   "productName": "Vast",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "A local-first desktop browser for power users, built with Electron, React, TypeScript, Vite, and Tailwind CSS.",
   "author": "VastProductions",
   "main": "out/main/main.js",

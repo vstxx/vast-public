@@ -6,7 +6,7 @@ on:
       expected_version:
         description: Exact package version authorized for this release
         required: true
-        default: 0.4.1
+        default: 0.4.2
         type: string
       publish:
         description: Publish the verified candidate (false only builds and verifies)
@@ -24,12 +24,12 @@ on:
       previous_version:
         description: Previously published Vast version (for upgrade gate)
         required: true
-        default: 0.3.0
+        default: 0.4.1
         type: string
       previous_release_base_url:
         description: HTTPS production asset base URL for the previous signed release
         required: true
-        default: https://github.com/vstxx/vast-public/releases/download/v0.3.0
+        default: https://github.com/vstxx/vast-public/releases/download/v0.4.1
         type: string
       bootstrap_first_beta:
         description: One-time beta.1 bootstrap; allowed only while the release repository has no published releases

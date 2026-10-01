@@ -56,9 +56,15 @@ test('manifest declares one x64 packaged classic app and only required capabilit
 
 test('browser recency permits at most two Chromium majors and rejects stale policy evidence', () => {
   const reviewed = Date.parse('2026-08-30T00:00:00Z')
-  assert.equal(recencyReport('152.0.0.0', '154.0.0.0', reviewed).ok, true)
-  assert.equal(recencyReport('151.0.0.0', '154.0.0.0', reviewed).ok, false)
-  assert.equal(recencyReport('152.0.0.0', '152.0.0.0', Date.parse('2027-01-01T00:00:00Z')).ok, false)
+  const policy = {
+    reviewedAt: '2026-08-29',
+    maximumReviewAgeDays: 60,
+    maximumChromiumMajorLag: 2,
+    upstreamSource: 'test fixture'
+  }
+  assert.equal(recencyReport('152.0.0.0', '154.0.0.0', reviewed, policy).ok, true)
+  assert.equal(recencyReport('151.0.0.0', '154.0.0.0', reviewed, policy).ok, false)
+  assert.equal(recencyReport('152.0.0.0', '152.0.0.0', Date.parse('2027-01-01T00:00:00Z'), policy).ok, false)
 })
 
 test('Store package relies on Partner Center signing and keeps a recursive PE inventory', () => {
