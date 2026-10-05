@@ -281,7 +281,7 @@ export function AddressBar({
           inputRef.current?.blur()
         }}
       >
-        <div className={`vast-top-address group relative flex items-center gap-3 rounded-card px-4 backdrop-blur-xl transition duration-150 ${variant === 'purist' ? 'vast-top-address-purist' : ''} ${pdfDropActive ? 'ring-2 ring-vast-cyan/55 bg-vast-cyan/[0.08]' : ''} ${compact ? 'h-9' : 'h-12'}`}>
+        <div className={`vast-top-address group relative flex items-center gap-3 rounded-card px-4 backdrop-blur-xl transition duration-150 ${variant === 'purist' ? 'vast-top-address-purist' : ''} ${pdfDropActive ? 'ring-2 ring-vast-cyan/55 bg-vast-cyan/8' : ''} ${compact ? 'h-9' : 'h-12'}`}>
           {activeTab && <Favicon url={activeTab.url} favicon={activeTab.favicon} title={activeTab.title} />}
           <button
             type="button"
@@ -332,7 +332,7 @@ export function AddressBar({
               }
             }}
             placeholder={pdfDropActive ? 'Drop PDF to open' : 'Search or enter address'}
-            className={`address-bar-input min-w-0 flex-1 bg-transparent text-[14px] font-medium outline-none transition-colors duration-150 placeholder:text-vast-soft ${
+            className={`address-bar-input min-w-0 flex-1 bg-transparent text-[14px] font-medium outline-hidden transition-colors duration-150 placeholder:text-vast-soft ${
               focused ? 'text-white' : 'text-white/45'
             }`}
           />
@@ -347,7 +347,7 @@ export function AddressBar({
         </div>
 
         {suggestions.length > 0 && (
-          <div className="absolute left-0 right-0 top-14 overflow-hidden rounded-card border border-white/10 bg-[#0c0d12]/[0.98] p-2 shadow-glass backdrop-blur-xl">
+          <div className="absolute left-0 right-0 top-14 overflow-hidden rounded-card border border-white/10 bg-[#0c0d12]/98 p-2 shadow-glass backdrop-blur-xl">
             {suggestions.map((item, index) => (
               <button
                 type="button"
@@ -359,7 +359,7 @@ export function AddressBar({
                   setFocused(false)
                 }}
                 className={`flex w-full items-center gap-3 rounded-control px-3 py-2 text-left ${
-                  index === selectedSuggestion ? 'bg-white/[0.09]' : 'hover:bg-white/[0.07]'
+                  index === selectedSuggestion ? 'bg-white/9' : 'hover:bg-white/[0.07]'
                 }`}
               >
                 {item.type === 'Search' ? <Search className="h-4 w-4 text-vast-cyan" /> : <Favicon url={item.url} favicon={item.favicon} title={item.title} />}
@@ -373,7 +373,7 @@ export function AddressBar({
           </div>
         )}
         {siteInfoOpen && activeTab && (
-          <div className="absolute left-0 top-14 z-40 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-card border border-white/10 bg-[#0c0d12]/[0.98] p-3 text-sm text-white shadow-glass backdrop-blur-xl">
+          <div className="absolute left-0 top-14 z-40 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-card border border-white/10 bg-[#0c0d12]/98 p-3 text-sm text-white shadow-glass backdrop-blur-xl">
             <div className="flex items-start gap-3">
               <div className={`grid h-9 w-9 place-items-center rounded-control ${siteInfo?.secure ? 'bg-vast-cyan/10 text-vast-cyan' : siteInfo?.kind === 'internal' ? 'bg-white/[0.07] text-vast-soft' : 'bg-vast-amber/10 text-vast-amber'}`}>
                 {siteInfo?.secure ? <Lock className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}
@@ -384,7 +384,7 @@ export function AddressBar({
               </div>
             </div>
             {siteInfoError && <div className="mt-3 rounded-control border border-vast-amber/20 bg-vast-amber/10 p-3 text-[13px] leading-5 text-vast-amber">{siteInfoError}</div>}
-            {siteInfo && <div className="mt-3 space-y-2 rounded-control border border-white/[0.08] bg-white/[0.035] p-3 text-[13px] leading-5 text-vast-soft">
+            {siteInfo && <div className="mt-3 space-y-2 rounded-control border border-white/8 bg-white/[0.035] p-3 text-[13px] leading-5 text-vast-soft">
               <div className="flex items-center justify-between gap-3"><span className="flex items-center gap-2"><ShieldCheck className="h-4 w-4" />Certificate</span><span className="text-right text-white">{siteInfo.certificateStatus === 'validated-by-chromium' ? 'Validated by Chromium' : siteInfo.certificateStatus === 'not-applicable' ? 'Not applicable' : 'Not secure'}</span></div>
               <div className="flex items-center justify-between gap-3"><span className="flex items-center gap-2"><Cookie className="h-4 w-4" />Cookies</span><span className="text-white">{siteInfo.cookieCount}</span></div>
               <div className="flex items-center justify-between gap-3"><span>localStorage entries</span><span className="text-white">{siteInfo.storage.localStorageEntries}</span></div>
@@ -394,7 +394,7 @@ export function AddressBar({
               {siteInfo.kind === 'web' && <div className="flex items-center justify-between gap-3"><span>Blocked requests</span><span className="text-white">{siteInfo.blocked.trackers} trackers</span></div>}
               {siteInfo.permissions.map((permission) => <div key={`${permission.origin}-${permission.workspaceId ?? 'shared'}-${permission.permission}`} className="flex items-center justify-between gap-3 pl-6"><span className="capitalize">{permission.permission}</span><span className="capitalize text-white">{permission.setting}</span></div>)}
             </div>}
-            {siteInfo?.kind === 'web' && siteInfo.origin && <label className="mt-2 flex min-h-10 items-center justify-between gap-3 rounded-control border border-white/[0.08] bg-white/[0.035] px-3 text-[13px] text-vast-soft">
+            {siteInfo?.kind === 'web' && siteInfo.origin && <label className="mt-2 flex min-h-10 items-center justify-between gap-3 rounded-control border border-white/8 bg-white/[0.035] px-3 text-[13px] text-vast-soft">
               <span>Disable Vast interventions for this site</span>
               <input
                 type="checkbox"
@@ -402,7 +402,7 @@ export function AddressBar({
                 onChange={(event) => updateSettings({ privacy: { siteInterventionsDisabled: event.target.checked ? [...privacySettings.siteInterventionsDisabled.filter((origin) => origin !== siteInfo.origin), siteInfo.origin!] : privacySettings.siteInterventionsDisabled.filter((origin) => origin !== siteInfo.origin) } })}
               />
             </label>}
-            {siteInfo?.kind === 'web' && siteInfo.hostname && <label className="mt-2 flex min-h-10 items-center justify-between gap-3 rounded-control border border-white/[0.08] bg-white/[0.035] px-3 text-[13px] text-vast-soft">
+            {siteInfo?.kind === 'web' && siteInfo.hostname && <label className="mt-2 flex min-h-10 items-center justify-between gap-3 rounded-control border border-white/8 bg-white/[0.035] px-3 text-[13px] text-vast-soft">
               <span>Clear data when its last tab closes</span>
               <input
                 type="checkbox"
@@ -474,7 +474,7 @@ export function AddressBar({
             <MoreHorizontal className="h-4 w-4" />
           </IconButton>
           {overflowOpen && (
-            <div className="browser-tools-menu absolute right-0 top-11 z-40 max-h-[72vh] w-72 overflow-y-auto rounded-card border border-white/10 bg-[#0c0d12]/[0.98] p-2 shadow-glass backdrop-blur-xl">
+            <div className="browser-tools-menu absolute right-0 top-11 z-40 max-h-[72vh] w-72 overflow-y-auto rounded-card border border-white/10 bg-[#0c0d12]/98 p-2 shadow-glass backdrop-blur-xl">
               {extensionToolbar.slice(3).map((action) => <OverflowAction key={action.key} label={`${action.title} · ${action.extensionName}`} icon={Puzzle} disabled={action.enabled === false} onClick={() => { void window.vast.extensions.dispatchContribution(action.key) }} onClose={() => setOverflowOpen(false)} />)}
               <OverflowAction label="Incognito window" icon={EyeOff} onClick={runtime.openIncognitoWindow} onClose={() => setOverflowOpen(false)} />
               <>
@@ -533,7 +533,7 @@ function OverflowAction({
   return (
     <VastMenuItem
       disabled={disabled}
-      className={`h-9 !px-3 !text-[14px] ${unavailable ? 'opacity-75' : ''}`}
+      className={`h-9 px-3! text-[14px]! ${unavailable ? 'opacity-75' : ''}`}
       onClick={() => {
         if (disabled) return
         onClick()

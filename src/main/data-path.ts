@@ -10,10 +10,12 @@ import {
   portableDataRootFromEnv,
   readConfiguredDataRoot,
   stableConfigRootFromEnv,
+  storeDataRoot,
   validateDataRootCandidate,
   writeConfiguredDataRoot
 } from './data-path-utils'
 import { createVastBackupArchive, extractVastBackupArchive } from './vast-backup'
+import { getBuildMetadata } from './build-info'
 
 const productDataDirName = 'Vast'
 const devDataDirName = 'Vast Dev'
@@ -35,11 +37,21 @@ export function defaultVastDataRoot(): string {
   }
   const portableRoot = portableDataRootFromEnv()
   if (portableRoot) return portableRoot
+  const metadata = getBuildMetadata()
+  if (metadata.distributionChannel === 'microsoft-store') {
+    return storeDataRoot(app.getPath('appData'), metadata.privateBuild)
+  }
   return join(app.getPath('appData'), productDataDirName)
 }
 
 export function stableDataPathConfigRoot(): string {
-  return portableDataRootFromEnv() ?? stableConfigRootFromEnv()
+  const portableRoot = portableDataRootFromEnv()
+  if (portableRoot) return portableRoot
+  const metadata = getBuildMetadata()
+  if (app.isPackaged && metadata.distributionChannel === 'microsoft-store') {
+    return storeDataRoot(app.getPath('appData'), metadata.privateBuild)
+  }
+  return stableConfigRootFromEnv()
 }
 
 function setVastProfileRoot(root: string): void {

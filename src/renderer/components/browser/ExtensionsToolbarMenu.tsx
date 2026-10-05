@@ -333,16 +333,16 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
 
       {open && (
         <>
-          {resizeAxis && <div data-testid="extensions-menu-resize-shield" className={`fixed inset-0 z-[100] ${resizeAxis === 'width' ? 'cursor-col-resize' : resizeAxis === 'height' ? 'cursor-row-resize' : 'cursor-[nesw-resize]'}`} />}
+          {resizeAxis && <div data-testid="extensions-menu-resize-shield" className={`fixed inset-0 z-100 ${resizeAxis === 'width' ? 'cursor-col-resize' : resizeAxis === 'height' ? 'cursor-row-resize' : 'cursor-nesw-resize'}`} />}
           <section
             ref={menuRef}
             role="dialog"
             aria-label="Extensions"
             data-testid="extensions-toolbar-menu"
-            className="extensions-toolbar-menu absolute right-0 top-11 z-[70] flex flex-col overflow-hidden rounded-card border border-white/[0.1] bg-[#0a0b0f]/[0.985] text-white"
+            className="extensions-toolbar-menu absolute right-0 top-11 z-70 flex flex-col overflow-hidden rounded-card border border-white/10 bg-vast-ink/98.5 text-white"
             style={{ width: menuSize.width, height: menuSize.height }}
           >
-          <header className="flex h-[3.25rem] shrink-0 items-center gap-2 border-b border-white/[0.07] px-3">
+          <header className="flex h-13 shrink-0 items-center gap-2 border-b border-white/[0.07] px-3">
             {selected ? (
               <IconButton variant="quiet" size="sm" aria-label="Back to extensions" onClick={() => { setSelectedId(null); setSurface(null); setSurfaceError(null) }}>
                 <ArrowLeft className="h-4 w-4" />
@@ -363,7 +363,7 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
                   key={`${surface.partition}-${surface.src}`}
                   src={surface.src}
                   partition={surface.partition}
-                  className="extension-toolbar-surface flex h-full w-full bg-[#0a0b0f]"
+                  className="extension-toolbar-surface flex h-full w-full bg-vast-ink"
                 />
               ) : (
                 <div className="h-full overflow-y-auto p-4">
@@ -383,7 +383,7 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
                     </div>
                   </div>
                   <p className="mt-4 text-xs leading-5 text-white/55">{selected.description || 'This extension does not provide a custom popup. Use Manage extension for permissions and installation details.'}</p>
-                  {surfaceError && <div role="alert" className="mt-3 rounded-control border border-red-400/15 bg-red-400/[0.06] px-3 py-2.5 text-xs leading-5 text-red-100">{surfaceError}</div>}
+                  {surfaceError && <div role="alert" className="mt-3 rounded-control border border-red-400/15 bg-red-400/6 px-3 py-2.5 text-xs leading-5 text-red-100">{surfaceError}</div>}
                   <div className="mt-4 grid gap-2">
                     {selected.ui.options && selected.enabled && <VastButton variant="primary" size="sm" onClick={() => { void openSurface(selected, 'options') }}><SlidersHorizontal className="h-4 w-4" />Extension settings</VastButton>}
                     <VastButton variant="secondary" size="sm" onClick={() => manageExtensions(selected)}><Settings2 className="h-4 w-4" />Manage extension</VastButton>
@@ -393,7 +393,7 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
             </div>
           ) : (
             <>
-              {error && <div role="alert" className="mx-3 mt-3 rounded-control border border-red-400/15 bg-red-400/[0.06] px-3 py-2 text-xs leading-5 text-red-100">{error}</div>}
+              {error && <div role="alert" className="mx-3 mt-3 rounded-control border border-red-400/15 bg-red-400/6 px-3 py-2 text-xs leading-5 text-red-100">{error}</div>}
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2" role="menu" aria-label="Installed extensions">
                 {loading && extensions.length === 0 ? (
                   <div className="grid h-24 place-items-center"><RefreshCw className="h-4 w-4 animate-spin text-vast-soft" /></div>
@@ -403,13 +403,13 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
                   const state = extensionState(extension, activeTab?.url)
                   const busy = busyId === extension.id
                   return (
-                    <div key={extension.id} className="extensions-toolbar-row group relative flex min-h-[3.5rem] items-center rounded-control">
+                    <div key={extension.id} className="extensions-toolbar-row group relative flex min-h-14 items-center rounded-control">
                       <button
                         type="button"
                         role="menuitem"
                         disabled={busy}
                         onClick={() => { void openSurface(extension) }}
-                        className="flex min-w-0 flex-1 items-center gap-3 rounded-control py-2 pl-2 pr-1 text-left outline-none transition hover:bg-white/[0.055] focus-visible:bg-white/[0.065] disabled:opacity-50"
+                        className="flex min-w-0 flex-1 items-center gap-3 rounded-control py-2 pl-2 pr-1 text-left outline-hidden transition hover:bg-white/5.5 focus-visible:bg-white/6.5 disabled:opacity-50"
                       >
                         <ExtensionIcon extension={extension} />
                         <span className="min-w-0 flex-1">
@@ -444,7 +444,7 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
           )}
 
           {actionMenu && actionExtension && (
-            <div role="menu" aria-label={`Actions for ${actionExtension.name}`} className="extensions-toolbar-actions absolute right-2 z-20 max-h-[calc(100vh-5.5rem)] w-52 overflow-y-auto rounded-control border border-white/[0.1] bg-[#101116] p-1.5" style={{ top: actionMenu.top }}>
+            <div role="menu" aria-label={`Actions for ${actionExtension.name}`} className="extensions-toolbar-actions absolute right-2 z-20 max-h-[calc(100vh-5.5rem)] w-52 overflow-y-auto rounded-control border border-white/10 bg-[#101116] p-1.5" style={{ top: actionMenu.top }}>
               {actionExtension.ui.popup && actionExtension.enabled && <MenuAction label="Open extension" icon={Puzzle} onClick={() => { void openSurface(actionExtension, 'popup') }} />}
               {actionExtension.ui.options && actionExtension.enabled && <MenuAction label="Extension settings" icon={SlidersHorizontal} onClick={() => { void openSurface(actionExtension, 'options') }} />}
               <MenuAction label={actionExtension.enabled ? 'Disable extension' : 'Enable extension'} icon={Power} onClick={() => { void mutate(actionExtension, () => actionExtension.enabled ? window.vast.extensions.disable(actionExtension.id) : window.vast.extensions.enable(actionExtension.id)) }} />
@@ -456,7 +456,7 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
 
             <div role="separator" aria-label="Resize extensions menu width" aria-orientation="vertical" data-testid="extensions-menu-width-resizer" onMouseDown={(event) => startResize(event, 'width')} className="group absolute bottom-3 left-0 top-3 z-30 w-2 cursor-col-resize touch-none"><span aria-hidden="true" className="absolute bottom-1/3 left-0 top-1/3 w-px bg-transparent transition group-hover:bg-vast-cyan/60" /></div>
             <div role="separator" aria-label="Resize extensions menu height" aria-orientation="horizontal" data-testid="extensions-menu-height-resizer" onMouseDown={(event) => startResize(event, 'height')} className="group absolute bottom-0 left-3 right-3 z-30 h-2 cursor-row-resize touch-none"><span aria-hidden="true" className="absolute bottom-0 left-1/3 right-1/3 h-px bg-transparent transition group-hover:bg-vast-cyan/60" /></div>
-            <div role="separator" aria-label="Resize extensions menu width and height" data-testid="extensions-menu-corner-resizer" onMouseDown={(event) => startResize(event, 'both')} className="group absolute bottom-0 left-0 z-40 h-4 w-4 cursor-[nesw-resize] touch-none"><span aria-hidden="true" className="absolute bottom-0.5 left-0.5 h-2 w-2 border-b border-l border-white/20 transition group-hover:border-vast-cyan/70" /></div>
+            <div role="separator" aria-label="Resize extensions menu width and height" data-testid="extensions-menu-corner-resizer" onMouseDown={(event) => startResize(event, 'both')} className="group absolute bottom-0 left-0 z-40 h-4 w-4 cursor-nesw-resize touch-none"><span aria-hidden="true" className="absolute bottom-0.5 left-0.5 h-2 w-2 border-b border-l border-white/20 transition group-hover:border-vast-cyan/70" /></div>
           </section>
         </>
       )}

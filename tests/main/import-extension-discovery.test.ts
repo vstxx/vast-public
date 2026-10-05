@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -74,7 +74,7 @@ test('prefers Chromium Secure Preferences and preserves source state during reso
     assert.equal(found.sourceEnabled, true)
     assert.equal(found.version, '3.0.0')
     assert.equal(await resolveChromiumExtensionDirectory(profile, firstId, found.version, found.fingerprint),
-      join(profile, 'Extensions', firstId, '3.0.0_0'))
+      await realpath(join(profile, 'Extensions', firstId, '3.0.0_0')))
   } finally { await rm(profile, { recursive: true, force: true }) }
 })
 

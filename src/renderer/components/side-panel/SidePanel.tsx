@@ -103,7 +103,6 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
     { width: window.innerWidth, height: window.innerHeight },
     topInset
   ))
-  const [present, setPresent] = useState(open)
 
   useLayoutEffect(() => {
     const browserStage = document.querySelector<HTMLElement>('.browser-stage-shell')
@@ -117,15 +116,6 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
       window.removeEventListener('resize', updateTopInset)
     }
   }, [])
-
-  useEffect(() => {
-    if (open) {
-      setPresent(true)
-      return
-    }
-    const timer = window.setTimeout(() => setPresent(false), 260)
-    return () => window.clearTimeout(timer)
-  }, [open])
 
   useEffect(() => {
     const nextWidth = Math.max(304, Math.min(520, sidePanelSettings.width))
@@ -143,14 +133,14 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
     return () => window.removeEventListener('resize', onResize)
   }, [topInset, width])
 
-  if (!present) return null
-
   const activeExtension = extensionPanels.find((panel) => panel.key === activeExtensionKey)
   const activeTitle = activeExtension?.title ?? views.find((view) => view.id === activeView)?.title ?? 'Notes'
 
   useEffect(() => {
     if (activeExtensionKey && !extensionPanels.some((panel) => panel.key === activeExtensionKey)) { setActiveExtensionKey(null); setExtensionSurface(null) }
   }, [activeExtensionKey, extensionPanels])
+
+  if (!open) return null
 
   const openExtensionPanel = (key: string): void => {
     setActiveExtensionKey(key)
@@ -232,7 +222,7 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
       style={pinned ? undefined : { width }}
     >
     <aside
-      className={`side-panel no-drag z-[60] flex min-h-0 shrink-0 flex-col overflow-hidden border border-white/[0.1] bg-[#08090d]/[0.96] backdrop-blur-2xl ${
+      className={`side-panel no-drag z-60 flex min-h-0 shrink-0 flex-col overflow-hidden border border-white/10 bg-[#08090d]/96 backdrop-blur-2xl ${
         pinned ? 'rounded-panel shadow-[0_18px_54px_rgba(0,0,0,0.34)]' : 'border-b-0 border-r-0 border-t-0 shadow-none'
       }`}
       style={panelStyle}
@@ -244,7 +234,7 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
         className="absolute bottom-4 left-0 top-4 w-1 cursor-col-resize rounded-control bg-transparent hover:bg-vast-cyan/40"
       />
       <div
-        className={`side-panel-header flex h-[72px] select-none items-center gap-3 border-b border-white/[0.08] px-4 ${pinned ? 'cursor-move' : 'cursor-default'}`}
+        className={`side-panel-header flex h-[72px] select-none items-center gap-3 border-b border-white/8 px-4 ${pinned ? 'cursor-move' : 'cursor-default'}`}
         data-testid="sidebar-drag-handle"
         title={pinned ? 'Drag sidebar' : undefined}
         onMouseDown={pinned ? startMove : undefined}
@@ -262,7 +252,7 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
         <div className="min-w-0 truncate text-left text-xl font-semibold text-white">{activeTitle}</div>
         {pinned && <GripHorizontal className="ml-auto h-4 w-4 text-white/25" aria-hidden="true" />}
       </div>
-      <div role="tablist" aria-label="Sidebar sections" className="flex gap-1 overflow-x-auto border-b border-white/[0.08] p-2">
+      <div role="tablist" aria-label="Sidebar sections" className="flex gap-1 overflow-x-auto border-b border-white/8 p-2">
         {views.map((view) => {
           const Icon = view.icon
           return (
@@ -274,7 +264,7 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
               aria-selected={activeView === view.id}
               onClick={() => { setActiveExtensionKey(null); setExtensionSurface(null); setActiveView(view.id) }}
               className={`flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-control px-1 transition ${
-                activeView === view.id ? 'bg-white/[0.11] text-vast-cyan' : 'text-vast-soft hover:bg-white/[0.06] hover:text-white'
+                activeView === view.id ? 'bg-white/11 text-vast-cyan' : 'text-vast-soft hover:bg-white/6 hover:text-white'
               }`}
             >
               <Icon className="h-4 w-4" />
@@ -283,7 +273,7 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
           )
         })}
         {extensionPanels.map((panel) => (
-          <button key={panel.key} type="button" title={`${panel.title} — ${panel.extensionName}`} role="tab" aria-selected={activeExtensionKey === panel.key} onClick={() => openExtensionPanel(panel.key)} className={`flex min-h-10 min-w-10 flex-1 items-center justify-center gap-1.5 rounded-control px-1 transition ${activeExtensionKey === panel.key ? 'bg-white/[0.11] text-vast-cyan' : 'text-vast-soft hover:bg-white/[0.06] hover:text-white'}`}>
+          <button key={panel.key} type="button" title={`${panel.title} — ${panel.extensionName}`} role="tab" aria-selected={activeExtensionKey === panel.key} onClick={() => openExtensionPanel(panel.key)} className={`flex min-h-10 min-w-10 flex-1 items-center justify-center gap-1.5 rounded-control px-1 transition ${activeExtensionKey === panel.key ? 'bg-white/11 text-vast-cyan' : 'text-vast-soft hover:bg-white/6 hover:text-white'}`}>
             <Puzzle className="h-4 w-4" />
             {sidePanelSettings.showLabels && width >= 440 && <span className="truncate text-[11px] font-medium">{panel.title}</span>}
           </button>
@@ -311,7 +301,7 @@ function PanelSearch({ value, onChange, placeholder }: { value: string; onChange
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="h-10 w-full rounded-card border border-white/10 bg-black/20 pl-9 pr-3 text-sm text-white outline-none placeholder:text-vast-soft"
+        className="h-10 w-full rounded-card border border-white/10 bg-black/20 pl-9 pr-3 text-sm text-white outline-hidden placeholder:text-vast-soft"
       />
     </div>
   )
@@ -349,18 +339,18 @@ function NotesPanel(): JSX.Element {
         New URL/workspace note
       </button>
       {workspaceNotes.map((note) => (
-        <div key={note.id} className="rounded-card border border-white/10 bg-white/[0.045] p-3">
+        <div key={note.id} className="rounded-card border border-white/10 bg-white/4.5 p-3">
           <input
             value={note.title}
             onChange={(event) => updateNote(note.id, { title: event.target.value })}
-            className="w-full bg-transparent text-sm font-semibold text-white outline-none"
+            className="w-full bg-transparent text-sm font-semibold text-white outline-hidden"
           />
           <textarea
             value={note.body}
             onChange={(event) => updateNote(note.id, { body: event.target.value })}
             placeholder="Write locally..."
             rows={5}
-            className="mt-2 w-full resize-none rounded-control border border-white/[0.08] bg-black/20 p-3 text-sm leading-6 text-vast-soft outline-none placeholder:text-vast-soft/60 focus:border-vast-cyan/30"
+            className="mt-2 w-full resize-none rounded-control border border-white/8 bg-black/20 p-3 text-sm leading-6 text-vast-soft outline-hidden placeholder:text-vast-soft/60 focus:border-vast-cyan/30"
           />
           <div className="mt-2 flex items-center justify-between text-[11px] text-vast-soft">
             <span>{note.url ? 'URL note' : 'Workspace note'}</span>
@@ -421,7 +411,7 @@ function BookmarksPanel(): JSX.Element {
         const items = bookmarks.filter((bookmark) => bookmark.folderId === folder.id && matchesBookmark(bookmark))
         if (queryText && items.length === 0 && !folder.name.toLowerCase().includes(queryText)) return null
         return (
-          <section key={folder.id} className="min-w-0 overflow-hidden rounded-card border border-white/[0.08] bg-white/[0.025] p-2">
+          <section key={folder.id} className="min-w-0 overflow-hidden rounded-card border border-white/8 bg-white/2.5 p-2">
             <div className="mb-2 flex items-center gap-2 px-1">
               <Folder className="h-3.5 w-3.5 text-vast-cyan" />
               {editingFolderId === folder.id ? (
@@ -458,7 +448,7 @@ function BookmarksPanel(): JSX.Element {
             </div>
             <div className="space-y-1">
               {items.map((bookmarkItem) => (
-                <div key={bookmarkItem.id} className="group rounded-control px-2 py-2 hover:bg-white/[0.06]">
+                <div key={bookmarkItem.id} className="group rounded-control px-2 py-2 hover:bg-white/6">
                   <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -487,13 +477,13 @@ function BookmarksPanel(): JSX.Element {
                     <input
                       value={bookmarkItem.title}
                       onChange={(event) => updateBookmark(bookmarkItem.id, { title: event.target.value })}
-                      className="h-8 w-full min-w-0 max-w-full rounded-control border border-white/[0.08] bg-black/20 px-2 text-xs text-white outline-none focus:border-vast-cyan/30"
+                      className="h-8 w-full min-w-0 max-w-full rounded-control border border-white/8 bg-black/20 px-2 text-xs text-white outline-hidden focus:border-vast-cyan/30"
                     />
                     <div className="grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)_minmax(5.5rem,7.5rem)] gap-2">
                       <input
                         value={bookmarkItem.url}
                         onChange={(event) => updateBookmark(bookmarkItem.id, { url: event.target.value })}
-                        className="h-8 min-w-0 flex-1 rounded-control border border-white/[0.08] bg-black/20 px-2 text-xs text-vast-soft outline-none focus:border-vast-cyan/30"
+                        className="h-8 min-w-0 flex-1 rounded-control border border-white/8 bg-black/20 px-2 text-xs text-vast-soft outline-hidden focus:border-vast-cyan/30"
                       />
                       <VastSelect
                         value={bookmarkItem.folderId ?? ''}
@@ -503,7 +493,7 @@ function BookmarksPanel(): JSX.Element {
                         ]}
                         onChange={(folderId) => updateBookmark(bookmarkItem.id, { folderId: folderId || undefined })}
                         ariaLabel={`Folder for ${bookmarkItem.title || 'bookmark'}`}
-                        className="w-full min-w-0 max-w-[7.5rem]"
+                        className="w-full min-w-0 max-w-30"
                         buttonClassName="h-8 min-h-8 rounded-control px-2 text-xs"
                       />
                     </div>
@@ -515,7 +505,7 @@ function BookmarksPanel(): JSX.Element {
         )
       })}
       {looseBookmarks.map((bookmarkItem) => (
-        <div key={bookmarkItem.id} className="rounded-control px-2 py-2 hover:bg-white/[0.06]">
+        <div key={bookmarkItem.id} className="rounded-control px-2 py-2 hover:bg-white/6">
           <div className="group flex items-center gap-2">
             <button
               type="button"
@@ -544,13 +534,13 @@ function BookmarksPanel(): JSX.Element {
             <input
               value={bookmarkItem.title}
               onChange={(event) => updateBookmark(bookmarkItem.id, { title: event.target.value })}
-              className="h-8 w-full min-w-0 max-w-full rounded-control border border-white/[0.08] bg-black/20 px-2 text-xs text-white outline-none focus:border-vast-cyan/30"
+              className="h-8 w-full min-w-0 max-w-full rounded-control border border-white/8 bg-black/20 px-2 text-xs text-white outline-hidden focus:border-vast-cyan/30"
             />
             <div className="grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)_minmax(5.5rem,7.5rem)] gap-2">
               <input
                 value={bookmarkItem.url}
                 onChange={(event) => updateBookmark(bookmarkItem.id, { url: event.target.value })}
-                className="h-8 min-w-0 flex-1 rounded-control border border-white/[0.08] bg-black/20 px-2 text-xs text-vast-soft outline-none focus:border-vast-cyan/30"
+                className="h-8 min-w-0 flex-1 rounded-control border border-white/8 bg-black/20 px-2 text-xs text-vast-soft outline-hidden focus:border-vast-cyan/30"
               />
               <VastSelect
                 value={bookmarkItem.folderId ?? ''}
@@ -560,7 +550,7 @@ function BookmarksPanel(): JSX.Element {
                 ]}
                 onChange={(folderId) => updateBookmark(bookmarkItem.id, { folderId: folderId || undefined })}
                 ariaLabel={`Folder for ${bookmarkItem.title || 'bookmark'}`}
-                className="w-full min-w-0 max-w-[7.5rem]"
+                className="w-full min-w-0 max-w-30"
                 buttonClassName="h-8 min-h-8 rounded-control px-2 text-xs"
               />
             </div>
@@ -606,7 +596,7 @@ function FolderNameEditor({
           onDone()
         }
       }}
-      className="min-w-0 flex-1 rounded-control border border-white/10 bg-black/20 px-2 py-1 text-xs font-semibold text-white outline-none focus:border-vast-cyan/30"
+      className="min-w-0 flex-1 rounded-control border border-white/10 bg-black/20 px-2 py-1 text-xs font-semibold text-white outline-hidden focus:border-vast-cyan/30"
     />
   )
 }
@@ -635,7 +625,7 @@ function HistoryPanel(): JSX.Element {
           key={entry.id}
           type="button"
           onClick={() => runtime.openUrlInNewTab(entry.url)}
-          className="flex w-full items-center gap-3 rounded-control px-2 py-2 text-left hover:bg-white/[0.06]"
+          className="flex w-full items-center gap-3 rounded-control px-2 py-2 text-left hover:bg-white/6"
         >
           <Favicon url={entry.url} favicon={entry.favicon} title={entry.title} />
           <div className="min-w-0 flex-1">
@@ -681,7 +671,7 @@ function DownloadsPanel(): JSX.Element {
         const scanReady = item.scanStatus && !['pending', 'scanning'].includes(item.scanStatus)
         const ScanIcon = item.scanStatus === 'clean' ? ShieldCheck : item.scanStatus === 'dangerous' || item.scanStatus === 'suspicious' ? ShieldAlert : ShieldQuestion
         return (
-          <div key={item.id} className="rounded-card border border-white/10 bg-white/[0.045] p-3">
+          <div key={item.id} className="rounded-card border border-white/10 bg-white/4.5 p-3">
             <div className="flex items-center gap-3">
               <Download className="h-4 w-4 text-vast-cyan" />
               <div className="min-w-0 flex-1">
@@ -699,7 +689,7 @@ function DownloadsPanel(): JSX.Element {
             </div>
             {item.state === 'progressing' && (
               <>
-                <div className="mt-3 h-1.5 overflow-hidden rounded-control bg-white/[0.08]">
+                <div className="mt-3 h-1.5 overflow-hidden rounded-control bg-white/8">
                   <div className="h-full rounded-control bg-vast-cyan" style={{ width: `${Math.round(progress * 100)}%` }} />
                 </div>
                 <div className="mt-3 flex gap-2">
@@ -772,7 +762,7 @@ function ReadingListPanel(): JSX.Element {
     <div className="space-y-2">
       {readingList.length === 0 && <EmptyPanel icon={ListChecks} text="Saved pages will appear here." />}
       {readingList.map((item) => (
-        <div key={item.id} className="group flex items-center gap-2 rounded-control px-2 py-2 hover:bg-white/[0.06]">
+        <div key={item.id} className="group flex items-center gap-2 rounded-control px-2 py-2 hover:bg-white/6">
           <button type="button" onClick={() => runtime.openUrlInNewTab(item.url)} className="min-w-0 flex-1 text-left">
             <div className={`truncate text-sm ${item.read ? 'text-vast-soft line-through' : 'text-white'}`}>{item.title}</div>
             <div className="truncate text-xs text-vast-soft">{item.url}</div>
@@ -800,7 +790,7 @@ function ReadingListPanel(): JSX.Element {
 function EmptyPanel({ icon: Icon, text }: { icon: typeof Clock3; text: string }): JSX.Element {
   return (
     <div className="grid place-items-center rounded-card border border-dashed border-white/10 p-8 text-center text-sm text-vast-soft">
-      <Icon className="mb-3 h-5 w-5 text-white/[0.35]" />
+      <Icon className="mb-3 h-5 w-5 text-white/35" />
       {text}
     </div>
   )

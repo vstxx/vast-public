@@ -7,6 +7,7 @@ const { spawnSync } = require('node:child_process')
 const {
   assertPublishReady,
   requiredCanaryChecks,
+  requiredSplitFeedCanaryChecks,
   requiredHotfixCanaryChecks,
   nextStep,
   publicSourceCommitMessage,
@@ -56,6 +57,18 @@ test('hotfix publication still binds the sealed candidate and requires its targe
   }
   assert.throws(() => assertPublishReady(hotfixState, { ...identity, candidateManifestSha256: 'c'.repeat(64) }, hotfixCanary), /candidate/i)
   assert.throws(() => assertPublishReady({ ...hotfixState, phases: { ...hotfixState.phases, verify: 'failed' } }, identity, hotfixCanary), /verify/i)
+})
+
+test('split stable feed requires proof that old clients are held and new clients update', () => {
+  const splitIdentity = { ...identity, version: '0.4.3' }
+  const splitState = { ...readyState, ...splitIdentity, profile: 'standard' }
+  const canary = { ...splitIdentity, checks: Object.fromEntries(requiredSplitFeedCanaryChecks.map((name) => [name, true])) }
+  assert.doesNotThrow(() => assertPublishReady(splitState, splitIdentity, canary))
+  for (const name of ['legacyFeedHold', 'v2UpdaterCanary']) {
+    assert.throws(() => assertPublishReady(splitState, splitIdentity, {
+      ...canary, checks: { ...canary.checks, [name]: false, updaterCanary: true }
+    }), new RegExp(name))
+  }
 })
 
 test('resume skips completed steps but never duplicates a running or uncertain command', () => {
@@ -142,10 +155,10 @@ test('hotfix prepare skips broad gates but retains build, artifact checks and im
   assert.deepEqual(hotfixReleaseSteps.publish, releaseSteps.publish)
 })
 
-test('hotfix mode is restricted to 0.4.2 and cannot resume under a different profile', () => {
+test('the 0.4.3 release uses the full standard gate and cannot resume under a different profile', () => {
   assert.doesNotThrow(() => assertReleaseProfile('0.4.2', 'hotfix', 'hotfix'))
-  assert.doesNotThrow(() => assertReleaseProfile('0.4.1', 'standard', 'standard'))
-  assert.throws(() => assertReleaseProfile('0.4.2', 'standard', 'standard'), /hotfix/i)
+  assert.doesNotThrow(() => assertReleaseProfile('0.4.3', 'standard', 'standard'))
+  assert.throws(() => assertReleaseProfile('0.4.2', 'standard', 'standard'), /0\.4\.3/i)
   assert.throws(() => assertReleaseProfile('0.4.1', 'hotfix', 'hotfix'), /0\.4\.2/i)
   assert.throws(() => assertReleaseProfile('0.4.2', 'hotfix', 'standard'), /profile/i)
 })

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, realpath, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -62,7 +62,7 @@ test('persists a distinct local Chromium source without manufacturing a vext pac
     await store.initialize()
     const local = await stageLocalChromiumDirectory({ sourceRoot: source, sourceExtensionId: id,
       expectedVersion: '1.0.0', stagingRoot: store.stagingRoot }, new AbortController().signal)
-    const staged = store.adoptLocalChromiumStage(local)
+    const staged = await store.adoptLocalChromiumStage(local)
     assert.equal(staged.format, 'local-chromium')
     const release = await store.commit(staged)
     const transaction = await store.prepareRuntime(id, '1.0.0')
@@ -74,6 +74,29 @@ test('persists a distinct local Chromium source without manufacturing a vext pac
     assert.equal(state.versions[0].packageSha256, local.fingerprint)
     assert.equal(await readFile(join(release, 'manifest.json'), 'utf8'), await readFile(join(source, 'manifest.json'), 'utf8'))
     assert.equal((await new ExtensionManagedStore(join(root, 'Vast')).readState(id))?.source, 'local-chromium')
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('adopts a staged extension when its parent has a different filesystem alias', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'vast-managed-alias-'))
+  try {
+    const actual = join(root, 'Actual')
+    const alias = join(root, 'Alias')
+    await mkdir(actual)
+    try { await symlink(actual, alias, process.platform === 'win32' ? 'junction' : 'dir') } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EPERM') return t.skip('directory aliases unavailable')
+      throw error
+    }
+    const source = join(actual, 'Chrome', 'Extensions', id, '1.0.0_0')
+    await mkdir(source, { recursive: true })
+    await writeFile(join(source, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Controlled', version: '1.0.0' }))
+    const store = new ExtensionManagedStore(join(alias, 'Vast'))
+    await store.initialize()
+    const local = await stageLocalChromiumDirectory({ sourceRoot: source, sourceExtensionId: id,
+      expectedVersion: '1.0.0', stagingRoot: store.stagingRoot }, new AbortController().signal)
+    const staged = await store.adoptLocalChromiumStage(local)
+    assert.equal(staged.root, await realpath(local.root))
+    assert.equal(staged.contentRoot, await realpath(local.contentRoot))
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 

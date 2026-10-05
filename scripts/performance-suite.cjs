@@ -6,6 +6,7 @@ const path = require('node:path')
 const root = path.resolve(__dirname, '..')
 const phase = (process.argv.find((value) => value.startsWith('--phase=')) || '--phase=baseline').slice(8)
 const startupOnly = process.argv.includes('--startup-only')
+const startupNoAnimation = process.argv.includes('--startup-no-animation')
 const executableValue = process.argv.find((value) => value.startsWith('--executable='))
 const executable = executableValue
   ? path.resolve(executableValue.slice('--executable='.length))
@@ -89,6 +90,19 @@ async function waitFor(session, expression, timeoutMs = 30000) {
   throw new Error(`Timed out waiting for ${expression}`)
 }
 
+async function waitForOpeningSplashExit(debugPort, timeoutMs = 10000) {
+  const started = Date.now()
+  let sawSplash = false
+  while (Date.now() - started < timeoutMs) {
+    const targets = await fetchJson(`http://127.0.0.1:${debugPort}/json/list`, 1).catch(() => [])
+    const splashExists = targets.some((item) => item.type === 'page' && item.url.startsWith('data:text/html'))
+    if (splashExists) sawSplash = true
+    else if (sawSplash) return
+    await wait(50)
+  }
+  throw new Error('Timed out waiting for the opening splash to exit')
+}
+
 function processSnapshot() {
   const escaped = executable.replace(/'/g, "''")
   const command = `$rows=Get-CimInstance Win32_Process | Where-Object ExecutablePath -eq '${escaped}'; $out=@(); foreach($row in $rows){$p=Get-Process -Id $row.ProcessId -ErrorAction SilentlyContinue; if($p){$out += [pscustomobject]@{pid=$p.Id;cpu=[double]$p.CPU;workingSet=[double]$p.WorkingSet64;privateMemory=[double]$p.PrivateMemorySize64;handle=$p.MainWindowHandle.ToInt64();commandLine=$row.CommandLine}}}; @($out)|ConvertTo-Json -Compress`
@@ -148,11 +162,11 @@ async function measureTabSwitch(session, title) {
   return performance.now() - started
 }
 
-function seedTabs(template, tabCount, hibernateInactiveTabs = true) {
+function seedTabs(template, tabCount, hibernateInactiveTabs = true, openingAnimation = true) {
   const data = structuredClone(template)
   const workspace = data.workspaces.find((item) => !item.isPrivate) || data.workspaces[0]
   const now = Date.now()
-  data.settings.openingAnimation = true
+  data.settings.openingAnimation = openingAnimation
   data.settings.hibernateInactiveTabs = hibernateInactiveTabs
   data.settings.advanced.confirmBeforeClosingManyTabs = false
   data.tabs = Array.from({ length: tabCount }, (_, index) => ({
@@ -226,6 +240,12 @@ async function runScenario(name, profileDir, options = {}) {
   })
   const session = await connectRenderer(debugPort)
   const shellAt = await waitFor(session, "document.querySelector('.app-shell')")
+  if (options.waitForOpeningReveal) {
+    // A hidden primary window can hydrate long before the splash ends. Keep the
+    // process alive until its real reveal so closing the run cannot masquerade
+    // as an animation-complete startup mark.
+    await waitForOpeningSplashExit(debugPort)
+  }
   await session.evaluate(`(() => { window.__vastPerfLongTasks = []; window.__vastPerfObserver = new PerformanceObserver(list => window.__vastPerfLongTasks.push(...list.getEntries().map(e => e.duration))); window.__vastPerfObserver.observe({type:'longtask', buffered:true}); })()`)
   if (options.webviewCount) {
     await waitFor(session, `document.querySelectorAll('webview').length >= ${options.webviewCount}`, 60000)
@@ -360,6 +380,10 @@ async function runScenario(name, profileDir, options = {}) {
   // outside every reported scenario metric.
   await wait(1500)
   const probe = await readJsonEventually(reportPath)
+  if (options.waitForOpeningReveal) {
+    assert(probe?.marks?.some((mark) => mark.name === 'primary-browser-revealed'),
+      `${name} closed before the primary browser reveal was recorded`)
+  }
   const result = {
     name,
     launchEpochMs,
@@ -470,26 +494,38 @@ async function main() {
     const template = JSON.parse(fs.readFileSync(storagePath, 'utf8'))
     const scenarios = [bootstrap]
 
-    for (const tabCount of (process.argv.includes('--startup-recheck') ? [1] : [1, 10, 25, 50, 100, 250])) {
+    for (const tabCount of (process.argv.includes('--startup-recheck')
+      ? (process.argv.includes('--startup-scale') ? [1, 50, 250] : [1])
+      : [1, 10, 25, 50, 100, 250])) {
       const profileDir = path.join(profilesRoot, `restore-${tabCount}`)
       fs.rmSync(profileDir, { recursive: true, force: true })
       fs.mkdirSync(profileDir, { recursive: true })
-      fs.writeFileSync(path.join(profileDir, 'vast-data.json'), `${JSON.stringify(seedTabs(template, tabCount))}\n`)
+      fs.writeFileSync(path.join(profileDir, 'vast-data.json'), `${JSON.stringify(seedTabs(template, tabCount, true, !startupNoAnimation))}\n`)
       scenarios.push(await runScenario(`restore-${tabCount}-cold`, profileDir, {
         idleCpu: tabCount === 1,
         idleCpuStates: tabCount === 1,
+        waitForOpeningReveal: process.argv.includes('--startup-recheck') && !startupNoAnimation,
         tabSwitchTitles: tabCount === 100 ? ['Perf Tab 1', 'Perf Tab 4'] : undefined
       }))
-      if (tabCount === 1) scenarios.push(await runScenario('restore-1-warm', profileDir, { idleCpu: false }))
+      if (tabCount === 1) scenarios.push(await runScenario('restore-1-warm', profileDir, {
+        idleCpu: false,
+        waitForOpeningReveal: process.argv.includes('--startup-recheck') && !startupNoAnimation
+      }))
     }
 
     for (let repetition = 2; repetition <= Number((process.argv.find(a=>a.startsWith('--startup-samples=')) || '--startup-samples=3').split('=')[1]); repetition += 1) {
       const profileDir = path.join(profilesRoot, `startup-repeat-${repetition}`)
       fs.rmSync(profileDir, { recursive: true, force: true })
       fs.mkdirSync(profileDir, { recursive: true })
-      fs.writeFileSync(path.join(profileDir, 'vast-data.json'), `${JSON.stringify(seedTabs(template, 1))}\n`)
-      scenarios.push(await runScenario(`restore-1-cold-${repetition}`, profileDir, { idleCpu: false }))
-      scenarios.push(await runScenario(`restore-1-warm-${repetition}`, profileDir, { idleCpu: false }))
+      fs.writeFileSync(path.join(profileDir, 'vast-data.json'), `${JSON.stringify(seedTabs(template, 1, true, !startupNoAnimation))}\n`)
+      scenarios.push(await runScenario(`restore-1-cold-${repetition}`, profileDir, {
+        idleCpu: false,
+        waitForOpeningReveal: process.argv.includes('--startup-recheck') && !startupNoAnimation
+      }))
+      scenarios.push(await runScenario(`restore-1-warm-${repetition}`, profileDir, {
+        idleCpu: false,
+        waitForOpeningReveal: process.argv.includes('--startup-recheck') && !startupNoAnimation
+      }))
     }
 
     if (process.argv.includes('--startup-recheck')) {

@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState, type MutableRefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import { isLikelyCallUrl } from '../../../shared/call-protection'
 import type { BrowserSettings, ID, Tab } from '../../../shared/types'
 import { isInternalUrl } from '../../lib/url'
 import { useBrowserStore } from '../../store/browser-store'
-import { isInactiveTabEligibleForRetention } from '../../store/tab-lifecycle'
+import { hasInactiveRetentionCandidates, isInactiveTabEligibleForRetention, isTabRetainedWithoutAutomaticHibernation, sameTabRetentionInputs } from '../../store/tab-lifecycle'
 
 interface EffectiveRamSettings {
   ramLimitMb: number
@@ -51,17 +51,25 @@ export function useTabRetentionController({
   const [actualWorkingSetMb, setActualWorkingSetMb] = useState(0)
   const [mediaActiveTabIds, setMediaActiveTabIds] = useState<Set<ID>>(() => new Set())
   const [captureActiveWebContentsIds, setCaptureActiveWebContentsIds] = useState<Set<number>>(() => new Set())
+  const retentionTabsRef = useRef(tabs)
+  if (!sameTabRetentionInputs(tabs, retentionTabsRef.current)) retentionTabsRef.current = tabs
+  const retentionTabs = retentionTabsRef.current
   const visibleIdSet = useMemo(() => new Set(visibleIds), [visibleIds])
   const effectiveRam = useMemo(() => effectiveRamSettings(ramSettings, visibleIds.length), [ramSettings, visibleIds.length])
+  const shouldPollRetention = hibernateInactiveTabs && hasInactiveRetentionCandidates(retentionTabs, visibleIdSet, isInternalUrl)
 
   useEffect(() => {
-    if (!hibernateInactiveTabs) return undefined
+    if (!shouldPollRetention) return undefined
+    setRamClock(Date.now())
     const interval = window.setInterval(() => setRamClock(Date.now()), 30_000)
     return () => window.clearInterval(interval)
-  }, [hibernateInactiveTabs])
+  }, [shouldPollRetention])
 
   useEffect(() => {
-    if (!hibernateInactiveTabs) return undefined
+    if (!shouldPollRetention) {
+      setActualWorkingSetMb(0)
+      return undefined
+    }
     let cancelled = false
     const updateMetrics = (): void => {
       void window.vast.app.processMetrics().then((metrics) => {
@@ -74,7 +82,7 @@ export function useTabRetentionController({
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [hibernateInactiveTabs])
+  }, [shouldPollRetention])
 
   const setMediaActive = useCallback((tabId: ID, active: boolean): void => {
     setMediaActiveTabIds((current) => {
@@ -109,20 +117,25 @@ export function useTabRetentionController({
       }
     }
     return protectedIds
-  }, [captureActiveWebContentsIds, tabs, webviews])
+  }, [captureActiveWebContentsIds, retentionTabs, webviews])
 
   const callProtectedTabIds = useMemo(() => {
     const protectedIds = new Set<ID>()
-    for (const tab of tabs) {
+    for (const tab of retentionTabs) {
       if (
         tab.status !== 'error' &&
         (mediaActiveTabIds.has(tab.id) || captureActiveTabIds.has(tab.id) || (tab.lifecycle !== 'discarded' && isLikelyCallUrl(tab.url)))
       ) protectedIds.add(tab.id)
     }
     return protectedIds
-  }, [captureActiveTabIds, mediaActiveTabIds, tabs])
+  }, [captureActiveTabIds, mediaActiveTabIds, retentionTabs])
 
+  const appliedCallProtectionRef = useRef<Set<ID> | null>(null)
   useEffect(() => {
+    const previous = appliedCallProtectionRef.current
+    if (previous?.size === callProtectedTabIds.size &&
+      [...callProtectedTabIds].every((id) => previous.has(id))) return
+    appliedCallProtectionRef.current = callProtectedTabIds
     setKeepAwakeTabIds([...callProtectedTabIds])
     for (const [tabId, webview] of webviews.current) {
       try {
@@ -145,8 +158,10 @@ export function useTabRetentionController({
   }, [setKeepAwakeTabIds, webviews])
 
   const retainedWebTabIds = useMemo(() => {
-    const webCandidates = tabs.filter((tab) => !isInternalUrl(tab.url))
-    if (!hibernateInactiveTabs) return new Set(webCandidates.map((tab) => tab.id))
+    const webCandidates = retentionTabs.filter((tab) => !isInternalUrl(tab.url))
+    if (!hibernateInactiveTabs) return new Set(webCandidates
+      .filter((tab) => isTabRetainedWithoutAutomaticHibernation(tab, visibleIdSet))
+      .map((tab) => tab.id))
     const callRetainedIds = webCandidates.filter((tab) => callProtectedTabIds.has(tab.id)).map((tab) => tab.id)
     const pinnedRetainedIds = ramSettings.keepPinnedTabsAwake
       ? webCandidates.filter((tab) => tab.pinned && tab.status !== 'error').map((tab) => tab.id)
@@ -175,7 +190,7 @@ export function useTabRetentionController({
       retained.add(tab.id)
     }
     return retained
-  }, [actualWorkingSetMb, callProtectedTabIds, effectiveRam, hibernateInactiveTabs, ramClock, ramSettings.keepPinnedTabsAwake, tabs, visibleIds])
+  }, [actualWorkingSetMb, callProtectedTabIds, effectiveRam, hibernateInactiveTabs, ramClock, ramSettings.keepPinnedTabsAwake, retentionTabs, visibleIdSet, visibleIds])
 
   const webTabs = useMemo(
     () => tabs.filter((tab) => !isInternalUrl(tab.url) && retainedWebTabIds.has(tab.id)),
@@ -184,15 +199,15 @@ export function useTabRetentionController({
 
   useEffect(() => {
     const updates: Array<{ id: ID; lifecycle: Tab['lifecycle'] }> = []
-    for (const tab of tabs) {
+    for (const tab of retentionTabs) {
       if (isInternalUrl(tab.url)) continue
       if (tab.lifecycle === 'crashed' && tab.status === 'error') continue
       let nextLifecycle: Tab['lifecycle'] = visibleIdSet.has(tab.id) || callProtectedTabIds.has(tab.id) ? 'active' : 'sleeping'
-      if (hibernateInactiveTabs && !retainedWebTabIds.has(tab.id)) nextLifecycle = 'discarded'
+      if (!retainedWebTabIds.has(tab.id)) nextLifecycle = 'discarded'
       if (tab.lifecycle !== nextLifecycle) updates.push({ id: tab.id, lifecycle: nextLifecycle })
     }
     updateTabLifecycles(updates)
-  }, [callProtectedTabIds, hibernateInactiveTabs, retainedWebTabIds, tabs, updateTabLifecycles, visibleIdSet])
+  }, [callProtectedTabIds, hibernateInactiveTabs, retainedWebTabIds, retentionTabs, updateTabLifecycles, visibleIdSet])
 
   return { webTabs, setMediaActive, callProtectedTabIds }
 }

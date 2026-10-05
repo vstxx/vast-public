@@ -96,7 +96,7 @@ export const BrowserStage = forwardRef<BrowserStageHandle, BrowserStageProps>(fu
   const visibleIds = useMemo(() => {
     if (splitActive && primaryTab && secondaryTab) return [primaryTab.id, secondaryTab.id]
     return activeTab ? [activeTab.id] : []
-  }, [activeTab, primaryTab, secondaryTab, splitActive])
+  }, [activeTab?.id, primaryTab?.id, secondaryTab?.id, splitActive])
 
   const { webTabs, setMediaActive, callProtectedTabIds } = useTabRetentionController({
     webviews,
@@ -391,7 +391,7 @@ export const BrowserStage = forwardRef<BrowserStageHandle, BrowserStageProps>(fu
                 />
               )}
               {wakingSleepingTab && (
-                <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center bg-black/[0.18] backdrop-blur-[1px]">
+                <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center bg-black/18 backdrop-blur-[1px]">
                   <div className="rounded-panel border border-white/10 bg-black/50 px-5 py-4 text-center shadow-glass backdrop-blur-xl">
                     <div className="mx-auto mb-3 h-1.5 w-14 rounded-control bg-vast-cyan/70 shadow-[0_0_22px_color-mix(in_srgb,var(--vast-accent)_32%,transparent)]" />
                     <div className="text-sm font-semibold text-white">Restoring discarded tab</div>
@@ -413,7 +413,7 @@ export const BrowserStage = forwardRef<BrowserStageHandle, BrowserStageProps>(fu
           aria-valuenow={Math.round(splitRatio)}
           tabIndex={0}
           data-testid="split-resizer"
-          className="group absolute inset-y-0 z-30 w-3 -translate-x-1/2 cursor-col-resize touch-none focus-visible:outline-none"
+          className="group absolute inset-y-0 z-30 w-3 -translate-x-1/2 cursor-col-resize touch-none focus-visible:outline-hidden"
           style={{ left: `${splitRatio}%` }}
           onDoubleClick={() => {
             previewSplitRatio(50)
@@ -447,7 +447,7 @@ export const BrowserStage = forwardRef<BrowserStageHandle, BrowserStageProps>(fu
           }}
         >
           <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-white/10 transition-colors group-hover:bg-vast-cyan/55 group-focus-visible:bg-vast-cyan" />
-          <span className="absolute left-1/2 top-5 grid h-7 w-5 -translate-x-1/2 place-items-center rounded-control border border-white/10 bg-[#111218] text-white/35 shadow-md transition group-hover:border-vast-cyan/30 group-hover:text-vast-cyan">
+          <span className="absolute left-1/2 top-5 grid h-7 w-5 -translate-x-1/2 place-items-center rounded-control border border-white/10 bg-vast-panel text-white/35 shadow-md transition group-hover:border-vast-cyan/30 group-hover:text-vast-cyan">
             <Columns2 className="h-3 w-3" />
           </span>
         </div>

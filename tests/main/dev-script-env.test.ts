@@ -15,6 +15,8 @@ test('default dev startup uses the verified patched compatibility runtime and ke
   assert.match(compatibilityDevScriptSource, /VAST_PATCHED_ELECTRON_COMPAT:\s*'1'/)
   assert.match(compatibilityDevScriptSource, /ELECTRON_EXEC_PATH:\s*executable/)
   assert.match(compatibilityDevScriptSource, /verify-extension-compat-runtime\.cjs/)
+  assert.match(compatibilityDevScriptSource, /defaultOutputPath\(manifest\)/)
+  assert.match(compatibilityDevScriptSource, /VAST_PATCHED_ELECTRON_DIST \|\| preparedDist/)
   assert.match(compatibilityDevScriptSource, /prepare-extension-compat-runtime\.cjs'\), '--check'/)
   assert.match(compatibilityDevScriptSource, /if \(prepared\.status !== 0\).*prepare-extension-compat-runtime\.cjs/s)
 })

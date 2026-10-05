@@ -180,7 +180,7 @@ export function DiagnosticsPage(): JSX.Element {
           icon={Activity}
           title="Diagnostics"
           actions={
-            <div className="grid w-full grid-cols-2 gap-2 sm:w-[25rem]" data-testid="diagnostics-primary-actions">
+            <div className="grid w-full grid-cols-2 gap-2 sm:w-100" data-testid="diagnostics-primary-actions">
               <button type="button" onClick={() => void copyText(JSON.stringify(report, null, 2))} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2">
                 <Copy className="h-4 w-4" />
                 Copy diagnostics
@@ -271,12 +271,12 @@ export function DiagnosticsPage(): JSX.Element {
               value={originQuery}
               onChange={(event) => setOriginQuery(event.target.value)}
               placeholder="Search origins"
-              className="h-11 w-full rounded-card border border-white/10 bg-black/20 pl-10 pr-3 text-sm text-white outline-none focus:border-vast-cyan/[0.35]"
+              className="h-11 w-full rounded-card border border-white/10 bg-black/20 pl-10 pr-3 text-sm text-white outline-hidden focus:border-vast-cyan/35"
             />
           </div>
           <div className="space-y-2">
             {origins.map((origin) => (
-              <div key={origin.origin} className="flex items-center gap-3 rounded-card border border-white/[0.08] bg-white/[0.035] p-3">
+              <div key={origin.origin} className="flex items-center gap-3 rounded-card border border-white/8 bg-white/[0.035] p-3">
                 <div className="grid h-11 w-11 place-items-center rounded-card bg-vast-cyan/10 text-vast-cyan">
                   <Database className="h-4 w-4" />
                 </div>
@@ -317,7 +317,7 @@ export function DiagnosticsPage(): JSX.Element {
         >
           <div className="space-y-2">
             {snapshots.slice(0, 5).map((snapshot) => (
-              <div key={snapshot.id} className="rounded-card border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm">
+              <div key={snapshot.id} className="rounded-card border border-white/8 bg-white/[0.035] px-4 py-3 text-sm">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate font-semibold text-white">{snapshot.title}</div>
@@ -347,7 +347,7 @@ export function DiagnosticsPage(): JSX.Element {
 
 function Info({ label, value }: { label: string; value: string }): JSX.Element {
   return (
-    <div className="mb-2 flex gap-3 rounded-card border border-white/[0.08] bg-white/[0.035] px-3 py-2 text-sm">
+    <div className="mb-2 flex gap-3 rounded-card border border-white/8 bg-white/[0.035] px-3 py-2 text-sm">
       <span className="w-32 shrink-0 text-vast-soft">{label}</span>
       <span className="min-w-0 flex-1 break-all text-white/90">{value}</span>
     </div>

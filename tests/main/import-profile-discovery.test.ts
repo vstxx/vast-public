@@ -129,3 +129,19 @@ test('resolves a configured absolute Firefox profile through its opaque ID', asy
   assert.equal(resolved.canonicalPath, await realpath(custom))
   assert.equal(resolved.profileId, profile.id)
 })
+
+test('rejects an absolute Firefox profile reached through a directory link', async (t) => {
+  const firefoxRoot = join(roaming, 'Mozilla', 'Firefox')
+  const actual = join(root, 'actual-firefox')
+  const alias = join(root, 'alias-firefox')
+  await mkdir(firefoxRoot, { recursive: true })
+  await mkdir(actual, { recursive: true })
+  await writeFile(join(actual, 'places.sqlite'), '')
+  try { await symlink(actual, alias, process.platform === 'win32' ? 'junction' : 'dir') } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EPERM') return t.skip('directory links unavailable')
+    throw error
+  }
+  await writeFile(join(firefoxRoot, 'profiles.ini'), `[Profile0]\nName=Linked\nIsRelative=0\nPath=${alias}\n`)
+  const firefox = (await discoverImportSources()).sources.find((source) => source.id === 'firefox')
+  assert.deepEqual(firefox?.profiles, [])
+})

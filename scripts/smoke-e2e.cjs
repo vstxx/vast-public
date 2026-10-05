@@ -1628,6 +1628,8 @@ async function main() {
   assert(!body.includes('Opening Vast') && !body.includes('Restoring local session'), 'Old startup loader text is visible.')
   assert(!body.includes('VAST RECOVERED'), 'Renderer error boundary is visible on startup.')
   record('startup renders shell', 'one workspace, one new tab, and the side panel closed')
+  await waitFor(session, "document.querySelector('.vast-logo-image')?.naturalWidth > 0", 'new tab logo asset')
+  await wait(1000)
   await session.screenshot('01-startup')
 
   await openCommand(session, 'Open Privacy Settings')

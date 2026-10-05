@@ -31,38 +31,38 @@ let topOverscrollDistance = 0
 let topOverscrollVisible = false
 
 function scrollTopFor(target: EventTarget | null): number {
-  if (target instanceof Element && target.scrollHeight > target.clientHeight + 2) return target.scrollTop
+  // Wheel input may bubble from an inner list to a scrollable ancestor. Read
+  // current offsets first; scrollHeight/clientHeight can force layout here.
+  for (let element = target instanceof Element ? target : null; element; element = element.parentElement) {
+    if (element.scrollTop > 1) return element.scrollTop
+  }
   const scrollingElement = document.scrollingElement
   return Math.max(window.scrollY, scrollingElement?.scrollTop ?? 0)
 }
 
 function publishScrollBoundary(target: EventTarget | null = null): void {
   const atTop = scrollTopFor(target) <= 1
-  if (atTop === lastScrollAtTop) return
-  lastScrollAtTop = atTop
-  ipcRenderer.sendToHost('vast:scroll-boundary', atTop)
   if (!atTop && topOverscrollVisible) {
     topOverscrollVisible = false
     topOverscrollDistance = 0
     ipcRenderer.sendToHost('vast:purist-top-overscroll', 'hide')
   }
-}
-
-function documentIsAtTop(): boolean {
-  const scrollingElement = document.scrollingElement
-  return Math.max(window.scrollY, scrollingElement?.scrollTop ?? 0) <= 1
+  if (atTop === lastScrollAtTop) return
+  lastScrollAtTop = atTop
+  ipcRenderer.sendToHost('vast:scroll-boundary', atTop)
 }
 
 function onTopOverscrollWheel(event: WheelEvent): void {
-  if (event.deltaY < 0 && documentIsAtTop() && scrollTopFor(event.target) <= 1) {
-    topOverscrollDistance = Math.min(48, topOverscrollDistance + Math.abs(event.deltaY))
+  if (!Number.isFinite(event.deltaY) || event.deltaY === 0) return
+  const pixelScale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1
+  if (event.deltaY < 0 && scrollTopFor(event.target) <= 1) {
+    topOverscrollDistance = Math.min(48, topOverscrollDistance + Math.abs(event.deltaY * pixelScale))
     if (!topOverscrollVisible && topOverscrollDistance >= 18) {
       topOverscrollVisible = true
       ipcRenderer.sendToHost('vast:purist-top-overscroll', 'show')
     }
     return
   }
-  if (event.deltaY <= 0) return
   topOverscrollDistance = 0
   if (!topOverscrollVisible) return
   topOverscrollVisible = false

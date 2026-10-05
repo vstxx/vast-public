@@ -1,0 +1,7 @@
+# Candidate for a controlled rebuild of the pinned r5 compatibility patchset.
+# This file is not a released runtime and must not update the approved manifest
+# until the native, CSS, extension, security, and packaged performance gates pass.
+import("//electron/build/args/release.gn")
+is_debug = false
+symbol_level = 1
+use_remoteexec = false

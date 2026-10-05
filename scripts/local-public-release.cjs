@@ -9,6 +9,18 @@ const requiredCanaryChecks = Object.freeze([
   'icloudBasic',
   'profilePersistence'
 ])
+const requiredSplitFeedCanaryChecks = Object.freeze([
+  'cleanInstall',
+  'publicUpgrade',
+  'legacyFeedHold',
+  'v2UpdaterCanary',
+  'chatgptAuthenticated',
+  'extensionRuntime',
+  'bitwarden',
+  'proton',
+  'icloudBasic',
+  'profilePersistence'
+])
 const requiredHotfixCanaryChecks = Object.freeze([
   'cleanInstall',
   'publicUpgrade',
@@ -103,7 +115,9 @@ function assertPublishReady(state, identity, canary) {
       throw new Error(`Release ${key === 'candidateManifestSha256' ? 'candidate' : key} mismatch.`)
     }
   }
-  for (const name of state.profile === 'hotfix' ? requiredHotfixCanaryChecks : requiredCanaryChecks) {
+  const splitFeed = require('./release-files.cjs').usesSplitStableFeed(identity.version)
+  const required = splitFeed ? requiredSplitFeedCanaryChecks : (state.profile === 'hotfix' ? requiredHotfixCanaryChecks : requiredCanaryChecks)
+  for (const name of required) {
     if (canary.checks?.[name] !== true) throw new Error(`Canary check ${name} is not passed.`)
   }
 }
@@ -189,7 +203,7 @@ const hotfixReleaseSteps = Object.freeze({
 
 function assertReleaseProfile(version, requested, stored) {
   if (requested === 'hotfix' && version !== '0.4.2') throw new Error('Hotfix route is approved only for Vast 0.4.2.')
-  if (requested === 'standard' && version !== '0.4.1') throw new Error('The standard local route is approved only for Vast 0.4.1; use --hotfix for 0.4.2.')
+  if (requested === 'standard' && version !== '0.4.3') throw new Error('The standard local route is approved only for Vast 0.4.3.')
   if (stored !== requested) throw new Error(`Existing release state has profile ${stored}; requested ${requested}.`)
 }
 
@@ -452,4 +466,4 @@ async function main() {
 
 if (require.main === module) main().catch((error) => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1 })
 
-module.exports = { assertPublishReady, requiredCanaryChecks, requiredHotfixCanaryChecks, nextStep, executeSteps, publicSourceCommitMessage, verifiedCandidateAssets, assertExpectedReleaseAssets, validateReleaseFileEnv, snapshotDigest, assertCleanInstallAllowed, releaseSteps, hotfixReleaseSteps, assertReleaseProfile }
+module.exports = { assertPublishReady, requiredCanaryChecks, requiredSplitFeedCanaryChecks, requiredHotfixCanaryChecks, nextStep, executeSteps, publicSourceCommitMessage, verifiedCandidateAssets, assertExpectedReleaseAssets, validateReleaseFileEnv, snapshotDigest, assertCleanInstallAllowed, releaseSteps, hotfixReleaseSteps, assertReleaseProfile }

@@ -6,11 +6,14 @@ This note documents the current 0.2.7 storage model, export/import behavior, and
 
 Vast uses one authoritative user data root.
 
-- Default installed direct and Microsoft Store root: `%APPDATA%\Vast`.
+- Default installed direct root: `%APPDATA%\Vast`.
+- Default Microsoft Store root: `%APPDATA%\Vast Store` (possibly redirected
+  into the package's Roaming container by Windows). Local development Store
+  packages use `Vast Store Development` instead.
 - Portable root: `Vast Data` beside the portable executable.
 - Dev/test root: `VAST_TEST_USER_DATA_DIR`, `VAST_DEV_USER_DATA_DIR`, or `%APPDATA%\Vast Dev`.
-- Custom root: stored in `%APPDATA%\Vast\data-root.json` as `customDataRoot` for
-  installed builds, or in the portable `Vast Data` root for portable builds.
+- Custom root: stored in `data-root.json` under the channel's default root as
+  `customDataRoot`, or in the portable `Vast Data` root for portable builds.
 
 The custom root is read before the app is ready and applied with `app.setPath('userData', ...)`, so Chromium profile state and Vast-owned files stay under the selected directory. The renderer cannot write arbitrary paths directly; export, import, folder open, and data directory changes go through validated main-process IPC.
 
@@ -46,7 +49,7 @@ The export intentionally skips volatile and recoverable caches and updater scrat
 
 ## Full Import
 
-Settings -> Data -> Import Vast data validates the `.vastbackup` manifest, creates a full pre-import `.vastbackup` of the current profile, extracts into a new data directory under `%APPDATA%\Vast\imports`, writes the custom data-root config, and restarts Vast into the imported profile.
+Settings -> Data -> Import Vast data validates the `.vastbackup` manifest, creates a full pre-import `.vastbackup` of the current profile, extracts into a new data directory under the current channel's configuration root (`imports/`), writes the custom data-root config, and restarts Vast into the imported profile.
 
 The current profile is not deleted during import. This avoids overwriting locked Chromium files while the app is running and provides rollback by keeping the previous root plus the pre-import backup.
 
@@ -58,7 +61,7 @@ Settings -> Data -> Change Vast data directory:
 - rejects unsafe targets such as filesystem roots, Windows system directories, Program Files, the app install directory, or folders inside the active data root,
 - creates a full backup,
 - copies the current data root while skipping volatile caches,
-- writes `%APPDATA%\Vast\data-root.json`,
+- writes `data-root.json` under the current channel's configuration root,
 - restarts Vast.
 
 The old data directory is left in place.

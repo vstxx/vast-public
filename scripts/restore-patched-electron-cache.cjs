@@ -13,7 +13,7 @@ function validateDescriptor(value, approved) {
     value.patchsetRevision !== approved.electron.patchsetRevision ||
     value.patchsetSha256 !== approved.electron.patchsetSha256 ||
     value.binarySha256 !== approved.electron.binary.sha256 ||
-    value.releaseTag !== `ci-cache-electron-${value.patchsetSha256.slice(0, 16)}` ||
+    value.releaseTag !== `ci-cache-electron-${value.binarySha256.slice(0, 16)}` ||
     value.assetName !== `${value.patchsetRevision}-win32-x64.zip` ||
     !/^[a-f0-9]{64}$/.test(value.archiveSha256)) {
     throw new Error('Private Electron cache descriptor differs from the approved runtime.')

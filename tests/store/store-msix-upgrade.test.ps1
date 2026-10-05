@@ -38,6 +38,8 @@ if ($preexistingPackageData.Count -ne 0) {
 }
 $profileRoot = $null
 $packageDataRoot = $null
+$directProfileRoot = Join-Path $env:APPDATA 'Vast'
+$directProfileExistedBefore = Test-Path -LiteralPath $directProfileRoot
 
 $sdkBin = Get-ChildItem -LiteralPath (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin') -Directory -ErrorAction Stop |
   Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
@@ -216,12 +218,22 @@ try {
   Assert-True ($installed.Version.ToString() -eq $PreviousVersion) 'lower package must install first'
   $packageDataRoot = [System.IO.Path]::GetFullPath((Join-Path $packagesRoot $installed.PackageFamilyName))
   Assert-True ($packageDataRoot.StartsWith(($packagesRoot + [System.IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)) 'package data root must remain inside the current user Packages directory'
-  $profileRoot = [System.IO.Path]::GetFullPath((Join-Path $packageDataRoot 'LocalCache\Roaming\Vast'))
   Write-Host '[store-e2e] Launching the lower-version package.'
   $firstProcess = Assert-PackagedVastLaunchHealthy $installed.PackageFamilyName $installed.InstallLocation
   Stop-PackagedVast $installed.InstallLocation
-  for ($attempt = 0; $attempt -lt 20 -and -not (Test-Path -LiteralPath $profileRoot); $attempt += 1) { Start-Sleep -Milliseconds 250 }
-  Assert-True (Test-Path -LiteralPath $profileRoot -PathType Container) 'packaged Vast must use the shared roaming Vast profile'
+  $profileCandidates = @(
+    (Join-Path $packageDataRoot 'LocalCache\Roaming\Vast Store Development'),
+    (Join-Path $env:APPDATA 'Vast Store Development')
+  )
+  for ($attempt = 0; $attempt -lt 20 -and -not $profileRoot; $attempt += 1) {
+    $profileRoot = $profileCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Container } | Select-Object -First 1
+    if (-not $profileRoot) { Start-Sleep -Milliseconds 250 }
+  }
+  Assert-True (-not [string]::IsNullOrWhiteSpace($profileRoot)) 'development Store package must create its own profile'
+  Assert-True (-not [string]::Equals([System.IO.Path]::GetFullPath($profileRoot), [System.IO.Path]::GetFullPath($directProfileRoot), [StringComparison]::OrdinalIgnoreCase)) 'Store and direct profiles must differ'
+  if (-not $directProfileExistedBefore) {
+    Assert-True (-not (Test-Path -LiteralPath $directProfileRoot)) 'Store launch must not create the direct EXE profile'
+  }
 
   $probeRoot = Join-Path $profileRoot 'StoreUpgradeEvidence'
   New-Item -ItemType Directory -Path $probeRoot -Force | Out-Null
@@ -249,6 +261,9 @@ try {
   foreach ($entry in $before) {
     Assert-True (Test-Path -LiteralPath (Join-Path $profileRoot $entry.Path) -PathType Leaf) "upgrade removed profile file $($entry.Path)"
     Assert-True ((Get-FileHash -LiteralPath (Join-Path $profileRoot $entry.Path) -Algorithm SHA256).Hash -eq $entry.Hash) "upgrade changed preserved profile file $($entry.Path)"
+  }
+  if (-not $directProfileExistedBefore) {
+    Assert-True (-not (Test-Path -LiteralPath $directProfileRoot)) 'Store upgrade must not create the direct EXE profile'
   }
 
   $packageFamilyName = $installed.PackageFamilyName

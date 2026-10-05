@@ -9,8 +9,17 @@ import {
   readConfiguredDataRoot,
   validateDataRootCandidate,
   writeConfiguredDataRoot,
-  portableDataRootFromEnv
+  portableDataRootFromEnv,
+  storeDataRoot
 } from '../../src/main/data-path-utils.ts'
+
+test('Store profile and configuration roots are separate from direct and local development', () => {
+  const roaming = join('C:', 'Users', 'Test', 'AppData', 'Roaming')
+  assert.equal(storeDataRoot(roaming, false), join(roaming, 'Vast Store'))
+  assert.equal(storeDataRoot(roaming, true), join(roaming, 'Vast Store Development'))
+  assert.notEqual(storeDataRoot(roaming, false), join(roaming, 'Vast'))
+  assert.notEqual(storeDataRoot(roaming, true), storeDataRoot(roaming, false))
+})
 
 test('portable builds keep their profile beside the portable executable', () => {
   assert.equal(

@@ -7,6 +7,7 @@ const { tmpdir } = require('node:os')
 const { basename, join, resolve, sep } = require('node:path')
 const { inspectTrustedAuthenticode, inspectUnsignedPe } = require('./windows-authenticode.cjs')
 const { verifiedCandidateAssets } = require('./local-public-release.cjs')
+const { usesSplitStableFeed } = require('./release-files.cjs')
 
 const root = join(__dirname, '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
@@ -196,6 +197,21 @@ async function main() {
     throw new Error('Production version.json provenance does not match this version and source commit.')
   }
   if (versionJson.signaturePolicy !== expectedSignaturePolicy) throw new Error('Production version.json signaturePolicy is incorrect.')
+  if (usesSplitStableFeed(version)) {
+    const legacyFeed = downloaded.get('latest.yml')
+    const currentFeed = downloaded.get('stable-v2.yml')
+    if (sha256(legacyFeed) !== 'ee14320467671518cdbee4f4168b4499bf5676ef70ac5152ba383ab3d71f34cb') {
+      throw new Error('Published latest.yml must retain the exact public 0.4.2 update feed.')
+    }
+    if (versionJson.artifacts?.latest !== 'Installer/stable-v2.yml') {
+      throw new Error('Production version.json does not select stable-v2.yml.')
+    }
+    const activeMetadata = readFileSync(currentFeed, 'utf8')
+    if (!new RegExp(`version:\\s*${version.replace(/\./g, '\\.')}`).test(activeMetadata) ||
+        !activeMetadata.includes(`Vast-Setup-${version}.exe`)) {
+      throw new Error('Published stable-v2.yml does not target this release.')
+    }
+  }
   if (manifest.package?.url !== zipName) throw new Error('Production update manifest points at an unexpected package.')
   if (manifest.package?.sha256 !== sha256(zip)) throw new Error('Production update package SHA-256 does not match its manifest.')
   if (Number(manifest.package?.size) !== statSync(zip).size) throw new Error('Production update package size does not match its manifest.')

@@ -19,7 +19,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBound
     if (this.state.error) {
       return (
         <div className="flex h-screen items-center justify-center bg-vast-black text-vast-bright">
-          <div className="max-w-lg rounded-card border border-white/10 bg-white/[0.06] p-7 shadow-glass">
+          <div className="max-w-lg rounded-card border border-white/10 bg-white/6 p-7 shadow-glass">
             <div className="text-sm uppercase tracking-[0.2em] text-vast-cyan">Vast recovered</div>
             <h1 className="mt-3 text-2xl font-semibold">The browser chrome hit an error.</h1>
             <p className="mt-3 text-sm leading-6 text-vast-soft">{this.state.error.message}</p>

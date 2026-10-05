@@ -11,6 +11,7 @@ $executable = (Resolve-Path -LiteralPath $ExecutablePath).Path
 if ([string]::IsNullOrWhiteSpace($ProfileRoot)) {
   $ProfileRoot = Join-Path ([IO.Path]::GetTempPath()) ("vast-packaged-launch-{0}" -f [Guid]::NewGuid().ToString('N'))
 }
+$ProfileRoot = [IO.Path]::GetFullPath($ProfileRoot)
 
 function Get-VastApplicationErrors([datetime] $Since) {
   @(Get-WinEvent -FilterHashtable @{

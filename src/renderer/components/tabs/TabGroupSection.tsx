@@ -48,7 +48,7 @@ function TabGroupSectionComponent({
   return (
     <section className="space-y-1" onDragOver={(event) => event.preventDefault()} onDrop={onDrop}>
       <div
-        className="group flex h-8 w-full items-center gap-2 rounded-control px-2 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-vast-soft hover:bg-white/[0.05] hover:text-white"
+        className="group flex h-8 w-full items-center gap-2 rounded-control px-2 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-vast-soft hover:bg-white/5 hover:text-white"
         onContextMenu={(event) => {
           event.preventDefault()
           openContextMenu({
@@ -113,7 +113,7 @@ function TabGroupSectionComponent({
             <MoreHorizontal className="h-3.5 w-3.5" />
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-7 z-30 w-52 rounded-card border border-white/10 bg-[#0c0d12]/[0.98] p-2 shadow-glass backdrop-blur-xl">
+            <div className="absolute right-0 top-7 z-30 w-52 rounded-card border border-white/10 bg-[#0c0d12]/98 p-2 shadow-glass backdrop-blur-xl">
               <button
                 type="button"
                 onClick={() => {

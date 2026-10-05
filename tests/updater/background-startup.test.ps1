@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$root = Join-Path ([IO.Path]::GetTempPath()) ('vast-startup-test-' + [guid]::NewGuid().ToString('N'))
+$root = Join-Path ([IO.Path]::GetTempPath()) ('vast-startup-test-' + [guid]::NewGuid().ToString('N') + ' space')
 New-Item -ItemType Directory -Path $root | Out-Null
 $compiler = Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA 'electron-builder\Cache') -Filter makensis.exe -Recurse | Select-Object -First 1
 if (-not $compiler) { throw 'NSIS compiler is required.' }
@@ -55,6 +55,8 @@ try {
   $deadline = [DateTime]::UtcNow.AddSeconds(8)
   while ((-not (Test-Path -LiteralPath $readyPath) -or -not (Get-Content -LiteralPath $readyPath -Raw)) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
   if (-not (Get-Content -LiteralPath $readyPath -Raw).Contains('VAST_UPDATE_READY')) { throw 'Helper did not acknowledge its handoff before parent exit.' }
+  [void]$run.WaitForExit(5000)
+  if (-not $run.HasExited) { throw 'The handoff launcher must exit while its installer worker waits independently for the browser.' }
   if (Test-Path -LiteralPath $installed) { throw 'Installer started before its parent exited.' }
   Stop-Process -Id $parent.Id
   $parent.WaitForExit()

@@ -3,11 +3,19 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 
 const splashSource = readFileSync(new URL('../../src/main/opening-splash.ts', import.meta.url), 'utf8')
+const packageJson = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
 
 const documentSource = splashSource.match(/function splashDocument\([\s\S]*?return `data:text\/html[\s\S]*`/)?.[0] ?? ''
 const logoRule = documentSource.match(/\.vast-opening-logo \{(?<body>[\s\S]*?)\n  \}/)?.groups?.body ?? ''
 const haloRule = documentSource.match(/\.vast-opening-logo-halo \{(?<body>[\s\S]*?)\n  \}/)?.groups?.body ?? ''
 const overlayRule = documentSource.match(/\.vast-opening-overlay \{(?<body>[\s\S]*?)\n  \}/)?.groups?.body ?? ''
+
+test('packaged splash loads the same wordmark artwork used in development', () => {
+  assert.match(splashSource, /join\(process\.cwd\(\), 'assets', 'logos', 'vast\.png'\)/)
+  assert.match(splashSource, /join\(process\.resourcesPath, 'app-wordmark\.png'\)/)
+  assert.ok(packageJson.build.extraResources.some((resource: { from: string; to: string }) =>
+    resource.from === 'assets/logos/vast.png' && resource.to === 'app-wordmark.png'))
+})
 
 test('splash document keeps the cropped, centered logo treatment', () => {
   assert.match(logoRule, /position:\s*absolute;/)

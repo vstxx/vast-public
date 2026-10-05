@@ -46,8 +46,8 @@ function TabRowComponent({ tab, active, compact, groups = [] }: TabRowProps): JS
       ? internalMeta.activeTabClassName
       : internalMeta.tabClassName
     : active
-      ? 'bg-white/[0.085] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_10px_28px_rgba(0,0,0,0.16)]'
-      : 'border-transparent text-vast-soft hover:border-white/[0.08] hover:bg-white/[0.06] hover:text-white'
+      ? 'bg-white/8.5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_10px_28px_rgba(0,0,0,0.16)]'
+      : 'border-transparent text-vast-soft hover:border-white/8 hover:bg-white/6 hover:text-white'
 
   const onDrop = (event: DragEvent<HTMLDivElement>): void => {
     event.preventDefault()
@@ -153,7 +153,7 @@ function TabRowComponent({ tab, active, compact, groups = [] }: TabRowProps): JS
                 closeTab(tab.id)
               }
             }}
-            className="grid h-6 w-6 shrink-0 place-items-center rounded-control text-white/[0.35] opacity-0 transition hover:bg-white/10 hover:text-white group-hover:opacity-100"
+            className="grid h-6 w-6 shrink-0 place-items-center rounded-control text-white/35 opacity-0 transition hover:bg-white/10 hover:text-white group-hover:opacity-100"
           >
             <X className="h-3.5 w-3.5" />
           </span>

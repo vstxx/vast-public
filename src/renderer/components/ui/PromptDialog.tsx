@@ -67,7 +67,7 @@ export function PromptDialog(): JSX.Element | null {
               })
             }}
             placeholder={dialog.placeholder}
-            className="mt-2 h-12 w-full rounded-card border border-white/10 bg-black/25 px-4 text-sm font-medium text-white outline-none transition focus:border-vast-cyan/40 focus:bg-black/[0.35]"
+            className="mt-2 h-12 w-full rounded-card border border-white/10 bg-black/25 px-4 text-sm font-medium text-white outline-hidden transition focus:border-vast-cyan/40 focus:bg-black/35"
           />
         </label>}
 

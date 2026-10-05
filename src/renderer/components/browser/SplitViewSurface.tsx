@@ -33,7 +33,7 @@ export function SplitPaneHeader({
       <button
         type="button"
         onClick={onActivate}
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-control px-1.5 py-1 text-left hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vast-cyan/65"
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-control px-1.5 py-1 text-left hover:bg-white/5 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-vast-cyan/65"
         title={`Focus ${tab.title}`}
       >
         <span className={`h-1.5 w-1.5 shrink-0 rounded-control ${active ? 'bg-vast-cyan shadow-[0_0_10px_var(--vast-accent)]' : 'bg-white/20'}`} />

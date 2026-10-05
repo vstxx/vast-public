@@ -23,6 +23,8 @@ if (!electronExecutable || !fs.existsSync(electronExecutable)) {
 }
 let appProcess
 let pageServer
+let fixturePreparedAt
+const rendererIssues = []
 
 const assertionTimeout = process.env.CI === 'true' ? 60_000 : 20_000
 
@@ -76,8 +78,41 @@ class CdpSession {
     this.socket = socket
     this.nextId = 1
     this.pending = new Map()
+    this.contexts = new Map()
+    this.frames = new Map()
+    this.stage = 'connected'
     socket.addEventListener('message', (event) => {
       const message = JSON.parse(event.data)
+      if (message.method === 'Runtime.executionContextCreated') this.contexts.set(message.params.context.id, {
+        origin: message.params.context.origin,
+        name: message.params.context.name,
+        frameId: message.params.context.auxData?.frameId
+      })
+      if (message.method === 'Runtime.executionContextDestroyed') this.contexts.delete(message.params.executionContextId)
+      if (message.method === 'Runtime.executionContextsCleared') this.contexts.clear()
+      if (message.method === 'Page.frameNavigated') this.frames.set(message.params.frame.id, {
+        url: message.params.frame.url,
+        parentId: message.params.frame.parentId,
+        loaderId: message.params.frame.loaderId
+      })
+      const contextId = message.method === 'Runtime.consoleAPICalled'
+        ? message.params.executionContextId
+        : message.params?.exceptionDetails?.executionContextId
+      const context = this.contexts.get(contextId)
+      if (message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error') rendererIssues.push({
+        stage: this.stage,
+        type: 'console',
+        text: message.params.args.map(a => a.value ?? a.description).join(' ').slice(0, 800),
+        context,
+        frame: this.frames.get(context?.frameId)
+      })
+      if (message.method === 'Runtime.exceptionThrown') rendererIssues.push({
+        stage: this.stage,
+        type: 'exception',
+        text: (message.params.exceptionDetails.exception?.description || message.params.exceptionDetails.text).slice(0, 800),
+        context,
+        frame: this.frames.get(context?.frameId)
+      })
       if (message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error') console.log('Page console:', JSON.stringify(message.params.args.map(a=>a.value ?? a.description)))
       if (message.method === 'Runtime.exceptionThrown') console.error('Renderer exception:', JSON.stringify(message.params))
       if (!message.id || !this.pending.has(message.id)) return
@@ -184,6 +219,33 @@ async function executeInActiveWebview(session, expression) {
   })()`)
 }
 
+async function assertGuestCssFallbacks(session) {
+  const values = await executeInActiveWebview(session, `(() => {
+    const style = document.createElement('style')
+    style.textContent = '#vast-css-env-check { --first: env(vast-unknown-environment, 10px); --value: var(--missing, var(--first)); } #vast-css-typed-check { --value: var(--missing, var(--typed)); width: var(--value); }'
+    const envTarget = document.createElement('div')
+    envTarget.id = 'vast-css-env-check'
+    const typedTarget = document.createElement('div')
+    typedTarget.id = 'vast-css-typed-check'
+    document.head.append(style)
+    document.body.append(envTarget, typedTarget)
+    try {
+      typedTarget.attributeStyleMap.set('--typed', new CSSUnparsedValue([' 10px/2']))
+      const envStyle = getComputedStyle(envTarget)
+      const typedStyle = getComputedStyle(typedTarget)
+      return {
+        first: envStyle.getPropertyValue('--first'),
+        value: envStyle.getPropertyValue('--value'),
+        original: typedStyle.getPropertyValue('--typed'),
+        fallback: typedStyle.getPropertyValue('--value')
+      }
+    } finally { style.remove(); envTarget.remove(); typedTarget.remove() }
+  })()`)
+  assert(values.first === '10px' && values.value === '10px' &&
+    values.original === ' 10px/2' && values.fallback === '10px/2',
+    `Guest CSS env()/var()/Typed OM fallback failed: ${JSON.stringify(values)}`)
+}
+
 async function guestMatches(session, expression, timeout) {
   const started = Date.now()
   while (Date.now() - started < timeout) {
@@ -278,13 +340,23 @@ async function run() {
   for(const [name,bytes] of parsed.files){ const target=path.resolve(fixturePath,name); assert(target.startsWith(fixturePath+path.sep),'Unsafe archive path'); fs.mkdirSync(path.dirname(target),{recursive:true}); fs.writeFileSync(target,bytes) }
   // These rules exist only in the extracted test fixture, never in the upload.
   fs.appendFileSync(path.join(fixturePath,'assets/ublock.txt'), '\n127.0.0.1##+js(trusted-set-constant, approvedRule, true)\n127.0.0.1##+js(trusted-replace-fetch-response, sponsored-marker, clean-marker, /trusted-player)\n127.0.0.1##+js(trusted-replace-xhr-response, sponsored-marker, clean-marker, /trusted-player)\n')
+  // Keep the copied publisher lists fresh for this isolated test. Otherwise a
+  // normal startup auto-update can replace the modified list with an upstream
+  // list that cannot contain the fixture-only trusted rules.
+  const provenancePath = path.join(fixturePath, 'assets/provenance.json')
+  const provenance = JSON.parse(fs.readFileSync(provenancePath, 'utf8'))
+  fixturePreparedAt = Date.now()
+  provenance.preparedAt = new Date(fixturePreparedAt).toISOString()
+  fs.writeFileSync(provenancePath, `${JSON.stringify(provenance, null, 2)}\n`)
   seedRegistry()
+  let fixtureDocumentId = 0
   pageServer = http.createServer((request,response) => {
     if (request.url.startsWith('/trusted-player')) { response.setHeader('Content-Type','application/json'); response.end(JSON.stringify({ marker:'sponsored-marker', playback:{id:'normal-video'} })); return }
     if (request.url.startsWith('/player')) { response.setHeader('Content-Type','application/json'); response.end(JSON.stringify({adPlacements:[1],adSlots:[2],playback:{id:'normal-video',duration:42}})); return }
     if(request.url.includes('.js')) { response.setHeader('Content-Type','application/javascript'); response.end('window.adLoaded=true'); return }
     response.setHeader('Content-Type','text/html')
     response.end(`<!doctype html><script>
+      window.fixtureDocumentId = ${++fixtureDocumentId};
       window.earlyProtected = window.adEnabled === false && window.approvedRule === true;
       window.originalFetch = window.fetch;
       window.fetchPlayer = fetch('/player?fetch').then(r=>r.json());
@@ -301,17 +373,18 @@ async function run() {
     await waitFor(session, `Boolean(document.querySelector('input[placeholder="Search or enter address"]'))`, 'address bar')
     await setAddress(session, origin+'/fixture')
     await waitForGuest(session, `document.title==='Adblock fixture'`, 'fixture navigation')
+    await assertGuestCssFallbacks(session)
+    console.log('PASS guest CSS env()/var()/Typed OM fallbacks')
     await waitFor(session, `!document.querySelector('.vast-opening-overlay')`, 'opening overlay')
     if(await session.evaluate(`Boolean(document.querySelector('[data-testid="relay-notice-dismiss"]'))`)) await session.evaluate(`document.querySelector('[data-testid="relay-notice-dismiss"]').click()`)
-    const popup = async () => {
+    const popup = async (screenshot = true) => {
     await session.evaluate(`document.querySelector('[data-testid="extensions-toolbar-button"]').click()`)
     await waitFor(session, `document.querySelector('[data-testid="extensions-toolbar-menu"]')?.innerText.includes('Adblocker for Vast')`, 'toolbar row')
     await session.evaluate(`([...document.querySelectorAll('[data-testid="extensions-toolbar-menu"] [role="menuitem"]')].find(e=>e.textContent.includes('Adblocker for Vast'))).click()`)
     await waitForExtensionSurface(session, `Boolean(document.body)`, 'popup')
     assert(await executeInExtensionSurface(session,'innerHeight >= 350'), 'Extension viewport did not fill popup container')
     await waitForExtensionSurface(session, `document.querySelector('#hostname')?.textContent==='127.0.0.1'`, 'popup hostname')
-    await wait(300)
-    await session.screenshot('adblock-extension-popup.png')
+    if (screenshot) { await wait(300); await session.screenshot('adblock-extension-popup.png') }
     }
     await popup()
     const status = () => executeInExtensionSurface(session, `chrome.runtime.sendMessage({type:'status'})`)
@@ -319,18 +392,33 @@ async function run() {
     for(let i=0;i<100;i++){ state=await status(); if(state.value?.ready||state.value?.error) break; await wait(250) }
     console.log('Cold initialization (ms)', state.value?.performance?.initializationMs)
     assert(state.ok && state.value.ready,'Engine did not initialize: '+state.value?.error)
+    assert(state.value.lists.some(list => list.id === 'ublock' && list.updatedAt === fixturePreparedAt), 'Fixture trusted list was replaced before verification')
+    const popupCycles = Number(process.env.VAST_ADBLOCK_POPUP_CYCLES || 0)
+    assert(Number.isInteger(popupCycles) && popupCycles >= 0 && popupCycles <= 30, 'Invalid popup cycle count')
+    for (let cycle = 0; cycle < popupCycles; cycle++) {
+      session.stage = `popup-close-${cycle + 1}`
+      await session.evaluate(`document.querySelector('[data-testid="extensions-toolbar-button"]').click()`)
+      await waitFor(session, `!document.querySelector('[data-testid="extensions-toolbar-menu"]') && !document.querySelector('webview.extension-toolbar-surface')`, `popup close ${cycle + 1}`)
+      session.stage = `popup-open-${cycle + 1}`
+      await popup(false)
+      const cycleState = await status()
+      assert(cycleState.ok && cycleState.value?.ready, `Extension popup failed after cycle ${cycle + 1}`)
+    }
+    if (popupCycles) console.log('Popup lifecycle issues:', JSON.stringify(rendererIssues))
     const guestTarget = (await fetchJson(`http://127.0.0.1:${remotePort}/json/list`)).find(t=>t.url.startsWith(origin))
     if(guestTarget) await CdpSession.connect(guestTarget.webSocketDebuggerUrl)
     const next={...state.value.settings,autoUpdate:false,customFilters:'/vast-block-me.js$script\n127.0.0.1##.vast-fixture-ad\n127.0.0.1##+js(set-constant, adEnabled, false)\n127.0.0.1##+js(json-prune-fetch-response, adPlacements adSlots, , propsToMatch, /player)\n127.0.0.1##+js(json-prune-xhr-response, adPlacements adSlots, , propsToMatch, /player)\n127.0.0.1##.dynamic-ad:has-text(Promoted)\n127.0.0.1##.dynamic-keep:has-text(Promoted)\n127.0.0.1#@#.dynamic-keep:has-text(Promoted)'}
     assert((await executeInExtensionSurface(session, `chrome.runtime.sendMessage(${JSON.stringify({type:'settings',settings:next})})`)).ok, 'Custom settings failed to save')
+    const beforeReloadId = await executeInActiveWebview(session, 'window.fixtureDocumentId')
     await executeInActiveWebview(session, 'location.reload();true').catch(()=>{})
-    await waitForGuest(session, `document.title==='Adblock fixture' && getComputedStyle(document.querySelector('.vast-fixture-ad')).display==='none'`, 'cosmetic filtering')
+    await waitForGuest(session, `window.fixtureDocumentId !== ${JSON.stringify(beforeReloadId)} && document.title==='Adblock fixture' && getComputedStyle(document.querySelector('.vast-fixture-ad')).display==='none'`, 'cosmetic filtering after reload')
     assert(await executeInActiveWebview(session,'window.adLoaded!==true'),'Network request was not blocked')
     const earlyState = await executeInActiveWebview(session, '({earlyProtected:window.earlyProtected,adEnabled:window.adEnabled,approvedRule:window.approvedRule})')
     if (earlyState.earlyProtected !== true) {
       await wait(150)
       const lateState = await executeInActiveWebview(session, '({adEnabled:window.adEnabled,approvedRule:window.approvedRule})')
-      throw new Error(`Document rules missed the first inline page script: early=${JSON.stringify(earlyState)} late=${JSON.stringify(lateState)}`)
+      const providerState = await status().catch(error => ({ inspectionError: String(error) }))
+      throw new Error(`Document rules missed the first inline page script: early=${JSON.stringify(earlyState)} late=${JSON.stringify(lateState)} provider=${JSON.stringify(providerState)}`)
     }
     for (let navigation = 0; navigation < 8; navigation++) {
       const url = `${origin}/fixture?early-document=${navigation}`
@@ -338,6 +426,11 @@ async function run() {
       await waitForGuest(session, `location.href===${JSON.stringify(url)} && document.title==='Adblock fixture'`, `early document navigation ${navigation}`)
       const state = await executeInActiveWebview(session, '({earlyProtected:window.earlyProtected,adEnabled:window.adEnabled,approvedRule:window.approvedRule})')
       assert(state.earlyProtected === true, `Document rules missed early navigation ${navigation}: ${JSON.stringify(state)}`)
+    }
+    if (process.env.VAST_ADBLOCK_EARLY_ONLY === '1') {
+      console.log('PASS early document rules after a verified reload and eight fresh navigations')
+      session.close()
+      return
     }
     for (const name of ['fetchPlayer','xhrPlayer']) {
       const data = await executeInActiveWebview(session, `window.${name}`)
@@ -352,7 +445,14 @@ async function run() {
     await waitForGuest(session, `getComputedStyle(document.querySelector('#spa-ad')).display==='none'`, 'SPA differential extended cosmetics')
     assert(await executeInActiveWebview(session, 'fetch===originalFetch && typeof require==="undefined" && typeof process==="undefined"'), 'SPA duplicated page patches or exposed Node')
 
-    assert((await status()).value.pageBlocked >= 1, 'Blocked statistics did not advance')
+    await waitFor(session, `window.vast.extensions.list().then(r=>r.extensions.some(e=>e.id==='${fixtureId}'&&e.runtimeState==='loaded'))`, 'extension still loaded')
+    let blockedState
+    for (let attempt = 0; attempt < 40; attempt++) {
+      blockedState = await status()
+      if (blockedState.value?.pageBlocked >= 1) break
+      await wait(100)
+    }
+    assert(blockedState.value?.pageBlocked >= 1, `Blocked statistics did not advance: ${JSON.stringify(blockedState)}`)
     const send = input => executeInExtensionSurface(session, `chrome.runtime.sendMessage(${JSON.stringify(input)})`)
     state = await status()
     assert((await send({type:'site',tabId:state.value.tabId,url:state.value.url,enabled:false,advancedOnly:true})).ok, 'Advanced-only disable failed')
@@ -447,6 +547,6 @@ async function run() {
     assert(!(await session.evaluate('window.vast.extensions.list()')).extensions.some(e=>e.id===fixtureId), 'Uninstalled record survived')
     console.log('PASS standalone extension: early safe/trusted rules, fetch/XHR, procedural SPA cosmetics, exceptions, site controls, OAuth, malformed/oversized/timeout fail-open, request/DOM stress, lifecycle and cache')
     session.close()
-  } finally { await stop(launched.child); fs.mkdirSync(artifactsDirectory,{recursive:true}); fs.writeFileSync(path.join(artifactsDirectory,'adblock-extension-e2e.log'),launched.stdout.join('')+'\n'+launched.stderr.join('')); await new Promise(resolve=>pageServer.close(resolve)); assert(path.dirname(userDataDir)===path.resolve(os.tmpdir())&&path.basename(userDataDir).startsWith('vast-adblock-extension-e2e-'),'Unsafe test cleanup'); fs.rmSync(userDataDir,{recursive:true,force:true}) }
+  } finally { await stop(launched.child); fs.mkdirSync(artifactsDirectory,{recursive:true}); fs.writeFileSync(path.join(artifactsDirectory,'adblock-extension-e2e.log'),launched.stdout.join('')+'\n'+launched.stderr.join('')); fs.writeFileSync(path.join(artifactsDirectory,'adblock-renderer-issues.json'), JSON.stringify(rendererIssues,null,2)); await new Promise(resolve=>pageServer.close(resolve)); assert(path.dirname(userDataDir)===path.resolve(os.tmpdir())&&path.basename(userDataDir).startsWith('vast-adblock-extension-e2e-'),'Unsafe test cleanup'); fs.rmSync(userDataDir,{recursive:true,force:true}) }
 }
 run().catch(error=>{console.error(error);process.exitCode=1})

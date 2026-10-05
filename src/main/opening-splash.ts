@@ -7,7 +7,7 @@ import { OPENING_AUDIO, OPENING_PRESENTATION, OPENING_SEQUENCE, openingVolumeToG
 
 const SPLASH_LOGO_PATH = isDev
   ? join(process.cwd(), 'assets', 'logos', 'vast.png')
-  : join(process.resourcesPath, process.platform === 'win32' ? 'app-icon-windows.png' : 'app-icon.png')
+  : join(process.resourcesPath, 'app-wordmark.png')
 
 export function roundedWindowShape(width: number, height: number, radius: number): Electron.Rectangle[] {
   const safeRadius = Math.max(0, Math.min(Math.floor(radius), Math.floor(width / 2), Math.floor(height / 2)))

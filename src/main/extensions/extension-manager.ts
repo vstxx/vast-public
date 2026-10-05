@@ -331,7 +331,7 @@ export class ExtensionManager {
       const local = await stageLocalChromiumInWorker({ profilePath: input.profilePath,
         sourceExtensionId: input.sourceExtensionId, expectedVersion: input.version, fingerprint: input.fingerprint },
       this.managedStore.stagingRoot, new AbortController().signal)
-      const staged = this.managedStore.adoptLocalChromiumStage(local)
+      const staged = await this.managedStore.adoptLocalChromiumStage(local)
       try {
         await verifyLocalChromiumInWorker(local.contentRoot, local.fingerprint)
         const checked = await validateLocalChromiumRoot(local.contentRoot, input.sourceExtensionId, input.version)

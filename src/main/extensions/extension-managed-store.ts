@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { atomicWriteJson } from '../atomic-file.ts'
@@ -247,14 +247,26 @@ export class ExtensionManagedStore {
     }
   }
 
-  adoptLocalChromiumStage(local: LocalChromiumStage): StagedLocalChromiumPackage {
+  async adoptLocalChromiumStage(local: LocalChromiumStage): Promise<StagedLocalChromiumPackage> {
     if (!VEXT_EXTENSION_ID.test(local.sourceExtensionId) || !VEXT_VERSION.test(local.version) ||
-        !/^[a-f0-9]{64}$/.test(local.fingerprint) || !/^[a-f0-9]{64}$/.test(local.manifestSha256) ||
-        !isInside(this.stagingRoot, local.root) || !isInside(local.root, local.contentRoot)) {
+        !/^[a-f0-9]{64}$/.test(local.fingerprint) || !/^[a-f0-9]{64}$/.test(local.manifestSha256)) {
+      throw new Error('Local Chromium stage is invalid.')
+    }
+    let stagingRoot: string
+    let root: string
+    let contentRoot: string
+    try {
+      stagingRoot = await realpath(this.stagingRoot)
+      root = await realpath(local.root)
+      contentRoot = await realpath(local.contentRoot)
+    } catch {
+      throw new Error('Local Chromium stage is invalid.')
+    }
+    if (!isInside(stagingRoot, root) || !isInside(root, contentRoot)) {
       throw new Error('Local Chromium stage is invalid.')
     }
     return { format: 'local-chromium', source: 'local-chromium', id: randomUUID(),
-      root: local.root, contentRoot: local.contentRoot, local }
+      root, contentRoot, local }
   }
 
   async commit(staged: StagedManagedPackage): Promise<string> {

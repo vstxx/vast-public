@@ -18,6 +18,14 @@ The lifecycle repair binds Chromium's `EventRouter` interface for extension serv
 
 The development-only Vast/ECE adapter is off by default and excluded from packaged bundles. Production enablement remains gated on the ECE distribution license, broader HTTPS/auth/multi-extension soak tests, and real signed-in account/autofill tests.
 
+## Performance build profile audit (2026-10-02)
+
+The approved r5 `out/VastCompat/args.gn` actually imports `testing.gn`. Generated Blink core flags include `NDEBUG` **and** `DCHECK_ALWAYS_ON`; `is_official_build=false`, PGO is off, and ThinLTO is off. This configuration must not be treated as production-optimized merely because `is_debug=false`. A packaged guest SPA fixture with 1,800 rows spent 19.7–42.0 ms median per `.row:nth-child(50n)` query on r5, versus 0.1–0.2 ms on stock Electron 44.3.0 with identical app files. The runs were interleaved but a separate native build was active; repeat absolute timing on an idle machine. Chromium's `NthIndexCache::NthChildIndex` performs an uncached walk of prior siblings inside `DCHECK_EQ` when the cache is used. `DCHECK_ALWAYS_ON` compiles that expensive diagnostic into the r5 renderer. This explains the synthetic fixture's selector cost; effects on Gmail and ChatGPT remain unverified.
+
+`vast-release-profile-args.gn` is the proposed GN configuration for the **same pinned source and r5 patchset**, importing `release.gn`. Generated flags from `out/VastRelease` confirm `is_official_build=true`, `dcheck_always_on=false`, PGO phase 2, and ThinLTO. An incremental native build is in progress; a `-j 8` attempt exceeded this machine's memory at step 7,368/46,381 and was resumed at `-j 3`. Do not replace the approved runtime manifest or package a public release until the resulting executable, CSS crash reproductions, extension/security behavior, and guest performance all pass. See `docs/guest-scroll-regression-investigation.md` for measurements and limitations.
+
+Run `node scripts/verify-electron-release-profile.cjs --build-dir=<absolute out/VastRelease>` to check generated Blink flags and `--require-binary` after compilation. It checks the actual GN output and reports the binary fingerprint; it does not prove runtime correctness or benchmark improvement.
+
 ## Current state
 
 The paragraphs below record the investigation before the accepted build and are retained for provenance. Their statements that the patch was unbuilt or unverified are historical.

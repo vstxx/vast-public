@@ -1,10 +1,12 @@
 const { existsSync } = require('node:fs')
 const { join, resolve } = require('node:path')
 const { spawnSync, spawn } = require('node:child_process')
+const { defaultOutputPath } = require('./prepare-patched-electron-dist.cjs')
 
 const root = join(__dirname, '..')
-const defaultDist = 'D:\\VastElectron44\\src\\out\\VastCompat'
-const patchedDist = resolve(process.env.VAST_PATCHED_ELECTRON_DIST || defaultDist)
+const manifest = require(join(root, 'patches', 'extension-compatibility-runtime.json'))
+const preparedDist = defaultOutputPath(manifest)
+const patchedDist = resolve(process.env.VAST_PATCHED_ELECTRON_DIST || preparedDist)
 const executable = join(patchedDist, process.platform === 'win32' ? 'electron.exe' : 'electron')
 if (!existsSync(executable)) {
   console.error(`Patched Electron executable was not found: ${executable}`)

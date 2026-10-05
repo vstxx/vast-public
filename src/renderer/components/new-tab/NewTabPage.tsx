@@ -197,7 +197,7 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
               Customize
             </button>
             {customizeOpen && (
-              <div className="absolute right-0 top-12 w-64 rounded-card border border-white/10 bg-[#0b0c11]/[0.98] p-3 text-left shadow-glass">
+              <div className="absolute right-0 top-12 w-64 rounded-card border border-white/10 bg-[#0b0c11]/98 p-3 text-left shadow-glass">
                 <div className="mb-2 text-[13px] font-semibold text-white">Dashboard sections</div>
                 {([
                   ['showQuickLinks', 'Quick links'],
@@ -242,7 +242,7 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
               options={workspaces.map((item) => ({ value: item.id, label: item.name }))}
               onChange={setActiveWorkspace}
               ariaLabel="Workspace"
-              className="min-w-[12rem]"
+              className="min-w-48"
               buttonClassName="h-9 min-h-9"
               align="start"
             />
@@ -251,9 +251,9 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
           <div className="relative mt-3 w-full max-w-2xl">
             <SearchForm query={query} setQuery={setQuery} onSubmit={(value) => runtime.navigateActive(resolveNewTabSearchInput(value, defaultSearchEngine))} />
             <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-[10px] text-vast-soft">
-              <span className="rounded-control border border-white/[0.08] bg-white/[0.03] px-2.5 py-1">Ctrl/Cmd+K</span>
-              <span className="rounded-control border border-white/[0.08] bg-white/[0.03] px-2.5 py-1">g / yt / w</span>
-              <span className="rounded-control border border-white/[0.08] bg-white/[0.03] px-2.5 py-1">local-first</span>
+              <span className="rounded-control border border-white/8 bg-white/3 px-2.5 py-1">Ctrl/Cmd+K</span>
+              <span className="rounded-control border border-white/8 bg-white/3 px-2.5 py-1">g / yt / w</span>
+              <span className="rounded-control border border-white/8 bg-white/3 px-2.5 py-1">local-first</span>
             </div>
           </div>
 
@@ -313,7 +313,7 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
                   type="button"
                   key={bookmark.id}
                   onClick={() => runtime.navigateActive(bookmark.url)}
-                  className="flex min-w-0 items-center gap-2 rounded-control border border-white/[0.08] bg-black/20 px-3 py-2 text-left hover:bg-white/[0.06]"
+                  className="flex min-w-0 items-center gap-2 rounded-control border border-white/8 bg-black/20 px-3 py-2 text-left hover:bg-white/6"
                 >
                   <Favicon url={bookmark.url} favicon={bookmark.favicon} title={bookmark.title} />
                   <span className="truncate text-xs font-medium text-white">{bookmark.title}</span>
@@ -340,7 +340,7 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
                 value={todoText}
                 onChange={(event) => setTodoText(event.target.value)}
                 placeholder="Add a task"
-                className="min-w-0 flex-1 rounded-control border border-white/10 bg-black/25 px-3 py-2 text-sm outline-none placeholder:text-vast-soft focus:border-vast-cyan/40"
+                className="min-w-0 flex-1 rounded-control border border-white/10 bg-black/25 px-3 py-2 text-sm outline-hidden placeholder:text-vast-soft focus:border-vast-cyan/40"
               />
               <button className="vast-icon-button vast-icon-button--quiet grid place-items-center h-10 w-10 rounded-control bg-white/10 text-white hover:bg-white/15">
                 <Plus className="h-4 w-4" />
@@ -384,7 +384,7 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
                   workspaceId: tab.workspaceId
                 })
               }
-              className="mb-3 w-full rounded-control border border-white/10 bg-white/[0.06] px-3 py-2 text-left text-sm text-white hover:bg-white/[0.09]"
+              className="mb-3 w-full rounded-control border border-white/10 bg-white/6 px-3 py-2 text-left text-sm text-white hover:bg-white/9"
             >
               New workspace note
             </button>
@@ -478,7 +478,7 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
                   type="button"
                   key={snapshot.id}
                   onClick={() => runtime.openUrlInNewTab(INTERNAL_SESSION_TIMELINE_URL)}
-                  className="rounded-card border border-white/[0.08] bg-black/20 p-4 text-left transition hover:bg-white/[0.06]"
+                  className="rounded-card border border-white/8 bg-black/20 p-4 text-left transition hover:bg-white/6"
                 >
                   <div className="truncate text-sm font-semibold text-white">{snapshot.title}</div>
                   <div className="mt-2 text-xs text-vast-soft">
@@ -520,13 +520,13 @@ function EditableNoteCard({
   onDelete: (noteId: string) => void
 }): JSX.Element {
   return (
-    <div className="group rounded-card border border-white/[0.065] bg-black/25 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] transition hover:border-white/[0.12] hover:bg-black/30">
+    <div className="group rounded-card border border-white/6.5 bg-black/25 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] transition hover:border-white/12 hover:bg-black/30">
       <div className="flex items-center gap-2">
         <input
           value={note.title}
           onChange={(event) => onChange(note.id, { title: event.target.value })}
           placeholder="Untitled note"
-          className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-white outline-none placeholder:text-vast-soft"
+          className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-white outline-hidden placeholder:text-vast-soft"
         />
         <button
           type="button"
@@ -542,7 +542,7 @@ function EditableNoteCard({
         onChange={(event) => onChange(note.id, { body: event.target.value })}
         placeholder="Write a note..."
         rows={3}
-        className="mt-2 max-h-24 min-h-[4.5rem] w-full resize-none rounded-control border border-white/[0.055] bg-white/[0.035] px-3 py-2 text-xs leading-5 text-vast-soft outline-none placeholder:text-vast-soft/70 focus:border-vast-cyan/30 focus:bg-white/[0.055] focus:text-white"
+        className="mt-2 max-h-24 min-h-18 w-full resize-none rounded-control border border-white/5.5 bg-white/[0.035] px-3 py-2 text-xs leading-5 text-vast-soft outline-hidden placeholder:text-vast-soft/70 focus:border-vast-cyan/30 focus:bg-white/5.5 focus:text-white"
       />
     </div>
   )
@@ -568,13 +568,13 @@ function SearchForm({
         setQuery('')
       }}
     >
-      <Search className="pointer-events-none absolute left-5 top-1/2 h-4 w-4 -translate-y-1/2 text-vast-cyan" />
+      <Search className="pointer-events-none absolute left-5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-vast-cyan" />
       <input
         autoFocus={autoFocus}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         placeholder="Search or enter address"
-        className="new-tab-search-input no-drag h-14 w-full rounded-panel border border-white/10 bg-white/[0.06] pl-12 pr-5 text-base font-medium text-white outline-none shadow-[0_16px_50px_rgba(0,0,0,0.22),0_0_0_1px_rgba(255,255,255,0.03)] backdrop-blur-xl transition duration-150 placeholder:text-vast-soft focus:bg-white/[0.075]"
+        className="new-tab-search-input no-drag h-14 w-full rounded-panel border border-white/10 bg-white/6 pl-12 pr-5 text-base font-medium text-white outline-hidden shadow-[0_16px_50px_rgba(0,0,0,0.22),0_0_0_1px_rgba(255,255,255,0.03)] backdrop-blur-xl transition duration-150 placeholder:text-vast-soft focus:bg-white/7.5"
       />
     </form>
   )
@@ -615,7 +615,7 @@ function QuickLinkGrid({
             const sourceId = event.dataTransfer.getData('application/x-vast-quick-link')
             if (sourceId) onMove(sourceId, link.id)
           }}
-          className={`group cursor-grab border border-white/[0.075] bg-white/[0.035] text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.045),0_14px_38px_rgba(0,0,0,0.14)] transition duration-150 hover:-translate-y-0.5 hover:border-white/[0.16] hover:bg-white/[0.065] active:cursor-grabbing ${compact ? 'rounded-card p-3' : 'rounded-panel p-4'}`}
+          className={`group cursor-grab border border-white/7.5 bg-white/[0.035] text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.045),0_14px_38px_rgba(0,0,0,0.14)] transition duration-150 hover:-translate-y-0.5 hover:border-white/16 hover:bg-white/6.5 active:cursor-grabbing ${compact ? 'rounded-card p-3' : 'rounded-panel p-4'}`}
         >
           <button type="button" onClick={() => onOpen(link.url)} className="w-full text-left">
             <span className={`grid place-items-center overflow-hidden rounded-control border border-white/10 bg-black/20 ${compact ? 'h-8 w-8' : 'h-10 w-10'}`} style={{ boxShadow: `0 8px 22px color-mix(in srgb, ${link.color} 24%, transparent)` }}>
@@ -647,7 +647,7 @@ function QuickLinkGrid({
       {showAdd && <button
         type="button"
         onClick={onAdd}
-        className="grid min-h-[126px] place-items-center rounded-card border border-dashed border-white/[0.12] bg-white/[0.035] text-sm font-medium text-vast-soft hover:border-white/20 hover:bg-white/[0.06] hover:text-white"
+        className="grid min-h-[126px] place-items-center rounded-card border border-dashed border-white/12 bg-white/[0.035] text-sm font-medium text-vast-soft hover:border-white/20 hover:bg-white/6 hover:text-white"
       >
         <Plus className="mb-2 h-5 w-5 text-vast-cyan" />
         Add quick link
@@ -672,14 +672,14 @@ function QuickLinkModal({
   const valid = Boolean(draft.title.trim() && resolvedUrl && isSafeLoadUrl(resolvedUrl))
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/[0.45] p-6 backdrop-blur-md">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-6 backdrop-blur-md">
       <form
         onSubmit={(event) => {
           event.preventDefault()
           if (!valid) return
           onSave({ ...draft, title: draft.title.trim(), url: resolvedUrl, color: draft.color })
         }}
-        className="w-full max-w-md rounded-panel border border-white/[0.12] bg-[#0b0c11]/[0.96] p-5 shadow-glass"
+        className="w-full max-w-md rounded-panel border border-white/12 bg-[#0b0c11]/96 p-5 shadow-glass"
       >
         <div className="mb-4 flex items-center justify-between">
           <div>
@@ -697,7 +697,7 @@ function QuickLinkModal({
               autoFocus
               value={draft.title}
               onChange={(event) => setDraft((value) => ({ ...value, title: event.target.value }))}
-              className="h-11 rounded-control border border-white/10 bg-black/25 px-3 text-sm font-medium normal-case tracking-normal text-white outline-none focus:border-vast-cyan/40"
+              className="h-11 rounded-control border border-white/10 bg-black/25 px-3 text-sm font-medium normal-case tracking-normal text-white outline-hidden focus:border-vast-cyan/40"
             />
           </label>
           <label className="grid gap-1 text-xs font-semibold uppercase tracking-[0.12em] text-vast-soft">
@@ -706,10 +706,10 @@ function QuickLinkModal({
               value={draft.url}
               onChange={(event) => setDraft((value) => ({ ...value, url: event.target.value }))}
               placeholder="https://github.com"
-              className="h-11 rounded-control border border-white/10 bg-black/25 px-3 text-sm font-medium normal-case tracking-normal text-white outline-none placeholder:text-vast-soft focus:border-vast-cyan/40"
+              className="h-11 rounded-control border border-white/10 bg-black/25 px-3 text-sm font-medium normal-case tracking-normal text-white outline-hidden placeholder:text-vast-soft focus:border-vast-cyan/40"
             />
           </label>
-          <label className="flex items-center justify-between rounded-control border border-white/10 bg-white/[0.045] px-3 py-2 text-sm text-vast-soft">
+          <label className="flex items-center justify-between rounded-control border border-white/10 bg-white/4.5 px-3 py-2 text-sm text-vast-soft">
             Color
             <input
               type="color"

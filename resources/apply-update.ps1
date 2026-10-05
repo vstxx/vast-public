@@ -1,6 +1,39 @@
-param([Parameter(Mandatory=$true)][string] $RecordPath, [Parameter(Mandatory=$true)][string] $LaunchPath, [Parameter(Mandatory=$true)][string] $ArgumentsPath, [int] $ParentProcessId, [switch] $Handshake)
+param([Parameter(Mandatory=$true)][string] $RecordPath, [Parameter(Mandatory=$true)][string] $LaunchPath, [Parameter(Mandatory=$true)][string] $ArgumentsPath, [int] $ParentProcessId, [switch] $Handshake, [switch] $Worker, [string] $ReadyToken)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+function Quote-Argument([string] $Value) {
+  '"' + ([regex]::Replace([regex]::Replace($Value, '(\\*)"', '$1$1\"'), '(\\+)$', '$1$1')) + '"'
+}
+
+# PowerShell started directly by Electron is torn down with its parent on some
+# Windows sessions. ShellExecute a separate waiter, then acknowledge only after
+# that waiter has opened and validated the staged update.
+if ($Handshake -and -not $Worker) {
+  $readyPath = $RecordPath + '.ready'
+  $token = [guid]::NewGuid().ToString('N')
+  Remove-Item -LiteralPath $readyPath -ErrorAction SilentlyContinue
+  $workerArgs = @(
+    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', (Quote-Argument $PSCommandPath),
+    '-RecordPath', (Quote-Argument $RecordPath), '-LaunchPath', (Quote-Argument $LaunchPath),
+    '-ArgumentsPath', (Quote-Argument $ArgumentsPath), '-ParentProcessId', [string]$ParentProcessId,
+    '-Worker', '-ReadyToken', $token
+  )
+  $waiter = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList ($workerArgs -join ' ') -WindowStyle Hidden -PassThru
+  $deadline = [DateTime]::UtcNow.AddSeconds(8)
+  while ([DateTime]::UtcNow -lt $deadline) {
+    try {
+      if ([IO.File]::ReadAllText($readyPath) -ceq $token) {
+        [Console]::Out.WriteLine('VAST_UPDATE_READY')
+        [Console]::Out.Flush()
+        exit 0
+      }
+    } catch [IO.IOException] {}
+    if ($waiter.HasExited) { exit 1 }
+    Start-Sleep -Milliseconds 50
+  }
+  exit 1
+}
+
 $launchArgs = @()
 $lock = $null
 $accepted = $false
@@ -11,7 +44,11 @@ try {
   $record = Get-Content -LiteralPath $RecordPath -Raw | ConvertFrom-Json
   if ($record.executable -cne $LaunchPath -or [int]$record.attempts -ge 3) { throw 'Invalid or exhausted update handoff.' }
   $accepted = $true
-  if ($Handshake) { [Console]::Out.WriteLine('VAST_UPDATE_READY'); [Console]::Out.Flush() }
+  if ($Worker) {
+    if ($ReadyToken -notmatch '^[a-f0-9]{32}$') { throw 'Invalid worker readiness token.' }
+    [IO.File]::WriteAllText($RecordPath + '.ready.tmp', $ReadyToken)
+    Move-Item -LiteralPath ($RecordPath + '.ready.tmp') -Destination ($RecordPath + '.ready') -Force
+  }
   $parentProcess = Get-Process -Id $ParentProcessId -ErrorAction SilentlyContinue
   if ($parentProcess -and -not $parentProcess.WaitForExit(30000)) { throw 'Vast did not finish closing.' }
   $parentClosed = $true
@@ -31,11 +68,8 @@ try {
 } finally {
   if ($lock) { $lock.Dispose() }
 }
-if ($Handshake -and (-not $accepted -or -not $parentClosed)) { exit 1 }
+if (($Handshake -or $Worker) -and (-not $accepted -or -not $parentClosed)) { exit 1 }
 # Never loop automatically after a failed installer; the old browser remains usable.
-function Quote-Argument([string] $Value) {
-  '"' + ([regex]::Replace([regex]::Replace($Value, '(\\*)"', '$1$1\"'), '(\\+)$', '$1$1')) + '"'
-}
 $arguments = @($launchArgs | Where-Object { $_ -ne '--vast-after-update' } | ForEach-Object { Quote-Argument ([string]$_) })
 $arguments += '--vast-after-update'
 Start-Process -FilePath $LaunchPath -ArgumentList ($arguments -join ' ') -WorkingDirectory ([IO.Path]::GetDirectoryName($LaunchPath)) -WindowStyle Hidden

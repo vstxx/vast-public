@@ -13,7 +13,7 @@ const compatibilityManifest = JSON.parse(readFileSync(join(root, 'patches', 'ext
 const version = pkg.version
 const releaseRoot = join(root, 'release')
 
-const { requiredReleaseFiles } = require('./release-files.cjs')
+const { requiredReleaseFiles, usesSplitStableFeed } = require('./release-files.cjs')
 
 const failures = []
 
@@ -498,6 +498,9 @@ if (existsSync(join(releaseRoot, 'version.json'))) {
   if (publicDistributionFromEnv && versionJson.signaturePolicy !== (publicUnsignedRelease ? 'unsigned-public-release' : 'authenticode-signed')) fail('release/version.json signaturePolicy is incorrect')
   if ('edition' in versionJson) fail('release/version.json must not generate edition metadata')
   if (versionJson.updater && 'targetEdition' in versionJson.updater) fail('release updater metadata must not generate targetEdition')
+  if (usesSplitStableFeed(version) && versionJson.artifacts?.latest !== 'Installer/stable-v2.yml') {
+    fail('release/version.json must select the stable-v2 update feed')
+  }
   if (String(versionJson.updater?.entrypoint ?? '') !== `Updater/VastUpdater-${version}.exe`) {
     fail('release updater entrypoint must point at the versioned updater EXE')
   }
@@ -528,11 +531,22 @@ if (existsSync(join(releaseRoot, 'Docs/release-manifest.json'))) {
 }
 
 if (existsSync(join(releaseRoot, 'Installer/latest.yml'))) {
-  const latestYml = readFileSync(join(releaseRoot, 'Installer/latest.yml'), 'utf8')
-  if (!new RegExp(`version:\\s*${version.replace(/\./g, '\\.')}`).test(latestYml)) {
-    fail('Installer/latest.yml does not target the package version')
+  const latestYml = readFileSync(join(releaseRoot, 'Installer/latest.yml'))
+  if (usesSplitStableFeed(version)) {
+    const legacyFeed = readFileSync(join(root, 'scripts/legacy-latest-042.yml'))
+    if (createHash('sha256').update(legacyFeed).digest('hex') !== 'ee14320467671518cdbee4f4168b4499bf5676ef70ac5152ba383ab3d71f34cb' || !latestYml.equals(legacyFeed)) {
+      fail('Installer/latest.yml must keep the exact published 0.4.2 feed for old clients')
+    }
+    const currentFeed = readFileSync(join(releaseRoot, 'Installer/stable-v2.yml'), 'utf8')
+    if (!new RegExp(`version:\\s*${version.replace(/\./g, '\\.')}`).test(currentFeed) || !currentFeed.includes(`Vast-Setup-${version}.exe`)) {
+      fail('Installer/stable-v2.yml does not target the package installer')
+    }
+  } else {
+    const currentFeed = latestYml.toString('utf8')
+    if (!new RegExp(`version:\\s*${version.replace(/\./g, '\\.')}`).test(currentFeed) || !currentFeed.includes(`Vast-Setup-${version}.exe`)) {
+      fail('Installer/latest.yml does not target the package installer')
+    }
   }
-  if (!latestYml.includes(`Vast-Setup-${version}.exe`)) fail('Installer/latest.yml does not reference the setup EXE')
 }
 
 const releaseFiles = listFiles(releaseRoot)

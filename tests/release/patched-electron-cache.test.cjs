@@ -27,6 +27,7 @@ test('verified cache move retries transient Windows file locks without overwriti
 test('private Electron cache is pinned to the approved patchset and binary', () => {
   assert.equal(validateDescriptor(descriptor, manifest).patchsetRevision, manifest.electron.patchsetRevision)
   assert.equal(descriptor.binarySha256, manifest.electron.binary.sha256)
+  assert.equal(descriptor.releaseTag, `ci-cache-electron-${manifest.electron.binary.sha256.slice(0, 16)}`)
   assert.match(descriptor.archiveSha256, /^[a-f0-9]{64}$/)
 })
 

@@ -43,9 +43,9 @@ export function FindBar(): JSX.Element | null {
           }
         }}
         placeholder="Find in page"
-        className="h-9 w-64 rounded-control border border-white/10 bg-white/[0.06] px-3 text-sm text-white outline-none placeholder:text-vast-soft focus:border-vast-cyan/40"
+        className="h-9 w-64 rounded-control border border-white/10 bg-white/6 px-3 text-sm text-white outline-hidden placeholder:text-vast-soft focus:border-vast-cyan/40"
       />
-      <div className="min-w-[4.5rem] text-center text-xs text-vast-soft">
+      <div className="min-w-18 text-center text-xs text-vast-soft">
         {findResult.matches > 0 ? `${findResult.activeMatchOrdinal}/${findResult.matches}` : '0/0'}
       </div>
       <IconButton tooltip="Previous match" disabled={!query.trim()} onClick={() => runFind(query, false, true)}>

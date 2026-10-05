@@ -43,7 +43,7 @@ import { VastSelect } from '../ui/VastSelect'
 
 GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.url).toString()
 
-type SidebarMode = 'thumbnails' | 'outline' | 'info'
+type SidebarMode = 'thumbnails' | 'outline-solid' | 'info'
 
 interface PdfOutlineItem {
   title: string
@@ -246,7 +246,7 @@ function ToolbarButton({
         'shrink-0',
         active
           ? 'border-[rgba(255,175,110,0.38)] bg-[rgba(255,154,82,0.18)] text-white shadow-[0_10px_24px_rgba(255,146,71,0.12)]'
-          : 'border-white/[0.08] bg-white/[0.045] text-vast-soft hover:border-white/[0.14] hover:bg-white/[0.08] hover:text-white',
+          : 'border-white/8 bg-white/4.5 text-vast-soft hover:border-white/[0.14] hover:bg-white/8 hover:text-white',
         disabled ? 'cursor-not-allowed opacity-40' : ''
       ].join(' ')}
     >
@@ -273,7 +273,7 @@ function SidebarTabButton({
       className={`flex h-10 flex-1 items-center justify-center gap-2 rounded-card border px-3 text-sm font-medium transition ${
         active
           ? 'border-[rgba(255,175,110,0.32)] bg-[rgba(255,154,82,0.16)] text-white'
-          : 'border-transparent bg-white/[0.04] text-vast-soft hover:bg-white/[0.08] hover:text-white'
+          : 'border-transparent bg-white/4 text-vast-soft hover:bg-white/8 hover:text-white'
       }`}
     >
       {icon}
@@ -298,7 +298,7 @@ function PdfOutlineTree({
           <button
             type="button"
             onClick={() => onSelect(item)}
-            className="flex w-full items-center justify-between rounded-card px-3 py-2 text-left text-sm transition hover:bg-white/[0.06]"
+            className="flex w-full items-center justify-between rounded-card px-3 py-2 text-left text-sm transition hover:bg-white/6"
             style={outlineTextStyle(item, level)}
           >
             <span className="truncate">{item.title || 'Untitled section'}</span>
@@ -396,16 +396,16 @@ function PdfThumbnailItem({
       className={`group h-[232px] w-full rounded-card border p-3 text-left transition ${
         active
           ? 'border-[rgba(255,175,110,0.34)] bg-[rgba(255,154,82,0.12)] shadow-[0_10px_26px_rgba(255,140,64,0.08)]'
-          : 'border-white/[0.08] bg-white/[0.035] hover:border-white/[0.14] hover:bg-white/[0.06]'
+          : 'border-white/8 bg-white/[0.035] hover:border-white/[0.14] hover:bg-white/6'
       }`}
     >
       <div className="mb-3 flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.18em] text-vast-soft">
         <span>Page</span>
         <span>{label}</span>
       </div>
-      <div className="grid h-[174px] place-items-center rounded-card bg-[#0d1015] p-2 ring-1 ring-white/[0.06]">
+      <div className="grid h-[174px] place-items-center rounded-card bg-[#0d1015] p-2 ring-1 ring-white/6">
         <canvas ref={canvasRef} className={`max-w-full rounded-control shadow-[0_18px_36px_rgba(0,0,0,0.25)] transition ${rendered ? 'opacity-100' : 'opacity-0'}`} />
-        {!rendered && !error && <div className="h-[154px] w-[120px] rounded-control bg-white/[0.05]" />}
+        {!rendered && !error && <div className="h-[154px] w-[120px] rounded-control bg-white/5" />}
         {error && <div className="px-3 text-center text-xs leading-5 text-vast-soft">Preview failed. Double-click to retry.</div>}
       </div>
     </button>
@@ -1144,7 +1144,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
               <ToolbarButton title="Previous page" onClick={() => pdfViewerRef.current?.previousPage()} disabled={currentPage <= 1}>
                 <ChevronLeft className="h-4 w-4" />
               </ToolbarButton>
-              <div className="flex items-center gap-1.5 rounded-control bg-white/[0.04] px-2.5 py-1">
+              <div className="flex items-center gap-1.5 rounded-control bg-white/4 px-2.5 py-1">
                 <input
                   ref={pageInputRef}
                   value={pageDraft}
@@ -1155,7 +1155,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
                       handlePageSubmit()
                     }
                   }}
-                  className="w-16 bg-transparent text-center text-sm font-semibold text-white outline-none"
+                  className="w-16 bg-transparent text-center text-sm font-semibold text-white outline-hidden"
                 />
                 <span className="text-xs text-vast-soft">/ {pageLabels?.length ?? pagesCount}</span>
               </div>
@@ -1168,7 +1168,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
               <ToolbarButton title="Zoom out" onClick={() => pdfViewerRef.current?.decreaseScale({ steps: 1 })}>
                 <Minus className="h-4 w-4" />
               </ToolbarButton>
-              <div className="rounded-control bg-white/[0.04] px-2.5 py-1 text-sm font-semibold text-white">{Math.round(currentScale * 100)}%</div>
+              <div className="rounded-control bg-white/4 px-2.5 py-1 text-sm font-semibold text-white">{Math.round(currentScale * 100)}%</div>
               <ToolbarButton title="Zoom in" onClick={() => pdfViewerRef.current?.increaseScale({ steps: 1 })}>
                 <ZoomIn className="h-4 w-4" />
               </ToolbarButton>
@@ -1205,7 +1205,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
           </div>
 
           <div className="pdf-control-group min-w-0 xl:w-full">
-            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-control bg-white/[0.04] text-vast-soft">
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-control bg-white/4 text-vast-soft">
               <Search className="h-4 w-4" />
             </div>
             <input
@@ -1219,9 +1219,9 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
                 }
               }}
               placeholder="Search inside this PDF"
-              className="min-w-0 flex-1 bg-transparent text-sm font-medium text-white outline-none placeholder:text-vast-soft"
+              className="min-w-0 flex-1 bg-transparent text-sm font-medium text-white outline-hidden placeholder:text-vast-soft"
             />
-            <div className="rounded-control bg-white/[0.04] px-2.5 py-1 text-xs text-vast-soft">
+            <div className="rounded-control bg-white/4 px-2.5 py-1 text-xs text-vast-soft">
               {searchQuery.trim() ? `${searchMatches.current}/${searchMatches.total}` : 'Find'}
             </div>
             <ToolbarButton title="Previous match" onClick={() => goToSearchMatch(true)} disabled={!searchQuery.trim()}>
@@ -1239,7 +1239,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
           <aside className="vast-glass-panel hidden w-[320px] shrink-0 flex-col overflow-hidden rounded-panel p-3 lg:flex">
             <div className="mb-3 flex gap-2">
               <SidebarTabButton active={sidebarMode === 'thumbnails'} icon={<LayoutGrid className="h-4 w-4" />} label="Thumbnails" onClick={() => setSidebarMode('thumbnails')} />
-              <SidebarTabButton active={sidebarMode === 'outline'} icon={<ListTree className="h-4 w-4" />} label="Outline" onClick={() => setSidebarMode('outline')} />
+              <SidebarTabButton active={sidebarMode === 'outline-solid'} icon={<ListTree className="h-4 w-4" />} label="Outline" onClick={() => setSidebarMode('outline-solid')} />
               <SidebarTabButton active={sidebarMode === 'info'} icon={<Info className="h-4 w-4" />} label="Info" onClick={() => setSidebarMode('info')} />
             </div>
 
@@ -1254,25 +1254,25 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
                     if (pdfViewerRef.current) pdfViewerRef.current.currentPageNumber = pageNumber
                   }}
                 />
-              ) : sidebarMode === 'outline' ? (
+              ) : sidebarMode === 'outline-solid' ? (
                 outline.length > 0 ? (
                   <PdfOutlineTree items={outline} onSelect={handleOutlineSelect} />
                 ) : (
-                  <div className="grid min-h-[200px] place-items-center rounded-card border border-dashed border-white/[0.08] bg-white/[0.03] p-6 text-center text-sm text-vast-soft">
+                  <div className="grid min-h-[200px] place-items-center rounded-card border border-dashed border-white/8 bg-white/3 p-6 text-center text-sm text-vast-soft">
                     This document does not include an outline.
                   </div>
                 )
               ) : infoRows.length > 0 ? (
                 <div className="space-y-2">
                   {infoRows.map(([label, value]) => (
-                    <div key={label} className="rounded-card border border-white/[0.08] bg-white/[0.035] p-3">
+                    <div key={label} className="rounded-card border border-white/8 bg-white/[0.035] p-3">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-vast-soft">{label}</div>
-                      <div className="mt-1 break-words text-sm text-white">{value}</div>
+                      <div className="mt-1 wrap-break-word text-sm text-white">{value}</div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="grid min-h-[200px] place-items-center rounded-card border border-dashed border-white/[0.08] bg-white/[0.03] p-6 text-center text-sm text-vast-soft">
+                <div className="grid min-h-[200px] place-items-center rounded-card border border-dashed border-white/8 bg-white/3 p-6 text-center text-sm text-vast-soft">
                   Document metadata will appear here after the PDF finishes loading.
                 </div>
               )}
@@ -1280,14 +1280,14 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
           </aside>
         )}
 
-        <section className="min-w-0 flex-1 overflow-hidden rounded-panel border border-white/[0.08] bg-[linear-gradient(180deg,rgba(15,17,22,0.94),rgba(9,11,15,0.98))] shadow-[0_20px_50px_rgba(0,0,0,0.25)]">
+        <section className="min-w-0 flex-1 overflow-hidden rounded-panel border border-white/8 bg-[linear-gradient(180deg,rgba(15,17,22,0.94),rgba(9,11,15,0.98))] shadow-[0_20px_50px_rgba(0,0,0,0.25)]">
           <div className="relative flex h-full min-h-0 flex-col">
-            <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3 text-xs text-vast-soft">
+            <div className="flex items-center justify-between border-b border-white/6 px-4 py-3 text-xs text-vast-soft">
               <div className="flex min-w-0 items-center gap-3">
                 <span className="truncate">Page {visiblePageLabel}</span>
                 <span className="hidden sm:inline">Rotation {rotation}&deg;</span>
                 {!printAllowed && <span className="rounded-control border border-vast-amber/30 bg-vast-amber/10 px-2 py-1 text-vast-amber">Print restricted</span>}
-                {!copyAllowed && <span className="rounded-control border border-white/10 bg-white/[0.04] px-2 py-1 text-white/70">Copy restricted</span>}
+                {!copyAllowed && <span className="rounded-control border border-white/10 bg-white/4 px-2 py-1 text-white/70">Copy restricted</span>}
               </div>
               <div>
                 {searchStatus === 'pending'
@@ -1307,7 +1307,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
                 <div ref={viewerRef} className={`pdfViewer ${loadState === 'error' ? 'pointer-events-none opacity-0' : ''}`} />
 
                 {loadState === 'loading' && (
-                  <div className="absolute inset-0 z-10 grid place-items-center bg-[rgba(8,9,12,0.72)] backdrop-blur-sm">
+                  <div className="absolute inset-0 z-10 grid place-items-center bg-[rgba(8,9,12,0.72)] backdrop-blur-xs">
                     <div className="text-center">
                       <Loader2 className="mx-auto h-9 w-9 animate-spin text-vast-cyan" />
                       <div className="mt-4 text-lg font-semibold text-white">Loading PDF</div>
@@ -1317,7 +1317,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
                           : 'Preparing range-based page rendering, search indexes, and navigation targets.'}
                       </div>
                       {downloadProgress?.total ? (
-                        <div className="mx-auto mt-4 h-1.5 w-64 overflow-hidden rounded-control bg-white/[0.08]">
+                        <div className="mx-auto mt-4 h-1.5 w-64 overflow-hidden rounded-control bg-white/8">
                           <div
                             className="h-full rounded-control bg-vast-cyan transition-[width] duration-150"
                             style={{ width: `${Math.min(100, downloadProgress.received / downloadProgress.total * 100)}%` }}
@@ -1331,7 +1331,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
                 {passwordRequest && (
                   <div className="absolute inset-0 z-20 grid place-items-center bg-[rgba(8,9,12,0.82)] backdrop-blur-md p-6">
                     <form
-                      className="w-full max-w-md rounded-panel border border-white/[0.1] bg-[#0d1015]/95 p-5 shadow-[0_28px_70px_rgba(0,0,0,0.36)]"
+                      className="w-full max-w-md rounded-panel border border-white/10 bg-[#0d1015]/95 p-5 shadow-[0_28px_70px_rgba(0,0,0,0.36)]"
                       onSubmit={(event) => {
                         event.preventDefault()
                         const trimmed = passwordValue.trim()
@@ -1355,7 +1355,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
                         value={passwordValue}
                         onChange={(event) => setPasswordValue(event.target.value)}
                         placeholder="Document password"
-                        className="mt-5 h-12 w-full rounded-card border border-white/[0.1] bg-black/25 px-4 text-sm font-medium text-white outline-none transition focus:border-vast-cyan/40 focus:bg-black/[0.35]"
+                        className="mt-5 h-12 w-full rounded-card border border-white/10 bg-black/25 px-4 text-sm font-medium text-white outline-hidden transition focus:border-vast-cyan/40 focus:bg-black/35"
                       />
                       <div className="mt-5 flex justify-end gap-2">
                         <button
@@ -1367,7 +1367,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
                             setLoadError('Password entry was cancelled.')
                             void loadingTaskRef.current?.destroy().catch(() => undefined)
                           }}
-                          className="rounded-control border border-white/[0.1] bg-white/[0.05] px-4 py-2 text-sm font-medium text-vast-soft hover:bg-white/[0.08] hover:text-white"
+                          className="rounded-control border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-vast-soft hover:bg-white/8 hover:text-white"
                         >
                           Cancel
                         </button>

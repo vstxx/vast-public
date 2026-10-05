@@ -9,7 +9,7 @@ export function UnsupportedExtensionStorePage({ tab }: { tab: Tab }): JSX.Elemen
   return (
     <div className="internal-page-shell grid place-items-center bg-[linear-gradient(180deg,#08090d,#050507)] p-6">
       <div className="vast-glass-panel max-w-xl rounded-panel p-8 text-center">
-        <div className="mx-auto grid h-14 w-14 place-items-center rounded-card border border-white/10 bg-white/[0.05] text-vast-accent">
+        <div className="mx-auto grid h-14 w-14 place-items-center rounded-card border border-white/10 bg-white/5 text-vast-accent">
           <Blocks className="h-7 w-7" />
         </div>
         <h1 className="mt-5 text-2xl font-semibold text-white">Chrome Web Store is currently unsupported</h1>

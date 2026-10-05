@@ -15,7 +15,7 @@ const require = createRequire(import.meta.url)
 const source = await readFile(new URL('../../src/main/updater.ts', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
 
-async function fixture(t: { after: (fn: () => unknown) => void }, options: { env?: Record<string,string>; packaged?: boolean; store?: boolean; installed?: boolean; profileInside?: boolean } = {}) {
+async function fixture(t: { after: (fn: () => unknown) => void }, options: { env?: Record<string,string>; packaged?: boolean; store?: boolean; installed?: boolean; profileInside?: boolean; channel?: string } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'vast-update-test-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const resources = join(root, 'resources')
@@ -56,7 +56,7 @@ publisherName: VastProductions
       if (this.autoInstallOnAppQuit) app.once('quit', () => { this.installs++ })
     }
   }
-  const metadata = {channel:'stable',distributionChannel:options.store?'microsoft-store':'direct',updateEnabled:true}
+  const metadata = {channel:options.channel ?? 'stable',distributionChannel:options.store?'microsoft-store':'direct',updateEnabled:true}
   const exports: any = {}
   runInNewContext(compiled, {
     exports, URL, console: { warn() {} },
@@ -91,6 +91,7 @@ test('startup initializes once, downloads and stages for next start, and preserv
   assert.equal(f.driver.disableWebInstaller,true)
   assert.equal(f.driver.allowDowngrade,false)
   assert.equal(f.driver.allowPrerelease,false)
+  assert.equal(f.driver.channel,'stable-v2')
   assert.equal(f.driver.installDirectory,f.install)
   const config = await readFile(f.driver.updateConfigPath,'utf8')
   assert.match(config,/publisherName: VastProductions/)
@@ -98,6 +99,12 @@ test('startup initializes once, downloads and stages for next start, and preserv
   assert.match(config,/updaterCacheDirName: vast-update-[a-f0-9]{24}/)
   const other = await fixture(t)
   assert.notEqual(config,await readFile(other.driver.updateConfigPath,'utf8'))
+})
+
+test('beta updates keep their existing feed', async t => {
+  const f = await fixture(t,{channel:'beta'})
+  assert.equal(f.driver.channel,undefined)
+  assert.equal(f.driver.allowPrerelease,true)
 })
 
 test('download completion is awaited; repeated checks coalesce and a prepared update survives quit', async t => {

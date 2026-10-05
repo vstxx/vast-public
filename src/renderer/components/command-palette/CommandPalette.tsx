@@ -574,11 +574,11 @@ export function CommandPalette(): JSX.Element | null {
   }
 
   return (
-    <div className="command-palette-shell fixed inset-0 z-50 flex items-start justify-center bg-black/[0.46] px-3 pt-[clamp(2rem,9vh,7rem)] backdrop-blur-md sm:px-5">
+    <div className="command-palette-shell fixed inset-0 z-50 flex items-start justify-center bg-black/46 px-3 pt-[clamp(2rem,9vh,7rem)] backdrop-blur-md sm:px-5">
       <button className="absolute inset-0 cursor-default" aria-label="Close command palette" onClick={() => setOpen(false)} />
-      <div className="command-palette-panel relative w-full max-w-3xl overflow-hidden rounded-panel border border-white/[0.09] bg-[#11131a]/[0.88] shadow-[0_32px_110px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.055)] ring-1 ring-white/[0.03] backdrop-blur-2xl">
-        <div className="command-palette-search flex items-center gap-3 border-b border-white/[0.065] px-5 py-4">
-          <div className="grid h-10 w-10 place-items-center rounded-card border border-white/[0.08] bg-white/[0.07] text-vast-cyan shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+      <div className="command-palette-panel relative w-full max-w-3xl overflow-hidden rounded-panel border border-white/9 bg-[#11131a]/88 shadow-[0_32px_110px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.055)] ring-1 ring-white/3 backdrop-blur-2xl">
+        <div className="command-palette-search flex items-center gap-3 border-b border-white/6.5 px-5 py-4">
+          <div className="grid h-10 w-10 place-items-center rounded-card border border-white/8 bg-white/[0.07] text-vast-cyan shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
             <CommandIcon className="h-5 w-5" />
           </div>
           <input
@@ -602,7 +602,7 @@ export function CommandPalette(): JSX.Element | null {
             }}
             placeholder="Command, tab, bookmark, history, or search"
             aria-label="Search commands, tabs, bookmarks, history, and the web"
-            className="command-palette-input h-12 min-w-0 flex-1 bg-transparent text-[17px] font-medium text-white outline-none placeholder:text-vast-soft"
+            className="command-palette-input h-12 min-w-0 flex-1 bg-transparent text-[17px] font-medium text-white outline-hidden placeholder:text-vast-soft"
           />
           <button
             type="button"
@@ -625,8 +625,8 @@ export function CommandPalette(): JSX.Element | null {
               onClick={() => void run(command)}
               className={`group flex w-full items-center gap-3 rounded-card px-3 py-3 text-left transition ${
                 index === selected
-                  ? 'bg-white/[0.095] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
-                  : 'text-vast-soft hover:bg-white/[0.055] hover:text-white'
+                  ? 'bg-white/9.5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+                  : 'text-vast-soft hover:bg-white/5.5 hover:text-white'
               }`}
             >
               <CommandGlyph command={command} active={index === selected} activeWorkspaceId={activeWorkspaceId} />
@@ -659,7 +659,7 @@ export function CommandPalette(): JSX.Element | null {
           ))}
           {filtered.length === 0 && <div className="px-4 py-12 text-center text-sm text-vast-soft">No commands, tabs, notes, or settings match this search.</div>}
         </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-white/[0.065] px-5 py-2 text-[11px] text-vast-soft">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-white/6.5 px-5 py-2 text-[11px] text-vast-soft">
           <span><kbd>↑↓</kbd> navigate</span><span><kbd>Enter</kbd> run</span><span><kbd>Esc</kbd> close</span><span className="ml-auto">Favorites and recent commands rank first</span>
         </div>
       </div>
@@ -684,7 +684,7 @@ function CommandGlyph({
   if (command.id.startsWith('bookmark-')) return <Bookmark className={className} />
   if (command.id.startsWith('history-')) return <History className={className} />
   if (command.id.startsWith('workspace-')) {
-    return <div className={`h-2.5 w-2.5 vast-geometry-circle ${command.id.endsWith(activeWorkspaceId) ? 'bg-vast-cyan' : 'bg-white/[0.35]'}`} />
+    return <div className={`h-2.5 w-2.5 vast-geometry-circle ${command.id.endsWith(activeWorkspaceId) ? 'bg-vast-cyan' : 'bg-white/35'}`} />
   }
   if (command.id === 'search-web') return <Search className={className} />
   if (command.id === 'new-tab') return <Plus className={className} />

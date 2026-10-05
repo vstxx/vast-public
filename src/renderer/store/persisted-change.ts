@@ -48,6 +48,31 @@ function persistedTabSignature(tabs: Tab[], workspaces: Workspace[]): string {
     .join('\u001e')
 }
 
+function samePersistedTabs(current: Tab[], previous: Tab[], workspaces: Workspace[]): boolean {
+  const privateIds = new Set(workspaces.filter((workspace) => workspace.isPrivate).map((workspace) => workspace.id))
+  let currentIndex = 0
+  let previousIndex = 0
+  while (true) {
+    while (currentIndex < current.length && privateIds.has(current[currentIndex].workspaceId)) currentIndex++
+    while (previousIndex < previous.length && privateIds.has(previous[previousIndex].workspaceId)) previousIndex++
+    const currentTab = current[currentIndex++]
+    const previousTab = previous[previousIndex++]
+    if (!currentTab || !previousTab) return currentTab === previousTab
+    if (currentTab === previousTab) continue
+    if (
+      currentTab.id !== previousTab.id ||
+      currentTab.workspaceId !== previousTab.workspaceId ||
+      (currentTab.groupId ?? '') !== (previousTab.groupId ?? '') ||
+      currentTab.url !== previousTab.url ||
+      currentTab.pinned !== previousTab.pinned ||
+      Boolean(currentTab.muted) !== Boolean(previousTab.muted) ||
+      currentTab.zoom !== previousTab.zoom ||
+      currentTab.createdAt !== previousTab.createdAt ||
+      currentTab.lastAccessedAt !== previousTab.lastAccessedAt
+    ) return false
+  }
+}
+
 const referenceIds = new WeakMap<object, number>()
 let nextReferenceId = 1
 
@@ -102,5 +127,5 @@ export function hasPersistedStateChanged(current: PersistedChangeState, previous
   ]
   if (referenceCollections.some((key) => current[key] !== previous[key])) return true
   if (current.tabs === previous.tabs) return false
-  return persistedTabSignature(current.tabs, current.workspaces) !== persistedTabSignature(previous.tabs, previous.workspaces)
+  return !samePersistedTabs(current.tabs, previous.tabs, current.workspaces)
 }

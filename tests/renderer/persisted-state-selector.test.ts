@@ -48,3 +48,21 @@ test('live download progress is owned by the main-process checkpoint path', () =
   assert.equal(hasPersistedStateChanged(current, previous), false)
   assert.equal(persistedStateChangeToken(current), persistedStateChangeToken(previous))
 })
+
+test('large transient tab changes avoid autosave while durable changes and reordering remain visible', () => {
+  const tabs = Array.from({ length: 250 }, (_, index) => ({ ...tab, id: `t-${index}`, title: `Tab ${index}` }))
+  const previous = { ...state(tab), tabs }
+  const transient = { ...previous, tabs: tabs.map((item, index) => index === 137 ? { ...item, progress: 0.9, title: 'Loading' } : item) }
+  assert.equal(hasPersistedStateChanged(transient, previous), false)
+  assert.equal(hasPersistedStateChanged({ ...previous, tabs: tabs.map((item, index) => index === 137 ? { ...item, url: 'https://example.org' } : item) }, previous), true)
+  assert.equal(hasPersistedStateChanged({ ...previous, tabs: [tabs[1], tabs[0], ...tabs.slice(2)] }, previous), true)
+})
+
+test('private-tab churn does not schedule a public session save', () => {
+  const privateWorkspace = { ...workspace, id: 'private', isPrivate: true }
+  const privateTab = { ...tab, id: 'private-tab', workspaceId: 'private' }
+  const previous = { ...state(tab), workspaces: [workspace, privateWorkspace], tabs: [tab, privateTab] }
+  const current = { ...previous, tabs: [tab, { ...privateTab, url: 'https://private.example' }] }
+  assert.equal(hasPersistedStateChanged(current, previous), false)
+  assert.equal(persistedStateChangeToken(current), persistedStateChangeToken(previous))
+})

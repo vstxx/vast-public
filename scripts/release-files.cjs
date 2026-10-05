@@ -1,4 +1,10 @@
 // Immutable deliverables shared by sealing, package verification and publication.
+function usesSplitStableFeed(version) {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version)
+  if (!match) return false
+  const parts = match.slice(1).map(Number)
+  return parts[0] > 0 || parts[1] > 4 || (parts[1] === 4 && parts[2] >= 3)
+}
 function requiredReleaseFiles(version, unsigned = false) {
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error('Invalid release version')
   return [
@@ -6,6 +12,7 @@ function requiredReleaseFiles(version, unsigned = false) {
     `Installer/Vast-Setup-${version}.exe.blockmap`,
     `Installer/Vast-${version}-Portable.exe`,
     'Installer/latest.yml',
+    ...(usesSplitStableFeed(version) ? ['Installer/stable-v2.yml'] : []),
     `Updater/VastUpdater-${version}.exe`,
     'Downloads/update-manifest.json',
     `Downloads/Vast-${version}-update.zip`,
@@ -23,4 +30,4 @@ function publishedReleaseFiles(version, unsigned = false) {
 function candidatePaths(version, unsigned) {
   return [...requiredReleaseFiles(version, unsigned).map(file => `release/${file}`), 'out/release-build-metadata.json'].sort()
 }
-module.exports = { requiredReleaseFiles, publishedReleaseFiles, candidatePaths }
+module.exports = { requiredReleaseFiles, publishedReleaseFiles, candidatePaths, usesSplitStableFeed }

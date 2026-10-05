@@ -199,7 +199,7 @@ export function NotesPage(): JSX.Element {
           </div>
           <div className="relative mb-3">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-vast-soft" />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search notes, pages, tags" className="h-11 w-full rounded-card border border-white/10 bg-black/20 pl-10 pr-3 text-sm text-white outline-none" data-testid="notes-search-input" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search notes, pages, tags" className="h-11 w-full rounded-card border border-white/10 bg-black/20 pl-10 pr-3 text-sm text-white outline-hidden" data-testid="notes-search-input" />
           </div>
           <div className="mb-4 flex flex-wrap gap-2">
             <button type="button" onClick={() => setShowArchived((value) => !value)} className={`vast-button ${showArchived ? 'vast-button--selected' : 'vast-button--ghost'} vast-button--xs`}>Archived</button>
@@ -209,7 +209,7 @@ export function NotesPage(): JSX.Element {
           </div>
           <div className="space-y-2">
             {filtered.map((note) => (
-              <button key={note.id} type="button" onClick={() => setSelectedId(note.id)} className={`w-full rounded-card p-3 text-left transition ${selected?.id === note.id ? 'bg-white/[0.1]' : 'hover:bg-white/[0.055]'}`}>
+              <button key={note.id} type="button" onClick={() => setSelectedId(note.id)} className={`w-full rounded-card p-3 text-left transition ${selected?.id === note.id ? 'bg-white/10' : 'hover:bg-white/5.5'}`}>
                 <div className="flex items-center gap-2">
                   {note.pinned && <Star className="h-3.5 w-3.5 fill-current text-vast-amber" />}
                   <div className="min-w-0 flex-1 truncate text-sm font-semibold">{note.title}</div>
@@ -217,7 +217,7 @@ export function NotesPage(): JSX.Element {
                 </div>
                 <div className="mt-2 line-clamp-2 text-xs leading-5 text-vast-soft">{markdownPreview(note.body) || 'Empty note'}</div>
                 <div className="mt-2 flex flex-wrap gap-1">
-                  {(note.tags ?? []).slice(0, 4).map((tag) => <span key={tag} className="rounded-control bg-white/[0.06] px-2 py-0.5 text-[10px] text-vast-soft">#{tag}</span>)}
+                  {(note.tags ?? []).slice(0, 4).map((tag) => <span key={tag} className="rounded-control bg-white/6 px-2 py-0.5 text-[10px] text-vast-soft">#{tag}</span>)}
                 </div>
               </button>
             ))}
@@ -230,7 +230,7 @@ export function NotesPage(): JSX.Element {
             <div className="grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
               <div className="flex min-h-0 flex-col">
                 <div className="mb-3 flex items-center gap-3">
-                  <input value={selected.title} onChange={(event) => { updateNote(selected.id, { title: event.target.value }); markSaving() }} className="min-w-0 flex-1 bg-transparent text-4xl font-semibold text-white outline-none" data-testid="note-title-input" />
+                  <input value={selected.title} onChange={(event) => { updateNote(selected.id, { title: event.target.value }); markSaving() }} className="min-w-0 flex-1 bg-transparent text-4xl font-semibold text-white outline-hidden" data-testid="note-title-input" />
                   <span className={`shrink-0 text-[13px] ${saveStatus === 'saved' ? 'text-emerald-300' : 'text-vast-soft'}`}>{saveStatus === 'saved' ? 'Saved locally' : 'Saving…'}</span>
                 </div>
                 <div className="mb-3 space-y-2" data-testid="notes-action-toolbar">
@@ -246,16 +246,16 @@ export function NotesPage(): JSX.Element {
                     <button type="button" onClick={removeSelected} className="vast-button vast-button--danger vast-button--sm min-w-0 justify-center"><Trash2 className="h-4 w-4" />Delete</button>
                   </div>
                 </div>
-                <textarea value={selected.body} onChange={(event) => updateBody(event.target.value)} placeholder="Write Markdown. Use # headings, **bold**, lists, quotes, links, and fenced code." className="min-h-[420px] flex-1 resize-none rounded-panel border border-white/10 bg-black/[0.22] p-5 text-base leading-8 text-white outline-none focus:border-vast-cyan/[0.35]" data-testid="note-body-input" />
+                <textarea value={selected.body} onChange={(event) => updateBody(event.target.value)} placeholder="Write Markdown. Use # headings, **bold**, lists, quotes, links, and fenced code." className="min-h-[420px] flex-1 resize-none rounded-panel border border-white/10 bg-black/22 p-5 text-base leading-8 text-white outline-hidden focus:border-vast-cyan/35" data-testid="note-body-input" />
               </div>
               <aside className="space-y-4">
                 <div className="rounded-panel border border-white/10 bg-white/[0.035] p-4">
                   <div className="mb-2 flex items-center gap-2 text-sm font-semibold"><Tag className="h-4 w-4 text-vast-cyan" />Tags</div>
-                  <input value={(selected.tags ?? []).join(', ')} onChange={(event) => updateAdvancedNote({ tags: parseTags(event.target.value) })} placeholder="research, quote, school" className="h-10 w-full rounded-control border border-white/10 bg-black/20 px-3 text-sm text-white outline-none" />
+                  <input value={(selected.tags ?? []).join(', ')} onChange={(event) => updateAdvancedNote({ tags: parseTags(event.target.value) })} placeholder="research, quote, school" className="h-10 w-full rounded-control border border-white/10 bg-black/20 px-3 text-sm text-white outline-hidden" />
                 </div>
                 <div className="rounded-panel border border-white/10 bg-white/[0.035] p-4">
                   <div className="mb-2 flex items-center gap-2 text-sm font-semibold"><Link2 className="h-4 w-4 text-vast-cyan" />Linked page</div>
-                  <input value={selected.url ?? ''} onChange={(event) => updateAdvancedNote({ url: event.target.value || undefined })} placeholder="https://..." className="h-10 w-full rounded-control border border-white/10 bg-black/20 px-3 text-sm text-white outline-none" />
+                  <input value={selected.url ?? ''} onChange={(event) => updateAdvancedNote({ url: event.target.value || undefined })} placeholder="https://..." className="h-10 w-full rounded-control border border-white/10 bg-black/20 px-3 text-sm text-white outline-hidden" />
                   <button type="button" onClick={createLinkedNote} className="vast-button vast-button--secondary vast-button--sm mt-3 w-full justify-center">New note for active page</button>
                   <div className="mt-3 block text-[13px] text-vast-soft">
                     <span>Workspace</span>

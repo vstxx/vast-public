@@ -33,7 +33,10 @@ function collect(dir) {
     const full = join(dir, entry)
     const info = statSync(full)
     if (info.isDirectory()) files.push(...collect(full))
-    else if (entry.endsWith('.test.ts')) files.push(full)
+    else if (entry.endsWith('.test.ts') ||
+      (entry.endsWith('.test.cjs') && (
+        full.includes(`${join('tests', 'performance')}`) || entry === 'guest-scroll-behavior.test.cjs'
+      ))) files.push(full)
   }
   return files
 }

@@ -34,8 +34,8 @@ export function WorkspaceSwitcher({ compact }: { compact?: boolean }): JSX.Eleme
               <div
                 className={`group/workspace flex h-10 w-full items-center gap-1 rounded-control border px-2 transition duration-150 ${
                   active
-                    ? 'border-white/[0.12] bg-white/[0.11] text-white shadow-glow'
-                    : 'border-transparent text-vast-soft hover:border-white/[0.08] hover:bg-white/[0.06] hover:text-white'
+                    ? 'border-white/12 bg-white/11 text-white shadow-glow'
+                    : 'border-transparent text-vast-soft hover:border-white/8 hover:bg-white/6 hover:text-white'
                 } ${compact ? 'justify-center px-0' : ''}`}
               >
                 <button
@@ -62,8 +62,8 @@ export function WorkspaceSwitcher({ compact }: { compact?: boolean }): JSX.Eleme
                         event.stopPropagation()
                         setAppearanceWorkspaceId((current) => current === workspace.id ? null : workspace.id)
                       }}
-                      className={`grid h-7 w-7 shrink-0 place-items-center rounded-control transition hover:bg-white/[0.08] hover:text-white ${
-                        appearanceWorkspaceId === workspace.id ? 'bg-white/[0.1] text-white opacity-100' : 'text-vast-soft opacity-0 group-hover/workspace:opacity-100'
+                      className={`grid h-7 w-7 shrink-0 place-items-center rounded-control transition hover:bg-white/8 hover:text-white ${
+                        appearanceWorkspaceId === workspace.id ? 'bg-white/10 text-white opacity-100' : 'text-vast-soft opacity-0 group-hover/workspace:opacity-100'
                       }`}
                     >
                       <Palette className="h-3.5 w-3.5" />
@@ -117,8 +117,8 @@ export function WorkspaceSwitcher({ compact }: { compact?: boolean }): JSX.Eleme
         title="New workspace"
         className={`flex h-10 w-full items-center gap-3 rounded-control border px-3 text-left transition ${
           compact
-            ? 'justify-center border-transparent bg-transparent px-0 text-white/20 hover:bg-white/[0.05] hover:text-white/50'
-            : 'border-dashed border-white/10 text-vast-soft hover:border-white/[0.18] hover:bg-white/[0.055] hover:text-white'
+            ? 'justify-center border-transparent bg-transparent px-0 text-white/20 hover:bg-white/5 hover:text-white/50'
+            : 'border-dashed border-white/10 text-vast-soft hover:border-white/18 hover:bg-white/5.5 hover:text-white'
         }`}
       >
         <Plus className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />

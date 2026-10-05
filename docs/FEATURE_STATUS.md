@@ -34,7 +34,7 @@ See [PRIVACY.md](PRIVACY.md) and [DATA_MIGRATION_AND_STORAGE.md](DATA_MIGRATION_
 
 ## Distribution support
 
-Windows x64 is the current release-supported and continuously exercised target. Direct installer/portable packages and Microsoft Store packaging use different update/signing boundaries but share the same product data model for installed builds.
+Windows x64 is the current release-supported and continuously exercised target. Direct installer/portable packages and Microsoft Store packaging use different update/signing boundaries and separate profile roots; users can explicitly transfer data via full export/import.
 
 macOS and Linux build targets exist in configuration but are not currently release-supported or continuously verified.
 

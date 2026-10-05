@@ -48,8 +48,8 @@
       "platform": "win32",
       "arch": "x64",
       "fileName": "electron.exe",
-      "size": 388690944,
-      "sha256": "9852044080509748de7b0577dad0bdcd6d31d1e4f57655fcc390c015ca9c4e98"
+      "size": 246300672,
+      "sha256": "b40c3bd45dfe47bafd77b96e3084692f0494dd4ff3ddb0eac4d7031a60c7b9d7"
     }
   },
   "ece": {

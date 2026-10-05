@@ -61,7 +61,7 @@ test('Sidebar sheen and active-download toast remain visually restrained', () =>
   assert.ok(downloadToastStart >= 0)
   assert.ok(downloadToastEnd > downloadToastStart)
   assert.doesNotMatch(downloadToastSource, /linear-gradient|backdrop-blur|shadow-\[[^\]]*(?:cyan|purple|violet)/)
-  assert.match(downloadToastSource, /bg-\[#0b0c10\]\/\[0\.97\]/)
+  assert.match(downloadToastSource, /bg-\[#0b0c10\]\/97/)
   assert.match(downloadToastSource, /bg-white\/\[0\.55\]/)
   assert.doesNotMatch(appSource, /title:\s*'Download started'/)
   assert.match(appSource, /title:\s*'Download completed'/)

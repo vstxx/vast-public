@@ -510,7 +510,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
     set((state) => (
       state.keepAwakeTabIds.length === next.length &&
       state.keepAwakeTabIds.every((id, index) => id === next[index])
-        ? {}
+        ? state
         : { keepAwakeTabIds: next }
     ))
   },
@@ -543,7 +543,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
     }),
   setSplitRatio: (ratio) => set((state) => ({ splitView: { ...state.splitView, ratio: clampSplitRatio(ratio) } })),
   swapSplitPanes: () => set((state) => {
-    if (!state.splitView.enabled) return {}
+    if (!state.splitView.enabled) return state
     const primary = state.tabs.find((tab) => tab.id === state.splitView.primaryTabId)
     const secondary = state.tabs.find((tab) => tab.id === state.splitView.secondaryTabId)
     const active = activeTabInWorkspace(state, state.activeWorkspaceId)
@@ -778,7 +778,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
         }
         return changed ? { ...tab, ...patch } : tab
       })
-      return changed ? { tabs } : {}
+      return changed ? { tabs } : state
     })
   },
 
@@ -793,15 +793,16 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
         changed = true
         return { ...tab, lifecycle }
       })
-      return changed ? { tabs } : {}
+      return changed ? { tabs } : state
     })
   },
 
   unloadInactiveTabs: (lifecycle = 'sleeping') => {
     const state = get()
     const active = activeTabInWorkspace(state, state.activeWorkspaceId)
-    // Backdate past the retention controller's discard deadline so a manual
-    // unload always releases the guest, regardless of remaining awake slots.
+    // Only an explicit deep discard needs to cross the retention deadline.
+    // Sleeping keeps its original recency and must not silently enable the
+    // automatic hibernation policy.
     const cutoffMinutes = Math.max(
       1,
       Math.max(state.settings.advanced.discardAfterMinutes, state.settings.advanced.hibernateAfterMinutes) + 1
@@ -822,10 +823,6 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
     )
     if (candidates.size === 0) return 0
     set((current) => ({
-      settings: {
-        ...current.settings,
-        hibernateInactiveTabs: true
-      },
       tabs: current.tabs.map((tab) =>
         candidates.has(tab.id)
           ? {
@@ -833,7 +830,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
               lifecycle,
               status: tab.status === 'loading' ? 'idle' : tab.status,
               progress: 0,
-              lastAccessedAt
+              lastAccessedAt: lifecycle === 'discarded' ? lastAccessedAt : tab.lastAccessedAt
             }
           : tab
       )

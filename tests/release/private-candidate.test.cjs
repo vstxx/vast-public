@@ -4,7 +4,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
 const { inspect, verifyTree, verify, manifestName, stageCandidate } = require('../../scripts/release-candidate.cjs')
-const { candidatePaths, publishedReleaseFiles, requiredReleaseFiles } = require('../../scripts/release-files.cjs')
+const { candidatePaths, publishedReleaseFiles, requiredReleaseFiles, usesSplitStableFeed } = require('../../scripts/release-files.cjs')
 const { operate } = require('../../scripts/private-release-candidate.cjs')
 const info = { version: require('../../package.json').version, sourceCommit: 'a'.repeat(40), channel: 'stable', unsigned: true }
 function fixture(t) {
@@ -57,6 +57,15 @@ test('canonical inventory contains every public/verification file and excludes r
   verifyTree(staged, info)
   assert.equal(fs.existsSync(path.join(staged, 'release/win-unpacked')), false)
   assert.equal(fs.existsSync(path.join(staged, 'release/Docs/updater-runbook.md')), false)
+})
+test('stable feed split starts at 0.4.3 and keeps both metadata assets sealed', () => {
+  assert.equal(usesSplitStableFeed('0.4.2'), false)
+  assert.equal(usesSplitStableFeed('0.4.3'), true)
+  assert.equal(usesSplitStableFeed('0.4.3-beta.1'), false)
+  assert.equal(usesSplitStableFeed('0.5.0'), true)
+  assert.ok(candidatePaths('0.4.3', true).includes('release/Installer/stable-v2.yml'))
+  assert.ok(publishedReleaseFiles('0.4.3', true).includes('Installer/latest.yml'))
+  assert.ok(publishedReleaseFiles('0.4.3', true).includes('Installer/stable-v2.yml'))
 })
 test('missing files, changed bytes and unexpected deliverables fail closed', t => {
   const directory = fixture(t), file = path.join(directory, candidatePaths(info.version, true)[0])

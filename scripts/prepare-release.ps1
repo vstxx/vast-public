@@ -28,6 +28,7 @@ if ($PreviousVersion -notmatch $SemVerPattern) {
 $PrivateBuildEnabled = @('1', 'true', 'yes', 'on').Contains(([string] $PrivateBuild).Trim().ToLowerInvariant())
 $PublicDistribution = @('beta', 'stable').Contains($Channel) -and -not $PrivateBuildEnabled
 $PublicUnsignedReleaseEnabled = @('1', 'true', 'yes', 'on').Contains(([string] $PublicUnsignedRelease).Trim().ToLowerInvariant())
+$SplitStableFeed = $Channel -eq 'stable' -and $Version -match '^\d+\.\d+\.\d+$' -and [version]$Version -ge [version]'0.4.3'
 if ($PublicUnsignedReleaseEnabled -and (-not $PublicDistribution)) {
   throw 'PublicUnsignedRelease/VAST_PUBLIC_UNSIGNED_RELEASE is allowed only for a non-private beta or stable distribution.'
 }
@@ -161,6 +162,13 @@ Assert-File (Join-Path $ReleaseRoot "Vast-Setup-$Version.exe")
 Assert-File (Join-Path $ReleaseRoot "Vast-Setup-$Version.exe.blockmap")
 Assert-File (Join-Path $ReleaseRoot "Vast-$Version-Portable.exe")
 Assert-File (Join-Path $ReleaseRoot 'latest.yml')
+if ($SplitStableFeed) {
+  $legacyFeed = Join-Path $RepoRoot 'scripts\legacy-latest-042.yml'
+  Assert-File $legacyFeed
+  if ((Get-CryptographicFileHash -Path $legacyFeed -Algorithm SHA256) -ne 'ee14320467671518cdbee4f4168b4499bf5676ef70ac5152ba383ab3d71f34cb') {
+    throw 'Pinned public 0.4.2 update feed differs from the published checksum.'
+  }
+}
 Assert-File (Join-Path $UpdaterRoot 'VastUpdater.ps1')
 Assert-File $UpdaterConfigPath
 Assert-File (Join-Path $UpdaterRoot "VastUpdater-$Version.exe")
@@ -231,7 +239,12 @@ if (-not (Test-Path -LiteralPath $portableSource -PathType Leaf)) { $portableSou
 Copy-Item -LiteralPath $setupSource -Destination (Join-Path $InstallerRoot $InstallerSetupName) -Force
 Copy-Item -LiteralPath $blockmapSource -Destination (Join-Path $InstallerRoot $InstallerBlockmapName) -Force
 Copy-Item -LiteralPath $portableSource -Destination (Join-Path $InstallerRoot $InstallerPortableName) -Force
-Copy-Item -LiteralPath (Join-Path $ReleaseRoot 'latest.yml') -Destination (Join-Path $InstallerRoot 'latest.yml') -Force
+if ($SplitStableFeed) {
+  Copy-Item -LiteralPath (Join-Path $ReleaseRoot 'latest.yml') -Destination (Join-Path $InstallerRoot 'stable-v2.yml') -Force
+  Copy-Item -LiteralPath $legacyFeed -Destination (Join-Path $InstallerRoot 'latest.yml') -Force
+} else {
+  Copy-Item -LiteralPath (Join-Path $ReleaseRoot 'latest.yml') -Destination (Join-Path $InstallerRoot 'latest.yml') -Force
+}
 
 foreach ($stagingPath in @(
   $WinUnpacked,
@@ -403,7 +416,7 @@ Then users can run only the small updater EXE. It downloads the manifest and upd
 - `Updater/VastUpdater-1.1.0.exe` - self-contained online updater bootstrapper.
 - `Downloads/update-manifest.json` - manifest consumed by the updater.
 - `Downloads/Vast-1.1.0-update.zip` - downloadable updater bundle containing runtime payload and safe updater script.
-- `Installer/` - Windows installer, portable executable, blockmap, and `latest.yml`.
+- `Installer/` - Windows installer, portable executable, blockmap, and update feeds (`latest.yml` plus `stable-v2.yml` for stable 0.4.3+).
 - `Docs/` - technical notes, release manifest, and updater runbook.
 - `Checksums/` - SHA-256 and SHA-512 checksums for current 1.1.0 release files.
 - `version.json`, `changelog.md`, `release-notes.md` - release metadata and notes.
@@ -535,6 +548,15 @@ foreach ($releaseDocument in @(
   Set-Content -LiteralPath $releaseDocument -Value $content -Encoding UTF8
 }
 
+if ($SplitStableFeed -and $PublicDistribution) {
+  $publicNotes = Join-Path $RepoRoot "docs\PUBLIC_RELEASE_$Version.md"
+  Assert-File $publicNotes
+  Copy-Item -LiteralPath $publicNotes -Destination (Join-Path $ReleaseRoot 'release-notes.md') -Force
+  foreach ($document in @((Join-Path $ReleaseRoot 'README.md'), (Join-Path $DocsRoot 'technical-update-notes.md'), (Join-Path $DocsRoot 'updater-runbook.md'))) {
+    Add-Content -LiteralPath $document -Value "`nVast 0.4.2 clients must run the $Version setup or standalone updater once. The legacy latest.yml feed remains pinned to 0.4.2; Vast $Version uses stable-v2.yml for subsequent automatic updates."
+  }
+}
+
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'docs\DATA_MIGRATION_AND_STORAGE.md') -Destination (Join-Path $DocsRoot 'data-migration-and-storage.md') -Force
 Copy-Item -LiteralPath $FfmpegProvenance -Destination (Join-Path $DocsRoot 'ffmpeg-build-provenance.json') -Force
 Copy-Item -LiteralPath $FfmpegCapabilities -Destination (Join-Path $DocsRoot 'avidae-ffmpeg-capabilities.json') -Force
@@ -555,7 +577,7 @@ $versionJson = [pscustomobject]@{
     nsis = "Installer/$InstallerSetupName"
     portable = "Installer/$InstallerPortableName"
     blockmap = "Installer/$InstallerBlockmapName"
-    latest = 'Installer/latest.yml'
+    latest = $(if ($SplitStableFeed) { 'Installer/stable-v2.yml' } else { 'Installer/latest.yml' })
     runtime = "Vast-$Version/win-unpacked"
     downloadableUpdate = "Downloads/Vast-$Version-update.zip"
     downloadManifest = 'Downloads/update-manifest.json'

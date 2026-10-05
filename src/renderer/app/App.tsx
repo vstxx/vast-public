@@ -48,7 +48,7 @@ import {
   webOriginFor
 } from '../lib/url'
 import { selectActiveTab, selectActiveWorkspace, useBrowserStore } from '../store/browser-store'
-import { persistedStateChangeToken } from '../store/persisted-change'
+import { hasPersistedStateChanged } from '../store/persisted-change'
 import { isInactiveTabUnloadCandidate } from '../store/tab-lifecycle'
 import { ExtensionRuntimeController, useExtensionContributions } from '../extensions/extension-runtime'
 
@@ -257,7 +257,6 @@ export function App(): JSX.Element {
   const autosaveTimerRef = useRef<number | undefined>(undefined)
   const lastSavedPayloadRef = useRef('')
   const pendingSavedPayloadRef = useRef<string | undefined>(undefined)
-  const observedPersistedTokenRef = useRef('')
   const saveChainRef = useRef<Promise<void>>(Promise.resolve())
   const pushToastRef = useRef<(notification: Omit<UiNotificationPayload, 'id'> & { id?: string }) => void>(() => undefined)
   const queuePersistedSaveRef = useRef<(payload: PersistedData, serialized: string, reason: string) => void>(() => undefined)
@@ -508,12 +507,9 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     if (detachedWindow) return undefined
-    observedPersistedTokenRef.current = persistedStateChangeToken(useBrowserStore.getState())
-    const unsubscribe = useBrowserStore.subscribe((state) => {
+    const unsubscribe = useBrowserStore.subscribe((state, previous) => {
       if (!state.hydrated) return
-      const token = persistedStateChangeToken(state)
-      if (token === observedPersistedTokenRef.current) return
-      observedPersistedTokenRef.current = token
+      if (!hasPersistedStateChanged(state, previous)) return
       if (autosaveTimerRef.current !== undefined) return
       autosaveTimerRef.current = window.setTimeout(() => flushPendingSave('debounce'), 900)
     })
@@ -1452,7 +1448,7 @@ export function App(): JSX.Element {
   if (loadError) {
     return (
       <div className="grid h-screen place-items-center bg-vast-black p-8 text-white">
-        <div className="rounded-panel border border-white/10 bg-white/[0.06] p-8 shadow-glass">
+        <div className="rounded-panel border border-white/10 bg-white/6 p-8 shadow-glass">
           <div className="text-xl font-semibold">Vast could not load storage.</div>
           <div className="mt-3 text-sm text-vast-soft">{loadError}</div>
         </div>
@@ -1483,7 +1479,7 @@ export function App(): JSX.Element {
           <div className={`browser-stage-shell relative flex min-h-0 flex-1 ${htmlFullscreenSession ? 'is-html-fullscreen' : ''}`}>
             {!htmlFullscreenSession && <FindBar />}
             <LocalErrorBoundary name="Browser content">
-              <Suspense fallback={<div className="min-h-0 flex-1 bg-[#050507]" />}>
+              <Suspense fallback={<div className="min-h-0 flex-1 bg-vast-black" />}>
                 <BrowserStage
                   ref={stageRef}
                   htmlFullscreenTabId={htmlFullscreenSession?.tabId}

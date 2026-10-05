@@ -76,6 +76,9 @@ async function createWindowsUpdater(): Promise<NsisUpdater> {
   const result = new NsisUpdater()
   result.updateConfigPath = configPath
   result.installDirectory = installDirectory
+  // Public 0.4.2 has a broken next-start installer handoff. Keep its latest.yml
+  // feed frozen while fixed direct installs follow the separate stable-v2.yml.
+  if (getBuildMetadata().channel === 'stable') result.channel = 'stable-v2'
   return result
 }
 

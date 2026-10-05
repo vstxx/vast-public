@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises'
-import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, isAbsolute, join, parse, relative, resolve, sep } from 'node:path'
 import {
   BROWSER_IMPORT_SOURCE_NAMES,
   type BrowserImportCatalog,
@@ -54,6 +54,18 @@ async function validDirectory(path: string, root?: string): Promise<string | und
   } catch {
     return undefined
   }
+}
+
+async function hasLinkedPathComponent(path: string): Promise<boolean> {
+  const absolute = resolve(path)
+  const root = parse(absolute).root
+  let current = root
+  for (const component of absolute.slice(root.length).split(sep).filter(Boolean)) {
+    current = join(current, component)
+    const entry = await lstat(current)
+    if (entry.isSymbolicLink()) return true
+  }
+  return false
 }
 
 async function hasProfileFile(root: string, name: string): Promise<boolean> {
@@ -138,8 +150,9 @@ async function firefoxProfiles(firefoxRoot: string | undefined): Promise<Discove
   const profiles: DiscoveredProfile[] = []
   const seen = new Set<string>()
   const add = async (path: string, name: string, relativeToRoot: boolean): Promise<void> => {
+    if (!relativeToRoot && await hasLinkedPathComponent(path).catch(() => true)) return
     const canonicalPath = await validDirectory(path, relativeToRoot ? canonicalRoot : undefined)
-    if (!canonicalPath || (!relativeToRoot && resolve(path).toLowerCase() !== canonicalPath.toLowerCase())) return
+    if (!canonicalPath) return
     if (seen.has(canonicalPath.toLowerCase()) || !await hasProfileFile(canonicalPath, 'places.sqlite')) return
     seen.add(canonicalPath.toLowerCase())
     const standardName = standardRoot && relative(standardRoot, canonicalPath)

@@ -51,7 +51,7 @@ function AutomationSelect<T extends string>({
         options={options}
         onChange={onChange}
         ariaLabel={label}
-        className="settings-select-control !w-full !min-w-0"
+        className="settings-select-control w-full! min-w-0!"
         buttonClassName="h-11"
         dataSettingsSelect={label}
       />
@@ -164,11 +164,11 @@ export function AutomationPage(): JSX.Element {
           </div>
           <div className="relative mb-3">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-vast-soft" />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search macros" className="h-11 w-full rounded-card border border-white/10 bg-black/20 pl-10 pr-3 text-sm text-white outline-none focus:border-vast-cyan/[0.35]" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search macros" className="h-11 w-full rounded-card border border-white/10 bg-black/20 pl-10 pr-3 text-sm text-white outline-hidden focus:border-vast-cyan/35" />
           </div>
           <div className="space-y-2">
             {filtered.map((macro) => (
-              <button key={macro.id} type="button" onClick={() => setSelectedId(macro.id)} className={`w-full rounded-card p-3 text-left transition ${selected?.id === macro.id ? 'bg-white/[0.1]' : 'hover:bg-white/[0.055]'}`}>
+              <button key={macro.id} type="button" onClick={() => setSelectedId(macro.id)} className={`w-full rounded-card p-3 text-left transition ${selected?.id === macro.id ? 'bg-white/10' : 'hover:bg-white/5.5'}`}>
                 <div className="flex items-center gap-3">
                   <span className="grid h-10 w-10 place-items-center rounded-card" style={{ backgroundColor: `${macro.color}22`, color: macro.color }}>
                     <Sparkles className="h-4 w-4" />
@@ -190,8 +190,8 @@ export function AutomationPage(): JSX.Element {
             <div className="space-y-5">
               <div className="border-b border-white/10 pb-5">
                 <div className="grid min-w-0 gap-3">
-                  <input value={selected.name} onChange={(event) => updateMacro(selected.id, { name: event.target.value })} className="bg-transparent text-3xl font-semibold text-white outline-none" data-testid="macro-name-input" />
-                  <textarea value={selected.description} onChange={(event) => updateMacro(selected.id, { description: event.target.value })} rows={2} className="resize-none rounded-card border border-white/10 bg-black/20 p-3 text-sm leading-6 text-vast-soft outline-none focus:border-vast-cyan/[0.35]" />
+                  <input value={selected.name} onChange={(event) => updateMacro(selected.id, { name: event.target.value })} className="bg-transparent text-3xl font-semibold text-white outline-hidden" data-testid="macro-name-input" />
+                  <textarea value={selected.description} onChange={(event) => updateMacro(selected.id, { description: event.target.value })} rows={2} className="resize-none rounded-card border border-white/10 bg-black/20 p-3 text-sm leading-6 text-vast-soft outline-hidden focus:border-vast-cyan/35" />
                 </div>
                 <div className="mt-3 grid grid-cols-4 gap-2" data-testid="automation-primary-actions">
                   <button type="button" onClick={() => void runMacro(false)} disabled={Boolean(runningId)} className="vast-button vast-button--primary vast-button--sm min-w-0 justify-center px-2 disabled:opacity-50" data-testid="macro-run-button"><Play className="h-4 w-4" />{runningId ? 'Running…' : 'Run'}</button>
@@ -202,7 +202,7 @@ export function AutomationPage(): JSX.Element {
                 {runningId === selected.id && <button type="button" onClick={() => runtime.stopMacro(selected.id)} className="vast-button vast-button--danger vast-button--sm mt-2 w-full justify-center"><Square className="h-4 w-4" />Emergency stop</button>}
               </div>
 
-              <div className="rounded-card border border-vast-amber/20 bg-vast-amber/[0.06] p-4">
+              <div className="rounded-card border border-vast-amber/20 bg-vast-amber/6 p-4">
                 <div className="flex items-start gap-3">
                   <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-vast-amber" />
                   <div>
@@ -215,7 +215,7 @@ export function AutomationPage(): JSX.Element {
                   </div>
                 </div>
               </div>
-              {statusMessage && <div className="rounded-card border border-white/10 bg-white/[0.045] px-4 py-3 text-sm text-vast-soft">{statusMessage}</div>}
+              {statusMessage && <div className="rounded-card border border-white/10 bg-white/4.5 px-4 py-3 text-sm text-vast-soft">{statusMessage}</div>}
 
               <div className="grid items-end gap-3 md:grid-cols-3">
                 <AutomationSelect
@@ -226,13 +226,13 @@ export function AutomationPage(): JSX.Element {
                 />
                 <label className="grid content-start gap-2 text-sm font-semibold">
                   <span className="leading-5">Color</span>
-                  <span className="flex h-11 items-center rounded-card border border-white/10 bg-white/[0.045] px-3">
+                  <span className="flex h-11 items-center rounded-card border border-white/10 bg-white/4.5 px-3">
                     <input className="h-7 w-full cursor-pointer rounded-control bg-transparent" type="color" value={selected.color} onChange={(event) => updateMacro(selected.id, { color: event.target.value })} />
                   </span>
                 </label>
                 <label className="grid content-start gap-2 text-sm font-semibold">
                   <span className="leading-5">Enabled</span>
-                  <span className="flex h-11 items-center justify-between rounded-card border border-white/10 bg-white/[0.045] px-4">
+                  <span className="flex h-11 items-center justify-between rounded-card border border-white/10 bg-white/4.5 px-4">
                     <span className="text-xs font-medium text-vast-soft">Macro active</span>
                     <input type="checkbox" checked={selected.enabled} onChange={(event) => updateMacro(selected.id, { enabled: event.target.checked })} />
                   </span>
@@ -256,7 +256,7 @@ export function AutomationPage(): JSX.Element {
                         if (dragActionId) moveAction(dragActionId, action.id)
                         setDragActionId(null)
                       }}
-                      className={`rounded-panel border bg-black/[0.18] p-4 transition ${dragActionId === action.id ? 'border-vast-cyan/40 opacity-60' : 'border-white/10'}`}
+                      className={`rounded-panel border bg-black/18 p-4 transition ${dragActionId === action.id ? 'border-vast-cyan/40 opacity-60' : 'border-white/10'}`}
                     >
                       <div className="mb-3 flex items-center justify-between gap-3">
                         <div className="flex cursor-grab items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-vast-soft"><GripVertical className="h-4 w-4" />Step {index + 1}</div>

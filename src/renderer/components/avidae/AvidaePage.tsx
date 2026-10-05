@@ -78,10 +78,10 @@ export function AvidaePage(): JSX.Element {
 
   if (runningUrl) {
     return (
-      <div className="relative h-full min-h-[560px] overflow-hidden bg-[#050507]">
+      <div className="relative h-full min-h-[560px] overflow-hidden bg-vast-black">
         {!iframeLoaded && (
-          <div className="absolute inset-0 z-10 grid place-items-center bg-[#050507]">
-            <div className="rounded-panel border border-white/10 bg-white/[0.055] px-6 py-5 text-center shadow-glass backdrop-blur-2xl">
+          <div className="absolute inset-0 z-10 grid place-items-center bg-vast-black">
+            <div className="rounded-panel border border-white/10 bg-white/5.5 px-6 py-5 text-center shadow-glass backdrop-blur-2xl">
               <Loader2 className="mx-auto h-6 w-6 animate-spin text-vast-cyan" />
               <VideoAudioMark className="mx-auto mt-4 h-9 w-9" />
               <div className="mt-2 text-sm font-semibold text-white">Loading Video &amp; Audio</div>
@@ -95,7 +95,7 @@ export function AvidaePage(): JSX.Element {
           sandbox="allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
           referrerPolicy="no-referrer"
           onLoad={() => setIframeLoaded(true)}
-          className="h-full w-full border-0 bg-[#050507]"
+          className="h-full w-full border-0 bg-vast-black"
         />
       </div>
     )
@@ -108,7 +108,7 @@ export function AvidaePage(): JSX.Element {
           <div className="space-y-6">
             <div className="max-w-2xl">
               <VideoAudioBrand
-                className="w-full max-w-[41rem]"
+                className="w-full max-w-164"
               />
               <div className="mt-3 flex items-center gap-2 text-[13px] font-medium text-vast-soft">
                 {status?.state === 'error' ? (
@@ -134,7 +134,7 @@ export function AvidaePage(): JSX.Element {
                 </button>
               </p>
               {status?.error && (
-                <div className="mt-5 rounded-card border border-vast-amber/20 bg-vast-amber/[0.075] p-4 text-sm leading-6 text-vast-soft">
+                <div className="mt-5 rounded-card border border-vast-amber/20 bg-vast-amber/7.5 p-4 text-sm leading-6 text-vast-soft">
                   <span className="font-semibold text-vast-amber">Startup error:</span> {status.error}
                 </div>
               )}
@@ -163,7 +163,7 @@ export function AvidaePage(): JSX.Element {
                 type="button"
                 onClick={() => void stop()}
                 disabled={busy || status?.state === 'stopped'}
-                className="vast-button vast-button--ghost vast-button--md h-11 justify-center rounded-card border border-white/10 bg-black/25 hover:bg-white/[0.06]"
+                className="vast-button vast-button--ghost vast-button--md h-11 justify-center rounded-card border border-white/10 bg-black/25 hover:bg-white/6"
               >
                 <Square className="h-4 w-4" />
                 Stop

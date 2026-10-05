@@ -206,6 +206,7 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
   setupUserAgent(() => runtimeSettings(currentSettings))
   prepareBrowserSessionSecurity(() => currentSettings)
   applySpoofingToAllWebContents(runtimeSettings(currentSettings))
+  markPerformance('startup-session-security-ready')
   if (legacySessionMigration) {
     try {
       await completeLegacyDefaultSessionMigration(legacySessionMigration)
@@ -314,6 +315,7 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
   } catch (error) {
     console.warn('[extensions] Could not initialize the extension registry:', error)
   }
+  markPerformance('startup-extensions-initialized')
 
   const onDataSaved = (data: Awaited<ReturnType<typeof loadData>>): void => {
     const previousSettings = currentSettings
@@ -349,6 +351,7 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
     storageDataForRenderer: (data) => startupHealth.dataForRenderer(data),
     prepareStorageSave: (current, incoming) => startupHealth.preserveStoredSession(current, incoming)
   })
+  markPerformance('startup-ipc-ready')
 
   const watchExternalNavigation = (window: BrowserWindow): BrowserWindow => {
     window.webContents.on('did-finish-load', () => externalNavigationRouter?.rendererReady(window))

@@ -249,7 +249,7 @@ export function NetworkPage(): JSX.Element {
             </div>
             {error && <div className="mt-4 rounded-card border border-vast-amber/25 bg-vast-amber/10 p-3 text-sm text-vast-amber">{error}</div>}
             {!networkSettings.enabled && (
-              <div className="mt-4 flex flex-col gap-3 rounded-card border border-vast-amber/25 bg-vast-amber/[0.08] p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="mt-4 flex flex-col gap-3 rounded-card border border-vast-amber/25 bg-vast-amber/8 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div><div className="text-sm font-semibold">Local discovery is off</div><div className="mt-1 text-xs leading-5 text-vast-soft">Enabling it does not scan automatically. Windows Firewall may ask about local-network access when you start the first scan.</div></div>
                 <button type="button" onClick={() => updateSettings({ network: { enabled: true, allowScans: false } })} className="vast-button vast-button--secondary vast-button--sm shrink-0">Enable discovery</button>
               </div>
@@ -271,10 +271,10 @@ export function NetworkPage(): JSX.Element {
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Search devices, IPs, models, services"
-                  className="h-11 w-full rounded-control border border-white/[0.07] bg-white/[0.03] pl-10 pr-3 text-sm text-white outline-none transition-colors focus:border-white/[0.16] focus:bg-white/[0.045]"
+                  className="h-11 w-full rounded-control border border-white/[0.07] bg-white/3 pl-10 pr-3 text-sm text-white outline-hidden transition-colors focus:border-white/16 focus:bg-white/4.5"
                 />
               </div>
-              <div className="grid gap-2 border-t border-white/[0.06] pt-3 lg:grid-cols-[5.5rem_minmax(0,1fr)] lg:items-center">
+              <div className="grid gap-2 border-t border-white/6 pt-3 lg:grid-cols-[5.5rem_minmax(0,1fr)] lg:items-center">
                 <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-vast-soft">Category</div>
                 <div className="flex flex-wrap gap-1">
                   {categories.map((item) => (
@@ -312,7 +312,7 @@ export function NetworkPage(): JSX.Element {
                 className={`vast-glass-panel rounded-panel p-4 text-left transition duration-150 hover:-translate-y-0.5 ${selected?.id === device.id ? 'shadow-[0_0_34px_rgba(116,231,255,0.08),inset_0_0_0_1px_rgba(116,231,255,0.24)]' : ''}`}
               >
                 <div className="flex items-start gap-4">
-                  <div className="grid h-12 w-12 place-items-center rounded-card border border-white/10 bg-white/[0.06] text-vast-cyan">
+                  <div className="grid h-12 w-12 place-items-center rounded-card border border-white/10 bg-white/6 text-vast-cyan">
                     <CategoryIcon category={device.category} className="h-5 w-5" />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -328,7 +328,7 @@ export function NetworkPage(): JSX.Element {
                     </div>
                     <div className="mt-3 flex flex-wrap gap-1.5">
                       {deviceBadges(device).map((badge) => (
-                        <span key={badge} className="rounded-control border border-white/[0.08] bg-white/[0.045] px-2 py-1 text-[11px] text-vast-soft">
+                        <span key={badge} className="rounded-control border border-white/8 bg-white/4.5 px-2 py-1 text-[11px] text-vast-soft">
                           {badge}
                         </span>
                       ))}
@@ -368,14 +368,14 @@ export function NetworkPage(): JSX.Element {
                     <CategoryIcon category={selected.category} />
                     {categoryLabel(selected.category)}
                   </div>
-                  <h2 className="mt-2 break-words text-2xl font-semibold leading-tight">{visibleName(selected)}</h2>
+                  <h2 className="mt-2 wrap-break-word text-2xl font-semibold leading-tight">{visibleName(selected)}</h2>
                   <p className="mt-1 truncate text-xs text-vast-soft">{selected.deviceType ?? 'Local network device'}</p>
                 </div>
                 <button
                   type="button"
                   title="Favorite device"
                   onClick={() => void updateDevice(selected.id, { favorite: !selected.favorite })}
-                  className="grid h-10 w-10 shrink-0 place-items-center rounded-card bg-white/[0.045] text-vast-cyan shadow-[inset_0_0_0_1px_rgba(255,255,255,0.065)] transition hover:bg-white/[0.08] hover:shadow-[inset_0_0_0_1px_rgba(116,231,255,0.24),0_0_24px_rgba(116,231,255,0.08)]"
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-card bg-white/4.5 text-vast-cyan shadow-[inset_0_0_0_1px_rgba(255,255,255,0.065)] transition hover:bg-white/8 hover:shadow-[inset_0_0_0_1px_rgba(116,231,255,0.24),0_0_24px_rgba(116,231,255,0.08)]"
                 >
                   <Heart className={`h-4 w-4 ${selected.favorite ? 'fill-current' : ''}`} />
                 </button>
@@ -387,7 +387,7 @@ export function NetworkPage(): JSX.Element {
                   defaultValue={selected.alias ?? ''}
                   onBlur={(event) => void updateDevice(selected.id, { alias: event.target.value })}
                   placeholder={selected.name}
-                  className="rounded-card border border-transparent bg-white/[0.035] px-3 py-2 text-sm text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)] outline-none transition focus:shadow-[inset_0_0_0_1px_rgba(116,231,255,0.3),0_0_24px_rgba(116,231,255,0.07)]"
+                  className="rounded-card border border-transparent bg-white/[0.035] px-3 py-2 text-sm text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)] outline-hidden transition focus:shadow-[inset_0_0_0_1px_rgba(116,231,255,0.3),0_0_24px_rgba(116,231,255,0.07)]"
                 />
               </label>
 
@@ -416,7 +416,7 @@ export function NetworkPage(): JSX.Element {
                   onBlur={(event) => void updateDevice(selected.id, { notes: event.target.value })}
                   placeholder="Local notes about this device"
                   rows={4}
-                  className="resize-none rounded-card border border-transparent bg-white/[0.032] p-3 text-sm leading-6 text-vast-soft shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)] outline-none transition focus:shadow-[inset_0_0_0_1px_rgba(116,231,255,0.3),0_0_24px_rgba(116,231,255,0.07)]"
+                  className="resize-none rounded-card border border-transparent bg-white/[0.032] p-3 text-sm leading-6 text-vast-soft shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)] outline-hidden transition focus:shadow-[inset_0_0_0_1px_rgba(116,231,255,0.3),0_0_24px_rgba(116,231,255,0.07)]"
                 />
               </label>
 
@@ -453,7 +453,7 @@ export function NetworkPage(): JSX.Element {
             type="button"
             aria-expanded={showAdvanced}
             onClick={() => setShowAdvanced((value) => !value)}
-            className="flex w-full items-center justify-between gap-4 rounded-control px-1 py-1 text-left transition-colors hover:bg-white/[0.025]"
+            className="flex w-full items-center justify-between gap-4 rounded-control px-1 py-1 text-left transition-colors hover:bg-white/2.5"
           >
             <span className="min-w-0">
               <span className="block text-sm font-semibold">Advanced scan log</span>
@@ -462,8 +462,8 @@ export function NetworkPage(): JSX.Element {
             <ChevronDown className={`h-4 w-4 shrink-0 text-vast-soft transition-transform duration-150 ${showAdvanced ? 'rotate-180' : ''}`} />
           </button>
           {showAdvanced && (
-            <div className="mt-4 grid items-start gap-4 border-t border-white/[0.06] pt-4 lg:grid-cols-[minmax(0,1fr)_240px]">
-              <div className="network-detail-scroll max-h-72 overflow-y-auto rounded-control border border-white/[0.06] bg-black/20 p-3 font-mono text-xs leading-6 text-vast-soft">
+            <div className="mt-4 grid items-start gap-4 border-t border-white/6 pt-4 lg:grid-cols-[minmax(0,1fr)_240px]">
+              <div className="network-detail-scroll max-h-72 overflow-y-auto rounded-control border border-white/6 bg-black/20 p-3 font-mono text-xs leading-6 text-vast-soft">
                 {logs.length ? logs.map((log) => <div key={log}>{log}</div>) : 'No scan log yet.'}
               </div>
               <div className="space-y-2">

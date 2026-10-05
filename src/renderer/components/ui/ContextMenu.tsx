@@ -94,22 +94,22 @@ export function ContextMenu(): JSX.Element | null {
       <button
         type="button"
         aria-label="Close context menu"
-        className="no-drag fixed inset-0 z-[2147483645] cursor-default bg-transparent"
+        className="no-drag fixed inset-0 z-2147483645 cursor-default bg-transparent"
         onMouseDown={close}
       />
       <div
         ref={menuRef}
         role="menu"
-        className="no-drag fixed z-[2147483646] max-h-[min(78vh,34rem)] w-[15rem] overflow-y-auto overflow-x-hidden rounded-card border border-white/10 bg-[#090a0d] p-1 text-sm text-white shadow-glass"
+        className="no-drag fixed z-2147483646 max-h-[min(78vh,34rem)] w-60 overflow-y-auto overflow-x-hidden rounded-card border border-white/10 bg-[#090a0d] p-1 text-sm text-white shadow-glass"
         style={{ left, top }}
       >
         {menu.title && (
-          <div className="border-b border-white/[0.08] px-2 py-1">
+          <div className="border-b border-white/8 px-2 py-1">
             <div className="truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-vast-soft">{menu.title}</div>
           </div>
         )}
         {menu.preview && (
-          <div className="border-b border-white/[0.08] px-1.5 py-1">
+          <div className="border-b border-white/8 px-1.5 py-1">
             <VastMenuItem
               onMouseDown={(event) => event.stopPropagation()}
               onClick={() => setPreviewOpen((current) => !current)}
@@ -123,7 +123,7 @@ export function ContextMenu(): JSX.Element | null {
         <div className="py-0.5">
           {menu.items.map((item) =>
             item.separator ? (
-              <div key={item.id} className="my-0.5 h-px bg-white/[0.08]" />
+              <div key={item.id} className="my-0.5 h-px bg-white/8" />
             ) : (
               <VastMenuItem
                 key={item.id}
@@ -156,7 +156,7 @@ export function ContextMenu(): JSX.Element | null {
       {menu.preview && previewOpen && (
         <div
           ref={previewRef}
-          className="link-preview-card fixed z-[2147483646] w-[280px] rounded-card border border-white/10 px-3 py-2.5 text-sm shadow-glass backdrop-blur-2xl"
+          className="link-preview-card fixed z-2147483646 w-[280px] rounded-card border border-white/10 px-3 py-2.5 text-sm shadow-glass backdrop-blur-2xl"
           style={{ left: previewLeft, top: previewTop }}
         >
           <div className="flex items-start gap-3">

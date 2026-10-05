@@ -1,6 +1,7 @@
 import { copyText } from '../../lib/clipboard'
 import { Activity, Code2, Database, Eraser, FileDown, FileUp, Fingerprint, FlaskConical, FolderOpen, History, Keyboard, LockKeyhole, MapPin, MonitorCheck, Palette, Plus, Search, Shield, Sparkles, Trash2, Wifi, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type InputHTMLAttributes, type ReactNode } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { DEFAULT_SETTINGS, DEFAULT_SHORTCUTS, INTERNAL_AUTOMATION_URL, INTERNAL_DIAGNOSTICS_URL, INTERNAL_NETWORK_URL, INTERNAL_SESSION_TIMELINE_URL, INTERNAL_SITE_DATA_URL, SEARCH_ENGINES } from '../../../shared/constants'
 import { getFeatureState, VastFeatures, type FeatureId, type FeatureState } from '../../../shared/feature-gates'
 import { resolveLayoutMode } from '../../../shared/layout-mode'
@@ -294,14 +295,17 @@ export function SettingsModal(): JSX.Element | null {
   const settings = useBrowserStore((state) => state.settings)
   const updateSettings = useBrowserStore((state) => state.updateSettings)
   const selectedLayoutMode = resolveLayoutMode(settings.layoutMode, settings.advanced.experimentalFeatures)
-  const activeTab = useBrowserStore(selectActiveTab)
-  const activeWorkspace = useBrowserStore(selectActiveWorkspace)
-  const tabs = useBrowserStore((state) => state.tabs)
-  const bookmarks = useBrowserStore((state) => state.bookmarks)
-  const history = useBrowserStore((state) => state.history)
-  const notes = useBrowserStore((state) => state.notes)
-  const macros = useBrowserStore((state) => state.macros)
-  const downloads = useBrowserStore((state) => state.downloads)
+  const [activeTabUrl, activeTabLifecycle, activeTabStatus] = useBrowserStore(useShallow((state) => {
+    const tab = selectActiveTab(state)
+    return [tab?.url, tab?.lifecycle, tab?.status] as const
+  }))
+  const tabCount = useBrowserStore((state) => state.tabs.length)
+  const bookmarkCount = useBrowserStore((state) => state.bookmarks.length)
+  const historyCount = useBrowserStore((state) => state.history.length)
+  const noteCount = useBrowserStore((state) => state.notes.length)
+  const macroCount = useBrowserStore((state) => state.macros.length)
+  const firstMacroId = useBrowserStore((state) => state.macros[0]?.id)
+  const downloadCount = useBrowserStore((state) => state.downloads.length)
   const workspaces = useBrowserStore((state) => state.workspaces)
   const createWorkspace = useBrowserStore((state) => state.createWorkspace)
   const renameWorkspace = useBrowserStore((state) => state.renameWorkspace)
@@ -669,7 +673,7 @@ export function SettingsModal(): JSX.Element | null {
 
         <div className="grid min-h-0 flex-1 grid-cols-[250px_minmax(0,1fr)]">
           <nav className="settings-modal-nav p-4 pt-3.5 text-sm text-vast-soft">
-            <div className="settings-search-panel mb-3 flex h-[38px] items-center gap-2 rounded-control border border-white/10 bg-white/[0.045] px-3 text-vast-soft focus-within:border-vast-cyan/40">
+            <div className="settings-search-panel mb-3 flex h-[38px] items-center gap-2 rounded-control border border-white/10 bg-white/4.5 px-3 text-vast-soft focus-within:border-vast-cyan/40">
               <Search className="h-4 w-4 shrink-0" />
               <input
                 value={settingsSearchQuery}
@@ -687,7 +691,7 @@ export function SettingsModal(): JSX.Element | null {
                 placeholder="Search settings"
                 aria-label="Search settings"
                 data-testid="settings-search-input"
-                className="min-w-0 flex-1 bg-transparent text-[13px] text-white outline-none placeholder:text-vast-soft"
+                className="min-w-0 flex-1 bg-transparent text-[13px] text-white outline-hidden placeholder:text-vast-soft"
               />
               {settingsSearchQuery && (
                 <IconButton
@@ -732,7 +736,7 @@ export function SettingsModal(): JSX.Element | null {
                   })}
                 </div>
               </> : (
-                <div className="settings-search-empty rounded-control border border-white/[0.08] bg-white/[0.035] px-3 py-4 text-center">
+                <div className="settings-search-empty rounded-control border border-white/8 bg-white/[0.035] px-3 py-4 text-center">
                   <Search className="mx-auto h-4 w-4 text-vast-soft" />
                   <div className="mt-2 text-sm font-medium text-white">No settings found</div>
                   <div className="mt-1 text-xs leading-5 text-vast-soft">Try a name, synonym, or shorter phrase.</div>
@@ -1117,7 +1121,10 @@ export function SettingsModal(): JSX.Element | null {
                     <VastButton variant="secondary" size="sm" onClick={() => window.location.reload()}><Activity className="h-4 w-4" />Reload</VastButton>
                   </ActionRow>
                   <ActionRow label="Debug report" help="Copy versions, platform, and active tab details.">
-                    <VastButton variant="secondary" size="sm" onClick={() => void copyText(JSON.stringify({ appVersion, versions: window.vast.app.versions, platform: window.vast.app.platform, activeTab, activeWorkspace }, null, 2))}><FileDown className="h-4 w-4" />Copy</VastButton>
+                    <VastButton variant="secondary" size="sm" onClick={() => {
+                      const state = useBrowserStore.getState()
+                      void copyText(JSON.stringify({ appVersion, versions: window.vast.app.versions, platform: window.vast.app.platform, activeTab: selectActiveTab(state), activeWorkspace: selectActiveWorkspace(state) }, null, 2))
+                    }}><FileDown className="h-4 w-4" />Copy</VastButton>
                   </ActionRow>
                   {diagnosticsState.available && (
                     <ActionRow label="Diagnostics">
@@ -1125,7 +1132,7 @@ export function SettingsModal(): JSX.Element | null {
                     </ActionRow>
                   )}
                   <ActionRow label="Diagnostics summary" help="Copy state counts and runtime versions.">
-                    <VastButton variant="secondary" size="sm" onClick={() => void copyText(JSON.stringify({ counts: { tabs: tabs.length, bookmarks: bookmarks.length, history: history.length, notes: notes.length, macros: macros.length }, versions: window.vast.app.versions }, null, 2))}><FileDown className="h-4 w-4" />Copy</VastButton>
+                    <VastButton variant="secondary" size="sm" onClick={() => void copyText(JSON.stringify({ counts: { tabs: tabCount, bookmarks: bookmarkCount, history: historyCount, notes: noteCount, macros: macroCount }, versions: window.vast.app.versions }, null, 2))}><FileDown className="h-4 w-4" />Copy</VastButton>
                   </ActionRow>
                 </div>
                 <div className="settings-card mt-3">
@@ -1136,12 +1143,12 @@ export function SettingsModal(): JSX.Element | null {
                     <div>Chromium: {window.vast.app.versions.chrome}</div>
                     <div>Node: {window.vast.app.versions.node}</div>
                     <div>Platform: {window.vast.app.platform}</div>
-                    <div className="truncate">Active URL: {activeTab?.url ?? 'none'}</div>
-                    <div>Lifecycle: {activeTab?.lifecycle ?? 'n/a'} / {activeTab?.status ?? 'n/a'}</div>
-                    <div>Tabs: {tabs.length}</div>
-                    <div>Bookmarks: {bookmarks.length}</div>
-                    <div>Notes: {notes.length}</div>
-                    <div>Macros: {macros.length}</div>
+                    <div className="truncate">Active URL: {activeTabUrl ?? 'none'}</div>
+                    <div>Lifecycle: {activeTabLifecycle ?? 'n/a'} / {activeTabStatus ?? 'n/a'}</div>
+                    <div>Tabs: {tabCount}</div>
+                    <div>Bookmarks: {bookmarkCount}</div>
+                    <div>Notes: {noteCount}</div>
+                    <div>Macros: {macroCount}</div>
                   </div>
                 </div>
               </>}
@@ -1232,8 +1239,8 @@ export function SettingsModal(): JSX.Element | null {
                 />
               </div>
               <div className="mt-3.5 grid gap-3 md:grid-cols-2">
-                <div className="settings-card p-3 text-sm"><div className="text-vast-soft">History</div><div className="mt-1 text-2xl font-semibold">{history.length}</div></div>
-                <div className="settings-card p-3 text-sm"><div className="text-vast-soft">Downloads</div><div className="mt-1 text-2xl font-semibold">{downloads.length}</div></div>
+                <div className="settings-card p-3 text-sm"><div className="text-vast-soft">History</div><div className="mt-1 text-2xl font-semibold">{historyCount}</div></div>
+                <div className="settings-card p-3 text-sm"><div className="text-vast-soft">Downloads</div><div className="mt-1 text-2xl font-semibold">{downloadCount}</div></div>
               </div>
             </section>
 
@@ -1488,9 +1495,9 @@ export function SettingsModal(): JSX.Element | null {
                   <VastButton variant="secondary" size="sm" onClick={() => { runtime.openUrlInNewTab(INTERNAL_AUTOMATION_URL); setOpen(false) }}><Sparkles className="h-4 w-4" />Open</VastButton>
                 </ActionRow>
                 <ActionRow label="Run first macro">
-                  <VastButton variant="secondary" size="sm" onClick={() => runtime.runMacro(macros[0]?.id ?? '')} disabled={!macros[0]}><Activity className="h-4 w-4" />Run</VastButton>
+                  <VastButton variant="secondary" size="sm" onClick={() => runtime.runMacro(firstMacroId ?? '')} disabled={!firstMacroId}><Activity className="h-4 w-4" />Run</VastButton>
                 </ActionRow>
-                <MetaRow label="Macros installed" value={macros.length} />
+                <MetaRow label="Macros installed" value={macroCount} />
                 <MetaRow label="Automation model" value="Visible, local, user-controlled" />
               </div>
             </section>
@@ -1528,7 +1535,7 @@ export function SettingsModal(): JSX.Element | null {
                         value={workspace.name}
                         aria-label={`Rename ${workspace.name} workspace`}
                         onChange={(event) => renameWorkspace(workspace.id, event.target.value)}
-                        className="min-w-0 flex-1 rounded-control border border-transparent bg-transparent px-2 py-1 text-sm font-semibold text-white outline-none transition hover:border-white/10 focus:border-vast-cyan/40"
+                        className="min-w-0 flex-1 rounded-control border border-transparent bg-transparent px-2 py-1 text-sm font-semibold text-white outline-hidden transition hover:border-white/10 focus:border-vast-cyan/40"
                       />
                       <IconButton
                         variant={workspaceAppearanceId === workspace.id ? 'selected' : 'quiet'}
@@ -1662,7 +1669,7 @@ export function SettingsModal(): JSX.Element | null {
               </div>
               <div className="settings-card">
                 <div className="mb-3 text-sm font-semibold text-white">Current Vast data directory</div>
-                <div className="break-all rounded-control border border-white/[0.08] bg-black/20 px-3 py-2 text-xs text-vast-soft">
+                <div className="break-all rounded-control border border-white/8 bg-black/20 px-3 py-2 text-xs text-vast-soft">
                   {dataPathInfo?.currentDataPath ?? 'Loading...'}
                 </div>
                 <div className="mt-2 text-xs leading-5 text-vast-soft">

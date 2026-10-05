@@ -8,7 +8,7 @@ const promptSource = readFileSync(new URL('../../src/renderer/components/ui/Prom
 test('bookmark editors stay constrained to the sidebar width', () => {
   assert.match(sidePanelSource, /grid-cols-\[minmax\(0,1fr\)_minmax\(5\.5rem,7\.5rem\)\]/)
   assert.match(sidePanelSource, /min-w-0 max-w-full gap-2 overflow-hidden pl-6/)
-  assert.match(sidePanelSource, /className="w-full min-w-0 max-w-\[7\.5rem\]"/)
+  assert.match(sidePanelSource, /className="w-full min-w-0 max-w-30"/)
   assert.match(sidePanelSource, /min-w-0 overflow-hidden rounded-card/)
 })
 

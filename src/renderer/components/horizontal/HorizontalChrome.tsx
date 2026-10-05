@@ -53,7 +53,7 @@ export function HorizontalChrome(): JSX.Element {
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
 
   return (
-    <header className="horizontal-chrome drag relative z-30 shrink-0 border-b border-white/[0.08] bg-[#07080b]/[0.92] text-white backdrop-blur-2xl">
+    <header className="horizontal-chrome drag relative z-30 shrink-0 border-b border-white/8 bg-[#07080b]/92 text-white backdrop-blur-2xl">
       <div className="horizontal-titlebar-row flex h-10 min-w-0 items-center gap-2 px-3">
         <WorkspacePopover
           workspace={workspace}
@@ -102,7 +102,7 @@ export function WorkspacePopover({
         aria-label={`Switch workspace. Current: ${workspace?.name ?? 'Workspace'}`}
         className={purist
           ? 'purist-workspace-button mt-1 grid h-8 w-8 place-items-center rounded-control text-vast-soft transition'
-          : 'mt-2 flex h-8 max-w-52 items-center justify-between gap-2 rounded-control border border-white/10 bg-white/[0.055] pl-2 pr-2.5 text-xs font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition hover:border-white/[0.16] hover:bg-white/[0.085]'}
+          : 'mt-2 flex h-8 max-w-52 items-center justify-between gap-2 rounded-control border border-white/10 bg-white/5.5 pl-2 pr-2.5 text-xs font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition hover:border-white/16 hover:bg-white/8.5'}
         title="Switch workspace"
       >
         <span className={`flex min-w-0 items-center ${purist ? 'justify-center' : 'flex-1 gap-2'}`}>
@@ -123,7 +123,7 @@ export function WorkspacePopover({
       </button>
 
       {open && (
-        <div className="absolute left-0 top-10 z-50 w-80 overflow-hidden rounded-card border border-white/10 bg-[#090a0d]/[0.98] p-2 shadow-glass backdrop-blur-2xl" data-testid="workspace-popover">
+        <div className="absolute left-0 top-10 z-50 w-80 overflow-hidden rounded-card border border-white/10 bg-[#090a0d]/98 p-2 shadow-glass backdrop-blur-2xl" data-testid="workspace-popover">
           <div className="px-3 pb-3 pt-2">
             <h2 className="text-2xl font-semibold leading-tight tracking-tight text-white" data-testid="workspace-popover-heading">Workspaces</h2>
           </div>
@@ -136,7 +136,7 @@ export function WorkspacePopover({
                   key={item.id}
                   className={`group/workspace flex w-full items-center gap-2 rounded-control px-2 py-1.5 transition ${
                     item.id === workspace?.id
-                      ? 'bg-white/[0.11] text-white'
+                      ? 'bg-white/11 text-white'
                       : 'text-vast-soft hover:bg-white/[0.07] hover:text-white'
                   }`}
                 >
@@ -190,7 +190,7 @@ export function WorkspacePopover({
                 onConfirm: (name) => createWorkspace(name, accentColor, privateWorkspaceDefault)
               })
             }}
-            className="mt-2 flex h-10 w-full items-center justify-center gap-2 rounded-control border border-dashed border-white/[0.12] text-sm font-medium text-vast-soft hover:border-white/20 hover:bg-white/[0.06] hover:text-white"
+            className="mt-2 flex h-10 w-full items-center justify-center gap-2 rounded-control border border-dashed border-white/12 text-sm font-medium text-vast-soft hover:border-white/20 hover:bg-white/6 hover:text-white"
           >
             <Plus className="h-4 w-4" />
             New workspace
@@ -360,7 +360,7 @@ function HorizontalTabBar(): JSX.Element {
         {visibleTabs.map((tab, index) => (
           <div key={tab.id} className="contents">
             {index === visiblePinnedCount && visiblePinnedCount > 0 && (
-              <span aria-hidden="true" className="mx-0.5 h-5 w-px shrink-0 bg-white/[0.13]" />
+              <span aria-hidden="true" className="mx-0.5 h-5 w-px shrink-0 bg-white/13" />
             )}
             {renderTab(tab)}
           </div>
@@ -369,7 +369,7 @@ function HorizontalTabBar(): JSX.Element {
           type="button"
           title="New tab"
           onClick={() => createTab({ workspaceId: workspace?.id, activate: true })}
-          className="no-drag mt-[3px] grid h-8 w-8 shrink-0 place-items-center self-center rounded-control bg-transparent text-vast-soft/75 transition hover:bg-white/[0.045] hover:text-white/90"
+          className="no-drag mt-[3px] grid h-8 w-8 shrink-0 place-items-center self-center rounded-control bg-transparent text-vast-soft/75 transition hover:bg-white/4.5 hover:text-white/90"
         >
           <Plus className="h-4 w-4" strokeWidth={1.8} />
         </button>
@@ -383,14 +383,14 @@ function HorizontalTabBar(): JSX.Element {
             aria-label={`${overflowTabs.length} more tabs`}
             aria-haspopup="dialog"
             aria-expanded={overflowOpen}
-            className="flex h-8 items-center gap-1 rounded-control border border-white/[0.08] bg-white/[0.045] px-2 text-xs text-vast-soft hover:border-white/[0.14] hover:bg-white/[0.08] hover:text-white"
+            className="flex h-8 items-center gap-1 rounded-control border border-white/8 bg-white/4.5 px-2 text-xs text-vast-soft hover:border-white/[0.14] hover:bg-white/8 hover:text-white"
             title="More tabs"
           >
             <MoreHorizontal className="h-4 w-4" />
             {overflowTabs.length}
           </button>
           {overflowOpen && createPortal(
-            <div ref={overflowMenuRef} role="dialog" aria-label={`Tabs in ${workspace?.name ?? 'workspace'}`} style={overflowPosition} className="no-drag fixed z-[100] flex w-80 max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-card border border-white/10 bg-[#090a0d] p-2 shadow-glass">
+            <div ref={overflowMenuRef} role="dialog" aria-label={`Tabs in ${workspace?.name ?? 'workspace'}`} style={overflowPosition} className="no-drag fixed z-100 flex w-80 max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-card border border-white/10 bg-[#090a0d] p-2 shadow-glass">
               <div className="flex items-center justify-between px-3 py-2">
                 <span className="text-[13px] font-semibold text-white">Tabs in {workspace?.name ?? 'workspace'}</span>
                 <span className="text-[13px] text-vast-soft">{workspaceTabs.length}</span>
@@ -414,7 +414,7 @@ function HorizontalTabBar(): JSX.Element {
                     <div
                       key={tab.id}
                       data-overflow-tab-id={tab.id}
-                      className={`group/overflow-tab relative flex min-w-0 items-center rounded-control transition-colors ${active ? 'bg-white/[0.085]' : 'hover:bg-white/[0.055]'}`}
+                      className={`group/overflow-tab relative flex min-w-0 items-center rounded-control transition-colors ${active ? 'bg-white/8.5' : 'hover:bg-white/5.5'}`}
                     >
                       <button
                         type="button"
@@ -449,12 +449,12 @@ function HorizontalTabBar(): JSX.Element {
                         onClick={() => {
                           closeTab(tab.id)
                         }}
-                        className="mr-1 grid h-8 w-8 shrink-0 place-items-center rounded-control text-white/40 transition-colors hover:bg-white/[0.09] hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/50"
+                        className="mr-1 grid h-8 w-8 shrink-0 place-items-center rounded-control text-white/40 transition-colors hover:bg-white/9 hover:text-white focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-white/50"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
                       {tab.status === 'loading' && (
-                        <span aria-hidden="true" className="pointer-events-none absolute inset-x-2 bottom-0 h-px overflow-hidden rounded-control bg-white/[0.05]">
+                        <span aria-hidden="true" className="pointer-events-none absolute inset-x-2 bottom-0 h-px overflow-hidden rounded-control bg-white/5">
                           <span className="block h-full bg-vast-cyan/70" style={{ width: `${Math.min(100, Math.max(8, Math.round(tab.progress * 100)))}%` }} />
                         </span>
                       )}
@@ -523,8 +523,8 @@ function HorizontalTabComponent({
       ? internalMeta.activeTabClassName
       : internalMeta.tabClassName
     : active
-      ? 'bg-white/[0.08] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_10px_28px_rgba(0,0,0,0.16)]'
-      : 'border-white/[0.035] bg-white/[0.022] text-vast-soft hover:border-white/10 hover:bg-white/[0.06] hover:text-white'
+      ? 'bg-white/8 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_10px_28px_rgba(0,0,0,0.16)]'
+      : 'border-white/[0.035] bg-white/[0.022] text-vast-soft hover:border-white/10 hover:bg-white/6 hover:text-white'
 
   return (
     <button
@@ -572,7 +572,7 @@ function HorizontalTabComponent({
         {tab.lifecycle === 'sleeping' && <Moon className="h-3.5 w-3.5 shrink-0 text-vast-soft" aria-label="Sleeping" />}
         {showGroupLabel && (
           <span
-            className="hidden max-w-16 items-center rounded-control border border-white/[0.06] bg-white/[0.035] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-vast-soft xl:flex"
+            className="hidden max-w-16 items-center rounded-control border border-white/6 bg-white/[0.035] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-vast-soft xl:flex"
             title={group.name}
           >
             <span className="truncate">{group.name}</span>
@@ -586,7 +586,7 @@ function HorizontalTabComponent({
             event.stopPropagation()
             onClose()
           }}
-          className={`grid h-5 w-5 shrink-0 place-items-center rounded-checkbox text-white/[0.45] transition hover:bg-white/10 hover:text-white group-hover:opacity-100 group-focus-within:opacity-100 ${active ? 'opacity-100' : 'opacity-0'}`}
+          className={`grid h-5 w-5 shrink-0 place-items-center rounded-checkbox text-white/45 transition hover:bg-white/10 hover:text-white group-hover:opacity-100 group-focus-within:opacity-100 ${active ? 'opacity-100' : 'opacity-0'}`}
         >
           <X className="h-3.5 w-3.5" />
         </span>
@@ -822,7 +822,7 @@ function BookmarkOverflowMenu({
   onOpen: (url: string) => void
 }): JSX.Element {
   return (
-    <div className="absolute left-0 top-9 z-50 w-80 rounded-card border border-white/10 bg-[#090a0d]/[0.98] p-2 shadow-glass backdrop-blur-2xl">
+    <div className="absolute left-0 top-9 z-50 w-80 rounded-card border border-white/10 bg-[#090a0d]/98 p-2 shadow-glass backdrop-blur-2xl">
       {items.map((item) => {
         if (item.type === 'bookmark') {
           return <BookmarkMenuItem key={item.bookmark.id} bookmark={item.bookmark} onOpen={onOpen} />
@@ -854,7 +854,7 @@ function BookmarkMenu({
   onOpen: (url: string) => void
 }): JSX.Element {
   return (
-    <div className="absolute left-0 top-9 z-50 w-72 rounded-card border border-white/10 bg-[#090a0d]/[0.98] p-2 shadow-glass backdrop-blur-2xl">
+    <div className="absolute left-0 top-9 z-50 w-72 rounded-card border border-white/10 bg-[#090a0d]/98 p-2 shadow-glass backdrop-blur-2xl">
       {bookmarks.length === 0 && <div className="px-3 py-3 text-sm text-vast-soft">No bookmarks in this folder.</div>}
       {bookmarks.map((bookmark) => (
         <BookmarkMenuItem key={bookmark.id} bookmark={bookmark} onOpen={onOpen} />

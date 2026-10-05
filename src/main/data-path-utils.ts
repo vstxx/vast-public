@@ -42,6 +42,10 @@ export function stableConfigRootFromEnv(env: NodeJS.ProcessEnv = process.env): s
   return join(appData, 'Vast')
 }
 
+export function storeDataRoot(appData: string, development: boolean): string {
+  return join(appData, development ? 'Vast Store Development' : 'Vast Store')
+}
+
 export function portableDataRootFromEnv(env: NodeJS.ProcessEnv = process.env): string | undefined {
   const portableDirectory = String(env.PORTABLE_EXECUTABLE_DIR ?? '').trim()
   return portableDirectory ? resolve(portableDirectory, 'Vast Data') : undefined

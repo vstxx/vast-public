@@ -129,7 +129,7 @@ export function RelayNoticeOverlay(): JSX.Element | null {
   return (
     <ModalShell
       onClose={dismiss}
-      width="max-w-[46rem]"
+      width="max-w-184"
       placement="center"
       ariaLabel={`${presentationEyebrow(presentation)}: ${presentation.title}`}
       className={`relay-notice-shell relay-notice-tone-${presentationTone(presentation)}`}

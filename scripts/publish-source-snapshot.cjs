@@ -25,6 +25,9 @@ run('gh', ['auth', 'setup-git', '--hostname', 'github.com'])
 const repo = path.join(fs.mkdtempSync(path.join(tmpdir(), 'vast-public-publish-')), 'repo')
 run('gh', ['repo', 'clone', 'vstxx/vast-public', repo])
 run('git', ['config', 'core.autocrlf', 'false'], repo)
+// Preserve the human-maintained public landing page separately from exact release source tags.
+const publicReadme = run('git', ['show', 'HEAD:README.md'], repo, true)
+if (!publicReadme.length) throw new Error('Public repository README is missing; refusing to replace it.')
 const tag = `v${version}`
 function walk(directory, prefix = '') {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => entry.isDirectory() ? walk(path.join(directory, entry.name), `${prefix}${entry.name}/`) : [`${prefix}${entry.name}`]).sort()
@@ -52,5 +55,11 @@ if (run('git', ['tag', '--list', tag], repo).trim()) {
   run('git', ['config', 'user.email', 'release@vastbrowser.com'], repo)
   run('git', ['commit', '-m', publicSourceCommitMessage(version, provenance.sourceCommit)], repo)
   run('git', ['tag', '-a', tag, '-m', `Vast ${version} from ${provenance.sourceCommit}`], repo)
+  // Keep the tag's audited source tree exact; restore the existing public README only on main.
+  fs.writeFileSync(path.join(repo, 'README.md'), publicReadme)
+  run('git', ['add', '--', 'README.md'], repo)
+  if (run('git', ['diff', '--cached', '--name-only', '--', 'README.md'], repo).trim()) {
+    run('git', ['commit', '-m', `Preserve public README after Vast ${version} snapshot publication`], repo)
+  }
   run('git', ['push', '--atomic', 'origin', 'HEAD:main', `refs/tags/${tag}`], repo)
 }

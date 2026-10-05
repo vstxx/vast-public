@@ -45,16 +45,16 @@ export function NotificationsOverlay({
   if (activeDownloads.length === 0 && toasts.length === 0) return null
 
   return (
-    <div className="vast-notification-stack pointer-events-none fixed right-5 top-5 z-[65] flex flex-col gap-3" aria-live="polite">
+    <div className="vast-notification-stack pointer-events-none fixed right-5 top-5 z-65 flex flex-col gap-3" aria-live="polite">
       {activeDownloads.map((item) => {
         const progress = item.totalBytes > 0 ? Math.min(100, Math.round((item.receivedBytes / item.totalBytes) * 100)) : undefined
         return (
           <NotificationCard
             key={`download-${item.id}`}
-            className="download-progress-toast pointer-events-auto overflow-hidden border border-white/10 bg-[#0b0c10]/[0.97] shadow-[0_18px_48px_rgba(0,0,0,0.34)]"
+            className="download-progress-toast pointer-events-auto overflow-hidden border border-white/10 bg-[#0b0c10]/97 shadow-[0_18px_48px_rgba(0,0,0,0.34)]"
           >
             <div className="flex items-start gap-3">
-              <div className="vast-notification-icon mt-0.5 border border-white/10 bg-white/[0.05] text-vast-soft">
+              <div className="vast-notification-icon mt-0.5 border border-white/10 bg-white/5 text-vast-soft">
                 <LoaderCircle className="h-5 w-5 animate-spin" />
               </div>
               <div className="min-w-0 flex-1">
@@ -67,10 +67,10 @@ export function NotificationsOverlay({
                     {progress !== undefined ? `${progress}%` : 'Active'}
                   </div>
                 </div>
-                <div className="mt-2 text-xs text-white/[0.45]">
+                <div className="mt-2 text-xs text-white/45">
                   {formatBytes(item.receivedBytes)}{item.totalBytes > 0 ? ` of ${formatBytes(item.totalBytes)}` : ' received'}
                 </div>
-                <div className="mt-3 h-1 overflow-hidden rounded-control bg-white/[0.08]">
+                <div className="mt-3 h-1 overflow-hidden rounded-control bg-white/8">
                   <div
                     className="h-full rounded-control bg-white/[0.55] transition-[width] duration-300 ease-out"
                     style={{ width: `${progress ?? 18}%` }}
@@ -88,7 +88,7 @@ export function NotificationsOverlay({
           className={`pointer-events-auto overflow-hidden border backdrop-blur-2xl ${toneStyles(toast.tone)}`}
         >
           <div className="flex items-start gap-3">
-            <div className="vast-notification-icon mt-0.5 border border-white/10 bg-white/[0.05]">
+            <div className="vast-notification-icon mt-0.5 border border-white/10 bg-white/5">
               {toneIcon(toast.tone)}
             </div>
             <div className="min-w-0 flex-1">
@@ -155,7 +155,7 @@ export function ActionPromptModal({
     <ModalShell onClose={() => closeAction && onResolve(closeAction)} width={prompt.choices?.length ? 'max-w-4xl' : 'max-w-lg'}>
       <div className="p-5">
         <div className="flex items-start gap-4">
-          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-card border border-white/10 bg-white/[0.05]">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-card border border-white/10 bg-white/5">
             {toneIconElement}
           </div>
           <div className="min-w-0 flex-1">
@@ -168,11 +168,11 @@ export function ActionPromptModal({
         {prompt.choices && prompt.choices.length > 0 && (
           <div className="mt-5 grid max-h-[52vh] grid-cols-1 gap-3 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3" data-testid="prompt-choice-grid">
             {prompt.choices.map((choice) => (
-              <div key={choice.id} className="overflow-hidden rounded-card border border-white/10 bg-black/25 transition hover:border-vast-cyan/35 hover:bg-white/[0.045]">
+              <div key={choice.id} className="overflow-hidden rounded-card border border-white/10 bg-black/25 transition hover:border-vast-cyan/35 hover:bg-white/4.5">
                 <button
                   type="button"
                   onClick={() => onResolve(choice.id)}
-                  className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-vast-cyan/70"
+                  className="block w-full text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-vast-cyan/70"
                   data-testid="prompt-choice"
                 >
                   <div className="aspect-video w-full overflow-hidden bg-black/45">
