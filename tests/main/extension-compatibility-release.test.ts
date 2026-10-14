@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { spawnSync } from 'node:child_process'
@@ -303,7 +304,9 @@ test('release orchestration writes the verified runtime fingerprint before build
   assert.ok(storePrepareDist >= 0 && storePrepareDist < storeFingerprint && storeFingerprint < storeBuild && storeBuild < storePackaging)
 })
 
-test('release metadata and packaged-ASAR verification bind the embedded fingerprint to the release commit', async () => {
+test('release metadata and packaged-ASAR verification bind the embedded fingerprint to the release commit', {
+  skip: !existsSync('scripts/release-audit.cjs') && 'canonical-only release audit is intentionally absent from the public snapshot'
+}, async () => {
   const writer = await readFile('scripts/write-release-build-metadata.cjs', 'utf8')
   const packageVerifier = await readFile('scripts/verify-release-package.cjs', 'utf8')
   const releaseAudit = await readFile('scripts/release-audit.cjs', 'utf8')

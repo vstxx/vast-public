@@ -15,6 +15,8 @@
     "/^relay\\/keys\\/staging-verification\\.json$/",
     "/^scripts\\/release-audit\\.cjs$/",
     "/^tests\\/renderer\\/release-hardening-scripts\\.test\\.ts$/",
+    "/^tests\\/main\\/cws-runtime-promotion\\.test\\.ts$/",
+    "/^tests\\/main\\/idu-plus-first-party\\.test\\.ts$/",
     "/^docs\\/FINAL_POLISH_REPORT\\.md$/",
     "/^docs\\/OPEN_SOURCE_READINESS\\.md$/",
     "/^docs\\/PERFORMANCE_AUDIT\\.md$/",
@@ -32,6 +34,7 @@
   ],
   "transformations": [
     ".github/workflows/windows-ci.yml: private master push trigger normalized to public main",
-    "package.json: release:audit mapped to the public snapshot audit"
+    "package.json: release:audit mapped to the public snapshot audit",
+    "public CI: private-only runtime and IDU+ tests excluded; canonical-audit assertion skipped when its private source is absent"
   ]
 }

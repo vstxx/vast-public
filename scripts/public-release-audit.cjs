@@ -1,4 +1,5 @@
 const { existsSync, readFileSync, readdirSync } = require('node:fs')
+const { spawnSync } = require('node:child_process')
 const { join, relative } = require('node:path')
 
 const root = join(__dirname, '..')
@@ -61,7 +62,11 @@ for (const path of ['scripts/release-audit.cjs', 'tests/renderer/release-hardeni
 
 const docs = walk('docs')
 // Path checks cover the entire snapshot, including newly introduced directories.
-for (const path of walk('')) {
+const tracked = spawnSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', windowsHide: true })
+const snapshotPaths = tracked.status === 0
+  ? tracked.stdout.split('\0').filter(Boolean)
+  : walk('')
+for (const path of snapshotPaths) {
   assert(!/(^|\/)(?:audit|secrets|node_modules|\.git|\.wrangler|\.vast-build|\.vast-test-artifacts|performance-results|preview-screenshots|user-data|User Data|Default|Profile \d+)(\/|$)/i.test(path), `private directory in snapshot: ${path}`)
   assert(!/(^|\/)(?:\.env(?:\..*)?|\.dev\.vars|password-vault\.json|Cookies|Login Data|Web Data|Local State|release\.zip.*)$/i.test(path) || /\.example$/.test(path), `private configuration/profile in snapshot: ${path}`)
   assert(!/(^|\/)(?:local-proofs\.cjs|read-coverage\.json|architecture-notes\.md|fixture-92A6Z9)(\/|$)/i.test(path), `internal audit proof in snapshot: ${path}`)
