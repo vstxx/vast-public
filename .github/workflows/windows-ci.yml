@@ -55,7 +55,7 @@ jobs:
       - name: Restore exact patched Electron runtime
         uses: ./.github/actions/prepare-patched-electron
         with:
-          github-token: ${{ github.token }}
+          github-token: ${{ secrets.VAST_PRIVATE_CACHE_TOKEN }}
       - name: Install Vast Relay dependencies
         run: npm ci --prefix relay
       - name: Reject high or critical npm vulnerabilities
