@@ -79,7 +79,7 @@ for (const path of snapshotPaths) {
   }
 }
 for (const path of ['audit', '.gitleaksignore', 'release-candidate.json', 'release', 'out']) {
-  assert(!existsSync(join(root, path)), `private release/scan artifact in snapshot: ${path}`)
+  assert(!snapshotPaths.some((entry) => entry === path || entry.startsWith(`${path}/`)), `private release/scan artifact in snapshot: ${path}`)
 }
 const forbidden = [
   /^docs\/PRODUCTION_CORRECTNESS_AUDIT\.md$/,
