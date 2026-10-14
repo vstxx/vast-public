@@ -10,6 +10,12 @@ export function originFromPermissionUrl(rawUrl: string): string | undefined {
   }
 }
 
+export function permissionOriginFromFrame(rawUrl: string, ...assertedOrigins: Array<string | undefined>): string | undefined {
+  const origin = originFromPermissionUrl(rawUrl)
+  if (!origin || assertedOrigins.some((value) => value !== undefined && originFromPermissionUrl(value) !== origin)) return undefined
+  return origin
+}
+
 export function permissionKindsFromElectronPermission(permission: string, mediaTypes: string[] = []): SitePermissionKind[] {
   if (permission === 'media') {
     const kinds: SitePermissionKind[] = []

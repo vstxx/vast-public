@@ -574,11 +574,11 @@ export function CommandPalette(): JSX.Element | null {
   }
 
   return (
-    <div className="command-palette-shell fixed inset-0 z-50 flex items-start justify-center bg-black/46 px-3 pt-[clamp(2rem,9vh,7rem)] backdrop-blur-md sm:px-5">
+    <div style={{ backdropFilter: 'blur(var(--vast-dialog-backdrop-blur))' }} className="command-palette-shell fixed inset-0 z-50 flex items-start justify-center bg-black/46 px-3 pt-[clamp(2rem,9vh,7rem)] sm:px-5">
       <button className="absolute inset-0 cursor-default" aria-label="Close command palette" onClick={() => setOpen(false)} />
-      <div className="command-palette-panel relative w-full max-w-3xl overflow-hidden rounded-panel border border-white/9 bg-[#11131a]/88 shadow-[0_32px_110px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.055)] ring-1 ring-white/3 backdrop-blur-2xl">
+      <div style={{ backdropFilter: 'blur(var(--vast-dialog-effective-blur)) saturate(var(--vast-saturation))' }} className="command-palette-panel relative w-full max-w-3xl overflow-hidden rounded-panel border">
         <div className="command-palette-search flex items-center gap-3 border-b border-white/6.5 px-5 py-4">
-          <div className="grid h-10 w-10 place-items-center rounded-card border border-white/8 bg-white/[0.07] text-vast-cyan shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+          <div className="command-palette-symbol grid h-10 w-10 place-items-center rounded-card border text-vast-cyan">
             <CommandIcon className="h-5 w-5" />
           </div>
           <input
@@ -623,11 +623,7 @@ export function CommandPalette(): JSX.Element | null {
               type="button"
               onMouseEnter={() => setSelected(index)}
               onClick={() => void run(command)}
-              className={`group flex w-full items-center gap-3 rounded-card px-3 py-3 text-left transition ${
-                index === selected
-                  ? 'bg-white/9.5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
-                  : 'text-vast-soft hover:bg-white/5.5 hover:text-white'
-              }`}
+              className={`command-palette-item group flex w-full items-center gap-3 rounded-card px-3 py-3 text-left transition ${index === selected ? 'is-selected' : ''}`}
             >
               <CommandGlyph command={command} active={index === selected} activeWorkspaceId={activeWorkspaceId} />
               <div className="min-w-0 flex-1">

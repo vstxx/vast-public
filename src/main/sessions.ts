@@ -14,6 +14,7 @@ import {
 } from '../shared/auth-compatibility-policy'
 import { BLOCKED_INTERNAL_PROTOCOLS, DEFAULT_SETTINGS } from '../shared/constants'
 import { normalizeShortcutKey, parseShortcut } from '../shared/shortcuts'
+import { isBrowserFullscreenInput } from '../shared/browser-fullscreen-shortcut'
 import { buildSpoofingHeaders, documentSpoofingConfig, resolveSpoofingProfile, spoofingFromSettings, type DocumentSpoofingConfig } from '../shared/spoofing'
 import {
   VAST_DEFAULT_WEBVIEW_PARTITION,
@@ -26,7 +27,7 @@ import type { BrowserSettings, BrowserTabOpenRequest, PermissionSetting, Permiss
 import { routeWebviewWindowOpen } from '../shared/window-open-policy'
 import { cancelRendererPrompt, requestRendererPrompt } from './ui-bridge'
 import { appChromeCsp } from './csp'
-import { originFromPermissionUrl, permissionKindsFromElectronPermission, resolveStoredPermissionPolicy, upsertOriginPermissionOverride } from './permission-policy'
+import { originFromPermissionUrl, permissionKindsFromElectronPermission, permissionOriginFromFrame, resolveStoredPermissionPolicy, upsertOriginPermissionOverride } from './permission-policy'
 import { vastDataPath } from './data-path'
 import { isTrustedRendererUrl } from './ipc-security'
 import { windowRegistry } from './windows/WindowRegistry'
@@ -495,24 +496,26 @@ function configurePermissionsForSession(
   if (configuredPermissionSessions.has(targetSession)) return
   configuredPermissionSessions.add(targetSession)
 
-  targetSession.setPermissionCheckHandler((requestingContents, permission, _requestingOrigin, details) => {
-    const topLevelOrigin = originFromPermissionUrl(requestingContents?.getURL() ?? '')
-    if (!topLevelOrigin || !ownerWindowForWebContents(requestingContents ?? undefined)) return false
+  targetSession.setPermissionCheckHandler((requestingContents, permission, requestingOrigin, details) => {
+    if (!details) return false
+    const origin = permissionOriginFromFrame(requestingOrigin, details.requestingUrl, details.securityOrigin)
+    if (!origin || !requestingContents || requestingContents.session !== targetSession || !ownerWindowForWebContents(requestingContents)) return false
+    if (details.isMainFrame && originFromPermissionUrl(requestingContents.getURL()) !== origin) return false
     const requestMediaType = (details as Electron.PermissionCheckHandlerHandlerDetails | undefined)?.mediaType
     const settings = currentSecuritySettings()
     const workspaceId = sessionIdentityScopes.get(targetSession)
-    if (permission === 'media' && settings.privacy.webRtcPolicy === 'disabled' && !hostMatchesList(topLevelOrigin, settings.privacy.webRtcExceptions)) return false
+    if (permission === 'media' && settings.privacy.webRtcPolicy === 'disabled' && !hostMatchesList(origin, settings.privacy.webRtcExceptions)) return false
     const basePolicy = permissionPolicy(permission, details, settings)
     if (basePolicy === 'allow' && permission === 'geolocation') return true
     const kinds = permissionKindsFromElectronPermission(permission, requestMediaType ? [requestMediaType] : [])
     if (kinds.length === 0) return false
-    return kinds.every((kind) => resolveStoredPermissionPolicy(settings, topLevelOrigin, kind, workspaceId) === 'allow')
+    return kinds.every((kind) => resolveStoredPermissionPolicy(settings, origin, kind, workspaceId) === 'allow')
   })
 
   targetSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
-    const origin = originFromPermissionUrl(webContents.getURL())
+    const origin = permissionOriginFromFrame(details?.requestingUrl ?? '', (details as Electron.MediaAccessPermissionRequest | undefined)?.securityOrigin)
     const window = ownerWindowForWebContents(webContents)
-    if (!origin || !window) {
+    if (!origin || webContents.session !== targetSession || !window || (details.isMainFrame && originFromPermissionUrl(webContents.getURL()) !== origin)) {
       callback(false)
       return
     }
@@ -564,9 +567,7 @@ function configurePermissionsForSession(
       invalidated = true
       cancelRendererPrompt(requestId)
     }
-    const onNavigation = (_event: Electron.Event, _url: string, _isInPlace: boolean, isMainFrame: boolean): void => {
-      if (isMainFrame) invalidate()
-    }
+    const onNavigation = (): void => invalidate()
     webContents.on('did-start-navigation', onNavigation)
     webContents.once('destroyed', invalidate)
     webContents.once('render-process-gone', invalidate)
@@ -587,10 +588,14 @@ function configurePermissionsForSession(
       ]
     })
       .then(async (choice) => {
-        if (invalidated || webContents.isDestroyed() || window.isDestroyed()) return false
-        if (ownerWindowForWebContents(webContents) !== window || originFromPermissionUrl(webContents.getURL()) !== origin) return false
+        const requestIsCurrent = (): boolean => !invalidated && !webContents.isDestroyed() && !window.isDestroyed() &&
+          webContents.session === targetSession && sessionIdentityScopes.get(targetSession) === workspaceId &&
+          ownerWindowForWebContents(webContents) === window &&
+          (!details.isMainFrame || originFromPermissionUrl(webContents.getURL()) === origin)
+        if (!requestIsCurrent()) return false
         if ((choice === 'allow-always' || choice === 'block') && permissionKinds.length > 0) {
           const data = await loadData()
+          if (!requestIsCurrent()) return false
           const settings = permissionKinds.reduce(
             (nextSettings, kind) => upsertOriginPermissionOverride(
               nextSettings,
@@ -611,7 +616,7 @@ function configurePermissionsForSession(
         if (allowed && permission === 'media' && mediaTypes.some((type) => type === 'audio' || type === 'video')) {
           protectGuestMediaCapture(webContents)
         }
-        return allowed
+        return requestIsCurrent() && allowed
       })
       .then(callback)
       .catch(() => callback(false))
@@ -893,7 +898,7 @@ function matchesInputShortcut(input: Electron.Input, shortcut: string): boolean 
   const parts = parseShortcut(shortcut)
   if (!parts) return false
   if (parts.ctrlOrMeta !== (input.control || input.meta)) return false
-  if (parts.shift !== input.shift) return false
+  if (parts.shift !== input.shift && !(parts.key === '+' && !parts.shift && input.shift)) return false
   if (parts.alt !== input.alt) return false
   const key = normalizeShortcutKey(input.key)
   return parts.key === key || (parts.key === '+' && (key === '=' || key === '+'))
@@ -1423,6 +1428,13 @@ export function setupWindowSecurity(
     })
 
     contents.on('before-input-event', (event, input) => {
+      if (isBrowserFullscreenInput(input)) {
+        const window = ownerWindowForWebContents(contents)
+        if (!window) return
+        event.preventDefault()
+        window.setFullScreen(!window.isFullScreen())
+        return
+      }
       if (input.type !== 'keyDown') return
 
       const key = input.key.toLowerCase()
@@ -1436,7 +1448,7 @@ export function setupWindowSecurity(
           break
         }
       }
-      if (!shortcut && meta && /^[1-9]$/.test(key)) shortcut = `tab:${key}`
+      if (!shortcut && meta && !input.shift && !input.alt && /^[1-9]$/.test(key)) shortcut = `tab:${key}`
 
       if (shortcut) {
         const window = ownerWindowForWebContents(contents)

@@ -3,6 +3,7 @@ import { dirname, isAbsolute, join } from 'node:path'
 import { atomicWriteJson } from '../atomic-file.ts'
 import type { InstalledExtensionRecord } from './extension-types.ts'
 import { VAST_NATIVE_PERMISSIONS, type VastExtensionKind, type VastNativePermission } from '../../shared/extension-native-api.ts'
+import { parseChromeWebStoreListingUrl } from '../../shared/chrome-web-store.ts'
 
 const REGISTRY_SCHEMA_VERSION = 6
 const EXTENSION_ID = /^[a-p]{32}$/
@@ -42,7 +43,7 @@ export function parseInstalledExtensionRecord(value: unknown): InstalledExtensio
 
   if (!id || !EXTENSION_ID.test(id) || !name || !version || !path || !isAbsolute(path)) return undefined
   if (input.enabled !== true && input.enabled !== false) return undefined
-  if (!['unpacked', 'local-vext', 'local-chromium', 'hub', 'upstream', 'bundled'].includes(String(input.source)) || !['chrome', 'vast', 'hybrid', undefined].includes(input.runtime as VastExtensionKind | undefined)) return undefined
+  if (!['unpacked', 'local-vext', 'local-chromium', 'hub', 'upstream', 'cws', 'bundled'].includes(String(input.source)) || !['chrome', 'vast', 'hybrid', undefined].includes(input.runtime as VastExtensionKind | undefined)) return undefined
   if (input.manifestVersion !== 2 && input.manifestVersion !== 3) return undefined
   if (!installedAt || !updatedAt) return undefined
 
@@ -53,12 +54,13 @@ export function parseInstalledExtensionRecord(value: unknown): InstalledExtensio
     : []
   const runtime = (input.runtime === 'vast' || input.runtime === 'hybrid' ? input.runtime : 'chrome') as VastExtensionKind
   const source = input.source as InstalledExtensionRecord['source']
+  const cwsListing = source === 'cws' && typeof input.cwsListingUrl === 'string' ? parseChromeWebStoreListingUrl(input.cwsListingUrl) : undefined
   const trust = input.trust === 'official' || input.trust === 'reviewed' || input.trust === 'upstream' || input.trust === 'local' || input.trust === 'developer'
     ? input.trust
-    : source === 'unpacked' ? 'developer' : source === 'upstream' ? 'upstream' : source === 'hub' || source === 'bundled' ? 'official' : 'local'
+    : source === 'unpacked' ? 'developer' : source === 'upstream' || source === 'cws' ? 'upstream' : source === 'hub' || source === 'bundled' ? 'official' : 'local'
   const updateState = ['not-applicable', 'up-to-date', 'checking', 'available', 'updating', 'pending-approval', 'failed'].includes(String(input.updateState))
     ? input.updateState as InstalledExtensionRecord['updateState']
-    : source === 'hub' || source === 'upstream' ? 'up-to-date' : 'not-applicable'
+    : source === 'hub' || source === 'upstream' || source === 'cws' ? 'up-to-date' : 'not-applicable'
   const optionalVersion = (value: unknown): string | undefined => limitedString(value, 64)
   const optionalHash = (value: unknown): string | undefined => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value) ? value : undefined
   const optionalTime = typeof input.lastUpdateCheckAt === 'number' && Number.isFinite(input.lastUpdateCheckAt) && input.lastUpdateCheckAt > 0 ? input.lastUpdateCheckAt : undefined
@@ -66,6 +68,7 @@ export function parseInstalledExtensionRecord(value: unknown): InstalledExtensio
     id,
     ...(limitedString(input.runtimeExtensionId, 64) && EXTENSION_ID.test(String(input.runtimeExtensionId)) ? { runtimeExtensionId: String(input.runtimeExtensionId) } : {}),
     ...(limitedString(input.upstreamExtensionId, 64) && EXTENSION_ID.test(String(input.upstreamExtensionId)) ? { upstreamExtensionId: String(input.upstreamExtensionId) } : {}),
+    ...(cwsListing?.extensionId === id ? { cwsListingUrl: cwsListing.sourceUrl } : {}),
     name,
     version,
     ...(description ? { description } : {}),

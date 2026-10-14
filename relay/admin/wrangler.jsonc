@@ -8,10 +8,11 @@
   ],
   "workers_dev": false,
   "preview_urls": false,
+  "triggers": { "crons": ["*/15 * * * *"] },
   "vars": {
     "ACCESS_AUD": "configure-after-access-application-creation",
     "ACCESS_TEAM_DOMAIN": "https://vast-browser.cloudflareaccess.com",
-    "CONTROL_PANEL_ORIGIN": "http://localhost:8787",
+    "CONTROL_PANEL_ORIGIN": "http://localhost:8790",
     "ENVIRONMENT": "local",
     "RELAY_KEY_ID": "relay-test-1"
   },
@@ -73,6 +74,7 @@
   "env": {
     "staging": {
       "name": "vast-relay-admin-staging",
+      "triggers": { "crons": ["*/15 * * * *"] },
       "workers_dev": false,
       "preview_urls": false,
       "routes": [
@@ -142,6 +144,7 @@
     },
     "production": {
       "name": "vast-relay-admin-production",
+      "triggers": { "crons": ["*/15 * * * *"] },
       "workers_dev": false,
       "preview_urls": false,
       "routes": [

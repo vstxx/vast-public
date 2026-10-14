@@ -4,6 +4,7 @@ import type { Tab, TabGroup } from '../../../shared/types'
 import { selectActiveTab, selectActiveWorkspace, useBrowserStore } from '../../store/browser-store'
 import { openTabContextMenu } from '../../lib/context-menu'
 import { useTabMotion } from '../../lib/tab-motion'
+import { beginTabDrag, consumeTabDrop, recordTabDrop } from '../../lib/tab-drag-session'
 import { getEffectiveTabUrl, isSecureUrl } from '../../lib/url'
 import { AddressBar } from '../browser/AddressBar'
 import { BookmarksBar, WorkspacePopover } from '../horizontal/HorizontalChrome'
@@ -265,11 +266,15 @@ function PuristTabStrip(): JSX.Element {
   const onDrop = (event: DragEvent<HTMLDivElement>, targetId: string): void => {
     event.preventDefault()
     const draggedId = event.dataTransfer.getData('text/plain')
-    if (draggedId) moveTab(draggedId, targetId)
+    if (draggedId) {
+      recordTabDrop(draggedId)
+      moveTab(draggedId, targetId)
+    }
     setDragTargetId(null)
   }
 
   const onTabDragEnd = (event: DragEvent<HTMLDivElement>, tab: Tab): void => {
+    if (consumeTabDrop(tab.id)) return
     if (!shouldDetachPuristTab(event, stripRef.current)) return
     event.preventDefault()
     const payload = {
@@ -382,8 +387,7 @@ function PuristTabComponent({
       data-pinned={tab.pinned}
       draggable
       onDragStart={(event) => {
-        event.dataTransfer.effectAllowed = 'move'
-        event.dataTransfer.setData('text/plain', tab.id)
+        beginTabDrag(tab.id, event.dataTransfer)
       }}
       onDragEnd={(event) => {
         onDragEnd(event)

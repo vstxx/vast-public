@@ -61,6 +61,7 @@ import { registerNewTabBackgroundIpc } from './ipc/new-tab-background'
 import { registerNoticesIpc } from './ipc/notices'
 import { registerPdfIpc } from './ipc/pdf'
 import { registerPrivacyIpc } from './ipc/privacy'
+import { isChromeWebStoreNavigationEnabled } from '../shared/top-level-navigation-policy'
 import { assertGuestOwnedBySender } from './ipc/guest-ownership'
 import { fail, ok } from './ipc/registration'
 import type { ExtensionManager } from './extensions/extension-manager'
@@ -239,6 +240,7 @@ export function setupIpc(services: IpcServices = {}): void {
     const data = await loadData()
     return storageDataForRenderer?.(data) ?? data
   })
+  handle('vast:app:cws-navigation-status', () => ({ enabled: isChromeWebStoreNavigationEnabled() }))
   for (const registerFeature of featureRegistrars) registerFeature(handle)
 
   handle('vast:storage:save', async (_event, data: PersistedData) => persistRendererData(data))
@@ -334,7 +336,7 @@ export function setupIpc(services: IpcServices = {}): void {
 
   registerAvidaeIpc(handle)
   registerDownloadsIpc(handle)
-  if (extensionManager) registerExtensionsIpc(handle, senderWindowFor, extensionManager)
+  if (extensionManager) registerExtensionsIpc(handle, senderWindowFor, extensionManager, resolveTrustedGuestWebContents)
   registerNetworkIpc(handle, senderWindowFor)
   registerNewTabBackgroundIpc(handle, senderWindowFor)
   registerNoticesIpc(handle)

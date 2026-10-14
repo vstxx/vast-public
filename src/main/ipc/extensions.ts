@@ -3,13 +3,16 @@ import type { ExtensionManager } from '../extensions/extension-manager'
 import { requestRendererPrompt, showRendererNotification } from '../ui-bridge'
 import { VAST_NATIVE_PERMISSIONS, VAST_PERMISSION_METADATA, type VastNativePermission, type VastUiBrokerResponse } from '../../shared/extension-native-api'
 import { fail, type IpcHandle, type SenderWindowFor } from './registration'
+import { parseChromeWebStoreListingUrl } from '../../shared/chrome-web-store'
+import type { WebContents } from 'electron/main'
 
 const EXTENSION_ID = /^[a-p]{32}$/
 
 export function registerExtensionsIpc(
   handle: IpcHandle,
   senderWindowFor: SenderWindowFor,
-  extensionManager: ExtensionManager
+  extensionManager: ExtensionManager,
+  resolveOwnedGuest: (host: WebContents, guestId: number) => WebContents
 ): void {
   handle('vast:extensions:list', async () => {
     try {
@@ -90,6 +93,31 @@ export function registerExtensionsIpc(
     try {
       if (typeof id !== 'string' || !EXTENSION_ID.test(id)) throw new Error('Invalid extension ID.')
       return { ok: true, preview: await extensionManager.prepareHubInstall(id) }
+    } catch (error) { return fail(error) }
+  })
+
+  handle('vast:extensions:prepare-cws-install', async (event, listingUrl: unknown) => {
+    try {
+      senderWindowFor(event)
+      if (typeof listingUrl !== 'string' || !parseChromeWebStoreListingUrl(listingUrl)) throw new Error('Enter a valid Chrome Web Store extension listing URL.')
+      return { ok: true, preview: await extensionManager.prepareCwsInstall(listingUrl) }
+    } catch (error) { return fail(error) }
+  })
+
+  handle('vast:extensions:prepare-cws-current-tab', async (event, guestId: unknown) => {
+    try {
+      senderWindowFor(event)
+      if (typeof guestId !== 'number') throw new Error('A browser tab is required.')
+      const guest = resolveOwnedGuest(event.sender, guestId)
+      if (guest.isLoadingMainFrame()) throw new Error('Wait for the Chrome Web Store page to finish loading.')
+      const listing = parseChromeWebStoreListingUrl(guest.getURL())
+      if (!listing) throw new Error('The current tab is not a Chrome Web Store extension listing.')
+      const preview = await extensionManager.prepareCwsInstall(listing.sourceUrl)
+      if (guest.isDestroyed() || guest.isLoadingMainFrame() || parseChromeWebStoreListingUrl(guest.getURL())?.extensionId !== listing.extensionId) {
+        await extensionManager.cancelPrepared(preview.token)
+        throw new Error('The Chrome Web Store tab changed during installation review.')
+      }
+      return { ok: true, preview }
     } catch (error) { return fail(error) }
   })
 

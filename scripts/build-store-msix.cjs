@@ -9,6 +9,7 @@ const {
   root
 } = require('./store-msix-config.cjs')
 const { windowsSdkTool } = require('./store-msix-tools.cjs')
+const { generateStorePri } = require('./store-pri.cjs')
 const compatibilityManifest = require('../patches/extension-compatibility-runtime.json')
 const { defaultOutputPath } = require('./prepare-patched-electron-dist.cjs')
 
@@ -104,6 +105,7 @@ run('powershell.exe', [
   '-Source', 'assets/logos/vasticon-windows.png',
   '-OutputDirectory', join(stagingRoot, 'Assets')
 ])
+generateStorePri(stagingRoot, identity.name)
 
 mkdirSync(storeRoot, { recursive: true })
 rmSync(artifactPath, { force: true })

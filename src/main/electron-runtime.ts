@@ -1,4 +1,5 @@
 import { app, type BrowserWindow } from 'electron/main'
+import { isBrowserFullscreenInput } from '../shared/browser-fullscreen-shortcut'
 
 export const isDev = !app.isPackaged
 
@@ -9,6 +10,11 @@ export function setAppUserModelId(id: string): void {
 export function watchWindowShortcuts(window: BrowserWindow): void {
   const { webContents } = window
   webContents.on('before-input-event', (event, input) => {
+    if (isBrowserFullscreenInput(input)) {
+      event.preventDefault()
+      window.setFullScreen(!window.isFullScreen())
+      return
+    }
     if (input.type !== 'keyDown') return
 
     if (isDev && input.code === 'F12') {

@@ -1,12 +1,12 @@
 import { ChevronsLeft, ChevronsRight, PanelRight, Plus, Search } from 'lucide-react'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useBrowserStore, selectActiveWorkspace } from '../../store/browser-store'
 import { BrandMark } from '../ui/BrandMark'
 import { IconButton } from '../ui/IconButton'
 import { WorkspaceSwitcher } from '../workspaces/WorkspaceSwitcher'
 import { TabRow } from './TabRow'
 
-export function Sidebar({ forcedCollapsed = false }: { forcedCollapsed?: boolean }): JSX.Element {
+export function Sidebar({ forcedCollapsed = false, onManualExpand }: { forcedCollapsed?: boolean; onManualExpand?: () => void }): JSX.Element {
   const workspace = useBrowserStore(selectActiveWorkspace)
   const tabs = useBrowserStore((state) => state.tabs)
   const sidebarDensity = useBrowserStore((state) => state.settings.sidebarDensity)
@@ -27,36 +27,57 @@ export function Sidebar({ forcedCollapsed = false }: { forcedCollapsed?: boolean
   }, [tabs, workspace])
   const { pinnedTabs, regularTabs } = tabLayout
   const compactDensity = sidebarDensity === 'compact'
+  const asideRef = useRef<HTMLElement | null>(null)
+  const [compactContents, setCompactContents] = useState(sidebarCollapsed)
+  const showCompactContents = sidebarCollapsed || compactContents
+
+  useEffect(() => {
+    if (sidebarCollapsed) {
+      setCompactContents(true)
+      return
+    }
+    if (!compactContents) return
+    let frame = 0
+    const revealExpandedContents = (): void => {
+      const width = asideRef.current?.getBoundingClientRect().width
+      if (width === undefined) return
+      if (width >= (compactDensity ? 220 : 248) - 1) {
+        setCompactContents(false)
+      } else {
+        frame = window.requestAnimationFrame(revealExpandedContents)
+      }
+    }
+    frame = window.requestAnimationFrame(revealExpandedContents)
+    return () => window.cancelAnimationFrame(frame)
+  }, [sidebarCollapsed, compactContents, compactDensity])
 
   return (
     <aside
+      ref={asideRef}
+      data-tab-sidebar
       className={`drag relative flex min-h-0 shrink-0 flex-col border-r border-white/8 bg-[#08090d]/88 text-white backdrop-blur-2xl transition-[width] duration-200 ease-smooth ${
         sidebarCollapsed ? 'w-16' : compactDensity ? 'w-[220px]' : 'w-[248px]'
       }`}
+      data-sidebar-content={showCompactContents ? 'compact' : 'expanded'}
     >
-      {sidebarCollapsed ? (
-        <div className={`no-drag flex flex-col items-center justify-end gap-1 pb-2 ${compactDensity ? 'h-[58px]' : 'h-[72px]'}`}>
-          <BrandMark compact />
-          <button
-            type="button"
-            title="Expand sidebar"
-            onClick={() => setSidebarCollapsed(false)}
-            className="grid h-5 w-5 place-items-center rounded-checkbox text-white/20 transition hover:bg-white/[0.07] hover:text-white/50"
-          >
-            <ChevronsRight className="h-3 w-3" />
-          </button>
-        </div>
-      ) : (
-        <div className={`no-drag flex items-center justify-between px-4 ${compactDensity ? 'h-[58px]' : 'h-[72px]'}`}>
-          <BrandMark />
+      <div className={`no-drag flex items-center justify-between overflow-hidden px-4 ${compactDensity ? 'h-[58px]' : 'h-[72px]'}`}>
+        <BrandMark compact={showCompactContents} />
+        {!showCompactContents && (
           <IconButton tooltip="Collapse sidebar" onClick={() => setSidebarCollapsed(true)}>
             <ChevronsLeft className="h-4 w-4" />
+          </IconButton>
+        )}
+      </div>
+      {showCompactContents && (
+        <div className="no-drag flex w-16 shrink-0 justify-center pb-2">
+          <IconButton tooltip="Expand sidebar" onClick={() => { onManualExpand?.(); setSidebarCollapsed(false) }}>
+            <ChevronsRight className="h-4 w-4" />
           </IconButton>
         </div>
       )}
 
-      <div className={`no-drag flex items-center gap-2 ${sidebarCollapsed ? 'justify-center' : 'px-4'} ${compactDensity ? 'pb-2' : 'pb-3'}`}>
-        {sidebarCollapsed ? (
+      <div className={`no-drag flex items-center gap-2 ${showCompactContents ? 'w-16 shrink-0 justify-center' : 'px-4'} ${compactDensity ? 'pb-2' : 'pb-3'}`}>
+        {showCompactContents ? (
           <IconButton tooltip="Sidebar" active={sidePanelOpen} onClick={() => setSidePanelOpen(!sidePanelOpen)}>
             <PanelRight className="h-4 w-4" />
           </IconButton>
@@ -78,24 +99,24 @@ export function Sidebar({ forcedCollapsed = false }: { forcedCollapsed?: boolean
         )}
       </div>
 
-      <div className={`no-drag ${sidebarCollapsed ? 'px-2' : 'px-4'} ${compactDensity ? 'pb-2' : 'pb-4'}`}>
-        <WorkspaceSwitcher compact={sidebarCollapsed} />
+      <div className={`no-drag ${showCompactContents ? 'w-16 shrink-0 px-2' : 'px-4'} ${compactDensity ? 'pb-2' : 'pb-4'}`}>
+        <WorkspaceSwitcher compact={showCompactContents} />
       </div>
 
-      <div className={`no-drag min-h-0 flex-1 overflow-y-auto ${sidebarCollapsed ? 'px-2' : 'px-4'} pb-4`}>
+      <div className={`no-drag min-h-0 flex-1 overflow-y-auto ${showCompactContents ? 'w-16 shrink-0 px-2' : 'px-4'} pb-4`}>
         <div className="space-y-1" data-testid="vertical-tabs-list">
           {pinnedTabs.map((tab) => (
-            <TabRow key={tab.id} tab={tab} active={tab.id === workspace?.activeTabId} compact={sidebarCollapsed} />
+            <TabRow key={tab.id} tab={tab} active={tab.id === workspace?.activeTabId} compact={showCompactContents} />
           ))}
           {pinnedTabs.length > 0 && regularTabs.length > 0 && <div className="mx-2 my-2 h-px bg-white/[0.07]" />}
           {regularTabs.map((tab) => (
-            <TabRow key={tab.id} tab={tab} active={tab.id === workspace?.activeTabId} compact={sidebarCollapsed} />
+            <TabRow key={tab.id} tab={tab} active={tab.id === workspace?.activeTabId} compact={showCompactContents} />
           ))}
         </div>
       </div>
 
-      <div className={`no-drag border-t border-white/[0.07] ${sidebarCollapsed ? 'grid place-items-center p-2' : 'p-3'}`}>
-        {sidebarCollapsed ? (
+      <div className={`no-drag border-t border-white/[0.07] ${showCompactContents ? 'grid w-16 shrink-0 place-items-center p-2' : 'p-3'}`}>
+        {showCompactContents ? (
           <IconButton tooltip="New tab" data-testid="vertical-new-tab" onClick={() => createTab({ activate: true })}>
             <Plus className="h-4 w-4" />
           </IconButton>

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import test from 'node:test'
 import { unzipSync, zipSync } from 'fflate'
 import {
@@ -8,6 +9,7 @@ import {
   createEd25519Signer,
   createVextPackage,
   parseVextPackage,
+  sha256Hex,
   verifyVextPackage,
   type VextTrustedKey
 } from '../../src/shared/vext-format.ts'
@@ -15,6 +17,14 @@ import {
 const extensionId = 'abcdefghijklmnopabcdefghijklmnop'
 const publisherId = 'publisher_0123456789abcdef'
 const encoder = new TextEncoder()
+
+test('SHA-256 hashes only the requested Buffer bytes, including pooled offsets', async () => {
+  const backing = Buffer.allocUnsafe(256)
+  backing.fill(0xa5)
+  const view = backing.subarray(73, 92)
+  view.set(encoder.encode('exact buffer bytes!'))
+  assert.equal(await sha256Hex(view), createHash('sha256').update(view).digest('hex'))
+})
 
 function files(version = '1.0.0'): Map<string, Uint8Array> {
   return new Map([

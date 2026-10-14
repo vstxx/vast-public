@@ -9,8 +9,8 @@ const { validateRuntimeFingerprint } = require('./verify-extension-compat-runtim
 
 const root = path.resolve(__dirname, '..')
 const packageDir = path.resolve(process.argv[2] || path.join(root, 'release', 'win-unpacked'))
-const dist = path.resolve(process.argv[3] || path.join(root, '.vast-build', 'electron-dist', 'electron-44.3.0-vast-r5-win32-x64'))
 const manifest = require(path.join(root, 'patches', 'extension-compatibility-runtime.json'))
+const dist = path.resolve(process.argv[3] || path.join(root, '.vast-build', 'electron-dist', `${manifest.electron.patchsetRevision}-win32-x64`))
 const executable = path.join(packageDir, 'Vast.exe')
 const sourceExecutable = path.join(dist, 'electron.exe')
 const appAsar = path.join(packageDir, 'resources', 'app.asar')

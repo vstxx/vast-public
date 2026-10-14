@@ -19,6 +19,7 @@ type NativeHost = {
   receiveBuffer: Buffer
   send: (message: unknown) => void
   sendAndReceive: (message: unknown) => Promise<unknown>
+  destroy: (notify?: boolean) => void
 }
 
 async function loadNativeMessagingHost(): Promise<new (...args: unknown[]) => NativeHost> {
@@ -39,6 +40,22 @@ async function loadNativeMessagingHost(): Promise<new (...args: unknown[]) => Na
     `${implementation}; return NativeMessagingHost`
   )
   return factory(Buffer, () => {}, process, path, os, { app: { getPath: () => '' } }, { promises: fsPromises }, { spawn: () => { throw new Error('unexpected spawn') } })
+}
+
+async function loadRuntimeApi(NativeMessagingHost: new (...args: unknown[]) => NativeHost): Promise<new (context: unknown) => {
+  activeHosts: Set<NativeHost>
+  hostMap: Record<string, NativeHost>
+  connectNative: (event: unknown, connectionId: string, application: string) => Promise<void>
+}> {
+  const source = await readFile(runtimePath, 'utf8')
+  const start = source.indexOf('var MAX_NATIVE_HOST_CONNECTIONS')
+  const end = source.indexOf('// src/browser/api/cookies.ts', start)
+  assert.ok(start >= 0 && end > start, 'native messaging runtime API was not found')
+  const factory = new Function(
+    'import_node_events3', 'import_node_crypto', 'NativeMessagingHost', 'getExtensionManifest',
+    `${source.slice(start, end)}; return RuntimeAPI`,
+  )
+  return factory({ EventEmitter }, { randomUUID: () => 'one-shot-test' }, NativeMessagingHost, () => ({}))
 }
 
 function frame(value: unknown): Buffer {
@@ -157,6 +174,19 @@ test('one-shot native messaging fails closed after the response timeout', async 
   assert.equal(host.destroyed, true)
 })
 
+test('one-shot native messaging rejects when its sender stops before a response', async () => {
+  const NativeMessagingHost = await loadNativeMessagingHost()
+  NativeMessagingHost.prototype.launch = async function (this: NativeHost) {
+    this.process = { stdin: { write: () => true, once: () => undefined }, kill: () => {} }
+    this.connected = true
+  }
+  const host = new NativeMessagingHost('a'.repeat(32), sender([]), 'connection', 'com.vast.test', false)
+  const pending = assert.rejects(host.sendAndReceive({ request: true }), /disconnected/)
+  await new Promise((resolve) => setImmediate(resolve))
+  host.destroy(false)
+  await pending
+})
+
 test('native messaging rejects oversized inbound frames before buffering a payload', async () => {
   const NativeMessagingHost = await loadNativeMessagingHost()
   NativeMessagingHost.prototype.launch = async function (this: NativeHost) { this.connected = true }
@@ -188,6 +218,52 @@ test('native messaging rejects invalid UTF-8 instead of accepting replacement ch
 
   assert.equal(host.destroyed, true)
   assert.match(String(messages[0]), /invalid JSON/)
+})
+
+test('native hosts exit when their owning service worker stops, freeing connection capacity', async () => {
+  const NativeMessagingHost = await loadNativeMessagingHost()
+  const RuntimeAPI = await loadRuntimeApi(NativeMessagingHost)
+  const workers = new EventEmitter()
+  let killed = 0
+  NativeMessagingHost.prototype.launch = async function (this: NativeHost) {
+    this.process = { stdin: { write: () => true, once: () => undefined }, kill: () => { killed += 1 } }
+    this.connected = true
+  }
+  const api = new RuntimeAPI({
+    session: { serviceWorkers: workers },
+    router: { apiHandler: () => () => {} },
+  })
+  const extension = { id: 'a'.repeat(32) }
+  for (let index = 0; index < 20; index += 1) {
+    const connectionId = `connection-${index}`
+    const owner = { versionId: index + 1, ipc: new EventEmitter(), send: () => {} }
+    await api.connectNative({ extension, sender: owner }, connectionId, 'com.vast.test')
+    assert.equal(api.activeHosts.size, 1)
+    workers.emit('running-status-changed', { runningStatus: 'running', versionId: owner.versionId })
+    assert.equal(api.activeHosts.size, 1)
+    workers.emit('running-status-changed', { runningStatus: 'stopping', versionId: owner.versionId })
+    assert.equal(api.activeHosts.size, 0)
+    assert.equal(api.hostMap[connectionId], undefined)
+    workers.emit('running-status-changed', { runningStatus: 'stopped', versionId: owner.versionId })
+  }
+  assert.equal(killed, 20)
+})
+
+test('native host cleanup survives a worker whose IPC endpoint was discarded', async () => {
+  const NativeMessagingHost = await loadNativeMessagingHost()
+  NativeMessagingHost.prototype.launch = async function (this: NativeHost) {
+    this.process = { stdin: { write: () => true, once: () => undefined }, kill: () => {} }
+    this.connected = true
+  }
+  let released = false
+  const owner = { ipc: { on: () => {}, off: () => { throw new Error('worker stopped') } },
+    send: () => { throw new Error('worker stopped') } }
+  const host = new NativeMessagingHost('a'.repeat(32), owner, 'connection', 'com.vast.test', true,
+    () => { released = true })
+  await (host as unknown as { ready: Promise<void> }).ready
+  host.destroy(true)
+  assert.equal(host.destroyed, true)
+  assert.equal(released, true)
 })
 
 test('native messaging runtime follows Chromium discovery and launch constraints', async () => {

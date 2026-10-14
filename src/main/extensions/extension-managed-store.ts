@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { atomicWriteJson } from '../atomic-file.ts'
@@ -14,6 +14,7 @@ import {
   type VextTrustedKey
 } from '../../shared/vext-format.ts'
 import type { ExtensionInstallSource } from '../../shared/extension-marketplace.ts'
+import { isChromeExtensionVersion } from '../../shared/chrome-extension-version.ts'
 import type { LocalChromiumStage } from './local-chromium-stage.ts'
 
 const retryDelays = [60, 180, 450, 900]
@@ -47,7 +48,7 @@ interface StagedManagedPackageBase {
 
 export interface StagedVextPackage extends StagedManagedPackageBase {
   format: 'vext'
-  source: 'local-vext' | 'hub' | 'upstream'
+  source: 'local-vext' | 'hub' | 'upstream' | 'cws'
   parsed: ParsedVextPackage
 }
 
@@ -133,19 +134,21 @@ function isInside(root: string, candidate: string): boolean {
 function stateFromUnknown(value: unknown): ManagedExtensionState | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
   const input = value as Record<string, unknown>
-  if (input.schemaVersion !== 1 || !VEXT_EXTENSION_ID.test(String(input.extensionId)) || !VEXT_VERSION.test(String(input.activeVersion))) return undefined
-  if (input.source !== 'local-vext' && input.source !== 'local-chromium' && input.source !== 'hub' && input.source !== 'upstream') return undefined
-  const failedVersions = Array.isArray(input.failedVersions) ? input.failedVersions.filter((version): version is string => typeof version === 'string' && VEXT_VERSION.test(version)).slice(0, 32) : []
+  if (input.schemaVersion !== 1 || !VEXT_EXTENSION_ID.test(String(input.extensionId))) return undefined
+  if (input.source !== 'local-vext' && input.source !== 'local-chromium' && input.source !== 'hub' && input.source !== 'upstream' && input.source !== 'cws') return undefined
+  const validVersion = (value: string): boolean => input.source === 'cws' ? isChromeExtensionVersion(value) : VEXT_VERSION.test(value)
+  if (!validVersion(String(input.activeVersion))) return undefined
+  const failedVersions = Array.isArray(input.failedVersions) ? input.failedVersions.filter((version): version is string => typeof version === 'string' && validVersion(version)).slice(0, 32) : []
   const versions = Array.isArray(input.versions) ? input.versions.flatMap((candidate): ManagedVersionState[] => {
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return []
     const version = candidate as Record<string, unknown>
-    if (!VEXT_VERSION.test(String(version.version)) || !/^[a-f0-9]{64}$/.test(String(version.packageSha256)) || !/^[a-f0-9]{64}$/.test(String(version.manifestSha256))) return []
+    if (!validVersion(String(version.version)) || !/^[a-f0-9]{64}$/.test(String(version.packageSha256)) || !/^[a-f0-9]{64}$/.test(String(version.manifestSha256))) return []
     const installedAt = Number(version.installedAt)
     if (!Number.isFinite(installedAt) || installedAt <= 0) return []
     const signatureKeyId = typeof version.signatureKeyId === 'string' && /^[A-Za-z0-9_-]{3,128}$/.test(version.signatureKeyId) ? version.signatureKeyId : undefined
     return [{ version: String(version.version), packageSha256: String(version.packageSha256), manifestSha256: String(version.manifestSha256), ...(signatureKeyId ? { signatureKeyId } : {}), installedAt }]
   }) : []
-  const previousVersion = typeof input.previousVersion === 'string' && VEXT_VERSION.test(input.previousVersion) ? input.previousVersion : undefined
+  const previousVersion = typeof input.previousVersion === 'string' && validVersion(input.previousVersion) ? input.previousVersion : undefined
   const publisherId = typeof input.publisherId === 'string' ? input.publisherId : undefined
   const runtimeRelativePath = typeof input.runtimeRelativePath === 'string' && (input.runtimeRelativePath === 'current' || /^versions\/[0-9A-Za-z.+-]+$/.test(input.runtimeRelativePath))
     ? input.runtimeRelativePath
@@ -211,8 +214,8 @@ export class ExtensionManagedStore {
     }
   }
 
-  async stageUpstreamPackage(input: VerifiedUpstreamPackage): Promise<StagedVextPackage> {
-    if (!VEXT_EXTENSION_ID.test(input.extensionId) || !VEXT_VERSION.test(input.version) || !/^[a-f0-9]{64}$/.test(input.packageSha256)) throw new Error('Upstream extension identity is invalid.')
+  async stageUpstreamPackage(input: VerifiedUpstreamPackage, source: 'upstream' | 'cws' = 'upstream'): Promise<StagedVextPackage> {
+    if (!VEXT_EXTENSION_ID.test(input.extensionId) || !(source === 'cws' ? isChromeExtensionVersion(input.version) : VEXT_VERSION.test(input.version)) || !/^[a-f0-9]{64}$/.test(input.packageSha256)) throw new Error('Upstream extension identity is invalid.')
     const manifest = input.files.get('manifest.json')
     if (!manifest) throw new Error('Upstream extension manifest is missing.')
     const fileList = await Promise.all([...input.files].map(async ([path, data]) => ({ path, size: data.byteLength, sha256: await sha256Hex(data) })))
@@ -240,11 +243,33 @@ export class ExtensionManagedStore {
         await mkdir(dirname(destination), { recursive: true })
         await writeFile(destination, data, { flag: 'wx' })
       }
-      return { format: 'vext', id: randomUUID(), root, contentRoot, source: 'upstream', parsed }
+      return { format: 'vext', id: randomUUID(), root, contentRoot, source, parsed }
     } catch (error) {
       await rm(root, { recursive: true, force: true }).catch(() => undefined)
       throw error
     }
+  }
+
+  async verifyCwsStage(staged: StagedVextPackage): Promise<void> {
+    if (staged.source !== 'cws') throw new Error('Expected a Chrome Web Store staging directory.')
+    const expected = new Map(staged.parsed.metadata.files.map((file) => [file.path, file]))
+    const seen = new Set<string>()
+    const walk = async (directory: string): Promise<void> => {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        const path = join(directory, entry.name)
+        const kind = await lstat(path)
+        if (kind.isSymbolicLink()) throw new Error('Chrome Web Store staging contains a symbolic link.')
+        if (kind.isDirectory()) { await walk(path); continue }
+        if (!kind.isFile()) throw new Error('Chrome Web Store staging contains a nonregular entry.')
+        const name = relative(staged.contentRoot, path).split(sep).join('/')
+        const wanted = expected.get(name)
+        if (!wanted || seen.has(name) || kind.size !== wanted.size) throw new Error('Chrome Web Store staging contents changed.')
+        if (await sha256Hex(await readFile(path)) !== wanted.sha256) throw new Error('Chrome Web Store staged file hash changed.')
+        seen.add(name)
+      }
+    }
+    await walk(staged.contentRoot)
+    if (seen.size !== expected.size) throw new Error('Chrome Web Store staged files are missing.')
   }
 
   async adoptLocalChromiumStage(local: LocalChromiumStage): Promise<StagedLocalChromiumPackage> {
@@ -312,7 +337,7 @@ export class ExtensionManagedStore {
     await atomicWriteJson(this.statePath(identity.extensionId), state)
     const retained = new Set(versions.map((item) => item.version))
     const versionEntries = await readdir(join(this.extensionRoot(identity.extensionId), 'releases'), { withFileTypes: true }).catch(() => [])
-    await Promise.all(versionEntries.filter((entry) => entry.isDirectory() && VEXT_VERSION.test(entry.name) && !retained.has(entry.name)).map((entry) => rm(this.versionRoot(identity.extensionId, entry.name), { recursive: true, force: true }).catch(() => undefined)))
+    await Promise.all(versionEntries.filter((entry) => entry.isDirectory() && (VEXT_VERSION.test(entry.name) || isChromeExtensionVersion(entry.name)) && !retained.has(entry.name)).map((entry) => rm(this.versionRoot(identity.extensionId, entry.name), { recursive: true, force: true }).catch(() => undefined)))
     return state
   }
 
@@ -395,7 +420,7 @@ export class ExtensionManagedStore {
   }
 
   versionRoot(extensionId: string, version: string): string {
-    if (!VEXT_EXTENSION_ID.test(extensionId) || !VEXT_VERSION.test(version)) throw new Error('Managed extension identity is invalid.')
+    if (!VEXT_EXTENSION_ID.test(extensionId) || !(VEXT_VERSION.test(version) || isChromeExtensionVersion(version))) throw new Error('Managed extension identity is invalid.')
     return join(this.extensionRoot(extensionId), 'releases', version)
   }
 

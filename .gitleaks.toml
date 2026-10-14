@@ -57,3 +57,11 @@ condition = "AND"
 paths = ['''^audit/fixture-92A6Z9/password-vault\.json$''']
 regexTarget = "secret"
 regexes = ['''^U3ludGhldGljLUF1ZGl0LVBhc3N3b3JkLU9ubHkh$''']
+
+[[allowlists]]
+targetRules = ["generic-api-key"]
+description = "Historical Chromium CRX3 publisher public-key SHA-256 fingerprint (not a credential)"
+condition = "AND"
+paths = ['''^src/main/extensions/crx3-verifier\.ts$''']
+regexTarget = "secret"
+regexes = ['''^61f7f2a6bfcf74cd0bc1fe2497cc9b04254c658f79f2145392867ea8366367cf$''']

@@ -1,7 +1,7 @@
 ﻿{
     "productName":  "Vast",
-    "targetVersion":  "0.4.3",
-    "payloadPath":  "..\\Vast-0.4.3\\win-unpacked",
+    "targetVersion":  "0.5.0",
+    "payloadPath":  "..\\Vast-0.5.0\\win-unpacked",
     "processNames":  [
                          "Vast"
                      ],
@@ -30,6 +30,7 @@
                                   "Cookies",
                                   "Cookies-journal",
                                   "Partitions",
+                                  "Extensions",
                                   "IndexedDB",
                                   "Local Storage",
                                   "Session Storage",

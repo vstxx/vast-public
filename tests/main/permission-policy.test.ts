@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
-import { permissionKindsFromElectronPermission, resolveStoredPermissionPolicy, upsertOriginPermissionOverride } from '../../src/main/permission-policy.ts'
+import { permissionKindsFromElectronPermission, permissionOriginFromFrame, resolveStoredPermissionPolicy, upsertOriginPermissionOverride } from '../../src/main/permission-policy.ts'
 import type { BrowserSettings } from '../../src/shared/types.ts'
 import { DEFAULT_SETTINGS } from '../../src/shared/constants.ts'
 
@@ -23,16 +23,32 @@ test('allow once does not persist an origin override', () => {
 test('permission prompts are owned by webContents, Vast window, origin, navigation, kind, and request id', () => {
   assert.match(sessionsSource, /const requestId = randomUUID\(\)/)
   assert.match(sessionsSource, /ownerWindowForWebContents\(webContents\)/)
-  assert.match(sessionsSource, /originFromPermissionUrl\(webContents\.getURL\(\)\)/)
+  assert.match(sessionsSource, /permissionOriginFromFrame\(details\?\.requestingUrl/)
   assert.match(sessionsSource, /permissionKind/)
   assert.match(sessionsSource, /did-start-navigation/)
   assert.match(sessionsSource, /render-process-gone/)
   assert.match(sessionsSource, /window\.once\('closed', invalidate\)/)
 })
 
+test('permission origins belong to the requesting frame and fail closed on missing or conflicting evidence', () => {
+  const permissionHandlers = sessionsSource.slice(sessionsSource.indexOf('function configurePermissionsForSession('), sessionsSource.indexOf('function configureDisplayMediaForSession('))
+  assert.equal(permissionOriginFromFrame('https://iframe.example/path', 'https://iframe.example'), 'https://iframe.example')
+  assert.equal(permissionOriginFromFrame('https://iframe.example/path', 'https://parent.example'), undefined)
+  assert.equal(permissionOriginFromFrame('https://iframe.example/path', undefined, 'https://parent.example'), undefined)
+  assert.equal(permissionOriginFromFrame('about:blank', 'https://parent.example'), undefined)
+  assert.equal(permissionOriginFromFrame('', 'https://parent.example'), undefined)
+  const current = upsertOriginPermissionOverride(settings(), 'https://parent.example', 'geolocation', 'allow')
+  assert.equal(resolveStoredPermissionPolicy(current, permissionOriginFromFrame('https://iframe.example/path')!, 'geolocation'), 'ask')
+  assert.match(sessionsSource, /permissionOriginFromFrame\(requestingOrigin/)
+  assert.match(sessionsSource, /requestingContents\.session !== targetSession/)
+  assert.match(sessionsSource, /webContents\.session !== targetSession/)
+  assert.match(sessionsSource, /sessionIdentityScopes\.get\(targetSession\) === workspaceId/)
+  assert.doesNotMatch(permissionHandlers, /if \(isMainFrame\) invalidate\(\)/)
+})
+
 test('prompt responses are sender-bound and persistent decisions are saved by main only after revalidation', () => {
   assert.match(uiBridgeSource, /pending\.ownerWebContentsId !== sender\.id/)
-  assert.match(sessionsSource, /ownerWindowForWebContents\(webContents\) !== window/)
+  assert.match(sessionsSource, /ownerWindowForWebContents\(webContents\) === window/)
   assert.match(sessionsSource, /upsertOriginPermissionOverride/)
   assert.match(sessionsSource, /await saveData\(next\)/)
   assert.doesNotMatch(rendererSource, /sitePermissions:\s*\[[\s\S]*prompt\.permissionRequest/)

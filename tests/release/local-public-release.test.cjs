@@ -59,8 +59,8 @@ test('hotfix publication still binds the sealed candidate and requires its targe
   assert.throws(() => assertPublishReady({ ...hotfixState, phases: { ...hotfixState.phases, verify: 'failed' } }, identity, hotfixCanary), /verify/i)
 })
 
-test('split stable feed requires proof that old clients are held and new clients update', () => {
-  const splitIdentity = { ...identity, version: '0.4.3' }
+test('0.5.0 publication requires proof that old clients are held and 0.4.3 clients update', () => {
+  const splitIdentity = { ...identity, version: '0.5.0' }
   const splitState = { ...readyState, ...splitIdentity, profile: 'standard' }
   const canary = { ...splitIdentity, checks: Object.fromEntries(requiredSplitFeedCanaryChecks.map((name) => [name, true])) }
   assert.doesNotThrow(() => assertPublishReady(splitState, splitIdentity, canary))
@@ -155,12 +155,11 @@ test('hotfix prepare skips broad gates but retains build, artifact checks and im
   assert.deepEqual(hotfixReleaseSteps.publish, releaseSteps.publish)
 })
 
-test('the 0.4.3 release uses the full standard gate and cannot resume under a different profile', () => {
-  assert.doesNotThrow(() => assertReleaseProfile('0.4.2', 'hotfix', 'hotfix'))
-  assert.doesNotThrow(() => assertReleaseProfile('0.4.3', 'standard', 'standard'))
-  assert.throws(() => assertReleaseProfile('0.4.2', 'standard', 'standard'), /0\.4\.3/i)
-  assert.throws(() => assertReleaseProfile('0.4.1', 'hotfix', 'hotfix'), /0\.4\.2/i)
-  assert.throws(() => assertReleaseProfile('0.4.2', 'hotfix', 'standard'), /profile/i)
+test('the 0.5.0 release uses the full standard gate and cannot resume under a different profile', () => {
+  assert.doesNotThrow(() => assertReleaseProfile('0.5.0', 'standard', 'standard'))
+  assert.throws(() => assertReleaseProfile('0.4.3', 'standard', 'standard'), /0\.5\.0/i)
+  assert.throws(() => assertReleaseProfile('0.5.0', 'hotfix', 'hotfix'), /hotfix/i)
+  assert.throws(() => assertReleaseProfile('0.5.0', 'standard', 'hotfix'), /profile/i)
 })
 
 test('status command reports current source without starting release work', () => {

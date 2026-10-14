@@ -22,7 +22,7 @@ function verifiedFingerprint() {
   return {
     schemaVersion: 2,
     manifest: 'patches/extension-compatibility-runtime.json',
-    electronVersion: '44.3.0',
+    electronVersion: manifest.electron.version,
     electronPatchsetRevision: manifest.electron.patchsetRevision,
     electronPatchsetSha256: manifest.electron.patchsetSha256,
     electronBinarySha256: manifest.electron.binary.sha256,

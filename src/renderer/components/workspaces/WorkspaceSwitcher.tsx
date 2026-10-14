@@ -34,7 +34,7 @@ export function WorkspaceSwitcher({ compact }: { compact?: boolean }): JSX.Eleme
               <div
                 className={`group/workspace flex h-10 w-full items-center gap-1 rounded-control border px-2 transition duration-150 ${
                   active
-                    ? 'border-white/12 bg-white/11 text-white shadow-glow'
+                    ? 'border-white/12 bg-white/11 text-white'
                     : 'border-transparent text-vast-soft hover:border-white/8 hover:bg-white/6 hover:text-white'
                 } ${compact ? 'justify-center px-0' : ''}`}
               >

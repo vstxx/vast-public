@@ -75,6 +75,8 @@ Run the application:
 npm run dev
 ```
 
+In this checkout, `npm run dev` starts the Vast 0.4.3 CWS Bridge source from the `codex/cws-bridge-integration` worktree with its verified patched Electron 44.7.0 runtime. That worktree and the prepared runtime must remain available. Edit the CWS Bridge worktree for live reload; edits to this older 0.4.1 checkout do not affect the running app. The local 0.4.1 source can still be started with `npm run dev:stock`.
+
 Build without producing an installer:
 
 ```bash

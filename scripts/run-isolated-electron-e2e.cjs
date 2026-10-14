@@ -4,8 +4,8 @@ const { basename, join, resolve } = require('node:path')
 const root = join(__dirname, '..')
 const npmCli = process.env.npm_execpath
 const target = basename(String(process.argv[2] ?? ''))
-const allowedTargets = new Set(['extensions-e2e.cjs', 'native-extensions-e2e.cjs', 'native-messaging-e2e.cjs', 'adblock-extension-e2e.cjs'])
-const compatibilityTargets = new Set(['extensions-e2e.cjs', 'adblock-extension-e2e.cjs'])
+const allowedTargets = new Set(['extensions-e2e.cjs', 'native-extensions-e2e.cjs', 'native-messaging-e2e.cjs', 'adblock-extension-e2e.cjs', 'fullscreen-appearance-e2e.cjs', 'tab-reorder-state-e2e.cjs'])
+const compatibilityTargets = new Set(['extensions-e2e.cjs', 'adblock-extension-e2e.cjs', 'native-messaging-e2e.cjs', 'fullscreen-appearance-e2e.cjs', 'tab-reorder-state-e2e.cjs'])
 
 if (!npmCli) throw new Error('npm_execpath is required to build the Electron E2E runtime.')
 if (!allowedTargets.has(target)) throw new Error(`Unsupported isolated Electron E2E target: ${target || '(missing)'}`)

@@ -193,7 +193,12 @@ export function useTabRetentionController({
   }, [actualWorkingSetMb, callProtectedTabIds, effectiveRam, hibernateInactiveTabs, ramClock, ramSettings.keepPinnedTabsAwake, retentionTabs, visibleIdSet, visibleIds])
 
   const webTabs = useMemo(
-    () => tabs.filter((tab) => !isInternalUrl(tab.url) && retainedWebTabIds.has(tab.id)),
+    () => tabs
+      .filter((tab) => !isInternalUrl(tab.url) && retainedWebTabIds.has(tab.id))
+      // Moving a live <webview> in the DOM destroys and recreates its Electron
+      // guest. Keep the stage in creation order; only the tab strip follows the
+      // user's reorder. The ID breaks ties for tabs created in the same tick.
+      .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
     [retainedWebTabIds, tabs]
   )
 

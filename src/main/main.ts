@@ -28,6 +28,9 @@ import { setupExtensionNetworkBridge } from './extensions/extension-network-brid
 import { disposePdfResources, pdfViewerUrlForResource, registerLocalPdfResource } from './pdf-resources'
 import { StartupHealthTracker, type StartupRecoveryInfo } from './startup-health'
 import { cleanupStaleSnapshots } from './import/sqlite-snapshot'
+import { configureChromeWebStoreNavigation } from '../shared/top-level-navigation-policy'
+import { cwsNavigationGate, executableSha256 } from './cws-navigation-runtime'
+import cwsNavigationApproval from '../../patches/cws-navigation-approval.json'
 
 declare const __VAST_INCLUDE_INTERNAL_TEST_HARNESS__: boolean
 
@@ -237,6 +240,19 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
     approvedRuntime: compatibilityManifest,
     packagedEvidence: packagedCompatibilityEvidence.evidence
   })
+  const cwsNavigationCandidate = compatibilityGate.enabled && (!app.isPackaged || cwsNavigationApproval.navigationApproved)
+  const cwsNavigationEnabled = cwsNavigationGate({
+    isPackaged: app.isPackaged,
+    electronVersion: process.versions.electron,
+    chromeVersion: process.versions.chrome,
+    executablePath: process.execPath,
+    binarySha256: cwsNavigationCandidate ? await executableSha256(process.execPath).catch(() => '') : '',
+    compatibilityEnabled: compatibilityGate.enabled,
+    approvedRuntime: { ...compatibilityManifest, cws: cwsNavigationApproval },
+    env: process.env
+  })
+  configureChromeWebStoreNavigation(cwsNavigationEnabled)
+  console.info(`[cws:navigation] ${cwsNavigationEnabled ? 'enabled for verified runtime' : 'guarded'}`)
   const compatibilityRuntime = new ExtensionCompatibilityRuntime({
     gate: compatibilityGate,
     focusedWindow: () => windowRegistry.focusedVastWindow(),

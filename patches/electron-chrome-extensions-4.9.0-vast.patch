@@ -309,7 +309,7 @@ index 67d3be4..83d2afd 100644
    }
  })();
 diff --git a/dist/cjs/index.js b/dist/cjs/index.js
-index b4242b0..b73fd6c 100644
+index b4242b0..f633e25 100644
 --- a/dist/cjs/index.js
 +++ b/dist/cjs/index.js
 @@ -149,6 +149,10 @@ var _PopupView = class _PopupView extends import_node_events.EventEmitter {
@@ -613,7 +613,7 @@ index b4242b0..b73fd6c 100644
      this.sender = sender;
      if (keepAlive) {
        this.sender.ipc.on(`crx-native-msg-${connectionId}`, this.receiveExtensionMessage);
-@@ -1862,117 +1968,246 @@ var NativeMessagingHost = class {
+@@ -1862,117 +1968,269 @@ var NativeMessagingHost = class {
      this.connectionId = connectionId;
      this.ready = this.launch(application, extensionId);
    }
@@ -632,6 +632,12 @@ index b4242b0..b73fd6c 100644
 +    if (this.destroyed) return;
 +    this.destroyed = true;
      this.connected = false;
++    if (this.rejectResponse) {
++      const reject = this.rejectResponse;
++      this.resolveResponse = void 0;
++      this.rejectResponse = void 0;
++      reject(new Error("Native messaging host is disconnected."));
++    }
 +    this.clearResponseTimer();
 +    this.pending = [];
 +    this.writeQueue = [];
@@ -647,10 +653,19 @@ index b4242b0..b73fd6c 100644
        this.process = void 0;
      }
      if (this.keepAlive && this.sender) {
-       this.sender.ipc.off(`crx-native-msg-${this.connectionId}`, this.receiveExtensionMessage);
+-      this.sender.ipc.off(`crx-native-msg-${this.connectionId}`, this.receiveExtensionMessage);
 -      this.sender.send(`crx-native-msg-${this.connectionId}-disconnect`);
++      try {
++        this.sender.ipc.off(`crx-native-msg-${this.connectionId}`, this.receiveExtensionMessage);
++      } catch {
++        // The service worker may already have discarded its IPC endpoint.
++      }
 +      if (notify) {
-+        this.sender.send(`crx-native-msg-${this.connectionId}-disconnect`, errorMessage);
++        try {
++          this.sender.send(`crx-native-msg-${this.connectionId}-disconnect`, errorMessage);
++        } catch {
++          // The service worker may have stopped before the disconnect event.
++        }
 +      }
      }
      this.sender = void 0;
@@ -675,10 +690,10 @@ index b4242b0..b73fd6c 100644
 -      this.destroy();
 -      return;
 +      throw new Error(`Access to native messaging host ${application} is forbidden.`);
-+    }
+     }
 +    if (process.platform !== "win32" && !path2.isAbsolute(config.path)) {
 +      throw new Error(`Native messaging host ${application} must use an absolute executable path.`);
-     }
++    }
 +    const executablePath = process.platform === "win32" && !path2.isAbsolute(config.path) ? path2.resolve(path2.dirname(manifestPath), config.path) : config.path;
      let isFile = false;
      try {
@@ -693,11 +708,13 @@ index b4242b0..b73fd6c 100644
      if (!isFile) {
 -      this.destroy();
 -      return;
--    }
++      throw new Error(`Native messaging host executable was not found for ${application}.`);
+     }
 -    d7("launch: spawning %s for %s", config.path, extensionId);
 -    this.process = (0, import_node_child_process.spawn)(config.path, [extensionUrl], {
 -      shell: false
-+      throw new Error(`Native messaging host executable was not found for ${application}.`);
++    if (this.destroyed) {
++      throw new Error("Native messaging sender stopped before the host started.");
 +    }
 +    d7("launch: spawning host for %s", extensionId);
 +    const args = process.platform === "win32" ? [extensionUrl, "--parent-window=0"] : [extensionUrl];
@@ -844,6 +861,12 @@ index b4242b0..b73fd6c 100644
      this.ctx = ctx;
      this.hostMap = {};
 +    this.activeHosts = /* @__PURE__ */ new Set();
++    this.ctx.session.serviceWorkers.on("running-status-changed", ({ runningStatus, versionId }) => {
++      if (runningStatus !== "stopping" && runningStatus !== "stopped") return;
++      for (const host of this.activeHosts) {
++        if (host.sender?.versionId === versionId) host.destroy(false);
++      }
++    });
      this.connectNative = async (event, connectionId, application) => {
 -      const host = new NativeMessagingHost(
 +      if (this.hostMap[connectionId]) {
@@ -901,7 +924,7 @@ index b4242b0..b73fd6c 100644
      };
      this.openOptionsPage = async ({ extension }) => {
        const manifest = getExtensionManifest(extension);
-@@ -2614,49 +2849,86 @@ function readLoadedExtensionManifest(ctx, extension) {
+@@ -2614,49 +2872,86 @@ function readLoadedExtensionManifest(ctx, extension) {
  }
  
  // src/browser/api/permissions.ts
@@ -1014,7 +1037,7 @@ index b4242b0..b73fd6c 100644
        return true;
      };
      const handle = this.ctx.router.apiHandler();
-@@ -2675,13 +2947,65 @@ var PermissionsAPI = class {
+@@ -2675,13 +2970,65 @@ var PermissionsAPI = class {
    }
    processExtension(extension) {
      const manifest = extension.manifest;
@@ -1082,7 +1105,7 @@ index b4242b0..b73fd6c 100644
  // src/browser/index.ts
  function checkVersion() {
    const electronVersion = process.versions.electron;
-@@ -2764,6 +3088,7 @@ var ElectronChromeExtensions = class _ElectronChromeExtensions extends import_no
+@@ -2764,6 +3111,7 @@ var ElectronChromeExtensions = class _ElectronChromeExtensions extends import_no
        cookies: new CookiesAPI(this.ctx),
        notifications: new NotificationsAPI(this.ctx),
        permissions: new PermissionsAPI(this.ctx),
@@ -1091,7 +1114,7 @@ index b4242b0..b73fd6c 100644
        tabs: new TabsAPI(this.ctx),
        webNavigation: new WebNavigationAPI(this.ctx),
 diff --git a/dist/esm/index.mjs b/dist/esm/index.mjs
-index dc598ce..2fa09c1 100644
+index dc598ce..48c5e04 100644
 --- a/dist/esm/index.mjs
 +++ b/dist/esm/index.mjs
 @@ -112,6 +112,10 @@ var _PopupView = class _PopupView extends EventEmitter {
@@ -1395,7 +1418,7 @@ index dc598ce..2fa09c1 100644
      this.sender = sender;
      if (keepAlive) {
        this.sender.ipc.on(`crx-native-msg-${connectionId}`, this.receiveExtensionMessage);
-@@ -1825,117 +1931,246 @@ var NativeMessagingHost = class {
+@@ -1825,117 +1931,269 @@ var NativeMessagingHost = class {
      this.connectionId = connectionId;
      this.ready = this.launch(application, extensionId);
    }
@@ -1414,6 +1437,12 @@ index dc598ce..2fa09c1 100644
 +    if (this.destroyed) return;
 +    this.destroyed = true;
      this.connected = false;
++    if (this.rejectResponse) {
++      const reject = this.rejectResponse;
++      this.resolveResponse = void 0;
++      this.rejectResponse = void 0;
++      reject(new Error("Native messaging host is disconnected."));
++    }
 +    this.clearResponseTimer();
 +    this.pending = [];
 +    this.writeQueue = [];
@@ -1429,10 +1458,19 @@ index dc598ce..2fa09c1 100644
        this.process = void 0;
      }
      if (this.keepAlive && this.sender) {
-       this.sender.ipc.off(`crx-native-msg-${this.connectionId}`, this.receiveExtensionMessage);
+-      this.sender.ipc.off(`crx-native-msg-${this.connectionId}`, this.receiveExtensionMessage);
 -      this.sender.send(`crx-native-msg-${this.connectionId}-disconnect`);
++      try {
++        this.sender.ipc.off(`crx-native-msg-${this.connectionId}`, this.receiveExtensionMessage);
++      } catch {
++        // The service worker may already have discarded its IPC endpoint.
++      }
 +      if (notify) {
-+        this.sender.send(`crx-native-msg-${this.connectionId}-disconnect`, errorMessage);
++        try {
++          this.sender.send(`crx-native-msg-${this.connectionId}-disconnect`, errorMessage);
++        } catch {
++          // The service worker may have stopped before the disconnect event.
++        }
 +      }
      }
      this.sender = void 0;
@@ -1457,10 +1495,10 @@ index dc598ce..2fa09c1 100644
 -      this.destroy();
 -      return;
 +      throw new Error(`Access to native messaging host ${application} is forbidden.`);
-+    }
+     }
 +    if (process.platform !== "win32" && !path2.isAbsolute(config.path)) {
 +      throw new Error(`Native messaging host ${application} must use an absolute executable path.`);
-     }
++    }
 +    const executablePath = process.platform === "win32" && !path2.isAbsolute(config.path) ? path2.resolve(path2.dirname(manifestPath), config.path) : config.path;
      let isFile = false;
      try {
@@ -1475,11 +1513,13 @@ index dc598ce..2fa09c1 100644
      if (!isFile) {
 -      this.destroy();
 -      return;
--    }
++      throw new Error(`Native messaging host executable was not found for ${application}.`);
+     }
 -    d7("launch: spawning %s for %s", config.path, extensionId);
 -    this.process = spawn2(config.path, [extensionUrl], {
 -      shell: false
-+      throw new Error(`Native messaging host executable was not found for ${application}.`);
++    if (this.destroyed) {
++      throw new Error("Native messaging sender stopped before the host started.");
 +    }
 +    d7("launch: spawning host for %s", extensionId);
 +    const args = process.platform === "win32" ? [extensionUrl, "--parent-window=0"] : [extensionUrl];
@@ -1626,6 +1666,12 @@ index dc598ce..2fa09c1 100644
      this.ctx = ctx;
      this.hostMap = {};
 +    this.activeHosts = /* @__PURE__ */ new Set();
++    this.ctx.session.serviceWorkers.on("running-status-changed", ({ runningStatus, versionId }) => {
++      if (runningStatus !== "stopping" && runningStatus !== "stopped") return;
++      for (const host of this.activeHosts) {
++        if (host.sender?.versionId === versionId) host.destroy(false);
++      }
++    });
      this.connectNative = async (event, connectionId, application) => {
 -      const host = new NativeMessagingHost(
 +      if (this.hostMap[connectionId]) {
@@ -1683,7 +1729,7 @@ index dc598ce..2fa09c1 100644
      };
      this.openOptionsPage = async ({ extension }) => {
        const manifest = getExtensionManifest(extension);
-@@ -2577,49 +2812,86 @@ function readLoadedExtensionManifest(ctx, extension) {
+@@ -2577,49 +2835,86 @@ function readLoadedExtensionManifest(ctx, extension) {
  }
  
  // src/browser/api/permissions.ts
@@ -1796,7 +1842,7 @@ index dc598ce..2fa09c1 100644
        return true;
      };
      const handle = this.ctx.router.apiHandler();
-@@ -2638,13 +2910,65 @@ var PermissionsAPI = class {
+@@ -2638,13 +2933,65 @@ var PermissionsAPI = class {
    }
    processExtension(extension) {
      const manifest = extension.manifest;
@@ -1864,7 +1910,7 @@ index dc598ce..2fa09c1 100644
  // src/browser/index.ts
  function checkVersion() {
    const electronVersion = process.versions.electron;
-@@ -2727,6 +3051,7 @@ var ElectronChromeExtensions = class _ElectronChromeExtensions extends EventEmit
+@@ -2727,6 +3074,7 @@ var ElectronChromeExtensions = class _ElectronChromeExtensions extends EventEmit
        cookies: new CookiesAPI(this.ctx),
        notifications: new NotificationsAPI(this.ctx),
        permissions: new PermissionsAPI(this.ctx),

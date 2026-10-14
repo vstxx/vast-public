@@ -109,6 +109,30 @@ bounded installation registry browser. It changes no collected fields.
 (`packaged`, `development`, `test`, or `unknown` for legacy clients) with its
 check constraint and a kind/last-seen index.
 
+`0005_analytics_snapshots.sql` adds two private aggregate tables. The admin
+Worker collects one metric row per 15-minute bucket and cohort (`all`,
+`packaged`, `development`, `test`, `unknown`), plus normalized version-count
+rows keyed by bucket, cohort, and version. The rows contain only counts and
+timestamps. A local demo source marker distinguishes synthetic snapshots from
+measurements. An admin-only 15-minute cron collects the rows from the existing
+installation registry and deletes analytics rows older than 60 days. It never
+deletes installation registry rows. Duplicate cron executions keep the first
+complete bucket snapshot.
+
+`GET /v1/admin/analytics` remains behind the admin Access/JWT gate. It accepts
+`range=24h|7d|14d|30d|60d` and
+`cohort=packaged|all|development|test|unknown`, defaulting to `14d` and
+`packaged`. The response includes source and availability timestamps, current
+and previous-period metrics, downsampled active and version series, calendar-day
+new installs and cumulative installations, valid launch-count deltas, current
+version distribution, latest published or observed version, and deterministic
+changes. Missing snapshot coverage is represented as unavailable, never zero.
+New and cumulative installations can be reconstructed from `first_seen`;
+historical activity, versions, and launches begin only with actual snapshots.
+Historical cohort reconstruction uses the registry's *current* `instance_kind`,
+which may have changed since first seen. A 60-day view cannot have a complete
+preceding 60-day snapshot comparison under the 60-day retention limit.
+
 SQLite `STRICT` tables, `CHECK` constraints, foreign keys, and prepared Workers
 statements provide defense in depth. Apply staging migrations with:
 

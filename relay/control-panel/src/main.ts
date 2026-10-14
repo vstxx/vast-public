@@ -1,4 +1,6 @@
 import './styles.css'
+import { renderOverview } from './analytics/dashboard'
+import type { AnalyticsResponse, Cohort, Range } from './analytics/types'
 import { api, ApiError, jsonBody } from './api'
 import { parseRelayRichText, type RelayRichTextInline } from '../../../src/shared/relay-rich-text'
 import {
@@ -143,6 +145,10 @@ class ControlPanel {
   private renderNonce = 0
   private dashboardRefreshTimer: number | undefined
   private dashboardRefreshInFlight = false
+  private dashboardRefreshPending = false
+  private dashboardRange: Range = '14d'
+  private dashboardCohort: Cohort = 'packaged'
+  private dashboardAgeTimer: number | undefined
 
   constructor(root: HTMLElement) {
     this.root = root
@@ -218,6 +224,7 @@ class ControlPanel {
 
   private async navigate(page: Page): Promise<void> {
     this.clearDashboardRefresh()
+    if (this.dashboardAgeTimer !== undefined) window.clearInterval(this.dashboardAgeTimer)
     this.activePage = page
     for (const item of this.root.querySelectorAll<HTMLButtonElement>('.nav-item')) {
       item.classList.toggle('is-active', item.dataset.page === page)
@@ -256,7 +263,8 @@ class ControlPanel {
   }
 
   private async refreshDashboard(notifyFailure = false): Promise<void> {
-    if (this.activePage !== 'dashboard' || this.dashboardRefreshInFlight) return
+    if (this.activePage !== 'dashboard') return
+    if (this.dashboardRefreshInFlight) { this.dashboardRefreshPending = true; return }
     this.clearDashboardRefresh()
     this.dashboardRefreshInFlight = true
     const nonce = ++this.renderNonce
@@ -268,6 +276,11 @@ class ControlPanel {
       }
     } finally {
       this.dashboardRefreshInFlight = false
+      if (this.dashboardRefreshPending && this.activePage === 'dashboard') {
+        this.dashboardRefreshPending = false
+        void this.refreshDashboard(notifyFailure)
+        return
+      }
       if (this.activePage === 'dashboard' && nonce === this.renderNonce) this.scheduleDashboardRefresh()
     }
   }
@@ -282,62 +295,21 @@ class ControlPanel {
   }
 
   private async renderDashboard(nonce: number): Promise<void> {
-    const summary = await api<DashboardSummary>('/v1/admin/dashboard')
-    if (nonce !== this.renderNonce) return
-    const fragment = document.createDocumentFragment()
-    const refresh = button('Refresh data')
-    refresh.addEventListener('click', () => void this.refreshDashboard(true))
-    fragment.append(this.pageHeader('Overview', `Aggregate installation health · ${formatDate(summary.generated_at)}`, refresh))
-    const metrics = element('section', 'metric-grid')
-    const cards: Array<[string, number, string]> = [
-      ['Total installations', summary.totals.installations, 'All known installations'],
-      ['Active · 24h', summary.totals.active_24h, `${formatNumber(summary.totals.new_24h)} new`],
-      ['Active · 7d', summary.totals.active_7d, `${formatNumber(summary.totals.new_7d)} new`],
-      ['Active · 30d', summary.totals.active_30d, `${formatNumber(summary.totals.new_30d)} new`]
-    ]
-    for (const [label, value, meta] of cards) {
-      const card = element('article', 'metric-card')
-      card.append(element('span', 'metric-card__label', label), element('strong', undefined, formatNumber(value)), element('span', undefined, meta))
-      metrics.append(card)
-    }
-    fragment.append(metrics)
-
-    const split = element('section', 'dashboard-split')
-    const versions = element('article', 'panel')
-    versions.append(element('h2', undefined, 'Version distribution'))
-    if (summary.versions.length === 0) versions.append(emptyState('No versions yet', 'Version distribution appears after the first check-in.'))
-    else {
-      const list = element('div', 'version-list')
-      for (const item of summary.versions.slice(0, 12)) {
-        const row = element('div', 'version-row')
-        const label = element('div', 'version-row__label')
-        label.append(element('strong', 'mono', item.version), element('span', undefined, formatNumber(item.count)))
-        const track = element('progress', 'version-row__track')
-        track.max = 100
-        track.value = item.percentage
-        row.append(label, track, element('span', 'version-row__percent', `${item.percentage.toFixed(1)}%`))
-        list.append(row)
-      }
-      versions.append(list)
-    }
-
-    const operational = element('article', 'panel')
-    operational.append(element('h2', undefined, 'Launch aggregate'))
-    const detail = element('dl', 'definition-list')
-    for (const [label, value] of [
-      ['Average', formatNumber(summary.launch_counts.average)],
-      ['Maximum', formatNumber(summary.launch_counts.maximum)],
-      ['Cumulative', formatNumber(summary.launch_counts.total)]
-    ]) {
-      detail.append(element('dt', undefined, label), element('dd', 'mono', value))
-    }
-    const browse = button('Browse all instances')
-    browse.classList.add('panel__action')
-    browse.addEventListener('click', () => void this.navigate('installations'))
-    operational.append(detail, browse)
-    split.append(versions, operational)
-    fragment.append(split)
-    this.content.replaceChildren(fragment)
+    const range = this.dashboardRange
+    const cohort = this.dashboardCohort
+    const data = await api<AnalyticsResponse>(`/v1/admin/analytics?range=${range}&cohort=${cohort}`)
+    if (nonce !== this.renderNonce || range !== this.dashboardRange || cohort !== this.dashboardCohort) return
+    const view = renderOverview(data, this.session?.environment ?? 'local', (nextRange, nextCohort) => {
+      if (nextRange === this.dashboardRange && nextCohort === this.dashboardCohort) return
+      this.dashboardRange = nextRange
+      this.dashboardCohort = nextCohort
+      void this.refreshDashboard(true)
+    }, () => void this.refreshDashboard(true))
+    const scroll = window.scrollY
+    this.content.replaceChildren(view.element)
+    window.scrollTo({ top: scroll, behavior: 'instant' })
+    if (this.dashboardAgeTimer !== undefined) window.clearInterval(this.dashboardAgeTimer)
+    this.dashboardAgeTimer = window.setInterval(view.updateAge, 5_000)
   }
 
   private async renderInstallations(nonce: number): Promise<void> {

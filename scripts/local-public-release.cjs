@@ -202,8 +202,8 @@ const hotfixReleaseSteps = Object.freeze({
 })
 
 function assertReleaseProfile(version, requested, stored) {
-  if (requested === 'hotfix' && version !== '0.4.2') throw new Error('Hotfix route is approved only for Vast 0.4.2.')
-  if (requested === 'standard' && version !== '0.4.3') throw new Error('The standard local route is approved only for Vast 0.4.3.')
+  if (requested === 'hotfix') throw new Error('The hotfix route is not approved for Vast 0.5.0.')
+  if (requested === 'standard' && version !== '0.5.0') throw new Error('The standard local route is approved only for Vast 0.5.0.')
   if (stored !== requested) throw new Error(`Existing release state has profile ${stored}; requested ${requested}.`)
 }
 
@@ -426,6 +426,7 @@ async function main() {
       if (!state.notes) {
         state.notes = path.join(stateDir, 'release-notes.md')
         const details = fs.readFileSync(path.join(root, 'docs', `PUBLIC_RELEASE_${version}.md`), 'utf8')
+        if (details.includes('RELEASE_NOTES_DRAFT')) throw new Error('Complete the 0.5.0 release notes before publication.')
         fs.writeFileSync(state.notes, `# Vast ${version} — PUBLIC UNSIGNED RELEASE\n\nWindows may display Unknown publisher or SmartScreen warnings. These assets are intentionally not Authenticode-signed.\n\nSource commit: ${sourceCommit}\n\n${details}`)
       }
       const token = env.GH_TOKEN || env.VAST_RELEASE_TOKEN || spawnSync('gh', ['auth', 'token'], { encoding: 'utf8', windowsHide: true }).stdout?.trim()

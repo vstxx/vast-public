@@ -1,4 +1,5 @@
 import { listAudit } from './audit'
+import { collectAnalyticsSnapshot, getAnalytics, retainAnalyticsSnapshots } from './analytics'
 import { authenticateAccessRequest, type AccessIdentity } from './auth'
 import {
   createBroadcast,
@@ -61,6 +62,10 @@ export async function routeAuthenticatedAdminRequest(
   if (url.pathname === '/v1/admin/dashboard') {
     if (request.method !== 'GET') return errorResponse(405, 'method_not_allowed', 'GET')
     return dashboardSummary(env)
+  }
+  if (url.pathname === '/v1/admin/analytics') {
+    if (request.method !== 'GET') return errorResponse(405, 'method_not_allowed', 'GET')
+    return getAnalytics(request, env)
   }
   if (url.pathname === '/v1/admin/installations') {
     if (request.method !== 'GET') return errorResponse(405, 'method_not_allowed', 'GET')
@@ -130,7 +135,14 @@ export async function routeAuthenticatedAdminRequest(
 export default {
   async fetch(request: Request, env: AdminEnv): Promise<Response> {
     try {
-      const identity = await authenticateAccessRequest(request, env)
+      const url = new URL(request.url)
+      const localOnly = String(env.ENVIRONMENT) === 'local'
+        && String(env.ACCESS_AUD) === 'configure-after-access-application-creation'
+        && url.origin === env.CONTROL_PANEL_ORIGIN
+        && ['localhost', '127.0.0.1'].includes(url.hostname)
+      const identity = localOnly
+        ? { actor: 'local-developer', kind: 'human' as const, subject: 'local-developer' }
+        : await authenticateAccessRequest(request, env)
       return await routeAuthenticatedAdminRequest(request, env, identity)
     } catch (error) {
       const path = new URL(request.url).pathname
@@ -141,5 +153,10 @@ export default {
       }
       return responseForError(error)
     }
+  },
+  async scheduled(_controller: ScheduledController, env: AdminEnv): Promise<void> {
+    const now = Date.now()
+    await collectAnalyticsSnapshot(env.DB, now)
+    await retainAnalyticsSnapshots(env.DB, now)
   }
 } satisfies ExportedHandler<AdminEnv>

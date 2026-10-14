@@ -12,6 +12,7 @@ const {
 } = require('./store-msix-config.cjs')
 const { windowsSdkTool } = require('./store-msix-tools.cjs')
 const { verifyStoreAssets } = require('./verify-store-assets.cjs')
+const { verifyStorePri } = require('./store-pri.cjs')
 const { packagedMainContains } = require('./store-msix-bundles.cjs')
 const { assertVastPeIdentity, inspectWindowsPeVersion } = require('./windows-pe-version.cjs')
 const { assertPassiveGuestWheelListeners } = require('./verify-packaged-guest-scroll.cjs')
@@ -101,6 +102,7 @@ try {
     throw new Error('Store VisualElements BackgroundColor must remain transparent.')
   }
   verifyStoreAssets(join(unpackRoot, 'Assets'))
+  verifyStorePri(join(unpackRoot, 'resources.pri'), actual.name)
   for (const [asset, expected] of Object.entries(assetDimensions)) {
     const dimensions = pngDimensions(join(unpackRoot, 'Assets', asset))
     if (dimensions.width !== expected[0] || dimensions.height !== expected[1]) throw new Error(`${asset} has invalid dimensions.`)

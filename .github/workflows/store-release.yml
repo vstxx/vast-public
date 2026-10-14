@@ -6,17 +6,17 @@ on:
       expected_version:
         description: Exact package version authorized for this candidate
         required: true
-        default: 0.4.3
+        default: 0.5.0
         type: string
       store_package_version:
         description: Store identity version; must exceed every version consumed by Partner Center
         required: true
-        default: 1.2.9.0
+        default: 1.2.11.0
         type: string
       previous_store_package_version:
-        description: Highest Store identity version already consumed by Partner Center
+        description: Previous Store candidate version; confirm Partner Center history separately
         required: true
-        default: 1.2.8.0
+        default: 1.2.10.0
         type: string
       channel:
         description: Public release channel

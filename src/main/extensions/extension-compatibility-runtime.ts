@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import type { BaseWindow, BrowserWindow, Extension, Session, WebContents } from 'electron/main'
 import { INTERNAL_NEW_TAB_URL } from '../../shared/constants.ts'
+import { configureChromeWebStoreNavigation } from '../../shared/top-level-navigation-policy.ts'
 import type { BrowserTabOpenRequest, ExtensionCompatibilityTabCommand } from '../../shared/types.ts'
 import {
   ChromePrivacySettingsStore,
@@ -137,7 +138,9 @@ export function extensionCompatibilityGate(input: ExtensionCompatibilityGateInpu
   if (input.isPackaged) return packagedCompatibilityGate(input)
   if (input.env.VAST_EXTENSION_COMPATIBILITY !== '1') return { enabled: false, reason: 'feature flag is off' }
   if (input.env.VAST_PATCHED_ELECTRON_COMPAT !== '1') return { enabled: false, reason: 'patched-Electron marker is missing' }
-  if (input.electronVersion !== '44.3.0') return { enabled: false, reason: `Electron ${input.electronVersion} is not the validated 44.3.0 base` }
+  const approvedVersion = input.approvedRuntime?.electron.version
+  if (!approvedVersion) return { enabled: false, reason: 'approved compatibility runtime is missing' }
+  if (input.electronVersion !== approvedVersion) return { enabled: false, reason: `Electron ${input.electronVersion} does not match the approved ${approvedVersion} runtime` }
 
   const expectedDist = input.env.VAST_PATCHED_ELECTRON_DIST?.trim()
   if (!expectedDist) return { enabled: false, reason: 'VAST_PATCHED_ELECTRON_DIST is missing' }
@@ -279,6 +282,7 @@ export class ExtensionCompatibilityRuntime {
 
   private failClosed(): Error {
     if (this.initializationFailure) return this.initializationFailure
+    configureChromeWebStoreNavigation(false)
     this.enabled = false
     this.reason = 'disabled after compatibility runtime initialization failure'
     this.initializationFailure = new Error('Extension compatibility runtime initialization failed; compatibility layer is disabled.')

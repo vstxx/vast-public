@@ -457,6 +457,7 @@ export interface VastExtensionInfo {
   path: string
   enabled: boolean
   source: ExtensionInstallSource
+  cwsListingUrl?: string
   trust: ExtensionTrustLevel
   publisherId?: string
   publisherName?: string
@@ -983,6 +984,8 @@ export interface VastApi {
     loadUnpacked: () => Promise<VastExtensionMutationResult>
     installPackage: () => Promise<VastExtensionPrepareResult>
     prepareHubInstall: (id: string) => Promise<VastExtensionPrepareResult>
+    prepareCwsInstall: (listingUrl: string) => Promise<VastExtensionPrepareResult>
+    prepareCwsCurrentTab: (webContentsId: number) => Promise<VastExtensionPrepareResult>
     confirmInstall: (token: string) => Promise<VastExtensionMutationResult>
     cancelInstall: (token: string) => Promise<{ ok: boolean; error?: string }>
     catalog: (input: { query?: string; category?: string; page?: number; sort?: 'popular' | 'updated' }) => Promise<{ ok: boolean; catalog?: VastHubCatalogResult; error?: string }>
@@ -1103,6 +1106,7 @@ export interface VastApi {
       openingAnimationSoundVolume: number
     }
     uiReady: () => void
+    cwsNavigationStatus: () => Promise<{ enabled: boolean }>
     versions: {
       electron: string
       chrome: string

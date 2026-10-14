@@ -32,6 +32,9 @@ import semver from 'semver'
 import { ExtensionManagedStore, stagedPackageIdentity, type ManagedRuntimeTransaction, type StagedManagedPackage, type StagedVextPackage } from './extension-managed-store.ts'
 import { ExtensionHubClient } from './extension-hub-client.ts'
 import { ICLOUD_PASSWORDS_EXTENSION_ID, ICloudUpstreamClient } from './icloud-upstream.ts'
+import { CwsUpstreamClient } from './cws-upstream-client.ts'
+import { parseChromeWebStoreListingUrl } from '../../shared/chrome-web-store.ts'
+import { isNewerChromeExtensionVersion } from '../../shared/chrome-extension-version.ts'
 import { TRUSTED_VAST_HUB_KEYS } from './trusted-hub-keys.ts'
 import { PRODUCTION_EXTENSION_HUB_ORIGIN } from './extension-hub-config.ts'
 import type { Extension } from 'electron/main'
@@ -54,6 +57,7 @@ interface PendingPackageInstall {
   staged?: StagedManagedPackage
   descriptor?: SignedVastHubReleaseDescriptor
   sourceEnabled?: boolean
+  cwsListingUrl?: string
 }
 
 interface PreparedExtensionSurface {
@@ -128,6 +132,7 @@ export class ExtensionManager {
   private readonly managedStore: ExtensionManagedStore
   private readonly hubClient: ExtensionHubClient
   private readonly upstreamClient: ICloudUpstreamClient
+  private readonly cwsClient: CwsUpstreamClient
   private readonly nativeSurfacePreloadPath?: string
   private readonly reloadMatchingTabs?: (patterns: readonly string[]) => void | Promise<void>
   private readonly compatibilityRuntime?: ExtensionCompatibilityRuntime
@@ -152,6 +157,7 @@ export class ExtensionManager {
     hubOrigin?: string
     appVersion?: string
     upstreamClient?: ICloudUpstreamClient
+    cwsClient?: CwsUpstreamClient
     nativeSurfacePreloadPath?: string
     reloadMatchingTabs?: (patterns: readonly string[]) => void | Promise<void>
     compatibilityRuntime?: ExtensionCompatibilityRuntime
@@ -166,6 +172,7 @@ export class ExtensionManager {
     this.managedStore = new ExtensionManagedStore(options.userDataRoot)
     this.hubClient = new ExtensionHubClient(options.hubOrigin ?? PRODUCTION_EXTENSION_HUB_ORIGIN, TRUSTED_VAST_HUB_KEYS, options.appVersion ?? '0.0.0')
     this.upstreamClient = options.upstreamClient ?? new ICloudUpstreamClient()
+    this.cwsClient = options.cwsClient ?? new CwsUpstreamClient()
     this.nativeSurfacePreloadPath = options.nativeSurfacePreloadPath
     this.reloadMatchingTabs = options.reloadMatchingTabs
     this.compatibilityRuntime = options.compatibilityRuntime
@@ -432,6 +439,33 @@ export class ExtensionManager {
     })
   }
 
+  async prepareCwsInstall(listingUrl: string): Promise<ExtensionPackagePreview> {
+    return this.enqueue(async () => {
+      await this.ensureInitialized()
+      await this.cleanupPendingInstalls()
+      const listing = parseChromeWebStoreListingUrl(listingUrl)
+      if (!listing) throw new Error('Enter a valid Chrome Web Store extension listing URL.')
+      const existing = this.registry.get(listing.extensionId)
+      if (existing && existing.source !== 'cws') throw new Error('Another distribution channel already owns this extension ID.')
+      const verified = await this.cwsClient.latest(listing.extensionId, existing?.version)
+      if (!verified) throw new Error('The Chrome Web Store has no newer package for this extension.')
+      const staged = await this.managedStore.stageUpstreamPackage(verified, 'cws')
+      try {
+        const validated = await validateExtensionManifest(staged.contentRoot, { allowOrdinaryMv2: true })
+        if (validated.vast || chromeExtensionId(validated.rootPath, validated.manifest.key) !== listing.extensionId) throw new Error('Chrome Web Store package identity or privilege boundary changed during staging.')
+        const preview = await this.packagePreview(staged, validated, 'Chrome Web Store')
+        const compatibility = analyzeExtensionCompatibility(validated, this.compatibilityRuntime?.enabled ? 'patched-electron-ece' : 'stock-electron')
+        preview.compatibility = compatibility.compatibility
+        preview.limitations = compatibility.warnings
+        this.pendingInstalls.set(preview.token, { token: preview.token, expiresAt: Date.now() + PENDING_INSTALL_TTL_MS, preview, staged, cwsListingUrl: listing.sourceUrl })
+        return preview
+      } catch (error) {
+        await this.managedStore.discard(staged).catch(() => undefined)
+        throw error
+      }
+    })
+  }
+
   async installPrepared(token: string): Promise<VastExtensionInfo> {
     return this.enqueue(async () => {
       await this.ensureInitialized()
@@ -446,9 +480,10 @@ export class ExtensionManager {
       }
       if (!staged || staged.format !== 'vext') throw new Error('Extension package is unavailable.')
       try {
-        const validated = await validateExtensionManifest(staged.contentRoot)
+        const validated = await validateExtensionManifest(staged.contentRoot, { allowOrdinaryMv2: staged.source === 'cws' })
+        if (staged.source === 'cws') await this.managedStore.verifyCwsStage(staged)
         this.assertPreparedPackage(pending, staged, validated)
-        return await this.activateManagedPackage(staged, validated, pending.preview.publisherName, true, pending.preview.trust)
+        return await this.activateManagedPackage(staged, validated, pending.preview.publisherName, true, pending.preview.trust, true, pending.cwsListingUrl)
       } catch (error) {
         await this.managedStore.discard(staged).catch(() => undefined)
         throw error
@@ -484,7 +519,7 @@ export class ExtensionManager {
   async checkForUpdates(extensionId?: string): Promise<VastExtensionInfo[]> {
     return this.enqueue(async () => {
       await this.ensureInitialized()
-      const records = this.registry.list().filter((record) => (record.source === 'hub' || record.source === 'upstream') && (!extensionId || record.id === extensionId))
+      const records = this.registry.list().filter((record) => (record.source === 'hub' || record.source === 'upstream' || record.source === 'cws') && (!extensionId || record.id === extensionId))
       if (extensionId && !EXTENSION_ID.test(extensionId)) throw new Error('Invalid extension ID.')
       const results: VastExtensionInfo[] = []
       for (let record of records) {
@@ -510,6 +545,31 @@ export class ExtensionManager {
               } else {
                 record = (await this.registry.patch(record.id, { updateState: 'updating', availableVersion: upstream.version, updateError: undefined })) ?? record
                 record = this.registry.get((await this.activateManagedPackage(candidate, validated, 'Apple', false, 'upstream')).id) ?? record
+                candidate = undefined
+              }
+            }
+            results.push(await this.infoFor(record))
+            continue
+          }
+          if (record.source === 'cws') {
+            const release = await this.cwsClient.latest(record.id, record.version)
+            if (!release) {
+              record = (await this.registry.patch(record.id, { updateState: 'up-to-date', availableVersion: undefined, updateError: undefined, lastUpdateCheckAt: Date.now() })) ?? record
+            } else if (record.failedUpdateVersion === release.version) {
+              record = (await this.registry.patch(record.id, { updateState: 'failed', availableVersion: release.version, updateError: 'This release previously failed to activate.' })) ?? record
+            } else {
+              candidate = await this.managedStore.stageUpstreamPackage(release, 'cws')
+              await this.managedStore.verifyCwsStage(candidate)
+              const validated = await validateExtensionManifest(candidate.contentRoot, { allowOrdinaryMv2: true })
+              if (validated.vast || chromeExtensionId(validated.rootPath, validated.manifest.key) !== record.id) throw new Error('Chrome Web Store update changed its verified identity or requested Vast privileges.')
+              const escalation = permissionEscalation(await this.permissionSnapshotForRecord(record), this.permissionSnapshot(validated))
+              if (hasPermissionEscalation(escalation)) {
+                await this.managedStore.discard(candidate)
+                candidate = undefined
+                record = (await this.registry.patch(record.id, { updateState: 'pending-approval', availableVersion: release.version, updateError: undefined })) ?? record
+              } else {
+                record = (await this.registry.patch(record.id, { updateState: 'updating', availableVersion: release.version, updateError: undefined })) ?? record
+                record = this.registry.get((await this.activateManagedPackage(candidate, validated, 'Chrome Web Store', false, 'upstream', true, record.cwsListingUrl)).id) ?? record
                 candidate = undefined
               }
             }
@@ -550,6 +610,7 @@ export class ExtensionManager {
     return this.enqueue(async () => {
       await this.ensureInitialized()
       const record = this.requireRecord(extensionId)
+      if (record.source === 'cws') throw new Error('Chrome Web Store updates require a fresh package preview and permission confirmation.')
       if ((record.source !== 'hub' && record.source !== 'upstream') || record.updateState !== 'pending-approval' || !record.availableVersion) throw new Error('This extension has no update awaiting approval.')
       if (record.source === 'upstream') {
         const upstream = await this.upstreamClient.latest(record.version)
@@ -634,7 +695,7 @@ export class ExtensionManager {
       await this.ensureInitialized()
       const record = this.registry.get(id)
       if (!record) return false
-      const validated = record.source === 'hub' || record.source === 'upstream' || record.source === 'bundled'
+      const validated = record.source === 'hub' || record.source === 'upstream' || record.source === 'cws' || record.source === 'bundled'
         ? this.manifests.get(record.id) ?? await this.validateInstalledRecord(record)
         : undefined
       await this.stopNative(id, 'stopped')
@@ -1017,8 +1078,8 @@ export class ExtensionManager {
     if (existing?.source === 'unpacked') throw new Error('A developer extension already uses this extension ID.')
     if (existing?.source === 'bundled') throw new Error('Extensions included with Vast cannot be replaced by a package.')
     if (existing?.source === 'local-chromium') throw new Error('A local Chromium import already uses this extension ID.')
-    if ((existing?.source === 'hub' && staged.source !== 'hub') || (existing?.source === 'upstream' && staged.source !== 'upstream')) throw new Error('A managed package cannot replace an extension from a different distribution channel.')
-    if (existing && !semver.gt(metadata.version, existing.version)) throw new Error('Extension package downgrade or same-version replay is not allowed.')
+    if ((existing?.source === 'hub' && staged.source !== 'hub') || (existing?.source === 'upstream' && staged.source !== 'upstream') || (existing?.source === 'cws' && staged.source !== 'cws')) throw new Error('A managed package cannot replace an extension from a different distribution channel.')
+    if (existing && !(staged.source === 'cws' ? isNewerChromeExtensionVersion(metadata.version, existing.version) : semver.gt(metadata.version, existing.version))) throw new Error('Extension package downgrade or same-version replay is not allowed.')
     if (existing?.publisherId && metadata.publisher_id && existing.publisherId !== metadata.publisher_id) throw new Error('Extension publisher identity does not match the installed extension.')
     const permissions = this.permissionSnapshot(validated)
     const previous = existing ? await this.permissionSnapshotForRecord(existing) : { chrome: [], hosts: [], vast: [] }
@@ -1031,7 +1092,7 @@ export class ExtensionManager {
       ...(metadata.publisher_id ? { publisherId: metadata.publisher_id } : {}),
       publisherName,
       source: staged.source,
-      trust: staged.source === 'upstream' ? 'upstream' : staged.source === 'hub' ? 'reviewed' : Boolean(staged.parsed.verifiedKeyId) ? 'official' : 'local',
+      trust: staged.source === 'upstream' || staged.source === 'cws' ? 'upstream' : staged.source === 'hub' ? 'reviewed' : Boolean(staged.parsed.verifiedKeyId) ? 'official' : 'local',
       kind: validated.kind,
       permissions,
       isUpdate: Boolean(existing),
@@ -1057,25 +1118,25 @@ export class ExtensionManager {
   }
 
   private async validateManagedCopy(staged: StagedManagedPackage, path: string): Promise<ValidatedExtensionManifest> {
-    if (staged.format === 'vext') return validateExtensionManifest(path)
+    if (staged.format === 'vext') return validateExtensionManifest(path, { allowOrdinaryMv2: staged.source === 'cws' })
     await verifyLocalChromiumInWorker(path, staged.local.fingerprint)
     return (await validateLocalChromiumRoot(path, staged.local.sourceExtensionId, staged.local.version)).validated
   }
 
   private async validateInstalledRecord(record: InstalledExtensionRecord, verifyBytes = false): Promise<ValidatedExtensionManifest> {
-    if (record.source !== 'local-chromium') return validateExtensionManifest(record.path)
+    if (record.source !== 'local-chromium') return validateExtensionManifest(record.path, { allowOrdinaryMv2: record.source === 'cws' })
     if (!record.packageSha256) throw new Error('Local extension has no recorded file fingerprint.')
     if (verifyBytes) await verifyLocalChromiumInWorker(record.path, record.packageSha256)
     return (await validateLocalChromiumRoot(record.path, record.id, record.version)).validated
   }
 
-  private async activateManagedPackage(staged: StagedManagedPackage, validated: ValidatedExtensionManifest, publisherName: string, approveRequestedPermissions: boolean, trustOverride?: ExtensionPackagePreview['trust'], initiallyEnabled = true): Promise<VastExtensionInfo> {
+  private async activateManagedPackage(staged: StagedManagedPackage, validated: ValidatedExtensionManifest, publisherName: string, approveRequestedPermissions: boolean, trustOverride?: ExtensionPackagePreview['trust'], initiallyEnabled = true, cwsListingUrl?: string): Promise<VastExtensionInfo> {
     const identity = stagedPackageIdentity(staged)
     const metadata = { extension_id: identity.extensionId, version: identity.version, publisher_id: identity.publisherId ?? null }
     const previous = this.registry.get(metadata.extension_id)
-    if (staged.source === 'local-chromium' ? Boolean(previous) : previous?.source === 'unpacked' || previous?.source === 'bundled' || previous?.source === 'local-chromium' || (previous?.source === 'hub' && staged.source !== 'hub') || (previous?.source === 'upstream' && staged.source !== 'upstream')) throw new Error('Managed extension source cannot replace this installation.')
+    if (staged.source === 'local-chromium' ? Boolean(previous) : previous?.source === 'unpacked' || previous?.source === 'bundled' || previous?.source === 'local-chromium' || (previous?.source === 'hub' && staged.source !== 'hub') || (previous?.source === 'upstream' && staged.source !== 'upstream') || (previous?.source === 'cws' && staged.source !== 'cws')) throw new Error('Managed extension source cannot replace this installation.')
     if (previous?.publisherId && previous.publisherId !== metadata.publisher_id) throw new Error('Extension publisher identity does not match the installed extension.')
-    if (previous && !semver.gt(metadata.version, previous.version)) throw new Error('Extension package downgrade or same-version replay is not allowed.')
+    if (previous && !(staged.source === 'cws' ? isNewerChromeExtensionVersion(metadata.version, previous.version) : semver.gt(metadata.version, previous.version))) throw new Error('Extension package downgrade or same-version replay is not allowed.')
     const versionRoot = await this.managedStore.commit(staged)
     try {
       validated = await this.validateManagedCopy(staged, versionRoot)
@@ -1110,19 +1171,20 @@ export class ExtensionManager {
         id: metadata.extension_id,
         ...(runtimeExtensionId ? { runtimeExtensionId } : {}),
         ...(staged.source === 'upstream' ? { upstreamExtensionId: metadata.extension_id } : previous?.upstreamExtensionId ? { upstreamExtensionId: previous.upstreamExtensionId } : {}),
+        ...(staged.source === 'cws' && cwsListingUrl ? { cwsListingUrl } : previous?.cwsListingUrl ? { cwsListingUrl: previous.cwsListingUrl } : {}),
         name: validated.manifest.name,
         version: validated.manifest.version,
         ...(validated.manifest.description ? { description: validated.manifest.description } : {}),
         path: currentRoot,
         enabled: previous?.enabled ?? initiallyEnabled,
         source: staged.source,
-        trust: trustOverride ?? previous?.trust ?? (staged.source === 'upstream' ? 'upstream' : staged.source === 'hub' ? 'reviewed' : Boolean(identity.signatureKeyId) ? 'official' : 'local'),
+        trust: trustOverride ?? previous?.trust ?? (staged.source === 'upstream' || staged.source === 'cws' ? 'upstream' : staged.source === 'hub' ? 'reviewed' : Boolean(identity.signatureKeyId) ? 'official' : 'local'),
         ...(metadata.publisher_id ? { publisherId: metadata.publisher_id } : {}),
         publisherName,
         packageSha256: identity.packageSha256,
         ...(identity.signatureKeyId ? { signatureKeyId: identity.signatureKeyId } : {}),
         ...(previous && previous.version !== metadata.version ? { previousVersion: previous.version } : previous?.previousVersion ? { previousVersion: previous.previousVersion } : {}),
-        updateState: staged.source === 'hub' || staged.source === 'upstream' ? 'up-to-date' : 'not-applicable',
+        updateState: staged.source === 'hub' || staged.source === 'upstream' || staged.source === 'cws' ? 'up-to-date' : 'not-applicable',
         runtime: validated.kind,
         manifestVersion: validated.manifest.manifest_version,
         installedAt: previous?.installedAt ?? now,
@@ -1166,7 +1228,7 @@ export class ExtensionManager {
         await this.managedStore.markFailed(previous.id, metadata.version)
         await this.registry.patch(previous.id, {
           failedUpdateVersion: metadata.version,
-          updateState: previous.source === 'hub' || previous.source === 'upstream' ? 'failed' : previous.updateState,
+          updateState: previous.source === 'hub' || previous.source === 'upstream' || previous.source === 'cws' ? 'failed' : previous.updateState,
           updateError: errorMessage(error)
         })
         if (metadata.version !== previous.version) await this.managedStore.removeVersion(metadata.extension_id, metadata.version).catch(() => undefined)
@@ -1195,7 +1257,7 @@ export class ExtensionManager {
   }
 
   private async reloadContentScriptTabsAfterToggle(record: InstalledExtensionRecord, validated: ValidatedExtensionManifest): Promise<void> {
-    if ((record.source !== 'hub' && record.source !== 'upstream' && record.source !== 'bundled') || !this.reloadMatchingTabs) return
+    if ((record.source !== 'hub' && record.source !== 'upstream' && record.source !== 'cws' && record.source !== 'bundled') || !this.reloadMatchingTabs) return
     const patterns = [...new Set((validated.manifest.content_scripts ?? []).flatMap((entry) => entry.matches ?? []))]
     if (patterns.length === 0) return
     try {
@@ -1449,6 +1511,7 @@ export class ExtensionManager {
       path: record.path,
       enabled: record.enabled,
       source: record.source,
+      ...(record.source === 'cws' && record.cwsListingUrl ? { cwsListingUrl: record.cwsListingUrl } : {}),
       trust: record.trust,
       ...(record.publisherId ? { publisherId: record.publisherId } : {}),
       ...(record.publisherName ? { publisherName: record.publisherName } : {}),

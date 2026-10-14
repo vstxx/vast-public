@@ -48,6 +48,7 @@ function extensionId(extensionPath) {
 
 const fixtureId = extensionId(fixturePath)
 const iduPlusId = 'kbbfoeemomglhdhohnkcnfnpikedcoka'
+const cwsIduPlusId = 'nckhacbgboonmhekihinhokldoogagoh'
 
 function seedRegistry() {
   const registryDirectory = path.join(userDataDir, 'Extensions')
@@ -495,6 +496,68 @@ async function runFirstLaunch(origin) {
   assert(!launchState.stderr.some((line) => /uncaught|unhandled rejection/i.test(line)), `Unexpected Electron stderr: ${launchState.stderr.join('')}`)
 }
 
+async function runCwsBridge(origin) {
+  const remotePort = 9700 + Math.floor(Math.random() * 200)
+  const launchState = launch(remotePort, '')
+  const session = await connectToRenderer(remotePort)
+  const evidence = { profile: userDataDir, binary: electronExecutable, listingUrl: 'https://chromewebstore.google.com/detail/idu+/nckhacbgboonmhekihinhokldoogagoh?hl=pl' }
+  try {
+    await completeOnboardingIfPresent(session)
+    const capability = await session.evaluate('window.vast.app.cwsNavigationStatus()')
+    assert(capability.enabled, 'Verified CWS navigation capability did not enable in Vast.')
+    evidence.capability = capability
+    await setAddress(session, evidence.listingUrl)
+    await waitForGuest(session, `location.hostname === 'consent.google.com' || location.hostname === 'chromewebstore.google.com'`, 'CWS or Google consent', 40_000)
+    const consent = await executeInActiveWebview(session, `location.hostname === 'consent.google.com'`)
+    evidence.consentShown = consent
+    if (consent) {
+      const clicked = await executeInActiveWebview(session, `(() => { const button = [...document.querySelectorAll('button')].find((item) => /^(Odrzu|Reject all)/i.test(item.innerText.trim())); if (!button) return false; button.click(); return true })()`)
+      assert(clicked, 'Could not complete Google consent before CWS acceptance.')
+    }
+    await waitForGuest(session, `location.hostname === 'chromewebstore.google.com' && location.pathname.includes('${cwsIduPlusId}') && document.body?.innerText?.length > 100`, 'real IDU+ CWS listing after consent', 60_000)
+    evidence.page = await executeInActiveWebview(session, `({ url: location.href, title: document.title, bodyLength: document.body.innerText.length })`)
+    await waitFor(session, `Boolean(document.querySelector('[data-testid="cws-install-in-vast"]'))`, 'Install in Vast browser button')
+    await session.evaluate(`document.querySelector('[data-testid="cws-install-in-vast"]').click()`)
+    await waitFor(session, `document.querySelector('[role="dialog"]')?.innerText.includes('Install IDU+')`, 'CWS permission review from browser button', 60_000)
+    evidence.permissionReview = await session.evaluate(`document.querySelector('[role="dialog"]')?.innerText ?? ''`)
+    assert(evidence.permissionReview.includes('Chrome Web Store'), 'The review did not identify the CWS source.')
+    await session.evaluate(`document.querySelector('[role="dialog"] form button[type="submit"]').click()`)
+    await waitFor(session, `window.vast.extensions.list().then((result) => result.extensions.some((item) => item.id === '${cwsIduPlusId}' && item.source === 'cws' && item.runtimeState === 'loaded'))`, 'installed CWS extension in Vast', 60_000)
+    evidence.installed = true
+    await setAddress(session, `${origin}/cws-redirect`)
+    await waitForGuest(session, `location.hostname === 'chromewebstore.google.com' && location.pathname.includes('${cwsIduPlusId}') && document.body?.innerText?.length > 100`, 'redirected CWS listing with managed extension loaded', 60_000)
+    evidence.redirectedWithInstalledExtension = await executeInActiveWebview(session, `({ url: location.href, title: document.title, bodyLength: document.body.innerText.length })`)
+    await wait(60_000)
+    assert(launchState.child.exitCode === null, 'Vast exited during the CWS stability interval.')
+    evidence.afterDwell = await executeInActiveWebview(session, `({ url: location.href, title: document.title, bodyLength: document.body?.innerText?.length || 0 })`)
+    assert(evidence.afterDwell.url.includes(cwsIduPlusId) && evidence.afterDwell.bodyLength > 100, 'CWS listing did not survive the stability interval.')
+    evidence.stableForMs = 60_000
+    session.close()
+    await stop(launchState.child)
+    const restartPort = 9700 + Math.floor(Math.random() * 200)
+    const restart = launch(restartPort, '')
+    const restarted = await connectToRenderer(restartPort)
+    try {
+      await waitFor(restarted, `window.vast.extensions.list().then((result) => result.extensions.some((item) => item.id === '${cwsIduPlusId}' && item.runtimeState === 'loaded'))`, 'CWS extension after restart', 45_000)
+      evidence.restoredExtension = true
+      evidence.restoredNavigationCapability = await restarted.evaluate('window.vast.app.cwsNavigationStatus()')
+      assert(evidence.restoredNavigationCapability.enabled, 'CWS capability did not survive restart.')
+      await waitForGuest(restarted, `location.hostname === 'chromewebstore.google.com' && location.pathname.includes('${cwsIduPlusId}') && document.body?.innerText?.length > 100`, 'restored CWS tab with installed extension', 60_000)
+      evidence.restoredStoreTab = await executeInActiveWebview(restarted, `({ url: location.href, title: document.title, bodyLength: document.body.innerText.length })`)
+    } finally {
+      restarted.close()
+      await stop(restart.child)
+    }
+    evidence.passed = true
+    console.log('PASS Full CWS Bridge in Vast: listing, browser button, permission review, verified install, 60-second dwell, restart.')
+  } finally {
+    fs.mkdirSync(path.join(root, 'audit', 'evidence'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'audit', 'evidence', 'cws-full-bridge-vast-e2e.json'), `${JSON.stringify(evidence, null, 2)}\n`, 'utf8')
+    session.close()
+    await stop(launchState.child)
+  }
+}
+
 async function runRestart(origin) {
   const remotePort = 9900 + Math.floor(Math.random() * 80)
   const launchState = launch(remotePort, origin)
@@ -536,6 +599,54 @@ async function runRestart(origin) {
   const catalogAfterRemoval = await session.evaluate(`window.vast.extensions.catalog({ page: 1 })`)
   const availableIdu = catalogAfterRemoval.catalog.items.find((item) => item.id === iduPlusId)
   assert(availableIdu && !availableIdu.installed, 'Hub-published IDU+ was not available as uninstalled Explore content.')
+  if (process.env.VAST_E2E_CWS_INSTALL === '1') {
+    await setAddress(session, 'vast://extensions')
+    await waitFor(session, `Boolean(document.querySelector('#cws-listing-url'))`, 'Chrome Web Store installation form')
+    await session.evaluate(`(() => {
+      const input = document.querySelector('#cws-listing-url');
+      if (!input?.form) throw new Error('Chrome Web Store form is unavailable.');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'https://chromewebstore.google.com/detail/idu+/nckhacbgboonmhekihinhokldoogagoh?hl=pl');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.form.requestSubmit();
+      return true;
+    })()`)
+    await waitFor(session, `document.querySelector('[role="dialog"]')?.innerText.includes('Install IDU+')`, 'Chrome Web Store permission review', 60_000)
+    const permissionReview = await session.evaluate(`document.querySelector('[role="dialog"]')?.innerText ?? ''`)
+    assert(permissionReview.includes('Chrome Web Store'), 'CWS installation review did not identify the package source.')
+    await session.evaluate(`document.querySelector('[role="dialog"] form button[type="submit"]').click()`)
+    await waitFor(session, `window.vast.extensions.list().then((result) => result.extensions.some((item) => item.id === '${cwsIduPlusId}' && item.source === 'cws'))`, 'verified Chrome Web Store installation', 60_000)
+    const installed = await session.evaluate('window.vast.extensions.list()')
+    const cwsExtension = installed.extensions.find((item) => item.id === cwsIduPlusId)
+    assert(cwsExtension?.source === 'cws' && cwsExtension.cwsListingUrl?.startsWith('https://chromewebstore.google.com/detail/'), 'Installed CWS metadata is invalid.')
+    const evidence = {
+      listingUrl: 'https://chromewebstore.google.com/detail/idu+/nckhacbgboonmhekihinhokldoogagoh?hl=pl',
+      extensionId: cwsIduPlusId,
+      permissionReview,
+      version: cwsExtension.version,
+      source: cwsExtension.source,
+      cwsListingUrl: cwsExtension.cwsListingUrl,
+      runtimeState: cwsExtension.runtimeState,
+      loadedSessionCount: cwsExtension.loadedSessionCount,
+      error: cwsExtension.error ?? null
+    }
+    assert(cwsExtension.runtimeState === 'loaded' && cwsExtension.loadedSessionCount > 0, 'Verified CWS package was installed but did not load in Electron.')
+    session.close()
+    await stop(launchState.child)
+    const cwsRestartPort = 9700 + Math.floor(Math.random() * 200)
+    const cwsRestart = launch(cwsRestartPort, origin)
+    const cwsSession = await connectToRenderer(cwsRestartPort)
+    await waitFor(cwsSession, `typeof window.vast?.extensions?.list === 'function'`, 'CWS profile preload after restart')
+    await waitFor(cwsSession, `window.vast.extensions.list().then((result) => result.extensions.some((item) => item.id === '${cwsIduPlusId}' && item.runtimeState === 'loaded' && item.loadedSessionCount > 0))`, 'CWS extension reload after restart', 40_000)
+    const restoredCws = await cwsSession.evaluate('window.vast.extensions.list()')
+    const restoredExtension = restoredCws.extensions.find((item) => item.id === cwsIduPlusId)
+    assert(restoredExtension?.source === 'cws' && restoredExtension.cwsListingUrl === evidence.cwsListingUrl, 'CWS installation source was not preserved after restart.')
+    assert(restoredExtension.runtimeState === 'loaded' && restoredExtension.loadedSessionCount > 0, 'CWS extension did not reload after restart.')
+    evidence.restoredAfterRestart = true
+    cwsSession.close()
+    await stop(cwsRestart.child)
+    fs.mkdirSync(path.join(root, 'audit', 'evidence'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'audit', 'evidence', 'cws-idu-live-electron-ui-e2e.json'), `${JSON.stringify(evidence, null, 2)}\n`, 'utf8')
+  }
   session.close()
   await stop(launchState.child)
   const persistedRegistry = JSON.parse(fs.readFileSync(path.join(userDataDir, 'Extensions', 'registry.json'), 'utf8'))
@@ -546,6 +657,11 @@ async function runRestart(origin) {
 async function main() {
   seedRegistry()
   pageServer = http.createServer((_request, response) => {
+    if (_request.url === '/cws-redirect') {
+      response.writeHead(302, { Location: 'https://chromewebstore.google.com/detail/idu+/nckhacbgboonmhekihinhokldoogagoh?hl=pl', 'Cache-Control': 'no-store' })
+      response.end()
+      return
+    }
     if (_request.url?.startsWith('/v1/catalog')) {
       const item = { id: iduPlusId, slug: 'idu-plus', name: 'IDU+', summary: 'Improves IDU school portals.', publisher: { id: 'publisher_vastbrowserofficial', name: 'Vast', verified: true }, category: 'Education', kind: 'chrome', version: '0.3.8', updatedAt: '2026-08-24T00:00:00.000Z', downloads: 0, installed: false }
       response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
@@ -558,14 +674,20 @@ async function main() {
   await new Promise((resolve) => pageServer.listen(0, '127.0.0.1', resolve))
   const origin = `http://127.0.0.1:${pageServer.address().port}`
 
+  if (process.env.VAST_E2E_CWS_BRIDGE === '1') {
+    await runCwsBridge(origin)
+    return
+  }
   await runFirstLaunch(origin)
   await runRestart(origin)
   console.log('PASS Vast extensions Electron E2E: restore, content script, storage, management UI, disable, enable, reload, Incognito isolation, restart persistence, and remove.')
+  if (process.env.VAST_E2E_CWS_INSTALL === '1') console.log('PASS Chrome Web Store URL review, verified package installation, and live Electron extension load.')
 }
 
 async function cleanup() {
   if (pageServer) await new Promise((resolve) => pageServer.close(resolve))
   if (appProcess && appProcess.exitCode === null) await stop(appProcess)
+  if (process.env.VAST_E2E_CWS_BRIDGE === '1') return
   // Windows can retain Chromium profile handles briefly after the Electron
   // process exits. Retry the complete removal operation because Node's
   // internal rm retries do not cover every top-level EPERM directory lock.

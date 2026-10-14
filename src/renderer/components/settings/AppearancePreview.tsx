@@ -49,10 +49,10 @@ export function AppearancePreview({ settings, layoutMode }: { settings: BrowserS
           {layoutMode !== 'vertical' && (
             <div className="pv-tabs">
               {layoutMode === 'purist'
-                ? <div className="pv-tab"><span className="pv-favicon" />vastbrowser.com</div>
+                ? <div className="pv-tab"><span className="pv-favicon" /></div>
                 : <>
-                  <div className="pv-tab"><span className="pv-favicon" />New tab<span className="pv-close">×</span></div>
-                  <div className="pv-tab is-inactive"><span className="pv-favicon" />vastbrowser.com</div>
+                  <div className="pv-tab" />
+                  <div className="pv-tab is-inactive" />
                 </>}
             </div>
           )}

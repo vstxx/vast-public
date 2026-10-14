@@ -74,6 +74,7 @@ function buildDist() {
     // NSIS must run last: unlike portable-only packaging it stages app-update.yml,
     // and that complete tree is the canonical full-update payload.
     for (const windowsTarget of ['portable', 'nsis']) {
+      if (windowsTarget === 'nsis') run('node', ['scripts/extend-nsis-build-timeout.cjs'])
       run(npxCommand, electronBuilderArgs(windowsTarget))
     }
   } else {

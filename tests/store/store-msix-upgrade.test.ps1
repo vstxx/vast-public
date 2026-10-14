@@ -3,7 +3,8 @@ param(
   [string] $ExpectedVersion = '',
   [string] $PreviousVersion = $env:VAST_MSIX_PREVIOUS_PACKAGE_VERSION,
   [ValidateRange(10, 120)]
-  [int] $LaunchHealthSeconds = 15
+  [int] $LaunchHealthSeconds = 15,
+  [switch] $PauseForVisualReview
 )
 
 $ErrorActionPreference = 'Stop'
@@ -257,6 +258,10 @@ try {
   Assert-True ($installed.Version.ToString() -eq $ExpectedVersion) 'current package must replace the lower package'
   Write-Host '[store-e2e] Launching the upgraded package.'
   $secondProcess = Assert-PackagedVastLaunchHealthy $installed.PackageFamilyName $installed.InstallLocation
+  if ($PauseForVisualReview) {
+    Write-Host '[store-e2e] The upgraded Vast window is ready for visual review. Capture the taskbar icon now.'
+    Read-Host '[store-e2e] Press Enter after taking the screenshot to continue cleanup' | Out-Null
+  }
   Stop-PackagedVast $installed.InstallLocation
   foreach ($entry in $before) {
     Assert-True (Test-Path -LiteralPath (Join-Path $profileRoot $entry.Path) -PathType Leaf) "upgrade removed profile file $($entry.Path)"

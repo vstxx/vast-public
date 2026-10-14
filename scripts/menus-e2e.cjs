@@ -7,6 +7,7 @@ const { spawn, execFileSync } = require('node:child_process')
 const { pathToFileURL } = require('node:url')
 const { CdpSession, connectRenderer, stopRun } = require('./performance-suite.cjs')
 const root = path.resolve(__dirname, '..')
+fs.mkdirSync(path.join(root, 'performance-results'), { recursive: true })
 const profile = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'vast-menus-'))
 const report = { checks: [] }
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -83,7 +84,7 @@ async function main() {
   report.exceptions = []
   cdp.socket.addEventListener('message', event => { const message = JSON.parse(event.data); if (message.method === 'Runtime.exceptionThrown') report.exceptions.push(message.params.exceptionDetails) })
   await until(`window.vast?.relay && document.querySelector('.horizontal-chrome')`)
-  if (await cdp.evaluate('window.vast.relay.state().then(state => state.enabled)')) {
+  if (await cdp.evaluate('window.vast.relay.state().then(state => Boolean(state.current))')) {
     await until(`document.querySelector('button[aria-label="Dismiss Vast message"]')`)
     await cdp.evaluate(`document.querySelector('button[aria-label="Dismiss Vast message"]').click()`)
     await until(`!document.querySelector('button[aria-label="Dismiss Vast message"]')`)
@@ -218,9 +219,15 @@ async function main() {
   check('inspect opens guest developer tools')
 
   await menu({ linkURL: origin + '/new-link' })
+  const beforeBackgroundLink = await cdp.evaluate(`window.vast.storage.load().then(d=>({ activeTabId: d.workspaces.find(w=>w.id===d.activeWorkspaceId).activeTabId, tabCount: d.tabs.length }))`)
+  await cdp.evaluate(`${guest}.executeJavaScript('window.__backgroundLinkMarker = true')`)
   await click(`[...document.querySelectorAll('[role="menuitem"]')].find(e=>e.textContent.startsWith('Open link in new tab'))`)
-  await until(`${guest}.getURL().endsWith('/new-link')`)
-  check('open link creates and activates a new tab')
+  await until(`window.vast.storage.load().then(d=>d.tabs.length===${beforeBackgroundLink.tabCount + 1} && d.tabs.some(t=>t.url===${JSON.stringify(origin + '/new-link')}) )`)
+  const afterBackgroundLink = await cdp.evaluate(`window.vast.storage.load().then(d=>d.workspaces.find(w=>w.id===d.activeWorkspaceId).activeTabId)`)
+  assert.equal(afterBackgroundLink, beforeBackgroundLink.activeTabId)
+  assert.equal(await cdp.evaluate(`${guest}.getURL().endsWith('/page-17')`), true)
+  assert.equal(await cdp.evaluate(`${guest}.executeJavaScript('window.__backgroundLinkMarker === true')`), true)
+  check('open link creates a background tab without replacing or reloading the original guest')
 }
 main().catch(async error => {
   report.error = String(error.stack || error)

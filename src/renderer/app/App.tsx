@@ -9,7 +9,7 @@ import { mouseNavigationActionForButton, shouldTriggerMouseNavigation } from '..
 import { normalizeShortcutKey, parseShortcut } from '../../shared/shortcuts'
 import { shouldAutoDismissNotification } from '../../shared/notification-lifetime'
 import { isSensitiveAutomationUrl, macroActionUrl, macroContainsSensitiveTarget } from '../../shared/automation-policy'
-import { routeTopLevelNavigationUrl } from '../../shared/top-level-navigation-policy'
+import { configureChromeWebStoreNavigation, routeTopLevelNavigationUrl } from '../../shared/top-level-navigation-policy'
 import type {
   DetachedTabPayload,
   DownloadItem,
@@ -94,7 +94,7 @@ function matchesShortcut(event: KeyboardEvent, shortcut: string): boolean {
   const parts = parseShortcut(shortcut)
   if (!parts) return false
   if (parts.ctrlOrMeta !== (event.ctrlKey || event.metaKey)) return false
-  if (parts.shift !== event.shiftKey) return false
+  if (parts.shift !== event.shiftKey && !(parts.key === '+' && !parts.shift && event.shiftKey)) return false
   if (parts.alt !== event.altKey) return false
   const eventKey = normalizeShortcutKey(event.key)
   return parts.key === eventKey || (parts.key === '+' && (eventKey === '=' || eventKey === '+'))
@@ -205,7 +205,9 @@ export function App(): JSX.Element {
   const lastWheelZoomRef = useRef(0)
   const applyingSiteMemoryRef = useRef(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [sidebarManualOverride, setSidebarManualOverride] = useState(false)
   const [htmlFullscreenSession, setHtmlFullscreenSession] = useState<{ tabId: ID; webContentsId: number } | null>(null)
+  const [windowFullscreen, setWindowFullscreen] = useState(false)
   const hydrated = useBrowserStore((state) => state.hydrated)
   const focusMode = useBrowserStore((state) => state.focusMode)
   const accentColor = useBrowserStore((state) => state.settings.accentColor)
@@ -230,15 +232,19 @@ export function App(): JSX.Element {
   const systemPrefersReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const narrowSidePanel = useMediaQuery('(max-width: 1300px)')
   const autoCollapseSidebar = useMediaQuery('(max-width: 1150px)')
+  useEffect(() => {
+    if (!autoCollapseSidebar) setSidebarManualOverride(false)
+  }, [autoCollapseSidebar])
   const constrainedGraphics = useMemo(() => {
     const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory
     return navigator.hardwareConcurrency <= 4 || (typeof memory === 'number' && memory <= 4)
   }, [])
   const resolvedTheme = theme === 'system' ? (systemPrefersLight ? 'light' : 'dark') : theme
   const sidebarPinned = sidePanelMode === 'overlay' || (sidePanelMode === 'auto' && narrowSidePanel)
-  const showSidebar = !focusMode && !htmlFullscreenSession && layoutMode === 'vertical'
-  const showHorizontalChrome = !focusMode && !htmlFullscreenSession && layoutMode === 'horizontal'
-  const showPuristChrome = !focusMode && !htmlFullscreenSession && layoutMode === 'purist'
+  const browserChromeHidden = windowFullscreen || Boolean(htmlFullscreenSession)
+  const showSidebar = !focusMode && !browserChromeHidden && layoutMode === 'vertical'
+  const showHorizontalChrome = !focusMode && !browserChromeHidden && layoutMode === 'horizontal'
+  const showPuristChrome = !focusMode && !browserChromeHidden && layoutMode === 'purist'
   const activeTabIsNewTab = activeTabUrl === INTERNAL_NEW_TAB_URL
   const visualStyle = useMemo(() => {
     const tokens = extensionContributions.theme?.tokens
@@ -246,6 +252,17 @@ export function App(): JSX.Element {
     return appearanceStyle({ appearance: { ...appearance, ...appearanceOverlay, cornerRadius: appearance.cornerRadius }, accentColor: extensionAccent ?? accentColor })
   }, [accentColor, appearance, extensionContributions.theme])
   const visualRadius = String(visualStyle['--vast-radius-base' as keyof CSSProperties])
+  useEffect(() => {
+    let active = true
+    void window.vast.app.window.state().then((state) => {
+      if (active) setWindowFullscreen(state.fullscreen)
+    }).catch(() => undefined)
+    const unsubscribe = window.vast.app.window.onStateChanged((state) => setWindowFullscreen(state.fullscreen))
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [])
   useEffect(() => {
     if (!hydrated) return
     document.documentElement.style.setProperty('--vast-radius-base', visualRadius)
@@ -480,6 +497,9 @@ export function App(): JSX.Element {
       .load()
       .then(async (data) => {
         if (cancelled) return
+        const cwsNavigation = await window.vast.app.cwsNavigationStatus().catch(() => ({ enabled: false }))
+        if (cancelled) return
+        configureChromeWebStoreNavigation(cwsNavigation.enabled)
         const startupData = detachedStartupTab ? buildDetachedTabData(data, detachedStartupTab) : data
         const startupLayout = resolveLayoutMode(
           startupData.settings.layoutMode ?? (startupData.settings.tabLayout === 'compact' ? 'horizontal' : 'vertical'),
@@ -1350,7 +1370,26 @@ export function App(): JSX.Element {
       else if (shortcut === 'newTab') runtime.openUrlInNewTab(INTERNAL_NEW_TAB_URL)
       else if (shortcut === 'closeTab') runtime.closeActiveTab()
       else if (shortcut === 'reload') runtime.reload()
-      else if (shortcut === 'toggleSidebar') store.setSidebarCollapsed(!store.sidebarCollapsed)
+      else if (shortcut === 'toggleSidebar') {
+        if (store.settings.layoutMode === 'vertical') {
+          const visibleSidebarCollapsed = document.querySelector('[data-tab-sidebar]')?.classList.contains('w-16') ?? store.sidebarCollapsed
+          store.setSidebarCollapsed(!visibleSidebarCollapsed)
+          setSidebarManualOverride(true)
+        } else store.setSidePanelOpen(!store.sidePanelOpen)
+      }
+      else if (shortcut === 'nextTab' || shortcut === 'previousTab') {
+        const workspace = selectActiveWorkspace(store)
+        const tabs = store.tabs.filter((item) => item.workspaceId === workspace?.id)
+        const orderedTabs = [...tabs.filter((item) => item.pinned), ...tabs.filter((item) => !item.pinned)]
+        const currentIndex = orderedTabs.findIndex((item) => item.id === workspace?.activeTabId)
+        if (orderedTabs.length > 0) {
+          const step = shortcut === 'nextTab' ? 1 : -1
+          const nextIndex = currentIndex < 0
+            ? step === 1 ? 0 : orderedTabs.length - 1
+            : (currentIndex + step + orderedTabs.length) % orderedTabs.length
+          store.activateTab(orderedTabs[nextIndex].id)
+        }
+      }
       else if (shortcut === 'back') runtime.goBack()
       else if (shortcut === 'forward') runtime.goForward()
       else if (shortcut === 'zoomIn') runtime.zoomIn()
@@ -1361,7 +1400,9 @@ export function App(): JSX.Element {
       else if (shortcut.startsWith('tab:')) {
         const workspace = selectActiveWorkspace(store)
         const index = Number(shortcut.slice(4)) - 1
-        const tab = store.tabs.filter((item) => item.workspaceId === workspace?.id)[index]
+        const tabs = store.tabs.filter((item) => item.workspaceId === workspace?.id)
+        const orderedTabs = [...tabs.filter((item) => item.pinned), ...tabs.filter((item) => !item.pinned)]
+        const tab = index === 8 ? orderedTabs.at(-1) : orderedTabs[index]
         if (tab) store.activateTab(tab.id)
       }
     }
@@ -1378,7 +1419,7 @@ export function App(): JSX.Element {
         }
       }
 
-      if (meta && /^[1-9]$/.test(event.key)) {
+      if (meta && !event.shiftKey && !event.altKey && /^[1-9]$/.test(event.key)) {
         event.preventDefault()
         runShortcut(`tab:${event.key}`)
       }
@@ -1470,12 +1511,12 @@ export function App(): JSX.Element {
         }`}
         style={visualStyle}
       >
-        {showSidebar && <Sidebar forcedCollapsed={autoCollapseSidebar} />}
+        {showSidebar && <Sidebar forcedCollapsed={autoCollapseSidebar && !sidebarManualOverride} onManualExpand={() => setSidebarManualOverride(true)} />}
         <section className="app-main-surface relative flex min-w-0 flex-1 flex-col bg-[radial-gradient(circle_at_50%_-10%,rgba(116,231,255,0.11),transparent_28%),linear-gradient(180deg,#090a0e_0%,#050507_100%)]">
-          {!htmlFullscreenSession && !showHorizontalChrome && !showPuristChrome && <WindowControls placement="overlay" />}
+          {!browserChromeHidden && !showHorizontalChrome && !showPuristChrome && <WindowControls placement="overlay" />}
           {showHorizontalChrome && <HorizontalChrome />}
           {showPuristChrome && <Suspense fallback={null}><PuristChrome /></Suspense>}
-          {!focusMode && !htmlFullscreenSession && layoutMode === 'vertical' && <AddressBar compact />}
+          {!focusMode && !browserChromeHidden && layoutMode === 'vertical' && <AddressBar compact />}
           <div className={`browser-stage-shell relative flex min-h-0 flex-1 ${htmlFullscreenSession ? 'is-html-fullscreen' : ''}`}>
             {!htmlFullscreenSession && <FindBar />}
             <LocalErrorBoundary name="Browser content">
@@ -1490,7 +1531,7 @@ export function App(): JSX.Element {
           </div>
         </section>
         <Suspense fallback={null}>
-          {!focusMode && !htmlFullscreenSession && sidePanelOpen && (
+          {!focusMode && !browserChromeHidden && sidePanelOpen && (
             <LocalErrorBoundary name="Sidebar" overlay onDismiss={() => useBrowserStore.getState().setSidePanelOpen(false)}>
               <SidePanel pinned={sidebarPinned} />
             </LocalErrorBoundary>

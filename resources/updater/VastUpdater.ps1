@@ -7,6 +7,8 @@ param(
   [string] $ConfigPath = '',
   [string] $LogPath = '',
   [string] $TargetVersion = '1.0.8',
+  [ValidateSet('alpha', 'beta', 'stable')]
+  [string] $TargetChannel = 'stable',
   [string] $TargetEdition = '',
   [switch] $ForceClose,
   [switch] $NonInteractive,
@@ -26,6 +28,7 @@ $script:VastDefaultCriticalItems = @(
   'Cookies',
   'Cookies-journal',
   'Partitions',
+  'Extensions',
   'IndexedDB',
   'Local Storage',
   'Session Storage',
@@ -1387,14 +1390,16 @@ function Restore-VastRuntimeBackup {
 function Write-VastInstalledVersionFile {
   param(
     [string] $InstallPath,
-    [string] $TargetVersion
+    [string] $TargetVersion,
+    [ValidateSet('alpha', 'beta', 'stable')]
+    [string] $TargetChannel = 'stable'
   )
 
   $versionFile = Join-Path $InstallPath 'version.json'
   @{
     product = 'Vast Browser'
     version = $TargetVersion
-    channel = 'stable'
+    channel = $TargetChannel
     updatedAt = (Get-Date).ToUniversalTime().ToString('o')
   } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $versionFile -Encoding UTF8
 }
@@ -1404,6 +1409,8 @@ function Copy-VastApplicationRuntime {
     [string] $InstallPath,
     [string] $PayloadPath,
     [string] $TargetVersion,
+    [ValidateSet('alpha', 'beta', 'stable')]
+    [string] $TargetChannel = 'stable',
     [switch] $DryRun
   )
 
@@ -1451,7 +1458,7 @@ function Copy-VastApplicationRuntime {
     }
 
     if (-not $DryRun) {
-      Write-VastInstalledVersionFile -InstallPath $InstallPath -TargetVersion $TargetVersion
+      Write-VastInstalledVersionFile -InstallPath $InstallPath -TargetVersion $TargetVersion -TargetChannel $TargetChannel
     }
     $changedCount++
   } catch {
@@ -1479,6 +1486,8 @@ function Invoke-VastUpdate {
     [string] $ConfigPath = '',
     [string] $LogPath = '',
     [string] $TargetVersion = '1.0.8',
+    [ValidateSet('alpha', 'beta', 'stable')]
+    [string] $TargetChannel = 'stable',
     [string] $TargetEdition = '',
     [switch] $ForceClose,
     [switch] $NonInteractive,
@@ -1554,7 +1563,7 @@ function Invoke-VastUpdate {
     $createdBackupRoot = Backup-VastUserData -InstallPath $resolvedInstall -UserDataRoots $userDataRoots -Config $config -TargetVersion $TargetVersion -BackupRootPath $BackupRoot
   }
 
-  $runtimeResult = Copy-VastApplicationRuntime -InstallPath $resolvedInstall -PayloadPath $resolvedPayload -TargetVersion $TargetVersion -DryRun:$DryRun
+  $runtimeResult = Copy-VastApplicationRuntime -InstallPath $resolvedInstall -PayloadPath $resolvedPayload -TargetVersion $TargetVersion -TargetChannel $TargetChannel -DryRun:$DryRun
   $installedAfter = $currentVersion
   if ($DryRun) {
     Write-VastLog "Dry run completed. No runtime files were modified and installed version remains $currentVersion."
@@ -1598,6 +1607,7 @@ try {
     -ConfigPath $ConfigPath `
     -LogPath $LogPath `
     -TargetVersion $TargetVersion `
+    -TargetChannel $TargetChannel `
     -TargetEdition $TargetEdition `
     -ForceClose:$ForceClose `
     -NonInteractive:$NonInteractive `

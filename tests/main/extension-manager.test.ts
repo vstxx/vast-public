@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { generateKeyPairSync } from 'node:crypto'
 import { cp, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -10,6 +11,7 @@ import type { Workspace } from '../../src/shared/types.ts'
 import { createVextPackage } from '../../src/shared/vext-format.ts'
 import type { ExtensionCompatibilityRuntime } from '../../src/main/extensions/extension-compatibility-runtime.ts'
 import { ICLOUD_PASSWORDS_EXTENSION_ID, type ICloudUpstreamClient } from '../../src/main/extensions/icloud-upstream.ts'
+import type { CwsUpstreamClient } from '../../src/main/extensions/cws-upstream-client.ts'
 import { discoverChromiumExtensions } from '../../src/main/import/chromium-extension-discovery.ts'
 
 const fixturePath = resolve('tests/fixtures/extensions/content-script-basic')
@@ -782,6 +784,73 @@ test('iCloud upstream install preserves identity across restart and updates from
     assert.equal(updated?.source, 'upstream')
     assert.equal(updated?.update.state, 'up-to-date')
     assert.equal(restartedRuntime.loadedIds.at(-1), ICLOUD_PASSWORDS_EXTENSION_ID)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('CWS install and permission escalation require a fresh verified preview', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'vast-extension-cws-approval-'))
+  const publicKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey.export({ type: 'spki', format: 'der' }).toString('base64')
+  const extensionId = chromeExtensionId(root, publicKey)
+  const listingUrl = `https://chromewebstore.google.com/detail/test-extension/${extensionId}`
+  let version = '1.0.0'
+  let permissions = ['storage']
+  const calls: Array<[string, string | undefined]> = []
+  const cwsClient = {
+    latest: async (id: string, currentVersion?: string) => {
+      calls.push([id, currentVersion])
+      if (id !== extensionId || currentVersion === version) return null
+      return {
+        extensionId: id,
+        version,
+        packageSha256: 'a'.repeat(64),
+        files: new Map([
+          ['manifest.json', new TextEncoder().encode(JSON.stringify({
+            manifest_version: 3, name: 'CWS permission fixture', version, key: publicKey, permissions
+          }))],
+          ['payload.txt', new TextEncoder().encode('signed package payload')]
+        ])
+      }
+    }
+  } as unknown as CwsUpstreamClient
+  const runtime = fakeRuntime()
+  const manager = new ExtensionManager({ userDataRoot: root, sessionProvider: () => runtime, cwsClient })
+  try {
+    await manager.initialize([workspace('one')])
+    const tampered = await manager.prepareCwsInstall(listingUrl)
+    const pendingState = manager as unknown as { pendingInstalls: Map<string, { staged: { contentRoot: string } }> }
+    await writeFile(join(pendingState.pendingInstalls.get(tampered.token)!.staged.contentRoot, 'payload.txt'), 'tamper package payload')
+    await assert.rejects(manager.installPrepared(tampered.token), /staged file hash changed/)
+    assert.deepEqual(await manager.list(), [])
+
+    const first = await manager.prepareCwsInstall(listingUrl)
+    assert.equal(first.extensionId, extensionId)
+    assert.equal(first.source, 'cws')
+    assert.deepEqual(first.permissions.chrome, ['storage'])
+    const installed = await manager.installPrepared(first.token)
+    assert.equal(installed.source, 'cws')
+    assert.equal(installed.cwsListingUrl, listingUrl)
+    assert.equal(installed.version, '1.0.0')
+    assert.equal(runtime.loadedIds.at(-1), extensionId)
+
+    version = '1.1.0'
+    permissions = ['storage', 'tabs']
+    const [pending] = await manager.checkForUpdates(extensionId)
+    assert.equal(pending?.update.state, 'pending-approval')
+    assert.equal(pending?.update.availableVersion, version)
+    await assert.rejects(manager.approveUpdate(extensionId), /fresh package preview and permission confirmation/)
+    assert.equal((await manager.list())[0]?.version, '1.0.0')
+
+    const update = await manager.prepareCwsInstall(listingUrl)
+    assert.equal(update.isUpdate, true)
+    assert.deepEqual(update.permissionEscalation.chrome, ['tabs'])
+    const updated = await manager.installPrepared(update.token)
+    assert.equal(updated.version, version)
+    assert.equal(updated.source, 'cws')
+    assert.equal(updated.cwsListingUrl, listingUrl)
+    const internals = manager as unknown as { registry: { get(id: string): { cwsListingUrl?: string } | undefined } }
+    assert.equal(internals.registry.get(extensionId)?.cwsListingUrl, listingUrl)
+    assert.equal(runtime.loadedIds.at(-1), extensionId)
+    assert.ok(calls.some(([id, current]) => id === extensionId && current === '1.0.0'))
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 

@@ -6,11 +6,16 @@ const packageJson = JSON.parse(readFileSync(new URL('../../package.json', import
   scripts?: Record<string, string>
 }
 const devScriptSource = readFileSync(new URL('../../scripts/dev.cjs', import.meta.url), 'utf8')
+const currentDevScriptSource = readFileSync(new URL('../../scripts/dev-current.cjs', import.meta.url), 'utf8')
 const compatibilityDevScriptSource = readFileSync(new URL('../../scripts/dev-extension-compat.cjs', import.meta.url), 'utf8')
 
-test('default dev startup uses the verified patched compatibility runtime and keeps stock explicit', () => {
-  assert.equal(packageJson.scripts?.dev, 'node scripts/dev-extension-compat.cjs')
-  assert.equal(packageJson.scripts?.['dev:stock'], 'node scripts/dev.cjs')
+test('default dev startup routes to the CWS Bridge worktree', () => {
+  assert.equal(packageJson.version, '0.5.0')
+  assert.equal(packageJson.scripts?.dev, 'node scripts/dev-current.cjs')
+  assert.match(currentDevScriptSource, /refs\/heads\/codex\/cws-bridge-integration/)
+  assert.match(currentDevScriptSource, /dev-extension-compat\.cjs/)
+  assert.match(currentDevScriptSource, /VAST_PATCHED_ELECTRON_DIST: patchedDist/)
+  assert.equal(packageJson.scripts?.['dev:extension-compat'], 'node scripts/dev-extension-compat.cjs')
   assert.match(compatibilityDevScriptSource, /VAST_EXTENSION_COMPATIBILITY:\s*'1'/)
   assert.match(compatibilityDevScriptSource, /VAST_PATCHED_ELECTRON_COMPAT:\s*'1'/)
   assert.match(compatibilityDevScriptSource, /ELECTRON_EXEC_PATH:\s*executable/)

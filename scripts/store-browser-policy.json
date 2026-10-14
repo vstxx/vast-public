@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "reviewedAt": "2026-09-30",
+  "reviewedAt": "2026-10-06",
   "maximumReviewAgeDays": 60,
   "maximumChromiumMajorLag": 2,
   "upstreamStableVersion": "154.0.8037.92",

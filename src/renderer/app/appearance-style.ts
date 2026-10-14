@@ -29,7 +29,7 @@ export function appearanceStyle(settings: Pick<BrowserSettings, 'appearance' | '
     '--vast-bg-tint': appearance.backgroundTintColor,
     '--vast-surface-tint': appearance.surfaceTintColor,
     '--vast-radius-base': `${radius}px`,
-    '--vast-blur': `${Math.round(8 + blur * 0.32)}px`,
+    '--vast-blur': `${Math.round(blur * 0.4)}px`,
     '--vast-saturation': `${(saturation / 100).toFixed(2)}`,
     '--vast-panel-mix': `${Math.round(68 + panel * 0.3)}%`,
     '--vast-address-panel-mix': `${Math.round(58 + panel * 0.28)}%`,
@@ -52,6 +52,11 @@ export function appearanceStyle(settings: Pick<BrowserSettings, 'appearance' | '
     '--vast-chrome-mix': `${Math.round(48 + chrome * 0.5)}%`,
     '--vast-sheen-alpha': `${(0.014 + glass * 0.0007).toFixed(3)}`,
     '--vast-sheen-soft-alpha': `${(0.01 + glass * 0.00038).toFixed(3)}`,
+    '--vast-dialog-opacity': `${(100 - glass * 0.18).toFixed(1)}%`,
+    '--vast-dialog-card-opacity': `${(100 - glass * 0.5).toFixed(1)}%`,
+    '--vast-dialog-blur': `${Math.round(blur * 0.4)}px`,
+    '--vast-dialog-blur-low-effects': `${Math.min(12, Math.round(blur * 0.4))}px`,
+    '--vast-dialog-backdrop-blur': `${Math.round(blur * 0.12)}px`,
     '--vast-toolbar-icon-size': appearance.cleanToolbarIcons ? '18px' : '16px'
   } as CSSProperties
 }

@@ -662,7 +662,15 @@ export function SettingsModal(): JSX.Element | null {
   if (!open) return null
 
   return (
-    <ModalShell onClose={() => setOpen(false)} width="max-w-[1360px]" className="settings-modal-shell" ariaLabel="Settings">
+    <ModalShell
+      onClose={() => setOpen(false)}
+      width="max-w-[1360px]"
+      className="settings-modal-shell"
+      overlayClassName="settings-modal-overlay"
+      panelStyle={{ backdropFilter: 'blur(var(--vast-dialog-effective-blur)) saturate(var(--vast-saturation))' }}
+      overlayStyle={{ backdropFilter: 'blur(var(--vast-dialog-backdrop-blur))' }}
+      ariaLabel="Settings"
+    >
       <div className="flex h-[80vh] min-h-0 flex-col">
         <header className="settings-modal-header flex h-[76px] items-center justify-between px-6">
           <div className="text-[22px] font-semibold leading-none tracking-[-0.02em] text-white">Settings</div>

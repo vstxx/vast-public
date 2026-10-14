@@ -45,6 +45,9 @@ import { useBrowserRuntime } from '../../app/browser-runtime'
 import { displayUrl, getEffectiveTabUrl, hostnameFor, isInternalUrl, isLikelySearch, isSecureUrl, resolveAddressInput, searchShortcutHint } from '../../lib/url'
 import { useBrowserStore, selectActiveTab, selectActiveWorkspace } from '../../store/browser-store'
 import { useExtensionContributions } from '../../extensions/extension-runtime'
+import { parseChromeWebStoreListingUrl } from '../../../shared/chrome-web-store'
+import { installDetail } from '../extensions/install-review'
+import { useVastConfirm } from '../ui/useVastConfirm'
 import { VideoAudioMark } from '../avidae/VideoAudioBrand'
 import { Favicon } from '../ui/Favicon'
 import { IconButton } from '../ui/IconButton'
@@ -75,6 +78,7 @@ export function AddressBar({
   onFocusChange?: (focused: boolean) => void
 }): JSX.Element {
   const runtime = useBrowserRuntime()
+  const confirm = useVastConfirm()
   const activeTab = useBrowserStore(selectActiveTab)
   const activeWorkspace = useBrowserStore(selectActiveWorkspace)
   const extensionContributions = useExtensionContributions()
@@ -101,7 +105,10 @@ export function AddressBar({
   const [overflowOpen, setOverflowOpen] = useState(false)
   const [extensionsOpen, setExtensionsOpen] = useState(false)
   const [pdfDropActive, setPdfDropActive] = useState(false)
+  const [cwsInstallPending, setCwsInstallPending] = useState(false)
+  const [cwsInstallError, setCwsInstallError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const selectOnPointerClickRef = useRef(false)
 
   useEffect(() => {
     setValue(activeTab ? addressValueForTab(activeTab.url) : '')
@@ -185,6 +192,7 @@ export function AddressBar({
   }, [value])
 
   const effectiveActiveUrl = activeTab ? getEffectiveTabUrl(activeTab.url) : undefined
+  const cwsListing = activeTab && activeTab.status !== 'loading' ? parseChromeWebStoreListingUrl(activeTab.url) : undefined
   const activeTabUsesExternalSource = Boolean(activeTab && effectiveActiveUrl && effectiveActiveUrl !== activeTab.url)
 
   const secure = activeTab ? isSecureUrl(activeTab.url) : true
@@ -246,8 +254,31 @@ export function AddressBar({
     })
   }
 
+  const installFromCurrentStoreTab = async (): Promise<void> => {
+    const guestId = runtime.getActiveWebContentsId()
+    if (!guestId) return
+    setCwsInstallPending(true)
+    setCwsInstallError(null)
+    try {
+      const prepared = await window.vast.extensions.prepareCwsCurrentTab(guestId)
+      if (!prepared.ok || !prepared.preview) throw new Error(prepared.error ?? 'Could not prepare this extension.')
+      const preview = prepared.preview
+      const approved = await confirm(`${preview.isUpdate ? 'Update' : 'Install'} ${preview.name}?`, installDetail(preview), preview.isUpdate ? 'Update' : 'Install')
+      if (!approved) { await window.vast.extensions.cancelInstall(preview.token); return }
+      const result = await window.vast.extensions.confirmInstall(preview.token)
+      if (!result.ok) throw new Error(result.error ?? 'Could not install this extension.')
+    } catch (error) {
+      setCwsInstallError(error instanceof Error ? error.message : 'Could not install this extension.')
+    } finally {
+      setCwsInstallPending(false)
+    }
+  }
+
   return (
     <div className={`address-bar-row drag relative z-30 flex shrink-0 items-center px-4 ${variant === 'purist' ? 'address-bar-purist' : ''} ${compact ? 'h-[46px] gap-2' : 'h-[68px] gap-3'}`}>
+      {compact && variant !== 'purist' && window.vast.app.platform === 'win32' && (
+        <div className="vertical-window-controls-clearance no-drag absolute inset-y-0 right-0" aria-hidden="true" />
+      )}
       <div className={`address-bar-controls no-drag flex items-center gap-1 ${compact ? 'is-compact' : ''}`}>
         {extensionToolbar.slice(0, 3).map((action) => (
           <IconButton key={action.key} tooltip={`${action.title} — ${action.extensionName}`} disabled={action.enabled === false} onClick={() => { void window.vast.extensions.dispatchContribution(action.key) }}>
@@ -281,7 +312,14 @@ export function AddressBar({
           inputRef.current?.blur()
         }}
       >
-        <div className={`vast-top-address group relative flex items-center gap-3 rounded-card px-4 backdrop-blur-xl transition duration-150 ${variant === 'purist' ? 'vast-top-address-purist' : ''} ${pdfDropActive ? 'ring-2 ring-vast-cyan/55 bg-vast-cyan/8' : ''} ${compact ? 'h-9' : 'h-12'}`}>
+        <div
+          className={`vast-top-address group relative flex items-center gap-3 rounded-card px-4 backdrop-blur-xl transition duration-150 ${variant === 'purist' ? 'vast-top-address-purist' : ''} ${pdfDropActive ? 'ring-2 ring-vast-cyan/55 bg-vast-cyan/8' : ''} ${compact ? 'h-9' : 'h-12'}`}
+          onClick={(event) => {
+            if (event.target instanceof Element && event.target.closest('input, button')) return
+            inputRef.current?.focus()
+            inputRef.current?.select()
+          }}
+        >
           {activeTab && <Favicon url={activeTab.url} favicon={activeTab.favicon} title={activeTab.title} />}
           <button
             type="button"
@@ -303,12 +341,22 @@ export function AddressBar({
           <input
             ref={inputRef}
             value={value}
-            onFocus={() => {
+            onPointerDown={(event) => {
+              selectOnPointerClickRef.current = event.button === 0 && document.activeElement !== event.currentTarget
+            }}
+            onClick={(event) => {
+              if (!selectOnPointerClickRef.current) return
+              selectOnPointerClickRef.current = false
+              event.currentTarget.select()
+            }}
+            onFocus={(event) => {
               setSelectedSuggestion(-1)
               setFocused(true)
+              event.currentTarget.select()
               onFocusChange?.(true)
             }}
             onBlur={() => {
+              selectOnPointerClickRef.current = false
               window.setTimeout(() => {
                 setFocused(false)
                 onFocusChange?.(false)
@@ -439,6 +487,10 @@ export function AddressBar({
           </div>
         )}
       </form>
+      {cwsListing && <button type="button" data-testid="cws-install-in-vast" disabled={cwsInstallPending} onClick={() => { void installFromCurrentStoreTab() }} className="vast-button vast-button--secondary vast-button--sm no-drag shrink-0" title="Verify and install this Chrome Web Store extension through Vast">
+        {cwsInstallPending ? 'Checking…' : 'Install in Vast'}
+      </button>}
+      {cwsInstallError && <div role="alert" className="no-drag absolute right-4 top-full z-50 max-w-sm rounded-control border border-red-400/25 bg-[#211014] p-3 text-xs text-red-100 shadow-lg">{cwsInstallError}<button type="button" className="ml-3 underline" onClick={() => setCwsInstallError(null)}>Dismiss</button></div>}
 
       <div className={`address-bar-controls no-drag flex items-center gap-1 ${compact ? 'is-compact' : ''}`}>
         <IconButton tooltip={isBookmarked ? 'Remove bookmark' : 'Bookmark page'} active={isBookmarked} onClick={runtime.addCurrentBookmark}>

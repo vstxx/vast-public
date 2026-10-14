@@ -13,7 +13,7 @@ test('extension IPC remains behind the trusted main-frame sender guard and nativ
     source('src/main/ipc/extensions.ts')
   ])
 
-  assert.match(ipc, /registerExtensionsIpc\(handle, senderWindowFor, extensionManager\)/)
+  assert.match(ipc, /registerExtensionsIpc\(handle, senderWindowFor, extensionManager, resolveTrustedGuestWebContents\)/)
   assert.match(ipc, /event\.senderFrame !== event\.sender\.mainFrame/)
   assert.match(ipc, /isTrustedRendererUrl\(event\.senderFrame\.url\)/)
   assert.match(extensionIpc, /dialog\.showOpenDialog/)

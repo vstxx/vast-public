@@ -104,6 +104,8 @@ const api = {
     loadUnpacked: () => ipcRenderer.invoke('vast:extensions:load-unpacked'),
     installPackage: () => ipcRenderer.invoke('vast:extensions:install-package'),
     prepareHubInstall: (id) => ipcRenderer.invoke('vast:extensions:prepare-hub-install', id),
+    prepareCwsInstall: (listingUrl) => ipcRenderer.invoke('vast:extensions:prepare-cws-install', listingUrl),
+    prepareCwsCurrentTab: (webContentsId) => ipcRenderer.invoke('vast:extensions:prepare-cws-current-tab', webContentsId),
     confirmInstall: (token) => ipcRenderer.invoke('vast:extensions:confirm-install', token),
     cancelInstall: (token) => ipcRenderer.invoke('vast:extensions:cancel-install', token),
     catalog: (input) => ipcRenderer.invoke('vast:extensions:catalog', input),
@@ -329,6 +331,7 @@ const api = {
       node: process.versions.node ?? ''
     },
     diagnostics: () => ipcRenderer.invoke('vast:app:diagnostics'),
+    cwsNavigationStatus: () => ipcRenderer.invoke('vast:app:cws-navigation-status'),
     processMetrics: () => ipcRenderer.invoke('vast:app:process-metrics'),
     performanceCounters: () => ipcRenderer.invoke('vast:performance:counters'),
     getDefaultBrowserStatus: () => ipcRenderer.invoke('vast:app:default-browser-status'),

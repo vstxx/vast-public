@@ -3,6 +3,7 @@ import { memo, type DragEvent } from 'react'
 import type { Tab, TabGroup } from '../../../shared/types'
 import { openTabContextMenu } from '../../lib/context-menu'
 import { useTabMotion } from '../../lib/tab-motion'
+import { beginTabDrag, consumeTabDrop, recordTabDrop } from '../../lib/tab-drag-session'
 import { useBrowserStore } from '../../store/browser-store'
 import { Favicon, getInternalTabMeta } from '../ui/Favicon'
 import { VastSelect } from '../ui/VastSelect'
@@ -52,10 +53,14 @@ function TabRowComponent({ tab, active, compact, groups = [] }: TabRowProps): JS
   const onDrop = (event: DragEvent<HTMLDivElement>): void => {
     event.preventDefault()
     const draggedId = event.dataTransfer.getData('text/plain')
-    if (draggedId) moveTab(draggedId, tab.id)
+    if (draggedId) {
+      recordTabDrop(draggedId)
+      moveTab(draggedId, tab.id)
+    }
   }
 
   const onDragEnd = (event: DragEvent<HTMLDivElement>): void => {
+    if (consumeTabDrop(tab.id)) return
     if (!shouldDetachVerticalTab(event)) return
     event.preventDefault()
     const payload = {
@@ -90,8 +95,7 @@ function TabRowComponent({ tab, active, compact, groups = [] }: TabRowProps): JS
       tabIndex={0}
       draggable
       onDragStart={(event) => {
-        event.dataTransfer.effectAllowed = 'move'
-        event.dataTransfer.setData('text/plain', tab.id)
+        beginTabDrag(tab.id, event.dataTransfer)
       }}
       onDragEnd={onDragEnd}
       onDragOver={(event) => event.preventDefault()}

@@ -66,6 +66,18 @@ test('stable feed split starts at 0.4.3 and keeps both metadata assets sealed', 
   assert.ok(candidatePaths('0.4.3', true).includes('release/Installer/stable-v2.yml'))
   assert.ok(publishedReleaseFiles('0.4.3', true).includes('Installer/latest.yml'))
   assert.ok(publishedReleaseFiles('0.4.3', true).includes('Installer/stable-v2.yml'))
+  assert.ok(candidatePaths('0.5.0', true).includes('release/Installer/stable-v2.yml'))
+  assert.ok(publishedReleaseFiles('0.5.0', true).includes('Installer/latest.yml'))
+  assert.ok(publishedReleaseFiles('0.5.0', true).includes('Installer/stable-v2.yml'))
+})
+
+test('legacy feed keeps the published 0.4.2 bytes on Windows checkout', () => {
+  const { createHash } = require('node:crypto')
+  const feed = fs.readFileSync(path.join(__dirname, '../../scripts/legacy-latest-042.yml'))
+  const digest = createHash('sha256').update(feed).digest('hex')
+  assert.equal(digest, 'ee14320467671518cdbee4f4168b4499bf5676ef70ac5152ba383ab3d71f34cb')
+  const attributes = fs.readFileSync(path.join(__dirname, '../../.gitattributes'), 'utf8')
+  assert.match(attributes, /^scripts\/legacy-latest-042\.yml -text$/m)
 })
 test('missing files, changed bytes and unexpected deliverables fail closed', t => {
   const directory = fixture(t), file = path.join(directory, candidatePaths(info.version, true)[0])

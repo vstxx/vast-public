@@ -129,6 +129,8 @@ export function RelayNoticeOverlay(): JSX.Element | null {
   return (
     <ModalShell
       onClose={dismiss}
+      dismissOnBackdrop={false}
+      dismissOnEscape={false}
       width="max-w-184"
       placement="center"
       ariaLabel={`${presentationEyebrow(presentation)}: ${presentation.title}`}

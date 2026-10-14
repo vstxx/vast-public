@@ -7,6 +7,17 @@ if (!input || !output) {
 
 const source = readFileSync(input, 'utf8');
 const lines = source.split(/\r?\n/);
+const excluded = new Map();
+for (const product of ['chrome', 'chromium']) {
+  for (const arch of ['arm64', 'x86', 'x86_64']) {
+    for (const suffix of ['', '_sans_iid']) {
+      excluded.set(
+        `src/third_party/updater/${product}_win_${arch}${suffix}/cipd`,
+        `chromium/third_party/updater/${product}_win_${arch}`
+      );
+    }
+  }
+}
 const kept = [];
 const removed = [];
 for (let index = 0; index < lines.length; index++) {
@@ -17,7 +28,9 @@ for (let index = 0; index < lines.length; index++) {
     continue;
   }
   const packageLine = lines[index + 1];
-  if (!/^chromium\/third_party\/updater\/\S+ \S+$/.test(packageLine || '')) {
+  const expectedPackage = excluded.get(match[1]);
+  if (!expectedPackage || !packageLine?.startsWith(`${expectedPackage} `) ||
+      !/^chromium\/third_party\/updater\/\S+ \S+$/.test(packageLine)) {
     throw new Error(`Unexpected package after ${match[1]}: ${packageLine}`);
   }
   removed.push(match[1]);
@@ -25,7 +38,8 @@ for (let index = 0; index < lines.length; index++) {
   if (lines[index + 1] === '') index++;
 }
 
-if (removed.length !== 12 || !removed.every((path) => /\/(?:chrome|chromium)_win_/.test(path))) {
+if (removed.length !== 12 || new Set(removed).size !== 12 ||
+    !removed.every((path) => excluded.has(path))) {
   throw new Error(`Expected exactly 12 Windows old_updater test packages; found ${removed.length}: ${removed.join(', ')}`);
 }
 const filtered = kept.join('\n');

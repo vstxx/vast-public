@@ -1,6 +1,15 @@
 import { INTERNAL_NEW_TAB_URL, INTERNAL_UNSUPPORTED_EXTENSION_STORE_URL } from './constants.ts'
 
 const BLOCKED_TOP_LEVEL_HOSTS = new Set(['chromewebstore.google.com'])
+let cwsNavigationEnabled = false
+
+export function configureChromeWebStoreNavigation(enabled: boolean): void {
+  cwsNavigationEnabled = enabled === true
+}
+
+export function isChromeWebStoreNavigationEnabled(): boolean {
+  return cwsNavigationEnabled
+}
 
 export function isChromeWebStoreUrl(rawUrl: string): boolean {
   try {
@@ -15,7 +24,7 @@ export function isChromeWebStoreUrl(rawUrl: string): boolean {
 }
 
 export function blockedTopLevelNavigationReplacement(rawUrl: string): string | undefined {
-  return isChromeWebStoreUrl(rawUrl) ? INTERNAL_UNSUPPORTED_EXTENSION_STORE_URL : undefined
+  return !cwsNavigationEnabled && isChromeWebStoreUrl(rawUrl) ? INTERNAL_UNSUPPORTED_EXTENSION_STORE_URL : undefined
 }
 
 export function isAllowedChromeExtensionSubframeRedirect(rawUrl: string, isMainFrame: boolean): boolean {

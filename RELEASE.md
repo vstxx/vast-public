@@ -69,7 +69,7 @@ Store packaging produces an MSIX with the exact Partner Center identity and disa
 
 Product version comes from `package.json`. `scripts/release-config.json` separately records the previous public release, default Store package version and previous consumed Store version. `VAST_MSIX_PACKAGE_VERSION` and `VAST_MSIX_PREVIOUS_PACKAGE_VERSION` override the Store values; the candidate must be strictly higher, with fourth component zero. Confirm the actual highest consumed number in Partner Center before building. Store filenames include both versions. The Store workflow only produces a candidate and never submits it.
 
-Installed direct and Store builds use the same installed-profile policy; portable builds use their own adjacent data root. See [docs/DATA_MIGRATION_AND_STORAGE.md](docs/DATA_MIGRATION_AND_STORAGE.md).
+Installed direct and Store builds use separate default profile roots; portable builds use their own adjacent data root. See [docs/DATA_MIGRATION_AND_STORAGE.md](docs/DATA_MIGRATION_AND_STORAGE.md).
 
 ## Runtime and third-party source
 

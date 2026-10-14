@@ -4,8 +4,8 @@ const { resolve, join, relative } = require('node:path')
 const { spawnSync } = require('node:child_process')
 
 const ECE_VERSION = '4.9.0'
-const PATCH_SHA256 = '002c90dd134e6a203ad05438939563c415f95b02d3fa75f1de93d1dfd5b8d865'
-const RUNTIME_SHA256 = '2658339fb6f278c1f602ecb04ab4bb9b71705a5880200c062c896bb20c3db334'
+const PATCH_SHA256 = '65bb9d19842056f47b6867285950f2649b9db087235f8975ebba4226b3998625'
+const RUNTIME_SHA256 = '94adc4fdae9fbb2de85485c902a4c7ef84a5a070c6c204d30ca03a7901b1c74a'
 const PATCHED_FILES = [
   'dist/chrome-extension-api.preload.js',
   'dist/cjs/index.js',

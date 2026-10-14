@@ -542,7 +542,7 @@ function WebviewSurfaceComponent({ tab, visible, selected, isPrivate, identity, 
                 label: 'Open link in new tab',
                 detail: displayUrl(linkUrl),
                 action: () => {
-                  void createTab({ url: linkUrl, title: linkUrl, workspaceId: latestTab.workspaceId, groupId: latestTab.groupId, activate: true })
+                  void createTab({ url: linkUrl, title: linkUrl, workspaceId: latestTab.workspaceId, groupId: latestTab.groupId, activate: false })
                 }
               }
             : undefined

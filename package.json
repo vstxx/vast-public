@@ -1,7 +1,7 @@
 {
   "name": "vast-browser",
   "productName": "Vast",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "description": "A local-first desktop browser for power users, built with Electron, React, TypeScript, Vite, and Tailwind CSS.",
   "author": "VastProductions",
   "main": "out/main/main.js",
@@ -16,9 +16,12 @@
     "url": "https://github.com/vstxx/vast-public/issues"
   },
   "scripts": {
-    "dev": "node scripts/dev-extension-compat.cjs",
+    "dev": "node scripts/dev-current.cjs",
     "dev:stock": "node scripts/dev.cjs",
     "dev:extension-compat": "node scripts/dev-extension-compat.cjs",
+    "alpha:prepare": "node scripts/local-alpha-update.cjs prepare",
+    "alpha:check": "node scripts/local-alpha-update.cjs check",
+    "alpha:apply": "node scripts/local-alpha-update.cjs apply",
     "extension:compat:auth-gate": "node scripts/extension-auth-gate.cjs",
     "extension:compat:password-gate": "node scripts/password-manager-gate.cjs",
     "extension:compat:password-gate:verify": "node scripts/password-manager-gate.cjs verify",
@@ -60,9 +63,12 @@
     "test:app": "node scripts/run-app-test.cjs",
     "test:purist-click": "npm run build && node scripts/purist-click-e2e.cjs",
     "test:menus": "npm run build && node scripts/menus-e2e.cjs",
+    "test:fullscreen-appearance:e2e": "node scripts/run-isolated-electron-e2e.cjs fullscreen-appearance-e2e.cjs",
+    "test:tab-reorder:e2e": "node scripts/run-isolated-electron-e2e.cjs tab-reorder-state-e2e.cjs",
     "test:extensions:e2e": "node scripts/run-isolated-electron-e2e.cjs extensions-e2e.cjs",
     "test:extensions:native-e2e": "node scripts/run-isolated-electron-e2e.cjs native-extensions-e2e.cjs",
     "test:extensions:native-messaging-e2e": "node scripts/run-isolated-electron-e2e.cjs native-messaging-e2e.cjs",
+    "test:icloud-native-lifecycle:e2e": "node scripts/icloud-native-host-lifecycle-e2e.cjs",
     "extension:compat:icloud-smoke": "node scripts/icloud-passwords-smoke.cjs",
     "extension:pack": "node scripts/pack-extension.cjs",
     "extension:password-managers:pack": "node scripts/build-password-manager-packages.cjs",
@@ -110,13 +116,14 @@
     "performance:regressions": "node scripts/check-production-regressions.cjs"
   },
   "dependencies": {
+    "@xmldom/xmldom": "0.8.15",
     "electron-chrome-extensions": "4.9.0",
     "electron-updater": "6.8.9",
     "fflate": "0.8.3",
     "semver": "^7.8.5"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "1.0.0",
+    "@cloudflare/vitest-plugin": "1.4.1",
     "@electron/fuses": "2.1.2",
     "@ghostery/adblocker": "2.18.2",
     "@tailwindcss/postcss": "4.3.3",
@@ -127,7 +134,7 @@
     "7zip-bin": "5.2.0",
     "acorn": "8.18.0",
     "clsx": "2.1.1",
-    "electron": "44.3.0",
+    "electron": "44.7.0",
     "electron-builder": "26.15.3",
     "electron-vite": "5.0.0",
     "javascript-obfuscator": "^5.4.3",
@@ -141,11 +148,11 @@
     "typescript": "6.0.3",
     "vite": "7.3.6",
     "vitest": "4.1.11",
-    "wrangler": "4.125.0",
+    "wrangler": "4.150.0",
     "zustand": "5.0.13"
   },
   "overrides": {
-    "sharp": "0.35.4",
+    "sharp": "0.35.5",
     "js-yaml": "4.3.2",
     "tmp": "0.2.7",
     "esbuild": "0.28.1",

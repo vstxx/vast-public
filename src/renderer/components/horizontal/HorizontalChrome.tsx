@@ -22,6 +22,7 @@ import { useBrowserRuntime } from '../../app/browser-runtime'
 import { openTabContextMenu } from '../../lib/context-menu'
 import { displayUrl } from '../../lib/url'
 import { useTabMotion } from '../../lib/tab-motion'
+import { beginTabDrag, consumeTabDrop, recordTabDrop } from '../../lib/tab-drag-session'
 import { selectActiveTab, selectActiveWorkspace, useBrowserStore } from '../../store/browser-store'
 import { AddressBar } from '../browser/AddressBar'
 import { Favicon, getInternalTabMeta } from '../ui/Favicon'
@@ -302,11 +303,15 @@ function HorizontalTabBar(): JSX.Element {
   const onDrop = (event: DragEvent<HTMLButtonElement>, targetId: string): void => {
     event.preventDefault()
     const draggedId = event.dataTransfer.getData('text/plain')
-    if (draggedId) moveTab(draggedId, targetId)
+    if (draggedId) {
+      recordTabDrop(draggedId)
+      moveTab(draggedId, targetId)
+    }
     setDragTargetId(null)
   }
 
   const onTabDragEnd = (event: DragEvent<HTMLButtonElement>, tab: Tab): void => {
+    if (consumeTabDrop(tab.id)) return
     if (!shouldDetachHorizontalTab(event, stripRef.current)) return
     event.preventDefault()
     const payload = {
@@ -534,8 +539,7 @@ function HorizontalTabComponent({
       draggable
       title={`${tab.title}\n${tabDisplayHost(tab.url)}\n${tab.pinned ? 'Pinned · ' : ''}${tab.lifecycle}`}
       onDragStart={(event) => {
-        event.dataTransfer.effectAllowed = 'move'
-        event.dataTransfer.setData('text/plain', tab.id)
+        beginTabDrag(tab.id, event.dataTransfer)
       }}
       onDragEnd={(event) => {
         onDragEnd(event)

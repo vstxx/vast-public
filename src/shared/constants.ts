@@ -67,6 +67,8 @@ export const DEFAULT_SHORTCUTS: Record<string, string> = {
   focusAddress: 'Ctrl/Cmd+L',
   newTab: 'Ctrl/Cmd+T',
   closeTab: 'Ctrl/Cmd+W',
+  nextTab: 'Ctrl/Cmd+Tab',
+  previousTab: 'Ctrl/Cmd+Shift+Tab',
   reload: 'Ctrl/Cmd+R',
   reopenClosedTab: 'Ctrl/Cmd+Shift+T',
   toggleSidebar: 'Ctrl/Cmd+B',

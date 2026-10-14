@@ -9,6 +9,7 @@ export interface InstalledExtensionRecord {
   id: string
   runtimeExtensionId?: string
   upstreamExtensionId?: string
+  cwsListingUrl?: string
   name: string
   version: string
   description?: string

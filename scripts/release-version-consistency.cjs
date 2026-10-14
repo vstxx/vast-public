@@ -35,7 +35,7 @@ requireEqual('signed public workflow expected_version', capture(signedWorkflow, 
 if (!bootstrapper.includes("'package.json') | ConvertFrom-Json).version")) failures.push('bootstrapper must derive its default from package.json')
 requireEqual('canonical updater targetVersion', updaterConfig.targetVersion)
 requireEqual('canonical updater payloadPath', updaterConfig.payloadPath, `..\\Vast-${pkg.version}\\win-unpacked`)
-if (!buildMetadataWriter.includes('version: pkg.version')) failures.push('release metadata must derive version from package.json')
+if (!buildMetadataWriter.includes('version: packagedVersion(pkg.version)')) failures.push('release metadata must derive version from package.json')
 for (const template of ['Vast-Setup-${version}.${ext}', 'Vast-${version}-Portable.${ext}']) {
   if (!JSON.stringify(pkg.build).includes(template)) failures.push(`builder artifact template is missing: ${template}`)
 }

@@ -5,6 +5,7 @@ const { validateRuntimeFingerprint } = require('./verify-extension-compat-runtim
 
 const root = join(__dirname, '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+const { packagedVersion } = require('./local-alpha-version.cjs')
 const outputPath = join(root, 'out', 'release-build-metadata.json')
 const compatibilityFingerprintPath = join(root, 'out', 'extension-compatibility-runtime-fingerprint.json')
 const compatibilityManifest = JSON.parse(readFileSync(join(root, 'patches', 'extension-compatibility-runtime.json'), 'utf8'))
@@ -97,7 +98,7 @@ if (failures.length > 0) {
 
 const metadata = {
   productName: pkg.productName,
-  version: pkg.version,
+  version: packagedVersion(pkg.version),
   releaseChannel,
   distributionChannel,
   privateBuild,

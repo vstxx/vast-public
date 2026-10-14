@@ -10,10 +10,12 @@ if (!enabled('VAST_PRIVATE_BUILD') || !enabled('VAST_ALLOW_UNSIGNED_PRIVATE_BUIL
 }
 
 const pkg = require(join(__dirname, '..', 'package.json'))
+const { packagedVersion } = require('./local-alpha-version.cjs')
 const compatibilityManifest = require(join(__dirname, '..', 'patches', 'extension-compatibility-runtime.json'))
 
 module.exports = {
   ...pkg.build,
+  extraMetadata: { ...(pkg.build.extraMetadata || {}), version: packagedVersion(pkg.version) },
   electronDist: approvedElectronDist({ manifest: compatibilityManifest }),
   forceCodeSigning: false,
   win: {

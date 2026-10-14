@@ -88,4 +88,3 @@ if (document.readyState === 'loading') {
 } else {
   queueScrollBoundary()
 }
-

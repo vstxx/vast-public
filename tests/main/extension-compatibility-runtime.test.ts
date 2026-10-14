@@ -55,7 +55,7 @@ function packagedGateInput() {
   return {
     isPackaged: true,
     appVersion: '0.4.0',
-    electronVersion: '44.3.0',
+    electronVersion: compatibilityManifest.electron.version,
     executablePath: 'C:\\Program Files\\Vast\\Vast.exe',
     env: {},
     approvedRuntime: compatibilityManifest,
@@ -66,8 +66,9 @@ function packagedGateInput() {
 function enabledGate() {
   return extensionCompatibilityGate({
     isPackaged: false,
-    electronVersion: '44.3.0',
+    electronVersion: compatibilityManifest.electron.version,
     executablePath: 'D:\\patched\\electron.exe',
+    approvedRuntime: compatibilityManifest,
     env: {
       VAST_EXTENSION_COMPATIBILITY: '1',
       VAST_PATCHED_ELECTRON_COMPAT: '1',
@@ -86,6 +87,16 @@ test('compatibility gate requires development, the validated Electron base and e
     ...enabledGateInput(),
     env: { ...enabledGateInput().env, VAST_EXTENSION_COMPATIBILITY_DISABLE: '1' }
   }), { enabled: false, reason: 'internal rollback switch is on' })
+})
+
+test('development compatibility requires the exact Electron version in the approved runtime', () => {
+  const candidate = {
+    ...compatibilityManifest,
+    electron: { ...compatibilityManifest.electron, version: '44.8.0' }
+  }
+  assert.equal(extensionCompatibilityGate({ ...enabledGateInput(), approvedRuntime: candidate, electronVersion: '44.8.0' }).enabled, true)
+  assert.equal(extensionCompatibilityGate({ ...enabledGateInput(), approvedRuntime: candidate }).enabled, false)
+  assert.equal(extensionCompatibilityGate({ ...enabledGateInput(), approvedRuntime: undefined }).enabled, false)
 })
 
 test('packaged compatibility gate accepts only the exact release attestation and selects GPL', () => {
@@ -219,8 +230,9 @@ test('a later session failure rejects pending work and disables every existing a
 function enabledGateInput() {
   return {
     isPackaged: false,
-    electronVersion: '44.3.0',
+    electronVersion: compatibilityManifest.electron.version,
     executablePath: 'D:\\patched\\electron.exe',
+    approvedRuntime: compatibilityManifest,
     env: {
       VAST_EXTENSION_COMPATIBILITY: '1',
       VAST_PATCHED_ELECTRON_COMPAT: '1',

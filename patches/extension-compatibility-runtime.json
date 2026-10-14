@@ -1,11 +1,11 @@
 {
   "schemaVersion": 2,
   "electron": {
-    "version": "44.3.0",
-    "electronBaseCommit": "07e460719c75b2ec5ee4893f7d2192ef31c7b8c2",
-    "chromiumVersion": "152.0.7977.78",
-    "chromiumBaseCommit": "82ccee2d3b4f0bc4aa5d5c9c3c88ed3b283571f3",
-    "patchsetRevision": "electron-44.3.0-vast-r5",
+    "version": "44.7.0",
+    "electronBaseCommit": "61f55c4ce540416b3e43f75f6c0f125d22e5e908",
+    "chromiumVersion": "152.0.7977.130",
+    "chromiumBaseCommit": "2c592105bbcd9490a9894df48d0fe59b2c512651",
+    "patchsetRevision": "electron-44.7.0-vast-r1",
     "patchsetSha256": "00a5271d7366331d826162825e62f9ae96e2022d0a03ea915bd5f443a27292a3",
     "patches": [
       {
@@ -48,15 +48,15 @@
       "platform": "win32",
       "arch": "x64",
       "fileName": "electron.exe",
-      "size": 246300672,
-      "sha256": "b40c3bd45dfe47bafd77b96e3084692f0494dd4ff3ddb0eac4d7031a60c7b9d7"
+      "size": 246534144,
+      "sha256": "1f3afb78e5f90bcf9322d158bd1c6444e1d56ffa6cd59b874fba389dfbb95a67"
     }
   },
   "ece": {
     "version": "4.9.0",
     "patchPath": "patches/electron-chrome-extensions-4.9.0-vast.patch",
-    "patchSha256": "002c90dd134e6a203ad05438939563c415f95b02d3fa75f1de93d1dfd5b8d865",
-    "runtimeSha256": "2658339fb6f278c1f602ecb04ab4bb9b71705a5880200c062c896bb20c3db334",
+    "patchSha256": "65bb9d19842056f47b6867285950f2649b9db087235f8975ebba4226b3998625",
+    "runtimeSha256": "94adc4fdae9fbb2de85485c902a4c7ef84a5a070c6c204d30ca03a7901b1c74a",
     "runtimeFiles": [
       "dist/chrome-extension-api.preload.js",
       "dist/cjs/index.js",

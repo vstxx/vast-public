@@ -21,7 +21,7 @@ const referenceRoot = resolve(__dirname, '..', '..', 'extension-reference');
 let allowedTlsPort = null;
 const result = {
   scenario,
-  versions: { electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node },
+  versions: { electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node, v8: process.versions.v8 },
   profile,
   crashDumps,
   reports: [],
@@ -37,6 +37,7 @@ const result = {
   lifecycle: {},
   patchMatrix: { serverHits: [], responses: [], authEvents: [], corsHits: [], proxyHits: [], resourceSamples: [] },
   errors: [],
+  rendererProcessGone: false,
   completed: false
 };
 
@@ -57,6 +58,19 @@ app.on('certificate-error', (event, _contents, url, _error, _certificate, callba
 
 const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
 const errorText = (error) => String(error && (error.stack || error.message) || error).slice(0, 2000);
+function isLoadedCwsDocument(url, dom) {
+  try {
+    const committed = new URL(url);
+    const documentUrl = new URL(dom?.href);
+    return committed.protocol === 'https:' &&
+      committed.hostname === 'chromewebstore.google.com' &&
+      documentUrl.href === committed.href &&
+      committed.pathname.split('/').filter(Boolean).at(-1)?.toLowerCase() !== 'error' &&
+      dom.readyState === 'complete' &&
+      dom.title.includes('Chrome Web Store') &&
+      dom.bodyLength > 100;
+  } catch { return false; }
+}
 function stage(name) { result.stage = name; result.stages ??= []; result.stages.push({ name, at: Date.now() }); save(); }
 async function limited(promise, label, timeout = 15000) {
   let timer;
@@ -65,7 +79,12 @@ async function limited(promise, label, timeout = 15000) {
 }
 function save() {
   mkdirSync(resolve(resultPath, '..'), { recursive: true });
-  result.crashDumpFiles = existsSync(crashDumps) ? readdirSync(crashDumps) : [];
+  result.crashDumpFiles = existsSync(crashDumps)
+    ? readdirSync(crashDumps, { recursive: true }).filter((entry) => {
+      if (!entry.toLowerCase().endsWith('.dmp')) return false;
+      try { return statSync(join(crashDumps, entry)).isFile(); } catch { return false; }
+    })
+    : [];
   writeFileSync(resultPath, JSON.stringify(result, null, 2));
 }
 function recordError(stage, error) { result.errors.push({ stage, error: errorText(error) }); save(); }
@@ -387,7 +406,7 @@ async function main() {
       : { level, message, lineNumber, sourceId };
     result.rendererConsole.push(value); save();
   });
-  win.webContents.on('render-process-gone', (_event, details) => { result.errors.push({ stage: 'render-process-gone', details }); save(); });
+  win.webContents.on('render-process-gone', (_event, details) => { result.rendererProcessGone = true; result.errors.push({ stage: 'render-process-gone', details }); save(); });
   // A cold custom Electron start can spend several seconds initializing the
   // profile and extension services on slower disks. This navigation is only
   // harness setup, so do not confuse startup I/O latency with a lifecycle
@@ -638,19 +657,33 @@ async function main() {
   if (scenario.cws) {
     result.cws = { startedAt: Date.now(), url: scenario.cwsUrl || 'https://chromewebstore.google.com/detail/ublock-origin/cjpalhdlnbpafiamejdnhcphjbkeiagm' };
     save();
-    await limited(win.loadURL(result.cws.url), 'cws-navigation', 25000);
+    await limited(win.loadURL(result.cws.url), 'cws-navigation', 30000);
     result.cws.didFinishLoad = true;
-    await sleep(8000);
     result.cws.finalUrl = win.webContents.getURL();
     result.cws.title = win.webContents.getTitle();
     if (result.cws.finalUrl.startsWith('https://consent.google.com/')) {
       result.cws.consentButtons = await win.webContents.executeJavaScript(`[...document.querySelectorAll('button')].map(button => ({ text: button.innerText.trim().slice(0, 100), type: button.type, name: button.name })).slice(0, 30)`, true).catch(errorText);
-      result.cws.rejectClicked = await win.webContents.executeJavaScript(`(() => { const button = [...document.querySelectorAll('button')].find(item => item.innerText.trim().startsWith('Odrzu')); if (!button) return false; button.click(); return true; })()`, true).catch(errorText);
+      const afterConsentLoad = new Promise((resolveNavigation) => win.webContents.once('did-finish-load', resolveNavigation));
+      result.cws.rejectClicked = await win.webContents.executeJavaScript(`(() => { const button = [...document.querySelectorAll('button')].find(item => /^(Odrzu|Reject all)/i.test(item.innerText.trim())); if (!button) return false; button.click(); return true; })()`, true).catch(errorText);
       save();
-      if (result.cws.rejectClicked === true) await sleep(12000);
+      if (result.cws.rejectClicked === true) {
+        await limited(afterConsentLoad, 'cws-after-consent', 30000);
+      }
       result.cws.afterConsentUrl = win.webContents.getURL();
       result.cws.afterConsentTitle = win.webContents.getTitle();
     }
+    const dom = await win.webContents.executeJavaScript(`({ href: location.href, title: document.title, readyState: document.readyState, bodyLength: document.body?.innerText?.length || 0, bodySample: document.body?.innerText?.slice(0, 400) || '' })`, true).catch(errorText);
+    result.cws.finalUrl = win.webContents.getURL();
+    result.cws.title = win.webContents.getTitle();
+    result.cws.dom = dom;
+    result.cws.pageLoaded = isLoadedCwsDocument(result.cws.finalUrl, dom);
+    save();
+    const stableStart = Date.now();
+    await sleep(scenario.cwsStableMs ?? 8000);
+    result.cws.stableForMs = Date.now() - stableStart;
+    result.cws.finalUrl = win.webContents.getURL();
+    result.cws.finalDom = await win.webContents.executeJavaScript(`({ href: location.href, title: document.title, readyState: document.readyState, bodyLength: document.body?.innerText?.length || 0, bodySample: document.body?.innerText?.slice(0, 400) || '' })`, true).catch(errorText);
+    result.cws.pageLoaded = result.cws.pageLoaded && isLoadedCwsDocument(result.cws.finalUrl, result.cws.finalDom);
     result.cws.survived = true;
     result.completed = true; save(); server.close(); app.exit(0); return;
   }
@@ -751,6 +784,6 @@ async function main() {
 }
 
 app.on('child-process-gone', (_event, details) => { result.errors.push({ stage: 'child-process-gone', details }); save(); });
-app.on('render-process-gone', (_event, contents, details) => { result.errors.push({ stage: 'app-render-process-gone', webContentsId: contents.id, details }); save(); });
+app.on('render-process-gone', (_event, contents, details) => { result.rendererProcessGone = true; result.errors.push({ stage: 'app-render-process-gone', webContentsId: contents.id, details }); save(); });
 app.whenReady().then(main).catch((error) => { recordError('fatal', error); app.exit(1); });
 setTimeout(() => { recordError('watchdog', new Error('scenario exceeded 175 seconds')); app.exit(2); }, 175000);

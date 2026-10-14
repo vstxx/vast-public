@@ -21,12 +21,12 @@ const packagedLaunchHealth = readFileSync(join(root, 'tests', 'store', 'packaged
 const wackRunner = readFileSync(join(root, 'scripts', 'run-windows-app-certification.ps1'), 'utf8')
 
 test('Store versions are configurable and monotonic independently of product version', () => {
-  assert.equal(storePackageVersion({}), '1.2.9.0')
+  assert.equal(storePackageVersion({}), '1.2.11.0')
   assert.equal(storePackageVersion({ VAST_MSIX_PACKAGE_VERSION: '1.3.0.0' }), '1.3.0.0')
-  for (const value of ['0.3.0', '0.3.0.0', '1.2.9.1', '1.2.65536.0', '1.2.8.0', '1.1.99.0']) {
+  for (const value of ['0.3.0', '0.3.0.0', '1.2.10.1', '1.2.65536.0', '1.2.9.0', '1.1.99.0']) {
     assert.throws(() => storePackageVersion({ VAST_MSIX_PACKAGE_VERSION: value }))
   }
-  assert.throws(() => storePackageVersion({ VAST_MSIX_PREVIOUS_PACKAGE_VERSION: '1.2.10.0' }), /must be greater/)
+  assert.throws(() => storePackageVersion({ VAST_MSIX_PREVIOUS_PACKAGE_VERSION: '1.2.11.0' }), /must be greater/)
 })
 
 test('production Store identity fails closed and development identity is explicit', () => {
@@ -44,7 +44,7 @@ test('manifest declares one x64 packaged classic app and only required capabilit
   assert.match(source, /<Properties>[\s\S]*?<DisplayName>Vast Browser<\/DisplayName>/)
   assert.match(source, /<uap:VisualElements\s+DisplayName="Vast Browser"/)
   assert.doesNotMatch(source, /<Properties>[\s\S]*?<DisplayName>Vast<\/DisplayName>/)
-  assert.match(source, /Version="1\.2\.9\.0" ProcessorArchitecture="x64"/)
+  assert.match(source, /Version="1\.2\.11\.0" ProcessorArchitecture="x64"/)
   assert.match(source, /uap10:RuntimeBehavior="packagedClassicApp"/)
   assert.match(source, /rescap:Capability Name="runFullTrust"/)
   assert.match(source, /Capability Name="internetClient"/)
