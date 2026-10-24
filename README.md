@@ -30,7 +30,7 @@ Vast combines Chromium page rendering through Electron with a React application 
 
 Windows x64 is the current release-supported target. Published installers and portable builds are available on the [Releases](https://github.com/vstxx/vast-public/releases) page.
 
-The current stable Direct release is [Vast 0.5.0](https://github.com/vstxx/vast-public/releases/tag/v0.5.0). Direct installs on 0.4.3 update to 0.5.0 through `stable-v2.yml`; installs on 0.4.2 require a one-time manual upgrade. Microsoft Store availability is tracked separately from Direct releases.
+The current stable Direct release is [Vast 0.5.5](https://github.com/vstxx/vast-public/releases/tag/v0.5.5). Direct installs on 0.4.3 and later update to 0.5.5 through `stable-v2.yml`; installs on 0.4.2 require a one-time manual upgrade. 0.5.4 was withdrawn on its release day and replaced by 0.5.5. Microsoft Store availability is tracked separately from Direct releases.
 
 For most users, use `Vast-Setup-<version>.exe`. The portable build is named `Vast-<version>-Portable.exe`. Other release assets are used by the updater, integrity verification, or third-party source-compliance process.
 
@@ -50,7 +50,7 @@ Vast is under active development. Windows x64 is the continuously exercised rele
 
 Fresh onboarding presents the individual Labs features as selected. Current Labs surfaces include Video & Audio, Network Devices, Automation, Advanced Diagnostics, and Spoofing. Each Labs feature has its own local gate; the generic settings fallback remains fail closed, and the global `labs.enabled` setting does not grant access by itself. Turning an individual feature off hides and blocks it without deleting its local data.
 
-Full Chrome Web Store navigation remains guarded, though installation from a direct listing URL is supported. Vast's built-in Password Manager is retired; external password manager extensions have smoke-test evidence only, so full compatibility is not claimed.
+The Chrome Web Store can be browsed inside Vast, with installs through the browser-owned **Install in Vast** button or a pasted listing URL. Manifest V2 extensions that block web requests stay installed but are not loaded on the current browser engine. Vast's built-in Password Manager is retired; external password manager extensions have smoke-test evidence only, so full compatibility is not claimed.
 
 The repository also contains an experimental Chromium-port overlay under `chromium-port/`. It is a separate engineering track and is not the desktop package distributed from current releases.
 
