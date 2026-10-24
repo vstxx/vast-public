@@ -30,8 +30,6 @@ Vast combines Chromium page rendering through Electron with a React application 
 
 Windows x64 is the current release-supported target. Published installers and portable builds are available on the [Releases](https://github.com/vstxx/vast-public/releases) page.
 
-The current stable Direct release is [Vast 0.5.0](https://github.com/vstxx/vast-public/releases/tag/v0.5.0). Direct installs on 0.4.3 update to 0.5.0 through `stable-v2.yml`; installs on 0.4.2 require a one-time manual upgrade. Microsoft Store availability is tracked separately from Direct releases.
-
 For most users, use `Vast-Setup-<version>.exe`. The portable build is named `Vast-<version>-Portable.exe`. Other release assets are used by the updater, integrity verification, or third-party source-compliance process.
 
 Always read the signature note attached to the specific release. Some direct Vast releases are intentionally distributed without Authenticode signing; Windows can therefore show an **Unknown publisher** or SmartScreen warning. Official releases include checksums and provenance metadata so the downloaded bytes can be verified independently.
@@ -48,9 +46,7 @@ The complete model is documented in [docs/PRIVACY.md](docs/PRIVACY.md).
 
 Vast is under active development. Windows x64 is the continuously exercised release target. macOS and Linux targets exist in the Electron configuration, but they are not currently release-supported or continuously verified.
 
-Fresh onboarding presents the individual Labs features as selected. Current Labs surfaces include Video & Audio, Network Devices, Automation, Advanced Diagnostics, and Spoofing. Each Labs feature has its own local gate; the generic settings fallback remains fail closed, and the global `labs.enabled` setting does not grant access by itself. Turning an individual feature off hides and blocks it without deleting its local data.
-
-Full Chrome Web Store navigation remains guarded, though installation from a direct listing URL is supported. Vast's built-in Password Manager is retired; external password manager extensions have smoke-test evidence only, so full compatibility is not claimed.
+Optional Labs features are off on fresh profiles and require local opt-in. Current Labs surfaces include Video & Audio, Network Devices, Automation, Advanced Diagnostics, and Spoofing. Turning a Labs feature off hides and blocks that feature without deleting its local data.
 
 The repository also contains an experimental Chromium-port overlay under `chromium-port/`. It is a separate engineering track and is not the desktop package distributed from current releases.
 
@@ -78,6 +74,8 @@ Run the application:
 ```bash
 npm run dev
 ```
+
+In this checkout, `npm run dev` starts the Vast 0.4.3 CWS Bridge source from the `codex/cws-bridge-integration` worktree with its verified patched Electron 44.7.0 runtime. That worktree and the prepared runtime must remain available. Edit the CWS Bridge worktree for live reload; edits to this older 0.4.1 checkout do not affect the running app. The local 0.4.1 source can still be started with `npm run dev:stock`.
 
 Build without producing an installer:
 

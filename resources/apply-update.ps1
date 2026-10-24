@@ -72,4 +72,6 @@ if (($Handshake -or $Worker) -and (-not $accepted -or -not $parentClosed)) { exi
 # Never loop automatically after a failed installer; the old browser remains usable.
 $arguments = @($launchArgs | Where-Object { $_ -ne '--vast-after-update' } | ForEach-Object { Quote-Argument ([string]$_) })
 $arguments += '--vast-after-update'
-Start-Process -FilePath $LaunchPath -ArgumentList ($arguments -join ' ') -WorkingDirectory ([IO.Path]::GetDirectoryName($LaunchPath)) -WindowStyle Hidden
+# Normal, never Hidden: Windows applies a hidden start state to the browser's
+# first window, which left 0.5.4 invisible after its automatic update.
+Start-Process -FilePath $LaunchPath -ArgumentList ($arguments -join ' ') -WorkingDirectory ([IO.Path]::GetDirectoryName($LaunchPath)) -WindowStyle Normal

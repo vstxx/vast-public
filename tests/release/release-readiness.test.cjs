@@ -91,3 +91,11 @@ test('narrow Gitleaks exceptions still detect a new token in an allowlisted file
     assert.equal(scan().status, 1, 'the same generic-api-key rule must still detect another key in the allowlisted file')
   } finally { fs.rmSync(directory, { recursive: true, force: true }) }
 })
+
+// 0.5.4: the by-tag endpoint returns 404 for drafts, so the first upload
+// attempt failed right after creating the draft.
+test('a newly created draft release is found through the release list', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../../scripts/publish-release-assets.cjs'), 'utf8')
+  assert.doesNotMatch(source, /releases\/tags\//)
+  assert.match(source, /--draft[\s\S]*releases\?per_page=100[\s\S]*find\(item => item\.tag_name === tag\)/)
+})

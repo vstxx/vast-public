@@ -6,7 +6,7 @@ on:
       expected_version:
         description: Exact package version to publish as an unsigned release
         required: true
-        default: 0.5.4
+        default: 0.5.5
         type: string
       publish:
         description: Publish the verified candidate (false only builds and verifies)
@@ -212,6 +212,13 @@ jobs:
         run: npm run test:updater:background
       - name: Verify provenance, hashes, fuses, resources, and intentional NotSigned status
         run: node scripts/verify-release-package.cjs
+      - name: Verify the browser window appears after the updater's hidden relaunch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests/windows-hidden-launch.test.ps1 -ExecutablePath "release/Vast-$version/win-unpacked/Vast.exe"
       - name: Verify clean Windows install, registration and uninstall
         if: inputs.resume_run_id == ''
         shell: pwsh
@@ -281,10 +288,10 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           $notes = Join-Path $env:RUNNER_TEMP 'vast-unsigned-release-notes.md'
-          $releaseDetailsPath = 'docs/PUBLIC_RELEASE_0.5.4.md'
+          $releaseDetailsPath = 'docs/PUBLIC_RELEASE_0.5.5.md'
           if (-not (Test-Path -LiteralPath $releaseDetailsPath)) { throw "Missing release notes: $releaseDetailsPath" }
-          $releaseDetails = Get-Content -Raw -Encoding utf8 'docs/PUBLIC_RELEASE_0.5.4.md'
-          if ($releaseDetails.Contains('RELEASE_NOTES_DRAFT')) { throw 'Complete the 0.5.4 release notes before publication.' }
+          $releaseDetails = Get-Content -Raw -Encoding utf8 'docs/PUBLIC_RELEASE_0.5.5.md'
+          if ($releaseDetails.Contains('RELEASE_NOTES_DRAFT')) { throw 'Complete the 0.5.5 release notes before publication.' }
           @(
             "# Vast $version — PUBLIC UNSIGNED RELEASE",
             "",

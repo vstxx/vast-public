@@ -287,6 +287,8 @@ export function createOpeningSplashWindow(options: {
   splash.once('ready-to-show', () => {
     if (splash.isDestroyed()) return
     splash.show()
+    // A hidden launch (the updater's relaunch) swallows the first show.
+    if (!splash.isVisible()) splash.show()
     markPerformance('opening-splash-visible', { windowId: splash.id })
     animationTimer = setTimeout(finishAnimation, OPENING_SEQUENCE.totalMs)
   })

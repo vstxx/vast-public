@@ -103,15 +103,23 @@ export function createMainWindow(
   persistWindowState(mainWindow, windowKind)
 
   markPerformance('browser-window-constructed', { kind: windowKind, windowId: mainWindow.id })
-  mainWindow.once('ready-to-show', () => {
-    markPerformance('window-ready-to-show', { kind: windowKind, windowId: mainWindow.id })
-    if (options.showWhenReady && !mainWindow.isDestroyed()) {
+  // A launcher's hidden start state applies to the first window Windows shows,
+  // so a window created visible can still be hidden. The 0.5.0 updater
+  // relaunches Vast with -WindowStyle Hidden; a second show() makes it appear.
+  const revealIfStartedHidden = (): void => {
+    if (mainWindow.isDestroyed() || mainWindow.isVisible()) return
+    if (options.showWhenReady || options.showInitially !== false) {
       mainWindow.show()
       mainWindow.focus()
     }
+  }
+  mainWindow.once('ready-to-show', () => {
+    markPerformance('window-ready-to-show', { kind: windowKind, windowId: mainWindow.id })
+    revealIfStartedHidden()
   })
   mainWindow.webContents.once('did-finish-load', () => {
     markPerformance('renderer-load-finished', { kind: windowKind, windowId: mainWindow.id })
+    revealIfStartedHidden()
   })
 
   windowRegistry.register(mainWindow, windowKind)

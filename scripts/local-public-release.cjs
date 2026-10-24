@@ -202,8 +202,8 @@ const hotfixReleaseSteps = Object.freeze({
 })
 
 function assertReleaseProfile(version, requested, stored) {
-  if (requested === 'hotfix') throw new Error('The hotfix route is not approved for Vast 0.5.4.')
-  if (requested === 'standard' && version !== '0.5.4') throw new Error('The standard local route is approved only for Vast 0.5.4.')
+  if (requested === 'hotfix') throw new Error('The hotfix route is not approved for Vast 0.5.5.')
+  if (requested === 'standard' && version !== '0.5.5') throw new Error('The standard local route is approved only for Vast 0.5.5.')
   if (stored !== requested) throw new Error(`Existing release state has profile ${stored}; requested ${requested}.`)
 }
 

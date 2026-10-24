@@ -155,11 +155,11 @@ test('hotfix prepare skips broad gates but retains build, artifact checks and im
   assert.deepEqual(hotfixReleaseSteps.publish, releaseSteps.publish)
 })
 
-test('the 0.5.4 release uses the full standard gate and cannot resume under a different profile', () => {
-  assert.doesNotThrow(() => assertReleaseProfile('0.5.4', 'standard', 'standard'))
-  assert.throws(() => assertReleaseProfile('0.5.0', 'standard', 'standard'), /0\.5\.4/i)
-  assert.throws(() => assertReleaseProfile('0.5.4', 'hotfix', 'hotfix'), /hotfix/i)
-  assert.throws(() => assertReleaseProfile('0.5.4', 'standard', 'hotfix'), /profile/i)
+test('the 0.5.5 release uses the full standard gate and cannot resume under a different profile', () => {
+  assert.doesNotThrow(() => assertReleaseProfile('0.5.5', 'standard', 'standard'))
+  assert.throws(() => assertReleaseProfile('0.5.0', 'standard', 'standard'), /0\.5\.5/i)
+  assert.throws(() => assertReleaseProfile('0.5.5', 'hotfix', 'hotfix'), /hotfix/i)
+  assert.throws(() => assertReleaseProfile('0.5.5', 'standard', 'hotfix'), /profile/i)
 })
 
 test('status command reports current source without starting release work', () => {

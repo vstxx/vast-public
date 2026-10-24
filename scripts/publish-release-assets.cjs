@@ -28,7 +28,9 @@ async function main() {
   if (provenance.version !== version || provenance.sourceCommit !== process.env.VAST_RELEASE_COMMIT || provenance.worktreePreview) throw new Error('Public tag has different source provenance; refusing publication.')
   if (!release) {
     gh(['release', 'create', tag, '--repo', repo, '--verify-tag', '--draft', '--title', `Vast ${version}${process.env.VAST_PUBLIC_UNSIGNED_RELEASE === '1' ? ' — Public Unsigned Release' : ''}`, '--notes-file', notes, ...(process.env.VAST_RELEASE_CHANNEL === 'beta' ? ['--prerelease'] : [])])
-    release = JSON.parse(gh(['api', `repos/${repo}/releases/tags/${tag}`]))
+    // The by-tag endpoint never returns drafts; the release list does.
+    release = JSON.parse(gh(['api', '--paginate', '--slurp', `repos/${repo}/releases?per_page=100`])).flat().find(item => item.tag_name === tag)
+    if (!release) throw new Error(`Draft release for ${tag} was not found after creation.`)
   }
   if (release.prerelease !== (process.env.VAST_RELEASE_CHANNEL === 'beta')) throw new Error('Existing release channel differs from the candidate.')
   assertExpectedReleaseAssets(release.assets, assets.map(file => basename(file)))

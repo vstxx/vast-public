@@ -10,7 +10,7 @@ const currentDevScriptSource = readFileSync(new URL('../../scripts/dev-current.c
 const compatibilityDevScriptSource = readFileSync(new URL('../../scripts/dev-extension-compat.cjs', import.meta.url), 'utf8')
 
 test('default dev startup routes to the CWS Bridge worktree', () => {
-  assert.equal(packageJson.version, '0.5.4')
+  assert.equal(packageJson.version, '0.5.5')
   assert.equal(packageJson.scripts?.dev, 'node scripts/dev-current.cjs')
   assert.match(currentDevScriptSource, /refs\/heads\/codex\/cws-bridge-integration/)
   assert.match(currentDevScriptSource, /dev-extension-compat\.cjs/)

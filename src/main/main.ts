@@ -62,6 +62,9 @@ const pendingExternalUrls: string[] = []
 const pendingExternalFiles: string[] = []
 let externalNavigationRouter: ExternalNavigationRouter | undefined
 let legacySessionMigration: LegacySessionMigrationPlan | undefined
+// Set once startup has revealed the browser. Opening Vast again then brings
+// its window forward, even one a hidden launch left invisible.
+let revealExistingWindow: (() => void) | undefined
 
 if (!hasSingleInstanceLock) {
   app.quit()
@@ -72,6 +75,7 @@ if (!hasSingleInstanceLock) {
     console.warn('[session-continuity] Could not stage legacy browser session migration:', error)
   }
   app.on('second-instance', (_event, commandLine) => {
+    revealExistingWindow?.()
     if (externalNavigationRouter) externalNavigationRouter.acceptArguments(commandLine)
     else pendingExternalArguments.push([...commandLine])
   })
@@ -448,6 +452,14 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
     onDetachTab: openDetachedTabWindow
   }))
   markPerformance('primary-window-created')
+  revealExistingWindow = () => {
+    if (!primaryRevealed) return
+    const window = windowRegistry.focusedVastWindow()
+    if (!window || window.isDestroyed()) return
+    if (window.isMinimized()) window.restore()
+    window.show()
+    window.focus()
+  }
   externalNavigationRouter.acceptArguments(process.argv)
   for (const args of pendingExternalArguments.splice(0)) externalNavigationRouter.acceptArguments(args)
   for (const url of pendingExternalUrls.splice(0)) externalNavigationRouter.acceptUrl(url)
