@@ -2,19 +2,22 @@ import { readFileSync } from 'node:fs'
 import { strict as assert } from 'node:assert'
 import test from 'node:test'
 
-const source = readFileSync(new URL('../../src/renderer/components/horizontal/HorizontalChrome.tsx', import.meta.url), 'utf8')
-const preloadSource = readFileSync(new URL('../../src/preload/index.ts', import.meta.url), 'utf8')
-const typesSource = readFileSync(new URL('../../src/shared/types.ts', import.meta.url), 'utf8')
-const ipcSource = readFileSync(new URL('../../src/main/ipc.ts', import.meta.url), 'utf8')
-const windowSource = readFileSync(new URL('../../src/main/window.ts', import.meta.url), 'utf8')
-const appSource = readFileSync(new URL('../../src/renderer/app/App.tsx', import.meta.url), 'utf8')
-const registrySource = readFileSync(new URL('../../src/main/windows/WindowRegistry.ts', import.meta.url), 'utf8')
-const motionSource = readFileSync(new URL('../../src/renderer/lib/tab-motion.ts', import.meta.url), 'utf8')
+const source = readFileSync(new URL('../../src/renderer/components/horizontal/HorizontalChrome.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+const preloadSource = readFileSync(new URL('../../src/preload/index.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+const typesSource = readFileSync(new URL('../../src/shared/types.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+const ipcSource = readFileSync(new URL('../../src/main/ipc.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+const windowSource = readFileSync(new URL('../../src/main/window.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+const appSource = readFileSync(new URL('../../src/renderer/app/App.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+const registrySource = readFileSync(new URL('../../src/main/windows/WindowRegistry.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+const motionSource = readFileSync(new URL('../../src/renderer/lib/tab-motion.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 
 test('horizontal titlebar leaves blank tab-strip space draggable', () => {
   const titlebarLine = source.split('\n').find((line) => line.includes('horizontal-titlebar-row')) ?? ''
   assert.equal(titlebarLine.includes('no-drag'), false)
-  assert.match(source, /horizontal-tab-strip[^"]*drag/)
+  // Blank space after the tabs belongs to the draggable bar; the scrolling
+  // strip itself is no-drag so wheel and clicks reach it.
+  assert.match(source, /<div ref=\{barRef\} className="drag flex min-w-0 flex-1 items-center gap-1"[^>]*>/)
+  assert.match(source, /className="horizontal-tab-strip no-drag relative flex min-w-0 items-center gap-1 overflow-x-auto overflow-y-hidden py-1"/)
 })
 
 test('tab overflow is aligned and exposes lifecycle plus direct close controls', () => {
@@ -59,10 +62,23 @@ test('a detached tab can be dropped back into the main Vast window under the cur
 })
 
 test('tab insertion and reordering use quick FLIP motion with reduced-motion support', () => {
-  assert.match(source, /useTabMotion\(tab\.id\)/)
-  assert.match(motionSource, /stableLayoutBox/)
-  assert.match(motionSource, /visualBeforeRetarget/)
-  assert.match(motionSource, /activeMotion\?\.cancel\(\)/)
-  assert.match(motionSource, /duration: 160/)
+  assert.match(source, /useTabMotion\(tab\.id, layoutKey\)/)
+  // First positions are read inside the store update, before React renders.
+  assert.match(motionSource, /useBrowserStore\.subscribe\(\(state, previous\) => \{/)
+  assert.match(motionSource, /stripSignature\(state\) !== stripSignature\(previous\)\) capture\(\)/)
+  assert.match(motionSource, /runningMotion\(element\)\?\.cancel\(\)/)
+  assert.match(motionSource, /duration: 170/)
   assert.match(motionSource, /prefers-reduced-motion: reduce/)
+  assert.match(motionSource, /element\.closest\('\.no-motion'\)/)
+})
+
+test('closing a tab slides the others without stretching them', () => {
+  // Translate only: a width change never becomes a scale, so text never squishes.
+  assert.doesNotMatch(motionSource, /scale[XY]?\(\$\{/)
+  assert.match(motionSource, /translate3d\(\$\{deltaX\}px, \$\{deltaY\}px, 0\)/)
+  // Widths ease through CSS instead, and hold while the pointer is over the strip.
+  assert.match(source, /if \(!stripSizing\.current\.overflowing\) setFrozenTabWidth\(stripSizing\.current\.tabWidth\)/)
+  assert.match(source, /onPointerLeave=\{\(\) => setFrozenTabWidth\(null\)\}/)
+  assert.match(source, /let idle = window\.setTimeout\(release, 2_500\)/)
+  assert.match(readFileSync(new URL('../../src/renderer/styles/index.css', import.meta.url), 'utf8').replace(/\r\n/g, '\n'), /\.horizontal-tab \{\n  transition: width 170ms/)
 })

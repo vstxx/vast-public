@@ -168,6 +168,8 @@ export interface PromptDialogState {
   placeholder?: string
   defaultValue?: string
   confirmLabel?: string
+  /** Destructive confirmation: the confirm button uses the danger style. */
+  danger?: boolean
   allowEmpty?: boolean
   hideInput?: boolean
   onConfirm: (value: string) => void
@@ -189,11 +191,6 @@ export interface ContextMenuState {
   x: number
   y: number
   title?: string
-  preview?: {
-    url: string
-    host: string
-    duplicateCount?: number
-  }
   items: ContextMenuItem[]
 }
 
@@ -1340,6 +1337,12 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
     set((state) => {
       const existing = state.siteMemory.find((entry) => entry.origin === origin)
       const { visited, ...memoryPatch } = patch
+      // A repeat of what is already stored is not a change. Returning the same
+      // state keeps the siteMemory reference stable, so title/favicon churn on
+      // a live page no longer schedules a rewrite of the whole profile.
+      if (existing && !visited && Object.entries(memoryPatch).every(([key, value]) =>
+        (key === 'hostname' && value === undefined) || Object.is(existing[key as keyof SiteMemoryEntry], value)
+      )) return state
       const hostname = memoryPatch.hostname ?? existing?.hostname ?? webOriginFor(origin)?.hostname ?? origin
       const nextEntry: SiteMemoryEntry = {
         ...existing,

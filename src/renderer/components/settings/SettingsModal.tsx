@@ -1,6 +1,7 @@
 import { copyText } from '../../lib/clipboard'
+import { paintableImageUrl } from '../../lib/paintable-image-url'
 import { Activity, Code2, Database, Eraser, FileDown, FileUp, Fingerprint, FlaskConical, FolderOpen, History, Keyboard, LockKeyhole, MapPin, MonitorCheck, Palette, Plus, Search, Shield, Sparkles, Trash2, Wifi, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type InputHTMLAttributes, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type InputHTMLAttributes, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { DEFAULT_SETTINGS, DEFAULT_SHORTCUTS, INTERNAL_AUTOMATION_URL, INTERNAL_DIAGNOSTICS_URL, INTERNAL_NETWORK_URL, INTERNAL_SESSION_TIMELINE_URL, INTERNAL_SITE_DATA_URL, SEARCH_ENGINES } from '../../../shared/constants'
 import { getFeatureState, VastFeatures, type FeatureId, type FeatureState } from '../../../shared/feature-gates'
@@ -15,11 +16,13 @@ import { IconButton } from '../ui/IconButton'
 import { VastButton } from '../ui/VastButton'
 import { VastChoice } from '../ui/VastChoice'
 import { ModalShell } from '../ui/ModalShell'
+import { useVastConfirm } from '../ui/useVastConfirm'
 import { NotificationCard } from '../ui/NotificationCard'
 import { WorkspaceAppearancePicker } from '../workspaces/WorkspaceAppearancePicker'
 import { WorkspaceIcon } from '../workspaces/WorkspaceIcon'
-import { AppearancePreview } from './AppearancePreview'
+import { createActiveSectionStore, type ActiveSectionStore } from './active-section-store'
 import { SettingsHint } from './SettingsHint'
+import { VisualProfilesCard } from './VisualProfilesCard'
 import { normalizeSettingsSearchText, searchSettings, type SettingsSearchEntry, type SettingsSearchResult, type SettingsSearchSectionId } from './settings-search'
 
 const settingsNav: ReadonlyArray<readonly [SettingsSearchSectionId, typeof Palette]> = [
@@ -288,12 +291,65 @@ function FeatureToggleSetting({
   )
 }
 
+// Readable names (and, where behavior differs by layout, a description) for the
+// shortcut ids stored in settings.keyboardShortcuts.
+const SHORTCUT_LABELS: Record<string, readonly [string, string?]> = {
+  commandPalette: ['Command palette'],
+  focusAddress: ['Focus address bar'],
+  newTab: ['New tab'],
+  closeTab: ['Close tab'],
+  nextTab: ['Next tab'],
+  previousTab: ['Previous tab'],
+  reload: ['Reload'],
+  reopenClosedTab: ['Reopen closed tab'],
+  toggleSidebar: ['Sidebar or side panel', 'Collapses the sidebar in the vertical layout; shows or hides the side panel in other layouts.'],
+  findInPage: ['Find in page'],
+  back: ['Back'],
+  forward: ['Forward'],
+  zoomIn: ['Zoom in'],
+  zoomOut: ['Zoom out'],
+  resetZoom: ['Reset zoom'],
+  print: ['Print']
+}
+
+const SettingsNavItems = memo(function SettingsNavItems({
+  items,
+  store,
+  onSelect
+}: {
+  items: ReadonlyArray<readonly [SettingsSectionId, (typeof settingsNav)[number][1]]>
+  store: ActiveSectionStore<SettingsSectionId>
+  onSelect: (label: SettingsSectionId) => void
+}): JSX.Element {
+  const activeSection = useSyncExternalStore(store.subscribe, store.get)
+  return (
+    <>
+      {items.map(([label, Icon]) => (
+        <button
+          key={label}
+          type="button"
+          onClick={() => onSelect(label)}
+          // No transition: the highlight moves with the scroll spy, and animating
+          // it ran a full style/paint frame for every frame of every scroll.
+          className={`settings-nav-item flex w-full items-center gap-2.5 rounded-control px-2.5 text-left ${
+            activeSection === label ? 'is-active text-white' : 'hover:text-white'
+          }`}
+        >
+          <Icon className="h-4 w-4 shrink-0" />
+          {label}
+        </button>
+      ))}
+    </>
+  )
+})
+
 export function SettingsModal(): JSX.Element | null {
   const runtime = useBrowserRuntime()
   const open = useBrowserStore((state) => state.settingsOpen)
   const setOpen = useBrowserStore((state) => state.setSettingsOpen)
   const settings = useBrowserStore((state) => state.settings)
   const updateSettings = useBrowserStore((state) => state.updateSettings)
+  const confirm = useVastConfirm()
   const selectedLayoutMode = resolveLayoutMode(settings.layoutMode, settings.advanced.experimentalFeatures)
   const [activeTabUrl, activeTabLifecycle, activeTabStatus] = useBrowserStore(useShallow((state) => {
     const tab = selectActiveTab(state)
@@ -318,7 +374,10 @@ export function SettingsModal(): JSX.Element | null {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const searchResultsRef = useRef<HTMLDivElement | null>(null)
   const searchHighlightTimerRef = useRef<number | null>(null)
-  const [activeSection, setActiveSection] = useState<SettingsSectionId>('Appearance')
+  // Not React state: the scroll spy updates it on every section boundary, and
+  // only the nav (not this whole modal) should re-render for that.
+  const activeSectionStore = useMemo(() => createActiveSectionStore<SettingsSectionId>('Appearance'), [])
+  const setActiveSection = activeSectionStore.set
   const [workspaceAppearanceId, setWorkspaceAppearanceId] = useState<string | null>(null)
   const [settingsSearchQuery, setSettingsSearchQuery] = useState('')
   const [shortcutDrafts, setShortcutDrafts] = useState(settings.keyboardShortcuts)
@@ -371,6 +430,18 @@ export function SettingsModal(): JSX.Element | null {
       if (active) setCustomBackgroundDataUrl(undefined)
     })
     return () => { active = false }
+  }, [open])
+
+  // A visual profile can swap the stored image while Settings is open.
+  useEffect(() => {
+    if (!open) return
+    const onChanged = (event: Event): void => {
+      const dataUrl = (event as CustomEvent<unknown>).detail
+      if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) setCustomBackgroundDataUrl(dataUrl)
+      else if (dataUrl === null) setCustomBackgroundDataUrl(undefined)
+    }
+    window.addEventListener('vast-new-tab-background-changed', onChanged)
+    return () => window.removeEventListener('vast-new-tab-background-changed', onChanged)
   }, [open])
 
   useEffect(() => () => {
@@ -472,6 +543,11 @@ export function SettingsModal(): JSX.Element | null {
   }, [availableSettingsNav, normalizedSettingsSearchQuery, settingsSearchResults])
   const visibleSettingsSectionIds = useMemo(() => new Set<SettingsSectionId>(visibleSettingsNav.map(([label]) => label)), [visibleSettingsNav])
   const sectionVisible = (label: SettingsSectionId): boolean => visibleSettingsSectionIds.has(label)
+  const animations = settings.animations
+  const selectNavSection = useCallback((label: SettingsSectionId): void => {
+    setActiveSection(label)
+    scrollRef.current?.querySelector<HTMLElement>(`#${CSS.escape(label)}`)?.scrollIntoView({ block: 'start', behavior: animations ? 'smooth' : 'auto' })
+  }, [animations, setActiveSection])
 
   const openSettingsSearchResult = (result: SettingsSearchResult): void => {
     setActiveSection(result.section)
@@ -497,8 +573,8 @@ export function SettingsModal(): JSX.Element | null {
 
   useEffect(() => {
     if (!open || visibleSettingsNav.length === 0) return
-    if (!visibleSettingsSectionIds.has(activeSection)) setActiveSection(visibleSettingsNav[0][0])
-  }, [activeSection, open, visibleSettingsNav, visibleSettingsSectionIds])
+    if (!visibleSettingsSectionIds.has(activeSectionStore.get())) setActiveSection(visibleSettingsNav[0][0])
+  }, [activeSectionStore, open, setActiveSection, visibleSettingsNav, visibleSettingsSectionIds])
 
   useEffect(() => {
     if (!open) return
@@ -525,7 +601,7 @@ export function SettingsModal(): JSX.Element | null {
         break
       }
 
-      setActiveSection((current) => (current === nextSection ? current : nextSection))
+      setActiveSection(nextSection)
     }
 
     const scheduleUpdate = (): void => {
@@ -667,7 +743,9 @@ export function SettingsModal(): JSX.Element | null {
       width="max-w-[1360px]"
       className="settings-modal-shell"
       overlayClassName="settings-modal-overlay"
-      panelStyle={{ backdropFilter: 'blur(var(--vast-dialog-effective-blur)) saturate(var(--vast-saturation))' }}
+      // Load-bearing: the CSS rules declare backdrop-filter together with its
+      // -webkit- twin, and the build's minifier keeps only the prefixed copy,
+      // which Chromium ignores. These inline styles are what actually blur.
       overlayStyle={{ backdropFilter: 'blur(var(--vast-dialog-backdrop-blur))' }}
       ariaLabel="Settings"
     >
@@ -750,22 +828,7 @@ export function SettingsModal(): JSX.Element | null {
                   <div className="mt-1 text-xs leading-5 text-vast-soft">Try a name, synonym, or shorter phrase.</div>
                 </div>
               )
-            ) : visibleSettingsNav.map(([label, Icon]) => (
-              <button
-                key={label}
-                type="button"
-                onClick={() => {
-                  setActiveSection(label)
-                  scrollRef.current?.querySelector<HTMLElement>(`#${CSS.escape(label)}`)?.scrollIntoView({ block: 'start', behavior: settings.animations ? 'smooth' : 'auto' })
-                }}
-                className={`settings-nav-item flex w-full items-center gap-2.5 rounded-control px-2.5 text-left transition ${
-                  activeSection === label ? 'is-active text-white' : 'hover:text-white'
-                }`}
-              >
-                <Icon className="h-4 w-4 shrink-0" />
-                {label}
-              </button>
-            ))}
+            ) : <SettingsNavItems items={visibleSettingsNav} store={activeSectionStore} onSelect={selectNavSection} />}
           </nav>
 
           <div ref={scrollRef} className="settings-modal-scroll">
@@ -775,10 +838,7 @@ export function SettingsModal(): JSX.Element | null {
               </div>
               <div className="settings-page-grid">
                 <div className="settings-stack">
-                  <div className="settings-card">
-                    <h3 className="settings-card-title">Preview</h3>
-                    <AppearancePreview settings={settings} layoutMode={selectedLayoutMode} />
-                  </div>
+                  <VisualProfilesCard />
                   <div className="settings-card">
                     <h3 className="settings-card-title">Colors</h3>
                     <div className="settings-color-grid">
@@ -834,6 +894,7 @@ export function SettingsModal(): JSX.Element | null {
                     />
                     <SelectRow
                       label="Sidebar density"
+                      help="Spacing of tabs and workspaces in the vertical layout's sidebar."
                       value={settings.sidebarDensity}
                       onChange={(sidebarDensity) => updateSettings({ sidebarDensity })}
                       options={[
@@ -842,28 +903,31 @@ export function SettingsModal(): JSX.Element | null {
                       ]}
                     />
                     <SelectRow
-                      label="Sidebar mode"
-                      help="Where workspace tools open: docked beside pages or pinned over them."
+                      label="Side panel mode"
+                      help="Where the side panel with notes, bookmarks, and history opens. Automatic pins it over the page in windows narrower than 1300 px."
                       value={settings.sidePanel.mode}
                       onChange={(mode) => updateSettings({ sidePanel: { mode } })}
                       options={[
                         { value: 'auto', label: 'Automatic' },
-                        { value: 'docked', label: 'In sidebar' },
+                        { value: 'docked', label: 'Beside the page' },
                         { value: 'overlay', label: 'Pinned over page' }
                       ]}
                     />
-                    <RangeRow label="Sidebar width" value={settings.sidePanel.width} min={304} max={520} suffix="px" onChange={(width) => updateSettings({ sidePanel: { width } })} />
-                    <ToggleRow label="Sidebar labels" checked={settings.sidePanel.showLabels} onChange={(showLabels) => updateSettings({ sidePanel: { showLabels } })} />
+                    <RangeRow label="Side panel width" help="Width of the side panel." value={settings.sidePanel.width} min={304} max={520} suffix="px" onChange={(width) => updateSettings({ sidePanel: { width } })} />
+                    <ToggleRow label="Side panel labels" help="Show names next to the side panel's section icons when it is at least 440 px wide." checked={settings.sidePanel.showLabels} onChange={(showLabels) => updateSettings({ sidePanel: { showLabels } })} />
                     <ActionRow label="Visual style" help="Restore the default colors, effects, and radius.">
                       <VastButton
                         variant="secondary"
                         size="sm"
-                        onClick={() =>
-                          updateSettings({
-                            accentColor: DEFAULT_SETTINGS.accentColor,
-                            appearance: DEFAULT_SETTINGS.appearance
-                          })
-                        }
+                        onClick={async () => {
+                          const reset = await confirm(
+                            'Reset visual style?',
+                            'Your accent color, effects, and corner radius will return to their defaults.',
+                            'Reset',
+                            { danger: true }
+                          )
+                          if (reset) updateSettings({ accentColor: DEFAULT_SETTINGS.accentColor, appearance: DEFAULT_SETTINGS.appearance })
+                        }}
                       >
                         Reset
                       </VastButton>
@@ -934,7 +998,7 @@ export function SettingsModal(): JSX.Element | null {
                           <span
                             className={`settings-background-thumb settings-background-${option.value}`}
                             style={option.value === 'custom' && customBackgroundDataUrl
-                              ? { backgroundImage: `url(${JSON.stringify(customBackgroundDataUrl)})` }
+                              ? { backgroundImage: `url(${JSON.stringify(paintableImageUrl(customBackgroundDataUrl))})` }
                               : undefined}
                             aria-hidden="true"
                           />
@@ -946,14 +1010,14 @@ export function SettingsModal(): JSX.Element | null {
                   </div>
                   <div className="settings-rows">
                     <RangeRow label="Corner radius" help="Base roundness shared by windows, cards, and controls." value={settings.appearance.cornerRadius} min={6} max={36} suffix="px" onChange={(cornerRadius) => updateSettings({ appearance: { cornerRadius } })} />
-                    <RangeRow label="Glassiness" help="How translucent app surfaces are." value={settings.appearance.glassIntensity} onChange={(glassIntensity) => updateSettings({ appearance: { glassIntensity } })} />
-                    <RangeRow label="Blur" help="Background blur behind glass surfaces." value={settings.appearance.blurIntensity} onChange={(blurIntensity) => updateSettings({ appearance: { blurIntensity } })} />
+                    <RangeRow label="Background blur" help="How strongly Settings, the command palette, and dialogs blur the page behind them." value={settings.appearance.blurIntensity} onChange={(blurIntensity) => updateSettings({ appearance: { blurIntensity } })} />
+                    <RangeRow label="Transparency" help="How see-through everything floating over pages is: the side panel, menus, popovers, notifications, dialogs, Settings, and the command palette. The sidebar and toolbars stay solid." value={settings.appearance.transparency} onChange={(transparency) => updateSettings({ appearance: { transparency } })} />
+                    <RangeRow label="Frost" help="How frosted see-through surfaces are. Dialogs, Settings, and the palette use Background blur instead. No effect at 0 transparency." value={settings.appearance.glassIntensity} onChange={(glassIntensity) => updateSettings({ appearance: { glassIntensity } })} />
                     <RangeRow label="Glow" help="Accent light blooming around panels." value={settings.appearance.glowIntensity} onChange={(glowIntensity) => updateSettings({ appearance: { glowIntensity } })} />
                     <RangeRow label="Borders" help="Visibility of surface outlines." value={settings.appearance.borderIntensity} onChange={(borderIntensity) => updateSettings({ appearance: { borderIntensity } })} />
                     <RangeRow label="Shadow depth" help="Elevation shadows under floating surfaces." value={settings.appearance.shadowIntensity} onChange={(shadowIntensity) => updateSettings({ appearance: { shadowIntensity } })} />
                     <RangeRow label="Gradients" help="Strength of color blends in the canvas atmosphere." value={settings.appearance.gradientIntensity} onChange={(gradientIntensity) => updateSettings({ appearance: { gradientIntensity } })} />
-                    <RangeRow label="Panel opacity" help="How opaque in-page panels and the address bar are." value={settings.appearance.panelOpacity} onChange={(panelOpacity) => updateSettings({ appearance: { panelOpacity } })} />
-                    <RangeRow label="Chrome opacity" help="How opaque the sidebar and window chrome are." value={settings.appearance.chromeOpacity} onChange={(chromeOpacity) => updateSettings({ appearance: { chromeOpacity } })} />
+                    <RangeRow label="Panel opacity" help="Dark theme: lower values let more surface tint into internal-page panels and the address bar." value={settings.appearance.panelOpacity} onChange={(panelOpacity) => updateSettings({ appearance: { panelOpacity } })} />
                     <RangeRow label="Saturation" help="Color intensity of glass surfaces." value={settings.appearance.saturation} min={80} max={145} suffix="%" onChange={(saturation) => updateSettings({ appearance: { saturation } })} />
                   </div>
                 </div>
@@ -966,8 +1030,8 @@ export function SettingsModal(): JSX.Element | null {
               </div>
               <div className="settings-rows">
                 <ToggleRow
-                  label="Compact UI density"
-                  help="Tighter spacing for tabs, lists, and panels."
+                  label="Compact sidebar"
+                  help="Tighter spacing for tabs and workspaces in the vertical layout's sidebar. Same as Sidebar density in Appearance."
                   checked={settings.sidebarDensity === 'compact'}
                   onChange={(compact) => updateSettings({ sidebarDensity: compact ? 'compact' : 'comfortable' })}
                 />
@@ -1636,13 +1700,15 @@ export function SettingsModal(): JSX.Element | null {
                   return (
                     <div key={name} className="settings-row">
                       <span className="settings-row-label">
-                        {name}
-                        {error && <span className="settings-row-sub text-vast-amber">{error}</span>}
+                        {SHORTCUT_LABELS[name]?.[0] ?? name}
+                        {error
+                          ? <span className="settings-row-sub text-vast-amber">{error}</span>
+                          : SHORTCUT_LABELS[name]?.[1] && <span className="settings-row-sub">{SHORTCUT_LABELS[name][1]}</span>}
                       </span>
                       <span className="settings-row-control">
                         <input
                           value={shortcut}
-                          aria-label={`Edit ${name} shortcut`}
+                          aria-label={`Edit ${SHORTCUT_LABELS[name]?.[0] ?? name} shortcut`}
                           onChange={(event) => setShortcutDrafts((drafts) => ({ ...drafts, [name]: event.target.value }))}
                           onBlur={() => {
                             const next = shortcutDrafts[name]?.trim()

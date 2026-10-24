@@ -12,7 +12,8 @@ export function PromptDialog(): JSX.Element | null {
 
   useEffect(() => {
     setValue(dialog?.defaultValue ?? '')
-    window.setTimeout(() => inputRef.current?.focus(), 0)
+    // Suggested text starts selected, so typing replaces it.
+    window.setTimeout(() => inputRef.current?.select(), 0)
   }, [dialog])
 
   if (!dialog) return null
@@ -75,7 +76,7 @@ export function PromptDialog(): JSX.Element | null {
           <VastButton variant="secondary" onClick={cancel}>
             Cancel
           </VastButton>
-          <VastButton type="submit" variant="primary" disabled={!canSubmit}>
+          <VastButton type="submit" variant={dialog.danger ? 'danger' : 'primary'} disabled={!canSubmit}>
             {dialog.confirmLabel ?? 'Create'}
           </VastButton>
         </div>

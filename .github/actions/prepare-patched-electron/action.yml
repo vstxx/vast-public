@@ -1,5 +1,5 @@
 name: Restore pinned patched Electron
-description: Restore the private, hash-pinned Electron 44 compatibility build without rebuilding Electron source.
+description: Restore the private, hash-pinned Electron 45 compatibility build without rebuilding Electron source.
 
 inputs:
   github-token:

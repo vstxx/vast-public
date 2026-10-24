@@ -29,7 +29,7 @@ function optionalResource(value: unknown, label: string): string | undefined {
 export function validateTheme(input: unknown): VastThemeTokens {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Invalid theme tokens.')
   const source = input as Record<string, unknown>
-  const allowed = new Set(['accentColor', 'secondaryAccentColor', 'backgroundTintColor', 'surfaceTintColor', 'cornerRadius', 'glassIntensity', 'blurIntensity', 'borderIntensity', 'shadowIntensity', 'gradientIntensity', 'panelOpacity', 'chromeOpacity', 'saturation'])
+  const allowed = new Set(['accentColor', 'secondaryAccentColor', 'backgroundTintColor', 'surfaceTintColor', 'cornerRadius', 'glassIntensity', 'blurIntensity', 'borderIntensity', 'shadowIntensity', 'gradientIntensity', 'panelOpacity', 'chromeOpacity', 'transparency', 'saturation'])
   if (Object.keys(source).some((key) => !allowed.has(key))) throw new Error('Theme contains an unsupported token.')
   const result: VastThemeTokens = {}
   for (const key of ['accentColor', 'secondaryAccentColor', 'backgroundTintColor', 'surfaceTintColor'] as const) {
@@ -39,7 +39,7 @@ export function validateTheme(input: unknown): VastThemeTokens {
     }
   }
   const ranges: Record<string, [number, number]> = { cornerRadius: [6, 36], saturation: [80, 145] }
-  for (const key of ['cornerRadius', 'glassIntensity', 'blurIntensity', 'borderIntensity', 'shadowIntensity', 'gradientIntensity', 'panelOpacity', 'chromeOpacity', 'saturation'] as const) {
+  for (const key of ['cornerRadius', 'glassIntensity', 'blurIntensity', 'borderIntensity', 'shadowIntensity', 'gradientIntensity', 'panelOpacity', 'chromeOpacity', 'transparency', 'saturation'] as const) {
     if (source[key] === undefined) continue
     if (typeof source[key] !== 'number' || !Number.isFinite(source[key])) throw new Error(`Invalid theme token ${key}.`)
     const [min, max] = ranges[key] ?? [0, 100]
@@ -87,10 +87,10 @@ export class ExtensionContributionRegistry {
   removeToolbar(extensionId: string, localId: unknown): void { if (this.toolbar.delete(this.key(extensionId, id(localId)))) this.emit() }
 
   createSidebar(extensionId: string, input: unknown): VastSidebarPanel {
-    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Invalid sidebar panel.')
-    if ([...this.sidebar.keys()].filter((key) => key.startsWith(`${extensionId}:`)).length >= 5) throw new Error('Sidebar panel limit reached (5).')
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Invalid side panel page.')
+    if ([...this.sidebar.keys()].filter((key) => key.startsWith(`${extensionId}:`)).length >= 5) throw new Error('Side panel limit reached (5).')
     const source = input as Record<string, unknown>; const localId = id(source.id)
-    const panel: VastSidebarPanel = { id: localId, title: text(source.title, 'sidebar title', 80), page: resourcePath(source.page, 'sidebar page'), ...(optionalResource(source.icon, 'sidebar icon') ? { icon: optionalResource(source.icon, 'sidebar icon') } : {}) }
+    const panel: VastSidebarPanel = { id: localId, title: text(source.title, 'side panel title', 80), page: resourcePath(source.page, 'side panel page'), ...(optionalResource(source.icon, 'side panel icon') ? { icon: optionalResource(source.icon, 'side panel icon') } : {}) }
     this.sidebar.set(this.key(extensionId, localId), panel); this.emit(); return { ...panel }
   }
   removeSidebar(extensionId: string, localId: unknown): void { if (this.sidebar.delete(this.key(extensionId, id(localId)))) this.emit() }

@@ -98,6 +98,9 @@ export function AddressBar({
   const setSmartUnloadOpen = useBrowserStore((state) => state.setSmartUnloadOpen)
   const [value, setValue] = useState('')
   const [focused, setFocused] = useState(false)
+  // Suggestions follow typing only: text the browser put in the field (the
+  // page address after a tab switch) never opens them.
+  const [edited, setEdited] = useState(false)
   const [selectedSuggestion, setSelectedSuggestion] = useState(-1)
   const [siteInfoOpen, setSiteInfoOpen] = useState(false)
   const [siteInfo, setSiteInfo] = useState<SiteInformation | null>(null)
@@ -112,7 +115,14 @@ export function AddressBar({
 
   useEffect(() => {
     setValue(activeTab ? addressValueForTab(activeTab.url) : '')
+    setEdited(false)
   }, [activeTab?.id, activeTab?.url])
+
+  // Switching to a page hands focus to it, like Chrome; a New Tab page keeps
+  // the address bar focused.
+  useEffect(() => {
+    if (activeTab && activeTab.url !== INTERNAL_NEW_TAB_URL && document.activeElement === inputRef.current) inputRef.current?.blur()
+  }, [activeTab?.id])
 
   useEffect(() => {
     if (!siteInfoOpen || !activeTab) return
@@ -162,7 +172,7 @@ export function AddressBar({
 
   const suggestions = useMemo(() => {
     const query = value.toLowerCase().trim()
-    if (!focused || query.length < 1) return []
+    if (!focused || !edited || query.length < 1) return []
     const shortcut = searchShortcutHint(value)
     const matchedItems: AddressSuggestion[] = [
       ...bookmarks.map((item): AddressSuggestion => ({ type: 'Bookmark', title: item.title, url: item.url, favicon: item.favicon })),
@@ -185,7 +195,7 @@ export function AddressBar({
       })
     }
     return matchedItems
-  }, [bookmarks, defaultSearchEngine, focused, history, value])
+  }, [bookmarks, defaultSearchEngine, edited, focused, history, value])
 
   useEffect(() => {
     setSelectedSuggestion(-1)
@@ -218,7 +228,7 @@ export function AddressBar({
     [featureContextSettings]
   )
   const featureBadge = (state: FeatureState): string | undefined => {
-    if (state.state === 'DisabledByFlag') return 'Off'
+    // Turned off in Labs: shown grayed out, without a badge.
     if (state.state === 'ComingSoon') return 'Soon'
     return undefined
   }
@@ -313,7 +323,7 @@ export function AddressBar({
         }}
       >
         <div
-          className={`vast-top-address group relative flex items-center gap-3 rounded-card px-4 backdrop-blur-xl transition duration-150 ${variant === 'purist' ? 'vast-top-address-purist' : ''} ${pdfDropActive ? 'ring-2 ring-vast-cyan/55 bg-vast-cyan/8' : ''} ${compact ? 'h-9' : 'h-12'}`}
+          className={`vast-top-address group relative flex items-center gap-3 rounded-card px-4 transition duration-150 ${variant === 'purist' ? 'vast-top-address-purist' : ''} ${pdfDropActive ? 'ring-2 ring-vast-cyan/55 bg-vast-cyan/8' : ''} ${compact ? 'h-9' : 'h-12'}`}
           onClick={(event) => {
             if (event.target instanceof Element && event.target.closest('input, button')) return
             inputRef.current?.focus()
@@ -364,6 +374,7 @@ export function AddressBar({
             }}
             onChange={(event) => {
               setValue(event.target.value)
+              setEdited(true)
             }}
             onKeyDown={(event) => {
               if (event.key === 'ArrowDown' && suggestions.length > 0) {
@@ -376,6 +387,7 @@ export function AddressBar({
                 event.preventDefault()
                 setSelectedSuggestion(-1)
                 setValue(activeTab ? addressValueForTab(activeTab.url) : '')
+                setEdited(false)
                 inputRef.current?.blur()
               }
             }}
@@ -395,7 +407,7 @@ export function AddressBar({
         </div>
 
         {suggestions.length > 0 && (
-          <div className="absolute left-0 right-0 top-14 overflow-hidden rounded-card border border-white/10 bg-[#0c0d12]/98 p-2 shadow-glass backdrop-blur-xl">
+          <div className="absolute left-0 right-0 top-14 overflow-hidden vast-float rounded-card border border-white/10 p-2 shadow-glass">
             {suggestions.map((item, index) => (
               <button
                 type="button"
@@ -421,7 +433,7 @@ export function AddressBar({
           </div>
         )}
         {siteInfoOpen && activeTab && (
-          <div className="absolute left-0 top-14 z-40 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-card border border-white/10 bg-[#0c0d12]/98 p-3 text-sm text-white shadow-glass backdrop-blur-xl">
+          <div className="absolute left-0 top-14 z-40 w-[min(24rem,calc(100vw-2rem))] overflow-hidden vast-float rounded-card border border-white/10 p-3 text-sm text-white shadow-glass">
             <div className="flex items-start gap-3">
               <div className={`grid h-9 w-9 place-items-center rounded-control ${siteInfo?.secure ? 'bg-vast-cyan/10 text-vast-cyan' : siteInfo?.kind === 'internal' ? 'bg-white/[0.07] text-vast-soft' : 'bg-vast-amber/10 text-vast-amber'}`}>
                 {siteInfo?.secure ? <Lock className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}
@@ -507,7 +519,7 @@ export function AddressBar({
           }}
         />
         <IconButton
-          tooltip={sidePanelOpen ? 'Hide sidebar' : 'Show sidebar'}
+          tooltip={sidePanelOpen ? 'Hide side panel' : 'Show side panel'}
           active={sidePanelOpen}
           onClick={() => {
             setExtensionsOpen(false)
@@ -526,7 +538,7 @@ export function AddressBar({
             <MoreHorizontal className="h-4 w-4" />
           </IconButton>
           {overflowOpen && (
-            <div className="browser-tools-menu absolute right-0 top-11 z-40 max-h-[72vh] w-72 overflow-y-auto rounded-card border border-white/10 bg-[#0c0d12]/98 p-2 shadow-glass backdrop-blur-xl">
+            <div className="browser-tools-menu absolute right-0 top-11 z-40 max-h-[72vh] w-72 overflow-y-auto vast-float rounded-card border border-white/10 p-2 shadow-glass">
               {extensionToolbar.slice(3).map((action) => <OverflowAction key={action.key} label={`${action.title} · ${action.extensionName}`} icon={Puzzle} disabled={action.enabled === false} onClick={() => { void window.vast.extensions.dispatchContribution(action.key) }} onClose={() => setOverflowOpen(false)} />)}
               <OverflowAction label="Incognito window" icon={EyeOff} onClick={runtime.openIncognitoWindow} onClose={() => setOverflowOpen(false)} />
               <>
@@ -557,7 +569,7 @@ export function AddressBar({
       <div className="address-bar-divider pointer-events-none absolute bottom-0 left-0 right-0" />
       {showLoadingProgress && (
         <div
-          className="address-loading-progress absolute bottom-0 left-0 right-0 h-px origin-left bg-vast-cyan/90 shadow-[0_0_10px_rgba(116,231,255,0.55)] transition-transform duration-200"
+          className="address-loading-progress absolute bottom-0 left-0 right-0 h-px origin-left bg-vast-cyan/90 shadow-[0_0_10px_color-mix(in_srgb,var(--vast-accent)_55%,transparent)] transition-transform duration-200"
           style={{ transform: `scaleX(${loadingProgress})` }}
         />
       )}
@@ -585,13 +597,13 @@ function OverflowAction({
   return (
     <VastMenuItem
       disabled={disabled}
-      className={`h-9 px-3! text-[14px]! ${unavailable ? 'opacity-75' : ''}`}
+      className={`h-9 px-3! text-[14px]! ${unavailable ? 'is-unavailable text-vast-soft! opacity-60' : ''}`}
       onClick={() => {
         if (disabled) return
         onClick()
         onClose()
       }}
-      icon={<span style={{ color: 'var(--vast-accent)' }}><Icon className="h-4 w-4" /></span>}
+      icon={<span style={{ color: unavailable ? 'var(--vast-muted)' : 'var(--vast-accent)' }}><Icon className="h-4 w-4" /></span>}
     >
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {badge && (

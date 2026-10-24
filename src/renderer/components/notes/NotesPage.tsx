@@ -4,6 +4,7 @@ import { useBrowserStore, selectActiveTab, selectActiveWorkspace } from '../../s
 import { formatRelativeTime } from '../../lib/format'
 import { VastSelect } from '../ui/VastSelect'
 import { NotificationCard } from '../ui/NotificationCard'
+import { useVastConfirm } from '../ui/useVastConfirm'
 
 function parseTags(value: string): string[] {
   return value
@@ -87,6 +88,7 @@ export function NotesPage(): JSX.Element {
   const addNote = useBrowserStore((state) => state.addNote)
   const deleteNote = useBrowserStore((state) => state.deleteNote)
   const restoreNote = useBrowserStore((state) => state.restoreNote)
+  const confirm = useVastConfirm()
   const activeTab = useBrowserStore(selectActiveTab)
   const workspace = useBrowserStore(selectActiveWorkspace)
   const workspaces = useBrowserStore((state) => state.workspaces)
@@ -162,8 +164,9 @@ export function NotesPage(): JSX.Element {
     markSaving()
   }
 
-  const removeSelected = (): void => {
+  const removeSelected = async (): Promise<void> => {
     if (!selected) return
+    if (!await confirm(`Delete “${selected.title || 'Untitled note'}”?`, 'This note will be deleted.', 'Delete', { danger: true })) return
     setLastDeleted(selected)
     deleteNote(selected.id)
     setSelectedId(notes.find((note) => note.id !== selected.id && !note.archived)?.id ?? '')
@@ -188,7 +191,7 @@ export function NotesPage(): JSX.Element {
   }
 
   return (
-    <div className="labs-page-surface h-full min-h-0 overflow-y-auto overflow-x-hidden bg-[#06070a] p-6 text-white" data-testid="notes-page">
+    <div className="labs-page-surface h-full min-h-0 overflow-y-auto overflow-x-hidden bg-[#070707] p-6 text-white" data-testid="notes-page">
       <div className="mx-auto grid max-w-7xl gap-5 xl:grid-cols-[370px_minmax(0,1fr)]">
         <section className="vast-glass-panel rounded-panel p-5">
           <div className="mb-5 flex items-start justify-between gap-3">
@@ -243,7 +246,7 @@ export function NotesPage(): JSX.Element {
                   <div className="grid grid-cols-3 gap-2" data-testid="notes-secondary-actions">
                     <button type="button" onClick={() => updateAdvancedNote({ archived: !selected.archived })} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2"><Archive className="h-4 w-4" />{selected.archived ? 'Unarchive' : 'Archive'}</button>
                     <button type="button" onClick={() => void window.vast.notes.exportMarkdown(selected.title, selected.body)} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center" title="Export as Markdown (.md)" aria-label="Export note as Markdown"><Download className="h-4 w-4" />Export</button>
-                    <button type="button" onClick={removeSelected} className="vast-button vast-button--danger vast-button--sm min-w-0 justify-center"><Trash2 className="h-4 w-4" />Delete</button>
+                    <button type="button" onClick={() => { void removeSelected() }} className="vast-button vast-button--danger vast-button--sm min-w-0 justify-center"><Trash2 className="h-4 w-4" />Delete</button>
                   </div>
                 </div>
                 <textarea value={selected.body} onChange={(event) => updateBody(event.target.value)} placeholder="Write Markdown. Use # headings, **bold**, lists, quotes, links, and fenced code." className="min-h-[420px] flex-1 resize-none rounded-panel border border-white/10 bg-black/22 p-5 text-base leading-8 text-white outline-hidden focus:border-vast-cyan/35" data-testid="note-body-input" />
@@ -297,7 +300,7 @@ export function NotesPage(): JSX.Element {
         </section>
       </div>
       {lastDeleted && (
-        <NotificationCard role="status" className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 border border-white/10 bg-[#0b0c11]/95 text-sm text-white shadow-glass">
+        <NotificationCard role="status" className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 border border-white/10 bg-[#0c0c0c]/95 text-sm text-white shadow-glass">
           <span>“{lastDeleted.title}” deleted</span>
           <button type="button" className="vast-button vast-button--quiet vast-button--xs font-semibold" onClick={() => { restoreNote(lastDeleted); setSelectedId(lastDeleted.id); setLastDeleted(null) }}>Undo</button>
           <button type="button" className="vast-button vast-button--quiet vast-button--xs px-1 text-vast-soft" aria-label="Dismiss undo" onClick={() => setLastDeleted(null)}>×</button>

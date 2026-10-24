@@ -7,14 +7,11 @@ export function ContextMenu(): JSX.Element | null {
   const menu = useBrowserStore((state) => state.contextMenu)
   const close = useBrowserStore((state) => state.closeContextMenu)
   const menuRef = useRef<HTMLDivElement | null>(null)
-  const previewRef = useRef<HTMLDivElement | null>(null)
   const [menuSize, setMenuSize] = useState({ width: 240, height: 240 })
-  const [previewOpen, setPreviewOpen] = useState(false)
   const [actionError, setActionError] = useState('')
   const [executing, setExecuting] = useState(false)
 
   useEffect(() => {
-    setPreviewOpen(false)
     setActionError('')
     setExecuting(false)
   }, [menu])
@@ -35,13 +32,7 @@ export function ContextMenu(): JSX.Element | null {
     }
     const onScroll = (event: Event): void => {
       const target = event.target
-      if (
-        target instanceof Node &&
-        ((menuRef.current && menuRef.current.contains(target)) ||
-          (previewRef.current && previewRef.current.contains(target)))
-      ) {
-        return
-      }
+      if (target instanceof Node && menuRef.current?.contains(target)) return
       close()
     }
     window.addEventListener('keydown', onKeyDown)
@@ -78,16 +69,6 @@ export function ContextMenu(): JSX.Element | null {
     viewportPadding,
     Math.min(menu.y + cursorOffset, window.innerHeight - menuSize.height - viewportPadding)
   )
-  const previewWidth = 260
-  const previewGap = 8
-  const previewLeft =
-    left + menuSize.width + previewGap + previewWidth <= window.innerWidth - viewportPadding
-      ? left + menuSize.width + previewGap
-      : Math.max(viewportPadding, left - previewWidth - previewGap)
-  const previewTop = Math.max(
-    viewportPadding,
-    Math.min(top, window.innerHeight - 132 - viewportPadding)
-  )
 
   return createPortal(
     <>
@@ -100,24 +81,12 @@ export function ContextMenu(): JSX.Element | null {
       <div
         ref={menuRef}
         role="menu"
-        className="no-drag fixed z-2147483646 max-h-[min(78vh,34rem)] w-60 overflow-y-auto overflow-x-hidden rounded-card border border-white/10 bg-[#090a0d] p-1 text-sm text-white shadow-glass"
+        className="no-drag fixed z-2147483646 max-h-[min(78vh,34rem)] w-60 overflow-y-auto overflow-x-hidden vast-float rounded-card border border-white/10 p-1 text-sm text-white shadow-glass"
         style={{ left, top }}
       >
         {menu.title && (
           <div className="border-b border-white/8 px-2 py-1">
             <div className="truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-vast-soft">{menu.title}</div>
-          </div>
-        )}
-        {menu.preview && (
-          <div className="border-b border-white/8 px-1.5 py-1">
-            <VastMenuItem
-              onMouseDown={(event) => event.stopPropagation()}
-              onClick={() => setPreviewOpen((current) => !current)}
-              className="justify-between"
-            >
-              <span>{previewOpen ? 'Hide preview' : 'Preview'}</span>
-              <span className="text-[11px]" style={{ color: 'var(--vast-accent)' }}>{menu.preview.host}</span>
-            </VastMenuItem>
           </div>
         )}
         <div className="py-0.5">
@@ -153,28 +122,6 @@ export function ContextMenu(): JSX.Element | null {
         </div>
         {actionError && <p role="alert" className="px-2 py-2 text-xs text-red-300">{actionError}</p>}
       </div>
-      {menu.preview && previewOpen && (
-        <div
-          ref={previewRef}
-          className="link-preview-card fixed z-2147483646 w-[280px] rounded-card border border-white/10 px-3 py-2.5 text-sm shadow-glass backdrop-blur-2xl"
-          style={{ left: previewLeft, top: previewTop }}
-        >
-          <div className="flex items-start gap-3">
-            <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-control bg-vast-cyan/10 text-vast-cyan">
-              <span className="text-xs font-black">{menu.preview.host.slice(0, 1).toUpperCase()}</span>
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-xs font-semibold text-white">{menu.preview.host}</div>
-              <div className="mt-0.5 truncate text-[11px] text-vast-soft">{menu.preview.url}</div>
-              {Boolean(menu.preview.duplicateCount) && (
-                <div className="mt-1 text-[11px] text-vast-cyan">
-                  {menu.preview.duplicateCount} matching open tab{menu.preview.duplicateCount === 1 ? '' : 's'}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </>,
     document.body
   )

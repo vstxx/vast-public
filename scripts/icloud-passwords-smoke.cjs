@@ -12,7 +12,7 @@ const evidenceRoot = path.join(root, '.vast-build', 'password-manager-gates', 'i
 const resultPath = path.join(evidenceRoot, 'result.json')
 const electronExecutable = process.env.VAST_PATCHED_ELECTRON_DIST
   ? path.join(process.env.VAST_PATCHED_ELECTRON_DIST, 'electron.exe')
-  : 'D:\\VastElectron44\\src\\out\\VastCompat\\electron.exe'
+  : 'D:\\VastElectron45\\src\\out\\VastRelease\\electron.exe'
 let appProcess
 
 function assert(value, message) { if (!value) throw new Error(message) }

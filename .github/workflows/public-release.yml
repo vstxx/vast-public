@@ -6,7 +6,7 @@ on:
       expected_version:
         description: Exact package version authorized for this release
         required: true
-        default: 0.5.0
+        default: 0.5.4
         type: string
       publish:
         description: Publish the verified candidate (false only builds and verifies)
@@ -24,12 +24,12 @@ on:
       previous_version:
         description: Previously published Vast version (for upgrade gate)
         required: true
-        default: 0.4.3
+        default: 0.5.0
         type: string
       previous_release_base_url:
         description: HTTPS production asset base URL for the previous signed release
         required: true
-        default: https://github.com/vstxx/vast-public/releases/download/v0.4.3
+        default: https://github.com/vstxx/vast-public/releases/download/v0.5.0
         type: string
       bootstrap_first_beta:
         description: One-time beta.1 bootstrap; allowed only while the release repository has no published releases
@@ -115,6 +115,9 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           npm ci
           npm ci --prefix relay
+          # Packaged ECE is verified against the approved patched source, which
+          # every run (including a resumed publication) must apply itself.
+          npm run extension:compat:prepare
       - name: Install pinned Video & Audio build dependencies
         if: inputs.resume_run_id == ''
         run: python -m pip install -r resources/avidae/requirements.txt -r resources/avidae/requirements-build.txt

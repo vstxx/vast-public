@@ -20,7 +20,9 @@ import type {
   UiPromptPayload
 } from '../../shared/types'
 import { AddressBar } from '../components/browser/AddressBar'
-import type { BrowserStageHandle } from '../components/browser/BrowserStage'
+// Static on purpose: lazy() put the stage behind a Suspense fallback, and React 19
+// holds back a fallback's reveal for up to 300 ms, delaying the first page load.
+import { BrowserStage, type BrowserStageHandle } from '../components/browser/BrowserStage'
 import { FindBar } from '../components/browser/FindBar'
 import { HorizontalChrome } from '../components/horizontal/HorizontalChrome'
 import { Sidebar } from '../components/tabs/Sidebar'
@@ -32,6 +34,7 @@ import { WindowControls } from '../components/window/WindowControls'
 import { BrowserRuntimeContext, type BrowserRuntime } from './browser-runtime'
 import { appearanceStyle } from './appearance-style'
 import { clamp } from '../lib/format'
+import { preloadable } from '../lib/preloadable'
 import { handleBrowserTabOpenRequest } from '../lib/browser-tab-open'
 import {
   createPdfViewerUrl,
@@ -55,9 +58,12 @@ import { ExtensionRuntimeController, useExtensionContributions } from '../extens
 const CommandPalette = lazy(() => import('../components/command-palette/CommandPalette').then((module) => ({ default: module.CommandPalette })))
 const loadPuristChrome = () => import('../components/purist/PuristChrome').then((module) => ({ default: module.PuristChrome }))
 const PuristChrome = lazy(loadPuristChrome)
-const BrowserStage = lazy(() => import('../components/browser/BrowserStage').then((module) => ({ default: module.BrowserStage })))
-const SettingsModal = lazy(() => import('../components/settings/SettingsModal').then((module) => ({ default: module.SettingsModal })))
-const SidePanel = lazy(() => import('../components/side-panel/SidePanel').then((module) => ({ default: module.SidePanel })))
+// Preloaded while idle after startup so the first open renders without a
+// Suspense fallback (React 19 holds a fallback's reveal for up to 300 ms).
+const settingsModal = preloadable(() => import('../components/settings/SettingsModal').then((module) => ({ default: module.SettingsModal })))
+const sidePanel = preloadable(() => import('../components/side-panel/SidePanel').then((module) => ({ default: module.SidePanel })))
+const SettingsModal = settingsModal.Component
+const SidePanel = sidePanel.Component
 const SmartUnloadPanel = lazy(() => import('../components/browser/SmartUnloadPanel').then((module) => ({ default: module.SmartUnloadPanel })))
 const RelayNoticeOverlay = lazy(() => import('../components/relay/RelayNoticeOverlay').then((module) => ({ default: module.RelayNoticeOverlay })))
 
@@ -221,7 +227,6 @@ export function App(): JSX.Element {
   const theme = useBrowserStore((state) => state.settings.theme)
   const activeTabUrl = useBrowserStore((state) => selectActiveTab(state)?.url ?? '')
   const activeTabId = useBrowserStore((state) => selectActiveTab(state)?.id)
-  const downloads = useBrowserStore((state) => state.downloads)
   const sidePanelOpen = useBrowserStore((state) => state.sidePanelOpen)
   const commandPaletteOpen = useBrowserStore((state) => state.commandPaletteOpen)
   const smartUnloadOpen = useBrowserStore((state) => state.smartUnloadOpen)
@@ -252,6 +257,7 @@ export function App(): JSX.Element {
     return appearanceStyle({ appearance: { ...appearance, ...appearanceOverlay, cornerRadius: appearance.cornerRadius }, accentColor: extensionAccent ?? accentColor })
   }, [accentColor, appearance, extensionContributions.theme])
   const visualRadius = String(visualStyle['--vast-radius-base' as keyof CSSProperties])
+  const visualAccent = String(visualStyle['--vast-accent' as keyof CSSProperties])
   useEffect(() => {
     let active = true
     void window.vast.app.window.state().then((state) => {
@@ -266,7 +272,32 @@ export function App(): JSX.Element {
   useEffect(() => {
     if (!hydrated) return
     document.documentElement.style.setProperty('--vast-radius-base', visualRadius)
-  }, [visualRadius, hydrated])
+    // Portaled menus and popovers render outside .app-shell.
+    document.documentElement.style.setProperty('--vast-accent', visualAccent)
+  }, [visualRadius, visualAccent, hydrated])
+  // Floating surfaces portaled to <body> need the theme and Transparency/Frost too.
+  const floatOpacity = String(visualStyle['--vast-float-opacity' as keyof CSSProperties])
+  const floatAlpha = String(visualStyle['--vast-float-alpha' as keyof CSSProperties])
+  const floatFilter = String(visualStyle['--vast-float-filter' as keyof CSSProperties])
+  useEffect(() => {
+    if (!hydrated) return
+    const root = document.documentElement
+    root.dataset.vastTheme = resolvedTheme
+    root.style.setProperty('--vast-float-opacity', floatOpacity)
+    root.style.setProperty('--vast-float-alpha', floatAlpha)
+    root.style.setProperty('--vast-float-filter', floatFilter)
+    if (constrainedGraphics) root.dataset.vastLowEffects = ''
+    else delete root.dataset.vastLowEffects
+  }, [constrainedGraphics, floatAlpha, floatFilter, floatOpacity, hydrated, resolvedTheme])
+  useEffect(() => {
+    if (!hydrated) return undefined
+    const handle = window.requestIdleCallback(() => {
+      // A failed preload is retried by the regular lazy load on first open.
+      void settingsModal.preload().catch(() => undefined)
+      void sidePanel.preload().catch(() => undefined)
+    }, { timeout: 4_000 })
+    return () => window.cancelIdleCallback(handle)
+  }, [hydrated])
   const [toasts, setToasts] = useState<Array<UiNotificationPayload & { createdAt: number }>>([])
   const [uiPromptQueue, setUiPromptQueue] = useState<UiPromptPayload[]>([])
   const toastTimersRef = useRef<Record<string, number>>({})
@@ -493,11 +524,13 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     let cancelled = false
+    // Both requests leave together; the status is only needed once data arrives.
+    const cwsNavigationStatus = window.vast.app.cwsNavigationStatus().catch(() => ({ enabled: false }))
     void window.vast.storage
       .load()
       .then(async (data) => {
         if (cancelled) return
-        const cwsNavigation = await window.vast.app.cwsNavigationStatus().catch(() => ({ enabled: false }))
+        const cwsNavigation = await cwsNavigationStatus
         if (cancelled) return
         configureChromeWebStoreNavigation(cwsNavigation.enabled)
         const startupData = detachedStartupTab ? buildDetachedTabData(data, detachedStartupTab) : data
@@ -1457,34 +1490,42 @@ export function App(): JSX.Element {
       wheelZoomAccumulatorRef.current = 0
     }
 
-    window.addEventListener('wheel', onWheel, { capture: true, passive: false })
-    return () => window.removeEventListener('wheel', onWheel, { capture: true })
-  }, [runtime])
-
-  useEffect(() => {
-    let clearTimer: number | undefined
-    let frame = 0
-    const onScrollActivity = (): void => {
-      if (frame) return
-      frame = window.requestAnimationFrame(() => {
-        frame = 0
-        const shell = shellRef.current
-        if (!shell) return
-        shell.classList.add('is-scrolling')
-        window.clearTimeout(clearTimer)
-        clearTimer = window.setTimeout(() => shell.classList.remove('is-scrolling'), 140)
-      })
+    // A non-passive wheel listener makes Chromium wait for this thread before
+    // every scroll in the shell, so it is attached only while Ctrl/Cmd is held.
+    let attached = false
+    const attach = (): void => {
+      if (attached) return
+      attached = true
+      window.addEventListener('wheel', onWheel, { capture: true, passive: false })
     }
-
-    window.addEventListener('scroll', onScrollActivity, { capture: true, passive: true })
-    window.addEventListener('wheel', onScrollActivity, { capture: true, passive: true })
+    const detach = (): void => {
+      if (!attached) return
+      attached = false
+      window.removeEventListener('wheel', onWheel, { capture: true })
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Control' || event.key === 'Meta' || event.ctrlKey || event.metaKey) attach()
+    }
+    const onKeyUp = (event: KeyboardEvent): void => {
+      if (!event.ctrlKey && !event.metaKey) detach()
+    }
+    // Key events go to a focused page instead; the pointer still reports Ctrl.
+    const onPointerMove = (event: MouseEvent): void => {
+      if (event.ctrlKey || event.metaKey) attach()
+      else detach()
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    window.addEventListener('keyup', onKeyUp, true)
+    window.addEventListener('mousemove', onPointerMove, { capture: true, passive: true })
+    window.addEventListener('blur', detach)
     return () => {
-      if (frame) window.cancelAnimationFrame(frame)
-      window.clearTimeout(clearTimer)
-      window.removeEventListener('scroll', onScrollActivity, { capture: true })
-      window.removeEventListener('wheel', onScrollActivity, { capture: true })
+      detach()
+      window.removeEventListener('keydown', onKeyDown, true)
+      window.removeEventListener('keyup', onKeyUp, true)
+      window.removeEventListener('mousemove', onPointerMove, { capture: true })
+      window.removeEventListener('blur', detach)
     }
-  }, [])
+  }, [runtime])
 
   if (loadError) {
     return (
@@ -1512,7 +1553,7 @@ export function App(): JSX.Element {
         style={visualStyle}
       >
         {showSidebar && <Sidebar forcedCollapsed={autoCollapseSidebar && !sidebarManualOverride} onManualExpand={() => setSidebarManualOverride(true)} />}
-        <section className="app-main-surface relative flex min-w-0 flex-1 flex-col bg-[radial-gradient(circle_at_50%_-10%,rgba(116,231,255,0.11),transparent_28%),linear-gradient(180deg,#090a0e_0%,#050507_100%)]">
+        <section className="app-main-surface relative flex min-w-0 flex-1 flex-col bg-[radial-gradient(circle_at_50%_-10%,color-mix(in_srgb,var(--vast-accent)_11%,transparent),transparent_28%),linear-gradient(180deg,#0a0a0a_0%,#050505_100%)]">
           {!browserChromeHidden && !showHorizontalChrome && !showPuristChrome && <WindowControls placement="overlay" />}
           {showHorizontalChrome && <HorizontalChrome />}
           {showPuristChrome && <Suspense fallback={null}><PuristChrome /></Suspense>}
@@ -1532,7 +1573,7 @@ export function App(): JSX.Element {
         </section>
         <Suspense fallback={null}>
           {!focusMode && !browserChromeHidden && sidePanelOpen && (
-            <LocalErrorBoundary name="Sidebar" overlay onDismiss={() => useBrowserStore.getState().setSidePanelOpen(false)}>
+            <LocalErrorBoundary name="Side panel" overlay onDismiss={() => useBrowserStore.getState().setSidePanelOpen(false)}>
               <SidePanel pinned={sidebarPinned} />
             </LocalErrorBoundary>
           )}
@@ -1554,7 +1595,7 @@ export function App(): JSX.Element {
         </Suspense>
         {!htmlFullscreenSession && <PromptDialog />}
         {!htmlFullscreenSession && <ContextMenu />}
-        {!htmlFullscreenSession && <NotificationsOverlay toasts={toasts} downloads={downloads} onDismiss={dismissToast} />}
+        {!htmlFullscreenSession && <NotificationsOverlay toasts={toasts} onDismiss={dismissToast} />}
         {!htmlFullscreenSession && <ActionPromptModal prompt={activeUiPrompt} onResolve={(actionId) => activeUiPrompt && resolveUiPrompt(activeUiPrompt, actionId)} />}
         {!htmlFullscreenSession && <Suspense fallback={null}><RelayNoticeOverlay /></Suspense>}
       </div>

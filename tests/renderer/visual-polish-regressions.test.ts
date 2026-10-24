@@ -52,7 +52,8 @@ test('Labs settings remain compact and free of redundant explanatory copy', () =
 })
 
 test('Sidebar sheen and active-download toast remain visually restrained', () => {
-  assert.match(stylesSource, /\.side-panel::before\s*{[^}]*var\(--vast-accent\) 4%[^}]*opacity:\s*0\.58;/s)
+  // A neutral sheen: an accent wash tinted the dark side panel purple.
+  assert.match(stylesSource, /\.side-panel::before\s*{[^}]*background: linear-gradient\(180deg, rgba\(255, 255, 255, 0\.026\), transparent 20%\);\s*opacity:\s*0\.58;/s)
 
   const downloadToastStart = notificationsSource.indexOf('className="download-progress-toast')
   const downloadToastEnd = notificationsSource.indexOf('{toasts.map', downloadToastStart)
@@ -61,7 +62,7 @@ test('Sidebar sheen and active-download toast remain visually restrained', () =>
   assert.ok(downloadToastStart >= 0)
   assert.ok(downloadToastEnd > downloadToastStart)
   assert.doesNotMatch(downloadToastSource, /linear-gradient|backdrop-blur|shadow-\[[^\]]*(?:cyan|purple|violet)/)
-  assert.match(downloadToastSource, /bg-\[#0b0c10\]\/97/)
+  assert.match(downloadToastSource, /download-progress-toast vast-float /)
   assert.match(downloadToastSource, /bg-white\/\[0\.55\]/)
   assert.doesNotMatch(appSource, /title:\s*'Download started'/)
   assert.match(appSource, /title:\s*'Download completed'/)
@@ -110,7 +111,7 @@ test('New Tab owns its canvas while horizontal chrome dividers remain neutral', 
 })
 
 test('Smart Unload uses explicit surfaces for every selected theme', () => {
-  assert.match(stylesSource, /\.dark-theme \.smart-unload-panel\s*{[^}]*--smart-unload-panel-bg:\s*#050507;/s)
+  assert.match(stylesSource, /\.dark-theme \.smart-unload-panel\s*{[^}]*--smart-unload-panel-bg:\s*#050505;/s)
   assert.match(stylesSource, /\.dim-theme \.smart-unload-panel\s*{[^}]*--smart-unload-panel-bg:\s*#1b1b1b;/s)
   assert.match(stylesSource, /\.light-theme \.smart-unload-panel\s*{[^}]*--smart-unload-panel-bg:\s*#f7f9fc;/s)
   assert.match(stylesSource, /\.smart-unload-panel\s*{[^}]*background:\s*var\(--smart-unload-panel-bg\) !important;/s)

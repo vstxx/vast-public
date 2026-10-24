@@ -6,10 +6,6 @@ document.addEventListener('click',async(event)=>{
   const button=event.target.closest('[data-action]')
   if(!button)return
   const action=button.dataset.action
-  if(action==='install'){
-    location.href=`vast://extensions/install?id=${encodeURIComponent(button.dataset.id)}`
-    return
-  }
   if(!csrf())return
   button.disabled=true
   try{

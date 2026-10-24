@@ -8,7 +8,7 @@ const internalRouterSource = readFileSync(new URL('../../src/renderer/components
 const boundarySource = readFileSync(new URL('../../src/renderer/components/ui/LocalErrorBoundary.tsx', import.meta.url), 'utf8')
 
 test('lazy overlays have dismissible local error boundaries', () => {
-  for (const name of ['Sidebar', 'Command palette', 'Settings']) {
+  for (const name of ['Side panel', 'Command palette', 'Settings']) {
     assert.match(appSource, new RegExp(`<LocalErrorBoundary name="${name}" overlay onDismiss=`))
   }
   assert.doesNotMatch(boundarySource, /location\.reload/)

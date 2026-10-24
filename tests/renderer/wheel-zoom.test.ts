@@ -20,6 +20,8 @@ test('guest preload never registers a scroll-blocking wheel listener', () => {
     require: (id: string) => {
       if (id === 'electron/renderer') return { ipcRenderer: { sendSync: () => null, sendToHost: () => undefined } }
       if (id === '../shared/spoofing') return {}
+      if (id === '../shared/permission-prompt-state') return {}
+      if (id === '../shared/guest-document-start') return { GUEST_DOCUMENT_START_CHANNEL: 'vast:guest:document-start' }
       throw new Error(`Unexpected preload import: ${id}`)
     },
     document: {

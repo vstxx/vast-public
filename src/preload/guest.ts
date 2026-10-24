@@ -1,27 +1,42 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron/renderer'
-import { installDocumentSpoofing, type DocumentSpoofingConfig } from '../shared/spoofing'
+import { installDocumentSpoofing } from '../shared/spoofing'
+import { showUndecidedPermissionsAsPrompt } from '../shared/permission-prompt-state'
+import { GUEST_DOCUMENT_START_CHANNEL, type GuestDocumentStartRequest, type GuestDocumentStartResponse } from '../shared/guest-document-start'
 
-const spoofingDocumentConfig = ipcRenderer.sendSync('vast:spoofing:document-config', location.href) as DocumentSpoofingConfig | null
-if (spoofingDocumentConfig) {
+// One synchronous round trip before page scripts run (it used to be three).
+// Rules were matched while the main-frame request was held, before this preload;
+// they are only consumed for an http(s) main-frame document.
+const documentStartRequest: GuestDocumentStartRequest = {
+  url: location.href,
+  documentRules: process.isMainFrame && /^https?:$/.test(location.protocol)
+}
+const documentStart = (ipcRenderer.sendSync(GUEST_DOCUMENT_START_CHANNEL, documentStartRequest) ?? {}) as Partial<GuestDocumentStartResponse>
+
+if (documentStart.spoofing && typeof documentStart.spoofing === 'object') {
   try {
-    contextBridge.executeInMainWorld({ func: installDocumentSpoofing, args: [spoofingDocumentConfig] })
+    contextBridge.executeInMainWorld({ func: installDocumentSpoofing, args: [documentStart.spoofing] })
   } catch {
     // Network headers remain coherent if Chromium locks down one JS surface.
   }
 }
 
-const privacyDocumentScript = ipcRenderer.sendSync('vast:privacy:document-script', location.href)
-if (typeof privacyDocumentScript === 'string' && privacyDocumentScript) {
-  void webFrame.executeJavaScript(privacyDocumentScript).catch(() => undefined)
+// Permissions still set to Ask read as "prompt", as in Chrome, so calling apps
+// ask instead of showing a "blocked" screen. Nothing is granted by this.
+if (Array.isArray(documentStart.undecidedPermissions) && documentStart.undecidedPermissions.length > 0) {
+  try {
+    contextBridge.executeInMainWorld({ func: showUndecidedPermissionsAsPrompt, args: [documentStart.undecidedPermissions.filter((name) => typeof name === 'string')] })
+  } catch {
+    // Pages keep the native reading.
+  }
 }
 
-// Rules were matched while the main-frame request was held, before this preload.
+if (typeof documentStart.privacyScript === 'string' && documentStart.privacyScript) {
+  void webFrame.executeJavaScript(documentStart.privacyScript).catch(() => undefined)
+}
+
 // No extension execution API is exposed to the page or to content scripts.
-if (process.isMainFrame && /^https?:$/.test(location.protocol)) {
-  const documentRules: unknown = ipcRenderer.sendSync('vast:extensions:document-rules', location.href)
-  if (Array.isArray(documentRules)) for (const script of documentRules) {
-    if (typeof script === 'string') void webFrame.executeJavaScript(script).catch(() => undefined)
-  }
+if (Array.isArray(documentStart.documentRules)) for (const script of documentStart.documentRules) {
+  if (typeof script === 'string') void webFrame.executeJavaScript(script).catch(() => undefined)
 }
 
 let scrollBoundaryFrame = 0

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Run only after the 44.7.0 compatibility manifest has been populated from a
+// Run only after the 45.0.0 compatibility manifest has been populated from a
 // real, verified Vast build. Profiles and logs are retained for crash analysis.
 const { spawn } = require('node:child_process')
 const { createHash, randomUUID } = require('node:crypto')
@@ -87,8 +87,8 @@ async function main() {
   if (!option('binary', process.env.VAST_SPIKE_ELECTRON)) throw new Error('Pass --binary=<absolute path to patched Electron executable>.')
   if (!isAbsolute(option('binary', process.env.VAST_SPIKE_ELECTRON))) throw new Error('Electron binary path must be absolute.')
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
-  if (manifest.electron?.version !== '44.7.0' || manifest.electron?.chromiumVersion !== '152.0.7977.130') {
-    throw new Error('Acceptance requires an approved Electron 44.7.0 / Chromium 152.0.7977.130 manifest.')
+  if (manifest.electron?.version !== '45.0.0' || manifest.electron?.chromiumVersion !== '156.0.8078.48') {
+    throw new Error('Acceptance requires an approved Electron 45.0.0 / Chromium 156.0.8078.48 manifest.')
   }
   if (!existsSync(binary)) throw new Error(`Binary missing: ${binary}`)
   const binarySha256 = await hashFile(binary)

@@ -25,7 +25,7 @@ export function FindBar(): JSX.Element | null {
   }
 
   return (
-    <div className="no-drag absolute right-4 top-4 z-40 flex items-center gap-2 rounded-card border border-white/10 bg-[#0d0e13]/95 p-2 shadow-glass backdrop-blur-xl">
+    <div className="no-drag absolute right-4 top-4 z-40 flex items-center gap-2 vast-float rounded-card border border-white/10 p-2 shadow-glass">
       <input
         ref={inputRef}
         value={query}

@@ -28,18 +28,10 @@ export function buildFingerprintingProtectionScript(
   define(Navigator.prototype, 'deviceMemory', () => 8);
   try { Object.defineProperty(Navigator.prototype, 'getBattery', { configurable: true, value: undefined }); } catch {}
 
-  if (navigator.mediaDevices?.enumerateDevices) {
-    const originalEnumerate = navigator.mediaDevices.enumerateDevices.bind(navigator.mediaDevices);
-    try {
-      navigator.mediaDevices.enumerateDevices = async () => (await originalEnumerate()).map((device, index) => ({
-        deviceId: profile === 'standard' ? device.deviceId : 'vast-device-' + device.kind + '-' + index,
-        groupId: profile === 'standard' ? '' : 'vast-group-' + index,
-        kind: device.kind,
-        label: '',
-        toJSON: () => ({ deviceId: '', groupId: '', kind: device.kind, label: '' })
-      }));
-    } catch {}
-  }
+  // enumerateDevices is left native. Chromium already hides device names and
+  // IDs until the site is granted camera or microphone access, and its IDs are
+  // per site. Blanking names or substituting IDs after a grant broke calls:
+  // apps read empty names as "no permission" and fake IDs fail getUserMedia.
 
   if (profile !== 'standard') {
     const commonFonts = new Set(['arial', 'calibri', 'cambria', 'courier new', 'georgia', 'segoe ui', 'tahoma', 'times new roman', 'trebuchet ms', 'verdana']);

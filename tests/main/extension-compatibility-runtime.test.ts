@@ -81,7 +81,7 @@ test('compatibility gate requires development, the validated Electron base and e
   assert.equal(enabledGate().enabled, true)
   assert.equal(enabledGate().license, ECE_GPL_LICENSE)
   assert.equal(extensionCompatibilityGate({ ...enabledGateInput(), isPackaged: true }).enabled, false)
-  assert.equal(extensionCompatibilityGate({ ...enabledGateInput(), electronVersion: '45.0.0' }).enabled, false)
+  assert.equal(extensionCompatibilityGate({ ...enabledGateInput(), electronVersion: '46.0.0' }).enabled, false)
   assert.equal(extensionCompatibilityGate({ ...enabledGateInput(), executablePath: 'D:\\stock\\electron.exe' }).enabled, false)
   assert.deepEqual(extensionCompatibilityGate({
     ...enabledGateInput(),

@@ -32,7 +32,7 @@ test('Purist tabs remain functional when the strip overflows', () => {
   assert.match(puristSource, /scrollBy\(\{ left: event\.deltaY, behavior: 'smooth' \}\)/)
   assert.match(puristSource, /scrollIntoView\(\{ behavior: 'smooth'/)
   assert.match(puristSource, /\.filter\(\(tab\) => tab\.pinned\)/)
-  assert.match(puristSource, /useTabMotion<HTMLDivElement>\(tab\.id\)/)
+  assert.match(puristSource, /useTabMotion<HTMLDivElement>\(tab\.id, layoutKey\)/)
   assert.match(puristSource, /moveTab\(draggedId, targetId\)/)
   assert.match(puristSource, /window\.vast\.browser\.detachTab\(payload\)/)
   assert.match(puristSource, /openTabContextMenu\(tab, event\.clientX, event\.clientY\)/)
@@ -64,7 +64,7 @@ test('Purist reveals browser-owned safe space only after an explicit overscroll 
   assert.match(browserRuntimeSource, /className={`browser-webview-frame \$\{puristSafeSpace && puristSafeSpaceVisible/)
   assert.doesNotMatch(browserRuntimeSource, /puristSafeSpace && atScrollTop/)
   assert.match(appSource, /puristChromeVisible=\{showPuristChrome\}/)
-  assert.match(stylesSource, /data-purist-island='collapsed'[\s\S]*?grid-template-rows:\s*50px/)
+  assert.match(stylesSource, /data-purist-island='collapsed'[\s\S]*?grid-template-rows:\s*22px/)
   assert.match(stylesSource, /data-purist-island='expanded'[\s\S]*?grid-template-rows:\s*150px/)
   assert.match(stylesSource, /\.purist-scroll-safe-space\s*{[^}]*background:\s*#000;/s)
 })
@@ -80,7 +80,9 @@ test('Purist inactive, interactive, and active tab surfaces are deliberately dis
 test('Purist chrome stays rounded, restrained, responsive, and transparency-safe', () => {
   assert.match(stylesSource, /\.layout-purist \.purist-chrome\s*{[^}]*position:\s*absolute;[^}]*pointer-events:\s*none;/s)
   assert.match(stylesSource, /\.purist-chrome-surface\s*{[^}]*backdrop-filter:/s)
-  assert.match(stylesSource, /\.topbar-island\.is-collapsed\s*{[^}]*width:\s*min\(320px,[^}]*max-height:\s*40px;[^}]*border-radius:\s*var\(--vast-radius-control\);/s)
+  // Collapsed: a short half-island hanging from the top edge.
+  assert.match(stylesSource, /\.topbar-island\.is-collapsed\s*{[^}]*max-height:\s*22px;[^}]*border-radius:\s*0 0 var\(--vast-radius-control\) var\(--vast-radius-control\);[^}]*transform:\s*translate3d\(0, -7px, 0\);/s)
+  assert.doesNotMatch(stylesSource, /\.purist-tab-close\s*{[^}]*-50%/s, 'Tailwind -translate-y-1/2 already centers the close button')
   assert.match(stylesSource, /\.topbar-island\.is-expanded \.topbar-island-expanded\s*{[^}]*opacity:\s*1;/s)
   assert.match(stylesSource, /\.address-bar-purist\s*{[^}]*grid-template-columns:/s)
   assert.match(stylesSource, /\.vast-top-address-purist\s*{[^}]*border-radius:\s*var\(--vast-radius-control\) !important;/s)

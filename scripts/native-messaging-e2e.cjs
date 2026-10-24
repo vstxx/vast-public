@@ -16,7 +16,7 @@ const hostName = 'com.vast.native_messaging_test'
 const registryKey = `HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${hostName}`
 const electronExecutable = process.env.VAST_PATCHED_ELECTRON_DIST
   ? path.join(process.env.VAST_PATCHED_ELECTRON_DIST, 'electron.exe')
-  : 'D:\\VastElectron44\\src\\out\\VastCompat\\electron.exe'
+  : 'D:\\VastElectron45\\src\\out\\VastRelease\\electron.exe'
 let appProcess
 let registryCreated = false
 

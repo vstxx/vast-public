@@ -758,7 +758,7 @@ async function main() {
   await attemptShot('25-pdf-viewer-sidebar.png', async () => {
     await saveScenario(session, data, 'tab-pdf', false)
     await waitFor(session, `document.body.innerText.includes('BUILT-IN PDF') && document.body.innerText.includes('Ready')`, 'PDF page', 30000)
-    await clickByTitle(session, 'Show sidebar')
+    await clickByTitle(session, 'Show side panel')
   }, `document.body.innerText.includes('Thumbnails') && document.body.innerText.includes('Page 1')`, 30000)
 
   await attemptShot('26-automation-macros.png', async () => {

@@ -20,3 +20,4 @@ patches/*.patch text eol=lf -whitespace
 scripts/legacy-latest-042.yml -text
 LICENSE text eol=lf
 experiments/electron-44-patches/*.patch text eol=lf
+experiments/electron-45-patches/*.patch text eol=lf

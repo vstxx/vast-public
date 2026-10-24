@@ -4,7 +4,7 @@ import test from 'node:test'
 
 test('Electron patchset permits declared web-accessible extension frames in app-owned webviews', async () => {
   const patch = await readFile(
-    'experiments/electron-44-patches/0005-chromium-lifecycle-auth-support.patch',
+    'experiments/electron-45-patches/0005-chromium-lifecycle-auth-support.patch',
     'utf8'
   )
 
@@ -17,7 +17,7 @@ test('Electron patchset permits declared web-accessible extension frames in app-
 
 test('Electron patchset provides a valid splitViewId for external message senders', async () => {
   const patch = await readFile(
-    'experiments/electron-44-patches/0006-electron-messaging-split-view-compat.patch',
+    'experiments/electron-45-patches/0006-electron-messaging-split-view-compat.patch',
     'utf8'
   )
 
@@ -30,7 +30,7 @@ test('Electron patchset provides a valid splitViewId for external message sender
 
 test('Electron patchset forwards native action.openPopup calls to the owning session', async () => {
   const patch = await readFile(
-    'experiments/electron-44-patches/0007-electron-action-open-popup-event.patch',
+    'experiments/electron-45-patches/0007-electron-action-open-popup-event.patch',
     'utf8'
   )
 
@@ -43,7 +43,7 @@ test('Electron patchset forwards native action.openPopup calls to the owning ses
 
 test('Electron patchset exposes Chromium native extension reload without uninstalling', async () => {
   const patch = await readFile(
-    'experiments/electron-44-patches/0008-electron-extensions-reload-api.patch',
+    'experiments/electron-45-patches/0008-electron-extensions-reload-api.patch',
     'utf8'
   )
 

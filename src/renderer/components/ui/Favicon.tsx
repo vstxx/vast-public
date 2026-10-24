@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Activity, Database, FileText, Globe2, History, LayoutGrid, NotebookPen, Sparkles, Wifi } from 'lucide-react'
 import type { ComponentType } from 'react'
 import {
@@ -95,8 +96,10 @@ export function getInternalTabMeta(url?: string): InternalTabMeta | null {
 }
 
 export function Favicon({ url, favicon, title, className = '' }: FaviconProps): JSX.Element {
-  if (favicon) {
-    return <img src={favicon} alt="" className={`h-4 w-4 rounded-micro object-cover ${className}`} />
+  // A favicon that fails to load falls back to the letter tile below.
+  const [failedFavicon, setFailedFavicon] = useState<string>()
+  if (favicon && favicon !== failedFavicon) {
+    return <img src={favicon} alt="" onError={() => setFailedFavicon(favicon)} className={`h-4 w-4 rounded-micro object-cover ${className}`} />
   }
 
   if (url && !isInternalUrl(url)) {

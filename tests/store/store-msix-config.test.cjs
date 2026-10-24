@@ -19,6 +19,7 @@ const storeUpgradeE2e = readFileSync(join(root, 'tests', 'store', 'store-msix-up
 const windowsCi = readFileSync(join(root, '.github', 'workflows', 'windows-ci.yml'), 'utf8')
 const packagedLaunchHealth = readFileSync(join(root, 'tests', 'store', 'packaged-launch-health.test.ps1'), 'utf8')
 const wackRunner = readFileSync(join(root, 'scripts', 'run-windows-app-certification.ps1'), 'utf8')
+const releaseEnvExample = readFileSync(join(root, '.env.release.example'), 'utf8')
 
 test('Store versions are configurable and monotonic independently of product version', () => {
   assert.equal(storePackageVersion({}), '1.2.11.0')
@@ -27,6 +28,11 @@ test('Store versions are configurable and monotonic independently of product ver
     assert.throws(() => storePackageVersion({ VAST_MSIX_PACKAGE_VERSION: value }))
   }
   assert.throws(() => storePackageVersion({ VAST_MSIX_PREVIOUS_PACKAGE_VERSION: '1.2.11.0' }), /must be greater/)
+})
+
+test('release environment example tracks the source-controlled Store versions', () => {
+  assert.match(releaseEnvExample, /^VAST_MSIX_PACKAGE_VERSION=1\.2\.11\.0$/m)
+  assert.match(releaseEnvExample, /^VAST_MSIX_PREVIOUS_PACKAGE_VERSION=1\.2\.10\.0$/m)
 })
 
 test('production Store identity fails closed and development identity is explicit', () => {

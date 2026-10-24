@@ -92,7 +92,7 @@ async function main() {
   await until(`${guest}?.getURL().includes('/page-0')`)
   await wait(600)
 
-  await click(`document.querySelector('button[title="More tabs"]')`)
+  await click(`document.querySelector('button[title="All tabs"]')`)
   await until(`document.querySelector('[role="dialog"] input[placeholder="Search title or address"]')`)
   assert.ok(await cdp.evaluate(`(() => { const m=document.querySelector('[role="dialog"]'); const r=m.getBoundingClientRect(); return m.parentElement===document.body && r.bottom<=innerHeight && r.left>=0 && m.contains(document.elementFromPoint(r.left+20,r.top+20)) && getComputedStyle(m).webkitAppRegion==='no-drag'; })()`))
   await click(`document.querySelector('[role="dialog"] input')`)

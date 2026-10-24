@@ -17,14 +17,13 @@
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     Segoe UI, sans-serif;
 
-  --color-vast-black: #050507;
-  --color-vast-ink: #0a0b0f;
-  --color-vast-panel: #111218;
-  --color-vast-panel2: #171922;
-  --color-vast-line: #252834;
+  --color-vast-black: #050505;
+  --color-vast-ink: #0b0b0b;
+  --color-vast-panel: #121212;
+  --color-vast-panel2: #191919;
+  --color-vast-line: #282828;
   --color-vast-soft: #9aa0ad;
   --color-vast-bright: #f3f5f8;
-  --color-vast-cyan: #74e7ff;
   --color-vast-blue: #89a7ff;
   --color-vast-lilac: #b7a7ff;
   --color-vast-amber: #f0b86b;
@@ -39,9 +38,15 @@
   --color-token-accent: var(--vast-accent);
 
   --shadow-glass: 0 24px 80px rgba(0, 0, 0, 0.36);
-  --shadow-glow: 0 0 40px rgba(116, 231, 255, 0.14);
 
   --ease-smooth: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* "Cyan" utilities are the user's accent color. Inline so utilities read
+   --vast-accent where they are used, not the :root default. */
+@theme inline {
+  --color-vast-cyan: var(--vast-accent);
+  --shadow-glow: 0 0 40px color-mix(in srgb, var(--vast-accent) 14%, transparent);
 }
 
 /*
@@ -117,11 +122,11 @@
   --vast-accent-secondary: #b86cff;
   --vast-amber: #f0b86b;
   /* Semantic design tokens. Legacy aliases below stay available during migration. */
-  --vast-color-bg-canvas: #050507;
-  --vast-color-bg-subtle: #090a0e;
+  --vast-color-bg-canvas: #050505;
+  --vast-color-bg-subtle: #0a0a0a;
   --vast-color-surface-1: rgba(255, 255, 255, 0.055);
   --vast-color-surface-2: rgba(255, 255, 255, 0.09);
-  --vast-color-surface-3: rgba(12, 13, 18, 0.98);
+  --vast-color-surface-3: rgba(13, 13, 13, 0.98);
   --vast-color-border-subtle: rgba(255, 255, 255, 0.08);
   --vast-color-border-default: rgba(255, 255, 255, 0.14);
   --vast-color-border-strong: rgba(255, 255, 255, 0.22);
@@ -129,7 +134,7 @@
   --vast-color-text-secondary: #b4bbc8;
   --vast-color-text-tertiary: #929aaa;
   --vast-color-text-disabled: #717887;
-  --vast-color-text-inverse: #11141a;
+  --vast-color-text-inverse: #141414;
   --vast-color-state-hover: rgba(255, 255, 255, 0.09);
   --vast-color-state-active: color-mix(in srgb, var(--vast-accent) 17%, rgba(255, 255, 255, 0.055));
   --vast-color-success: #64d99a;
@@ -148,10 +153,10 @@
   --vast-font-size-title: 1.125rem;
   --vast-focus-ring: 0 0 0 2px var(--vast-color-bg-canvas), 0 0 0 4px color-mix(in srgb, var(--vast-accent) 82%, white 8%);
   --vast-bg-tint: #06121b;
-  --vast-surface-tint: #151923;
+  --vast-surface-tint: #191919;
   --vast-bg: var(--vast-color-bg-canvas);
   --vast-ink: var(--vast-color-bg-subtle);
-  --vast-panel: rgba(8, 9, 13, 0.9);
+  --vast-panel: rgba(9, 9, 9, 0.9);
   --vast-surface: var(--vast-color-surface-1);
   --vast-surface-strong: var(--vast-color-surface-2);
   --vast-surface-elevated: var(--vast-color-surface-3);
@@ -166,7 +171,6 @@
   --vast-panel-mix: 91%;
   --vast-address-panel-mix: 80%;
   --vast-focus-panel-mix: 74%;
-  --vast-surface-mix: 74%;
   --vast-border-mix: 37%;
   --vast-border-soft-mix: 25%;
   --vast-address-border-mix: 24%;
@@ -180,22 +184,22 @@
   --vast-gradient-mix: 12%;
   --vast-gradient-soft-mix: 6%;
   --vast-gradient-strong-mix: 22%;
-  --vast-chrome-alpha: 0.9;
-  --vast-chrome-mix: 90%;
-  --vast-sheen-alpha: 0.064;
   --vast-sheen-soft-alpha: 0.037;
-  --vast-dialog-surface: #0b0b0d;
-  --vast-dialog-opacity: 82%;
+  --vast-dialog-surface: #0b0b0b;
   --vast-dialog-card-opacity: 50%;
   --vast-dialog-overlay-rgb: 0 0 0;
   --vast-dialog-overlay-alpha: 0.38;
-  --vast-dialog-blur: 40px;
-  --vast-dialog-backdrop-blur: 12px;
+  --vast-dialog-backdrop-blur: 9px;
+  /* Floating surfaces: Transparency and Frost (see appearance-style.ts). */
+  --vast-frost: 20px;
+  --vast-float-opacity: 89.5%;
+  --vast-float-alpha: 0.895;
+  --vast-float-filter: blur(20px) saturate(1.1);
   --vast-motion-snap: 140ms cubic-bezier(.2, .8, .2, 1);
   --vast-motion-swift: 220ms cubic-bezier(.2, .8, .2, 1);
   --vast-motion-gentle: 280ms cubic-bezier(.22, 1, .36, 1);
   --vast-motion-page: 420ms cubic-bezier(.16, 1, .3, 1);
-  background: #050507;
+  background: #050505;
   font-synthesis: none;
   text-rendering: geometricPrecision;
   -webkit-font-smoothing: antialiased;
@@ -218,7 +222,7 @@ body,
 body {
   font-family: var(--vast-font);
   background:
-    radial-gradient(circle at 18% 0%, rgba(116, 231, 255, 0.08), transparent 30%),
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--vast-accent) 8%, transparent), transparent 30%),
     radial-gradient(circle at 90% 10%, rgba(183, 167, 255, 0.08), transparent 28%),
     var(--vast-bg);
   overscroll-behavior: none;
@@ -229,21 +233,18 @@ body {
   isolation: isolate;
   transform: translateZ(0);
   text-rendering: optimizeLegibility;
-  --vast-effective-blur: var(--vast-blur);
-  --vast-dialog-effective-blur: var(--vast-dialog-blur);
+  --vast-effective-blur: var(--vast-frost);
 }
 
-.app-shell.low-effects {
-  --vast-effective-blur: min(var(--vast-blur), 12px);
-  --vast-dialog-effective-blur: var(--vast-dialog-blur-low-effects);
+/* Low effects: floating surfaces keep their transparency but skip Frost. */
+.app-shell.low-effects,
+html[data-vast-low-effects] {
+  --vast-effective-blur: min(var(--vast-frost), 12px);
+  --vast-float-filter: none !important;
   --vast-saturation: 1;
   --vast-shadow-alpha: min(var(--vast-shadow-alpha), 0.2);
   --vast-address-shadow-alpha: min(var(--vast-address-shadow-alpha), 0.16);
   --vast-focus-shadow-alpha: min(var(--vast-focus-shadow-alpha), 0.18);
-}
-
-.app-shell.is-scrolling {
-  --vast-effective-blur: 14px;
 }
 
 button {
@@ -327,7 +328,8 @@ button:disabled {
     inset 0 -1px 0 rgba(0, 0, 0, 0.12),
     0 24px 72px rgba(0, 0, 0, var(--vast-shadow-alpha)),
     0 0 92px color-mix(in srgb, var(--vast-accent) var(--vast-glow-soft-mix), transparent);
-  backdrop-filter: blur(var(--vast-effective-blur)) saturate(var(--vast-saturation));
+  /* No backdrop-filter: the base layer above mixes two opaque colors, so the
+     panel is opaque in every theme and appearance setting. */
   contain: layout style;
   transform: translateZ(0);
   backface-visibility: hidden;
@@ -341,7 +343,8 @@ button:disabled {
     inset 0 1px 0 rgba(255, 255, 255, 0.045),
     inset 0 -1px 0 rgba(0, 0, 0, 0.22),
     0 12px 34px rgba(0, 0, 0, var(--vast-address-shadow-alpha));
-  backdrop-filter: blur(var(--vast-effective-blur)) saturate(var(--vast-saturation));
+  /* Opaque (two opaque colors mixed); only the translucent purist variant
+     blurs, see purist.css. */
   transform: translateZ(0);
   backface-visibility: hidden;
 }
@@ -400,7 +403,7 @@ button:disabled {
   gap: 0.5rem;
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: var(--vast-radius-button);
-  background: rgba(17, 16, 23, 0.68);
+  background: rgba(17, 17, 17, 0.68);
   color: rgba(246, 244, 249, 0.9);
   font-size: 0.8125rem;
   font-weight: 600;
@@ -410,7 +413,6 @@ button:disabled {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.045),
     0 8px 24px rgba(0, 0, 0, 0.1);
-  backdrop-filter: blur(18px) saturate(135%);
   -webkit-app-region: no-drag;
   transition:
     transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
@@ -464,7 +466,7 @@ button:disabled {
 
 .vast-button:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--vast-accent) 44%, rgba(255, 255, 255, 0.09));
-  background: color-mix(in srgb, var(--vast-accent) 14%, rgba(17, 16, 23, 0.68));
+  background: color-mix(in srgb, var(--vast-accent) 14%, rgba(17, 17, 17, 0.68));
   color: #fff;
   transform: translateY(-1px);
 }
@@ -486,23 +488,23 @@ button:disabled {
 
 .vast-button--primary {
   border-color: color-mix(in srgb, var(--vast-accent) 24%, rgba(255, 255, 255, 0.09));
-  background: rgba(25, 22, 34, 0.76);
+  background: rgba(24, 24, 24, 0.76);
 }
 
 .vast-button--primary:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--vast-accent) 46%, rgba(255, 255, 255, 0.09));
-  background: #1a1822;
+  background: #191919;
 }
 
 .vast-button--selected {
   border-color: color-mix(in srgb, var(--vast-accent) 34%, rgba(255, 255, 255, 0.09));
-  background: color-mix(in srgb, var(--vast-accent) 12%, rgba(17, 16, 23, 0.68));
+  background: color-mix(in srgb, var(--vast-accent) 12%, rgba(17, 17, 17, 0.68));
   color: color-mix(in srgb, var(--vast-accent) 76%, white);
 }
 
 .vast-button--selected:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--vast-accent) 50%, rgba(255, 255, 255, 0.09));
-  background: color-mix(in srgb, var(--vast-accent) 17%, rgba(17, 16, 23, 0.68));
+  background: color-mix(in srgb, var(--vast-accent) 17%, rgba(17, 17, 17, 0.68));
 }
 
 .vast-button--ghost {
@@ -511,8 +513,6 @@ button:disabled {
   background: transparent;
   color: var(--vast-muted);
   box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
 }
 
 .vast-button--ghost:hover:not(:disabled) {
@@ -523,13 +523,13 @@ button:disabled {
 
 .vast-button--danger {
   border-color: color-mix(in srgb, var(--vast-color-danger) 22%, rgba(255, 255, 255, 0.09));
-  background: color-mix(in srgb, var(--vast-color-danger) 7%, rgba(17, 16, 23, 0.68));
+  background: color-mix(in srgb, var(--vast-color-danger) 7%, rgba(17, 17, 17, 0.68));
   color: color-mix(in srgb, var(--vast-color-danger) 76%, white);
 }
 
 .vast-button--danger:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--vast-color-danger) 40%, rgba(255, 255, 255, 0.09));
-  background: color-mix(in srgb, var(--vast-color-danger) 12%, rgba(17, 16, 23, 0.68));
+  background: color-mix(in srgb, var(--vast-color-danger) 12%, rgba(17, 17, 17, 0.68));
   color: color-mix(in srgb, var(--vast-color-danger) 86%, white);
 }
 
@@ -540,8 +540,6 @@ button:disabled {
   background: transparent;
   color: color-mix(in srgb, var(--vast-accent) 55%, var(--vast-text));
   box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
   padding: 0.22rem 0.5rem;
   font-size: 0.75rem;
 }
@@ -553,6 +551,18 @@ button:disabled {
 }
 
 /* Light theme: crisp white buttons with restrained accent response. */
+/* Dim: neutral gray fill instead of the dark theme's purple-navy glass. */
+.dim-theme .vast-button--secondary {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: none;
+}
+
+.dim-theme .vast-button--secondary:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.09);
+}
+
 .light-theme .vast-button {
   border-color: rgba(15, 23, 42, 0.14);
   background: #ffffff;
@@ -799,7 +809,9 @@ button:disabled {
   filter:
     drop-shadow(0 0 7px rgba(255, 255, 255, 0.055))
     drop-shadow(0 14px 26px color-mix(in srgb, var(--vast-accent) 9%, transparent));
-  animation: vast-logo-breathe 5.2s ease-in-out infinite;
+  /* Two breaths, then hold the resting frame: an infinite loop kept the
+     compositor producing frames (~9% GPU) for as long as a New Tab was open. */
+  animation: vast-logo-breathe 5.2s ease-in-out 2 forwards;
   transform: translateZ(0);
   backface-visibility: hidden;
 }
@@ -1177,10 +1189,8 @@ button:disabled {
 .horizontal-chrome,
 .side-panel {
   position: relative;
-  background-color: color-mix(in srgb, var(--vast-panel) var(--vast-chrome-mix), transparent) !important;
   border-color: color-mix(in srgb, var(--vast-border) var(--vast-border-mix), transparent) !important;
   color: var(--vast-text);
-  backdrop-filter: blur(var(--vast-effective-blur)) saturate(var(--vast-saturation));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.045),
     0 18px 42px rgba(0, 0, 0, 0.24);
@@ -1188,13 +1198,25 @@ button:disabled {
   backface-visibility: hidden;
 }
 
+/* Only the side panel is translucent (chrome-opacity setting); the
+   horizontal header below is painted fully opaque in every theme, so a
+   backdrop blur there could never be seen but still cost GPU every frame. */
 .horizontal-chrome {
   --horizontal-chrome-divider: rgba(255, 255, 255, 0.055);
   overflow: visible;
-  background: #07080b !important;
+  background: #080808 !important;
   background-image: none !important;
   border-bottom-color: var(--horizontal-chrome-divider) !important;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.13);
+}
+
+/* Popovers inside the header (address suggestions, tools, workspace and
+   bookmark menus) never blurred the page: the header used to carry its own
+   backdrop-filter, which made it their backdrop root. Keep that rendering
+   without paying for a blur pass that only ever saw the opaque header. */
+.horizontal-chrome .backdrop-blur-xl,
+.horizontal-chrome .backdrop-blur-2xl {
+  backdrop-filter: none;
 }
 
 .horizontal-chrome .address-bar-divider {
@@ -1212,19 +1234,31 @@ button:disabled {
   overflow: clip;
 }
 
+/* Buttons only show a frosted backdrop where the surface behind them is
+   translucent. Elsewhere (Settings, internal pages, menus) the backdrop is
+   opaque or flat and the per-button blur was invisible GPU work. */
+/* A bookmark folder card is virtualized as a header row and item rows; these
+   join the rows' corners so the card looks unchanged. */
+.bookmark-folder-head {
+  border-radius: var(--vast-radius-card) var(--vast-radius-card) 0 0;
+}
+
+.bookmark-folder-end {
+  border-radius: 0 0 var(--vast-radius-card) var(--vast-radius-card);
+}
+
 .side-panel::before {
   content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(circle at 16% 0%, color-mix(in srgb, var(--vast-accent) 6%, transparent), transparent 30%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.026), transparent 20%);
   opacity: 0.55;
 }
 
 .side-panel::before {
-  background:
-    radial-gradient(circle at 16% 0%, color-mix(in srgb, var(--vast-accent) 4%, transparent), transparent 30%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.026), transparent 20%);
+  /* Neutral sheen only: an accent wash tinted the dark theme purple. */
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.026), transparent 20%);
   opacity: 0.58;
 }
 
@@ -1256,11 +1290,6 @@ button:disabled {
   backface-visibility: hidden;
 }
 
-.vast-top-address,
-[role='menu'] {
-  backdrop-filter: blur(var(--vast-effective-blur)) saturate(var(--vast-saturation)) !important;
-}
-
 .command-palette-shell,
 .settings-modal-overlay {
   background-color: rgb(var(--vast-dialog-overlay-rgb) / var(--vast-dialog-overlay-alpha)) !important;
@@ -1268,12 +1297,12 @@ button:disabled {
   -webkit-backdrop-filter: blur(var(--vast-dialog-backdrop-blur)) !important;
 }
 
+/* Transparency applies; no Frost of its own: Background blur already blurs
+   the page behind the palette. */
 .command-palette-panel {
   border-color: color-mix(in srgb, var(--vast-border) 65%, transparent);
-  background: color-mix(in srgb, var(--vast-dialog-surface) var(--vast-dialog-opacity), transparent);
+  background: color-mix(in srgb, var(--vast-dialog-surface) var(--vast-float-opacity), transparent);
   box-shadow: var(--vast-shadow-lg);
-  backdrop-filter: blur(var(--vast-dialog-effective-blur)) saturate(var(--vast-saturation));
-  -webkit-backdrop-filter: blur(var(--vast-dialog-effective-blur)) saturate(var(--vast-saturation));
 }
 
 .command-palette-symbol {
@@ -1311,6 +1340,16 @@ button:disabled {
   contain: layout paint style;
 }
 
+/* During the vertical sidebar's width animation the stage keeps its final
+   size, right-anchored; the shell's paint containment clips the overflow. */
+.app-shell.is-sidebar-resizing .browser-stage {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--vast-stage-final-width);
+}
+
 .browser-stage-shell.is-html-fullscreen {
   position: fixed;
   inset: 0;
@@ -1335,11 +1374,6 @@ button:disabled {
   grid-row: 1;
   min-width: 0;
   min-height: 0;
-}
-
-.browser-tools-menu {
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--vast-surface-elevated) 96%, transparent), color-mix(in srgb, var(--vast-bg) 90%, black)) !important;
 }
 
 .vast-notification-stack,
@@ -1370,7 +1404,6 @@ button:disabled {
   color: var(--vast-muted);
 }
 
-.link-preview-card,
 .smart-unload-panel {
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.024)),
@@ -1382,12 +1415,7 @@ button:disabled {
   color: var(--vast-text);
 }
 
-.link-preview-card {
-  animation: link-preview-in 120ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-
 .extensions-toolbar-menu {
-  background: color-mix(in srgb, var(--vast-bg) 96%, #11121a) !important;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.34);
 }
 
@@ -1409,20 +1437,20 @@ button:disabled {
 }
 
 .smart-unload-panel {
-  --smart-unload-panel-bg: #050507;
-  --smart-unload-surface: #0c0d12;
-  --smart-unload-surface-hover: #12131a;
-  --smart-unload-surface-muted: #090a0e;
+  --smart-unload-panel-bg: #050505;
+  --smart-unload-surface: #0d0d0d;
+  --smart-unload-surface-hover: #131313;
+  --smart-unload-surface-muted: #0a0a0a;
   --smart-unload-border: rgba(255, 255, 255, 0.09);
   background: var(--smart-unload-panel-bg) !important;
   border-color: var(--smart-unload-border) !important;
 }
 
 .dark-theme .smart-unload-panel {
-  --smart-unload-panel-bg: #050507;
-  --smart-unload-surface: #0c0d12;
-  --smart-unload-surface-hover: #12131a;
-  --smart-unload-surface-muted: #090a0e;
+  --smart-unload-panel-bg: #050505;
+  --smart-unload-surface: #0d0d0d;
+  --smart-unload-surface-hover: #131313;
+  --smart-unload-surface-muted: #0a0a0a;
   --smart-unload-border: rgba(255, 255, 255, 0.09);
 }
 
@@ -1471,17 +1499,6 @@ button:disabled {
   background: var(--smart-unload-surface-muted);
 }
 
-@keyframes link-preview-in {
-  from {
-    opacity: 0;
-    transform: translate3d(0, 4px, 0) scale(0.985);
-  }
-  to {
-    opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-}
-
 .settings-nav-item {
   min-height: 42px;
   background: transparent !important;
@@ -1512,10 +1529,10 @@ button:disabled {
   box-shadow: none !important;
 }
 
-.horizontal-chrome [class*='bg-[#090a0d]'],
-.horizontal-chrome [class*='bg-[#0c0d12]'],
-.side-panel [class*='bg-[#090a0d]'],
-.side-panel [class*='bg-[#0c0d12]'] {
+.horizontal-chrome [class*='bg-[#0a0a0a]'],
+.horizontal-chrome [class*='bg-[#0d0d0d]'],
+.side-panel [class*='bg-[#0a0a0a]'],
+.side-panel [class*='bg-[#0d0d0d]'] {
   background-color: var(--vast-surface-elevated) !important;
 }
 
@@ -1596,13 +1613,6 @@ button:disabled {
 [class*='overflow-y-auto'] > .vast-glass-panel {
   content-visibility: auto;
   contain-intrinsic-size: auto 280px;
-}
-
-.app-shell.is-scrolling .vast-glass-panel,
-.app-shell.is-scrolling .side-panel,
-.app-shell.is-scrolling .horizontal-chrome,
-.app-shell.is-scrolling .vast-top-address {
-  transition-duration: 80ms !important;
 }
 
 .internal-page-shell {
@@ -1699,6 +1709,11 @@ button:disabled {
   color: var(--vast-accent);
 }
 
+/* A Labs feature that is turned off is grayed out, logo included. */
+.is-unavailable .video-audio-source-mark {
+  color: inherit;
+}
+
 .video-audio-source-lockup {
   aspect-ratio: 824 / 122;
   height: auto;
@@ -1714,13 +1729,11 @@ button:disabled {
   contain: layout paint style;
   border-color: color-mix(in srgb, var(--vast-accent) 7%, transparent) !important;
   border-radius: var(--vast-radius-modal) !important;
-  background: color-mix(in srgb, var(--vast-dialog-surface) var(--vast-dialog-opacity), transparent) !important;
+  background: color-mix(in srgb, var(--vast-dialog-surface) var(--vast-float-opacity), transparent) !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.055),
     0 28px 90px rgba(0, 0, 0, 0.44),
     0 0 80px color-mix(in srgb, var(--vast-accent) 3%, transparent) !important;
-  backdrop-filter: blur(var(--vast-dialog-effective-blur)) saturate(var(--vast-saturation)) !important;
-  -webkit-backdrop-filter: blur(var(--vast-dialog-effective-blur)) saturate(var(--vast-saturation)) !important;
 }
 
 .settings-modal-shell::before {
@@ -1728,9 +1741,7 @@ button:disabled {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background:
-    radial-gradient(ellipse 118% 112% at -10% -28%, color-mix(in srgb, var(--vast-accent) var(--vast-gradient-soft-mix), transparent), transparent 72%),
-    linear-gradient(125deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0.006) 36%, transparent 58%);
+  background: linear-gradient(125deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0.006) 36%, transparent 58%);
   opacity: 0.72;
 }
 
@@ -1777,14 +1788,12 @@ button:disabled {
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.012),
     0 16px 42px rgba(0, 0, 0, 0.2);
-  backdrop-filter: blur(calc(var(--vast-effective-blur) * 0.45)) saturate(1.02);
 }
 
 .app-shell .extensions-page-surface .vast-glass-panel {
   border-color: color-mix(in srgb, var(--vast-border) 24%, transparent);
   background: color-mix(in srgb, var(--vast-surface-elevated) 94%, var(--vast-bg));
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.012);
-  backdrop-filter: none;
   transform: none;
 }
 
@@ -1794,11 +1803,10 @@ button:disabled {
   padding: 0.1875rem;
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: var(--vast-radius-button);
-  background: rgba(17, 16, 23, 0.68);
+  background: rgba(17, 17, 17, 0.68);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.045),
     0 8px 24px rgba(0, 0, 0, 0.1);
-  backdrop-filter: blur(18px) saturate(135%);
 }
 
 .extensions-tab {
@@ -1826,9 +1834,22 @@ button:disabled {
 
 .extensions-tab.is-active {
   border-color: color-mix(in srgb, var(--vast-accent) 46%, transparent);
-  background: color-mix(in srgb, var(--vast-accent) 26%, #0b0c11);
+  background: color-mix(in srgb, var(--vast-accent) 26%, #0c0c0c);
   color: #ffffff;
   box-shadow: 0 2px 10px color-mix(in srgb, var(--vast-accent) 24%, transparent);
+}
+
+/* Dim: neutral gray instead of the dark theme's purple-navy glass. */
+.dim-theme .extensions-tablist {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: none;
+}
+
+.dim-theme .extensions-tab.is-active {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: none;
 }
 
 .extensions-search-panel {
@@ -2657,274 +2678,176 @@ button:disabled {
   transform: translateY(0) scale(1);
 }
 
-/* Live browser preview: preview-faithful structure on runtime tokens. */
-.settings-preview {
-  --vast-radius-micro: calc(var(--vast-radius-base) * 0.16);
-  --vast-radius-checkbox: calc(var(--vast-radius-base) * 0.28);
-  --vast-radius-swatch: var(--vast-radius-checkbox);
-  --vast-radius-control: calc(var(--vast-radius-base) * 0.54);
-  --vast-radius-button: calc(var(--vast-radius-base) * 0.7);
-  --vast-radius-tile: calc(var(--vast-radius-base) * 0.8);
-  --vast-radius-card: var(--vast-radius-base);
-  --vast-radius-panel: calc(var(--vast-radius-base) * 1.15);
-  --vast-radius-modal: calc(var(--vast-radius-base) * 1.3);
-  display: block;
-  contain: layout paint style;
+/* Visual profiles: the first Appearance card. Its row menus overflow the card,
+   so it keeps layout/style containment but not paint. */
+.settings-modal-scroll .settings-card.visual-profiles {
+  position: relative;
+  z-index: 2;
+  contain: layout style;
 }
 
-/* Dark token restore when the surrounding app shell is dim or light. */
-.settings-preview-dark {
-  --vast-color-bg-canvas: #050507;
-  --vast-color-bg-subtle: #090a0e;
-  --vast-surface: rgba(255, 255, 255, 0.055);
-  --vast-surface-strong: rgba(255, 255, 255, 0.09);
-  --vast-surface-elevated: rgba(12, 13, 18, 0.98);
-  --vast-border: rgba(255, 255, 255, 0.14);
-  --vast-color-border-strong: rgba(255, 255, 255, 0.22);
-  --vast-text: #f5f7fb;
-  --vast-muted: #b4bbc8;
-  --vast-bg: var(--vast-color-bg-canvas);
-  --vast-ink: var(--vast-color-bg-subtle);
-  --vast-panel: rgba(8, 9, 13, 0.9);
-  --vast-color-text-inverse: #11141a;
-}
-
-.settings-preview-frame {
+/* Always the height of the Appearance Preview it replaced (366 px): the list
+   fills the card and scrolls once profiles no longer fit. */
+.settings-card.visual-profiles {
   display: flex;
-  height: 300px;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--vast-border) 62%, transparent);
-  border-radius: var(--vast-radius-tile);
-  background: #030304;
-  box-shadow: var(--vast-shadow-md);
-  transition: border-radius var(--vast-motion-swift);
-}
-
-.pv-rail {
-  width: 0;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--vast-panel) var(--vast-chrome-mix), transparent);
-  border-right: 1px solid color-mix(in srgb, var(--vast-border) 30%, transparent);
-  transition: width var(--vast-motion-swift);
-}
-
-.settings-preview[data-preview-layout='vertical'] .pv-rail {
-  width: 92px;
-}
-
-.pv-rail span {
-  display: block;
-  height: 24px;
-  margin: 9px 10px;
-  border: 1px solid color-mix(in srgb, var(--vast-border) 26%, transparent);
-  border-radius: calc(var(--vast-radius-control) * 0.62);
-  background: rgba(255, 255, 255, 0.045);
-}
-
-.pv-rail span:first-child {
-  margin-top: 14px;
-  border-color: color-mix(in srgb, var(--vast-accent) 34%, transparent);
-  background: color-mix(in srgb, var(--vast-accent) 12%, rgba(255, 255, 255, 0.045));
-}
-
-.pv-main {
-  display: flex;
-  min-width: 0;
-  flex: 1;
+  height: 366px;
   flex-direction: column;
 }
 
-.pv-tabs {
-  display: flex;
-  height: 44px;
-  align-items: flex-end;
-  gap: 6px;
-  padding: 0 10px;
-  background: color-mix(in srgb, var(--vast-panel) var(--vast-chrome-mix), transparent);
-}
-
-.settings-preview[data-preview-layout='horizontal'] .pv-tabs {
-  align-items: center;
-  gap: 8px;
-}
-
-.settings-preview[data-preview-layout='vertical'] .pv-tabs {
-  display: none;
-}
-
-.settings-preview[data-preview-layout='purist'] .pv-tabs {
-  height: 34px;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-}
-
-.pv-tab {
-  display: flex;
-  height: 30px;
-  min-width: 118px;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: var(--vast-radius-control);
-  background: rgba(255, 255, 255, 0.045);
-  color: var(--vast-muted);
-  font-size: 10px;
-  font-weight: 550;
-  padding: 0 9px;
-}
-
-.pv-tab:not(.is-inactive) {
-  border-color: rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--vast-text);
-}
-
-.pv-tab.is-inactive {
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.settings-preview[data-preview-layout='horizontal'] .pv-tab {
-  width: 72px;
-  min-width: 0;
-  height: 24px;
-  padding: 0;
-  border-color: color-mix(in srgb, var(--vast-border) 26%, transparent);
-  border-radius: calc(var(--vast-radius-control) * 0.62);
-  background: rgba(255, 255, 255, 0.045);
-}
-
-.settings-preview[data-preview-layout='horizontal'] .pv-tab:not(.is-inactive) {
-  border-color: color-mix(in srgb, var(--vast-accent) 34%, transparent);
-  background: color-mix(in srgb, var(--vast-accent) 12%, rgba(255, 255, 255, 0.045));
-}
-
-.settings-preview[data-preview-layout='purist'] .pv-tab {
-  height: 26px;
-  min-width: 160px;
-  justify-content: center;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-bottom-color: rgba(255, 255, 255, 0.08);
-  border-radius: var(--vast-radius-control);
-  background: rgba(3, 4, 7, 0.72);
-  backdrop-filter: blur(14px);
-  opacity: 1;
-}
-
-.pv-toolbar {
-  display: flex;
-  height: 42px;
-  align-items: center;
-  gap: 7px;
-  padding: 0 10px;
-  background: color-mix(in srgb, var(--vast-panel) var(--vast-chrome-mix), transparent);
-  border-top: 1px solid color-mix(in srgb, var(--vast-border) 26%, transparent);
-}
-
-.settings-preview[data-preview-layout='purist'] .pv-toolbar {
-  height: 40px;
-  background: transparent;
-  padding: 2px 18px 7px;
-}
-
-.pv-icon {
-  width: 22px;
-  height: 22px;
-  border: 1px solid color-mix(in srgb, var(--vast-border) 24%, transparent);
-  border-radius: calc(var(--vast-radius-control) * 0.6);
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.settings-preview.clean-toolbar-icons .pv-icon {
-  position: relative;
-  width: 24px;
-  height: 24px;
-  border-color: transparent;
-  background: transparent;
-}
-
-.settings-preview.clean-toolbar-icons .pv-icon::after {
-  position: absolute;
-  inset: 7px;
-  border: 1.5px solid color-mix(in srgb, var(--vast-text) 68%, transparent);
-  border-radius: var(--vast-radius-control);
-  content: '';
-}
-
-.pv-url {
-  height: 28px;
-  flex: 1;
-  border: 1px solid color-mix(in srgb, var(--vast-accent) var(--vast-address-border-mix), transparent);
-  border-radius: var(--vast-radius-control);
-  background: color-mix(in srgb, var(--vast-bg) var(--vast-address-panel-mix), var(--vast-surface-tint));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.045),
-    0 12px 34px rgba(0, 0, 0, var(--vast-address-shadow-alpha));
-  backdrop-filter: blur(var(--vast-effective-blur)) saturate(var(--vast-saturation));
-}
-
-.settings-preview[data-preview-layout='purist'] .pv-url {
-  height: 30px;
-}
-
-.pv-page {
-  position: relative;
-  flex: 1;
-  border-radius: inherit;
-  background:
-    radial-gradient(circle at 50% -15%, color-mix(in srgb, var(--vast-accent) 8%, transparent), transparent 28%),
-    linear-gradient(180deg, #07080a, #030304);
-}
-
-
-.pv-mark {
-  position: absolute;
-  top: 40%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-}
-
-.pv-logo-frame {
-  display: block;
-  position: relative;
-  width: 130px;
-  aspect-ratio: 493 / 176;
-  overflow: hidden;
-}
-.pv-logo {
-  position: absolute;
-  left: calc(50% - 2.07%);
-  top: calc(50% - 5.4%);
-  display: block;
-  width: 321.3%;
-  height: auto;
-  max-width: none;
-  aspect-ratio: 4 / 1;
-  object-fit: contain;
-  transform: translate(-50%, -50%);
-  filter: brightness(0) invert(1);
-  opacity: 0.96;
-  user-select: none;
-}
-.pv-favicon {
-  width: 10px;
-  height: 10px;
+.visual-profiles-head,
+.visual-profiles-status {
   flex: none;
-  border-radius: var(--vast-radius-micro);
-  background: color-mix(in srgb, var(--vast-accent) 55%, white 10%);
 }
 
-.pv-search {
+.visual-profiles-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.visual-profiles-head .settings-card-title {
+  margin: 0;
+}
+
+.visual-profiles-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 0.375rem;
+}
+
+.visual-profile-list {
+  min-height: 0;
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+  border: 1px solid color-mix(in srgb, var(--vast-border) 48%, transparent);
+  border-radius: var(--vast-radius-card);
+}
+
+.visual-profile-row {
+  display: grid;
+  min-height: 3.25rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.45rem 0.5rem 0.45rem 0.9rem;
+  transition: background var(--vast-motion-snap);
+}
+
+.visual-profile-row:first-child {
+  border-top-left-radius: inherit;
+  border-top-right-radius: inherit;
+}
+
+.visual-profile-row:last-child {
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
+}
+
+.visual-profile-row + .visual-profile-row {
+  border-top: 1px solid color-mix(in srgb, var(--vast-border) 42%, transparent);
+}
+
+.visual-profile-row:hover {
+  background: color-mix(in srgb, var(--vast-color-state-hover) 65%, transparent);
+}
+
+.visual-profile-swatch {
+  display: inline-flex;
+  padding-left: 0.15rem;
+}
+
+.visual-profile-swatch > span {
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: var(--vast-radius-panel);
+  box-shadow:
+    0 0 0 1.5px var(--vast-dialog-surface),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
+.visual-profile-swatch > span + span {
+  margin-left: -0.3rem;
+}
+
+.visual-profile-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.visual-profile-name,
+.visual-profile-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visual-profile-name {
+  color: var(--vast-text);
+  font-size: 0.84rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+.visual-profile-sub {
+  margin-top: 0.1rem;
+  color: var(--vast-muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.visual-profile-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.visual-profile-state {
+  padding: 0 0.6rem;
+  color: var(--vast-accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* Pale accents need ink to stay readable on light surfaces. */
+.light-theme .visual-profile-state {
+  color: color-mix(in srgb, var(--vast-accent) 52%, #1e293b);
+}
+
+.visual-profile-menu-slot {
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+}
+
+/* Positioned against the card, so the scrolling list does not clip it. */
+.visual-profile-menu {
   position: absolute;
-  top: 64%;
-  left: 50%;
-  width: 150px;
-  height: 30px;
-  border: 1px solid color-mix(in srgb, var(--vast-border) 28%, transparent);
-  border-radius: var(--vast-radius-control);
-  background: rgba(7, 8, 11, 0.8);
-  backdrop-filter: blur(var(--vast-effective-blur));
-  transform: translateX(-50%);
+  z-index: 10;
+  width: 13rem;
+}
+
+.visual-profiles-status {
+  display: flex;
+  min-height: 1.75rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.6rem;
+  color: var(--vast-muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.visual-profiles-status.is-error {
+  color: var(--vast-amber);
 }
 
 .settings-select-control {
@@ -3028,7 +2951,6 @@ button:disabled {
     0 0 0 1px rgba(255, 255, 255, 0.018);
   padding: var(--vast-select-menu-padding);
   outline: none;
-  backdrop-filter: blur(min(var(--vast-blur), 12px)) saturate(1.08);
   animation: vast-select-in 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
@@ -3505,29 +3427,23 @@ button:disabled {
 }
 
 @media (prefers-reduced-transparency: reduce) {
+  html,
   .app-shell {
     --vast-effective-blur: 0px;
     --vast-saturation: 1;
-    --vast-dialog-opacity: 100% !important;
     --vast-dialog-card-opacity: 100% !important;
-    --vast-dialog-effective-blur: 0px !important;
     --vast-dialog-backdrop-blur: 0px !important;
+    --vast-float-opacity: 100% !important;
+    --vast-float-alpha: 1 !important;
+    --vast-float-filter: none !important;
   }
 
-  .vast-glass-panel,
   .vast-top-address,
   .side-panel,
   .command-palette-shell,
   .command-palette-panel,
   .settings-modal-overlay,
-  .settings-modal-shell,
-  .vast-select-menu,
-  [role='menu'],
-  .pv-url,
-  .pv-rail,
-  .pv-tabs,
-  .pv-toolbar,
-  .settings-preview[data-preview-layout='purist'] .pv-tab {
+  .settings-modal-shell {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
@@ -3674,12 +3590,11 @@ button:disabled {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.72),
     var(--vast-shadow-md);
-  backdrop-filter: none;
 }
 
 .dim-theme .vast-glass-panel {
   border-color: rgba(255, 255, 255, 0.1);
-  background: #242424;
+  background: color-mix(in srgb, var(--vast-surface-tint) var(--vast-dim-surface-tint-mix, 0%), #242424);
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.012),
     0 4px 14px rgba(0, 0, 0, 0.12);
@@ -3723,17 +3638,17 @@ button:disabled {
 }
 
 .dark-theme .settings-modal-shell {
-  --vast-dialog-surface: #050507;
+  --vast-dialog-surface: #050505;
 }
 
 .dark-theme .settings-modal-shell .settings-card,
 .dark-theme .settings-modal-shell .settings-rows,
 .dark-theme .settings-modal-shell .settings-feature {
-  background: color-mix(in srgb, #131315 var(--vast-dialog-card-opacity), transparent);
+  background: color-mix(in srgb, #131313 var(--vast-dialog-card-opacity), transparent);
 }
 
 .dark-theme .settings-modal-shell .settings-color-item {
-  background: #121214;
+  background: #121212;
 }
 
 .light-theme .settings-modal-shell {
@@ -3768,7 +3683,6 @@ button:disabled {
   border-color: var(--vast-color-border-default);
   background: #ffffff;
   box-shadow: 0 20px 48px rgba(15, 23, 42, 0.18);
-  backdrop-filter: none;
 }
 
 .light-theme .vast-select-option:hover:not(:disabled),
@@ -3845,54 +3759,6 @@ button:disabled {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vast-accent) 16%, transparent);
 }
 
-.light-theme .settings-preview-frame {
-  border-color: var(--vast-color-border-default);
-  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.16);
-}
-
-.light-theme .pv-rail,
-.light-theme .pv-tabs,
-.light-theme .pv-toolbar {
-  background: #f5f7fa;
-}
-
-.light-theme .pv-url {
-  border-color: rgba(15, 23, 42, 0.1);
-  background: #ffffff;
-}
-
-.light-theme .pv-icon {
-  border-color: rgba(15, 23, 42, 0.1);
-  background: rgba(15, 23, 42, 0.07);
-}
-
-.light-theme .pv-rail span {
-  border-color: rgba(15, 23, 42, 0.09);
-  background: #ffffff;
-}
-
-.settings-preview.light-theme[data-preview-layout='horizontal'] .pv-tab {
-  border-color: rgba(15, 23, 42, 0.09);
-  background: #ffffff;
-}
-
-.light-theme .pv-tab {
-  border-color: var(--vast-accent);
-  background: #ffffff;
-  color: #455269;
-}
-
-.dim-theme .pv-rail,
-.dim-theme .pv-tabs,
-.dim-theme .pv-toolbar {
-  background: rgba(25, 25, 25, 0.82);
-}
-
-.dim-theme .pv-url,
-.settings-preview[data-preview-layout='purist'] .pv-tab {
-  background: rgba(31, 31, 31, 0.92);
-}
-
 .dim-theme .settings-choice-card {
   background: color-mix(in srgb, var(--vast-surface) 45%, var(--vast-bg));
 }
@@ -3910,27 +3776,27 @@ button:disabled {
 }
 
 /* Internal page sidebars own their surfaces; layout-only containers stay transparent. */
-.light-theme aside:not(.labs-page-surface aside):not(.vast-glass-panel),
+.light-theme aside:not(.labs-page-surface aside):not(.vast-glass-panel):not(.side-panel),
 .light-theme header,
 .light-theme main,
-.light-theme [class*="bg-[#07080b]"],
-.light-theme [class*="bg-[#08090d]"],
-.light-theme [class*="bg-[#090a0d]"],
-.light-theme [class*="bg-[#0b0c11]"]:not(.settings-modal-shell),
-.light-theme [class*="bg-[#0c0d12]"],
-.light-theme [class*="bg-[#0d0e13]"] {
+.light-theme [class*="bg-[#080808]"],
+.light-theme [class*="bg-[#090909]"],
+.light-theme [class*="bg-[#0a0a0a]"],
+.light-theme [class*="bg-[#0c0c0c]"]:not(.settings-modal-shell),
+.light-theme [class*="bg-[#0d0d0d]"],
+.light-theme [class*="bg-[#0e0e0e]"] {
   background-color: #f5f7fa !important;
 }
 
-.dim-theme aside:not(.labs-page-surface aside):not(.vast-glass-panel),
+.dim-theme aside:not(.labs-page-surface aside):not(.vast-glass-panel):not(.side-panel),
 .dim-theme header,
 .dim-theme main,
-.dim-theme [class*="bg-[#07080b]"],
-.dim-theme [class*="bg-[#08090d]"],
-.dim-theme [class*="bg-[#090a0d]"],
-.dim-theme [class*="bg-[#0b0c11]"]:not(.settings-modal-shell),
-.dim-theme [class*="bg-[#0c0d12]"],
-.dim-theme [class*="bg-[#0d0e13]"] {
+.dim-theme [class*="bg-[#080808]"],
+.dim-theme [class*="bg-[#090909]"],
+.dim-theme [class*="bg-[#0a0a0a]"],
+.dim-theme [class*="bg-[#0c0c0c]"]:not(.settings-modal-shell),
+.dim-theme [class*="bg-[#0d0d0d]"],
+.dim-theme [class*="bg-[#0e0e0e]"] {
   background-color: rgba(31, 31, 31, 0.96) !important;
 }
 
@@ -3965,6 +3831,41 @@ button:disabled {
   background: #1f1f1f;
 }
 
+/* Dim shell: filled controls instead of outlines. Tabs and toolbar controls
+   are told apart by a lighter fill; the active tab is the lightest. */
+.dim-theme .horizontal-chrome [data-tab-motion-id] > div,
+.dim-theme [data-tab-sidebar] [data-tab-motion-id],
+.dim-theme .horizontal-chrome button[title='Switch workspace'],
+.dim-theme .horizontal-chrome button[title='All tabs'],
+.dim-theme [data-tab-sidebar] > div > button,
+.dim-theme [data-tab-sidebar] .group\/workspace,
+.dim-theme .vast-top-address:not(:focus-within) {
+  border-color: transparent !important;
+}
+
+.dim-theme .horizontal-chrome [data-tab-motion-id] > div,
+.dim-theme [data-tab-sidebar] [data-tab-motion-id],
+.dim-theme .horizontal-chrome button[title='Switch workspace'],
+.dim-theme .horizontal-chrome button[title='All tabs'] {
+  background-color: rgba(255, 255, 255, 0.045);
+}
+
+.dim-theme .horizontal-chrome [data-tab-motion-id]:hover > div,
+.dim-theme [data-tab-sidebar] [data-tab-motion-id]:hover,
+.dim-theme .horizontal-chrome button[title='Switch workspace']:hover,
+.dim-theme .horizontal-chrome button[title='All tabs']:hover {
+  background-color: rgba(255, 255, 255, 0.075);
+}
+
+.dim-theme .horizontal-chrome [data-tab-motion-id] > div.vast-tab-active,
+.dim-theme [data-tab-sidebar] [data-tab-motion-id].vast-tab-active {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+.dim-theme .vast-top-address {
+  background: color-mix(in srgb, var(--vast-surface-tint) var(--vast-dim-surface-tint-mix, 0%), #2a2a2a);
+}
+
 .light-theme .app-main-surface {
   background:
     radial-gradient(circle at 48% -12%, color-mix(in srgb, var(--vast-accent) 12%, transparent), transparent 30%),
@@ -3995,42 +3896,34 @@ button:disabled {
   background-size: cover !important;
 }
 
-.settings-preview .pv-page[data-new-tab-background='space-black'],
 .new-tab-page[data-new-tab-background='space-black'] {
   background-color: #020202 !important;
 }
 
-.settings-preview .pv-page[data-new-tab-background='accent-gradient'],
 .new-tab-page[data-new-tab-background='accent-gradient'] {
   background-image: radial-gradient(circle at 50% -12%, color-mix(in srgb, var(--vast-accent) 10%, transparent), transparent 54%) !important;
 }
 
-.settings-preview .pv-page[data-new-tab-background='carbon-black'],
 .new-tab-page[data-new-tab-background='carbon-black'] {
   background-color: #141414 !important;
 }
 
-.settings-preview .pv-page[data-new-tab-background='depth'],
 .new-tab-page[data-new-tab-background='depth'] {
   background-image: linear-gradient(145deg, #050505 0%, #101010 58%, #151515 100%) !important;
 }
 
-.settings-preview .pv-page[data-new-tab-background='adaptive'],
 .new-tab-page[data-new-tab-background='adaptive'] {
   background-color: #050505 !important;
 }
 
-.dim-theme .settings-preview .pv-page[data-new-tab-background='adaptive'],
 .dim-theme .new-tab-page[data-new-tab-background='adaptive'] {
   background-color: #1d1d1d !important;
 }
 
-.light-theme .settings-preview .pv-page[data-new-tab-background='adaptive'],
 .light-theme .new-tab-page[data-new-tab-background='adaptive'] {
   background-color: #f1f3f6 !important;
 }
 
-.settings-preview .pv-page[data-new-tab-background='custom'],
 .new-tab-page[data-new-tab-background='custom'] {
   background-image: var(--vast-new-tab-image, none) !important;
 }
@@ -4304,7 +4197,7 @@ button:disabled {
   margin-bottom: 10px;
 }
 
-.onboarding-theme-chip--dark { background: #050507; }
+.onboarding-theme-chip--dark { background: #050505; }
 .onboarding-theme-chip--dim { background: #151515; }
 .onboarding-theme-chip--light { background: #e9edf3; }
 
@@ -4497,4 +4390,199 @@ button:disabled {
   .onboarding-setup-block { margin-top: 30px; gap: 24px; }
   .onboarding-nav { bottom: 14px; }
   .onboarding-logo { width: 74px; height: 74px; }
+}
+
+/* Text fields highlight on focus exactly like the address bar: its border
+   color, 1px accent ring and soft glow, with the same 150ms timing. Fields
+   embedded in a bordered container (transparent inputs) highlight that
+   container instead; the address bar and the command palette keep their own. */
+:root,
+.app-shell {
+  --vast-field-focus-border: color-mix(in srgb, var(--vast-accent) var(--vast-address-border-mix), transparent);
+  --vast-field-focus-ring:
+    0 0 0 1px color-mix(in srgb, var(--vast-accent) var(--vast-focus-border-mix), transparent),
+    0 0 34px color-mix(in srgb, var(--vast-accent) var(--vast-focus-glow-mix), transparent);
+}
+
+.app-shell.dim-theme {
+  --vast-field-focus-border: color-mix(in srgb, var(--vast-accent) 30%, rgba(255, 255, 255, 0.14));
+  --vast-field-focus-ring: inset 0 0 0 1px color-mix(in srgb, var(--vast-accent) 12%, transparent);
+}
+
+.app-shell.light-theme {
+  --vast-field-focus-border: color-mix(in srgb, var(--vast-accent) 42%, rgba(15, 23, 42, 0.12));
+  --vast-field-focus-ring:
+    0 0 0 1px color-mix(in srgb, var(--vast-accent) 18%, transparent),
+    0 0 34px color-mix(in srgb, var(--vast-accent) 10%, transparent);
+}
+
+:is(input:is(:not([type]), [type='text'], [type='search'], [type='url'], [type='email'], [type='password'], [type='number'], [type='tel']), textarea):not(.address-bar-input):not(.command-palette-input):not(.bg-transparent),
+.settings-search-panel,
+.extensions-search-field {
+  transition-property: color, background-color, border-color, box-shadow, opacity;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+:is(input:is(:not([type]), [type='text'], [type='search'], [type='url'], [type='email'], [type='password'], [type='number'], [type='tel']), textarea):not(.address-bar-input):not(.command-palette-input):not(.bg-transparent):focus,
+.settings-search-panel:focus-within,
+.extensions-search-field:focus-within {
+  border-color: var(--vast-field-focus-border) !important;
+  box-shadow: var(--vast-field-focus-ring) !important;
+  outline: none !important;
+}
+
+.settings-search-panel input:focus,
+.extensions-search-field input:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Floating surfaces: everything that sits over a page or over Vast's own UI
+   (the shell itself stays solid). Transparency sets how much shows through,
+   Frost how blurred it is. Portaled menus live outside .app-shell, so the
+   theme and both values are mirrored onto <html> (App.tsx). */
+:root,
+.app-shell.dark-theme,
+html[data-vast-theme='dark'] {
+  --vast-float-surface: #0d0d0d;
+}
+
+.app-shell.dim-theme,
+html[data-vast-theme='dim'] {
+  --vast-float-surface: #1f1f1f;
+}
+
+.app-shell.light-theme,
+html[data-vast-theme='light'] {
+  --vast-float-surface: #ffffff;
+}
+
+html .vast-float.vast-float,
+html .side-panel.side-panel,
+html .vast-select-menu.vast-select-menu,
+html .settings-hint.settings-hint {
+  background: color-mix(in srgb, var(--vast-float-surface) var(--vast-float-opacity), transparent) !important;
+  backdrop-filter: var(--vast-float-filter) !important;
+}
+
+/* Dialog panels sit on the Background-blur overlay: Transparency only, no
+   second blur (nesting both doubled the GPU cost of every frame behind). */
+html .vast-modal-surface.vast-modal-surface {
+  background: color-mix(in srgb, var(--vast-dialog-surface) var(--vast-float-opacity), transparent) !important;
+}
+
+/* Notification toasts keep their tone tint; Transparency scales its alpha. */
+.vast-toast {
+  backdrop-filter: var(--vast-float-filter);
+}
+
+.vast-toast--info { background: linear-gradient(180deg, rgb(9 15 21 / var(--vast-float-alpha)), rgb(7 10 14 / calc(var(--vast-float-alpha) - 0.02))); }
+.vast-toast--success { background: linear-gradient(180deg, rgb(8 18 16 / var(--vast-float-alpha)), rgb(7 12 12 / calc(var(--vast-float-alpha) - 0.02))); }
+.vast-toast--warning { background: linear-gradient(180deg, rgb(24 17 10 / var(--vast-float-alpha)), rgb(12 10 8 / calc(var(--vast-float-alpha) - 0.02))); }
+.vast-toast--error { background: linear-gradient(180deg, rgb(24 10 12 / var(--vast-float-alpha)), rgb(12 8 9 / calc(var(--vast-float-alpha) - 0.02))); }
+
+/* Compact sidebar: the expand button, workspaces, New workspace, tabs and
+   New tab are one kind of item, a centered 40px tile with the same states. */
+:root,
+.app-shell.dark-theme {
+  --vast-sidebar-tile-bg: transparent;
+  --vast-sidebar-tile-hover: rgba(255, 255, 255, 0.06);
+  --vast-sidebar-tile-active: rgba(255, 255, 255, 0.11);
+  --vast-sidebar-tile-active-border: rgba(255, 255, 255, 0.12);
+}
+
+.app-shell.dim-theme {
+  --vast-sidebar-tile-bg: rgba(255, 255, 255, 0.045);
+  --vast-sidebar-tile-hover: rgba(255, 255, 255, 0.075);
+  --vast-sidebar-tile-active: rgba(255, 255, 255, 0.12);
+  --vast-sidebar-tile-active-border: transparent;
+}
+
+.app-shell.light-theme {
+  --vast-sidebar-tile-bg: transparent;
+  --vast-sidebar-tile-hover: rgba(15, 23, 42, 0.06);
+  --vast-sidebar-tile-active: rgba(15, 23, 42, 0.08);
+  --vast-sidebar-tile-active-border: rgba(15, 23, 42, 0.12);
+}
+
+html [data-sidebar-content='compact'] .sidebar-tile.sidebar-tile {
+  width: 40px !important;
+  min-width: 40px !important;
+  height: 40px !important;
+  margin-inline: auto;
+  padding: 0 !important;
+  justify-content: center;
+  border: 1px solid transparent !important;
+  border-radius: var(--vast-radius-control) !important;
+  background: var(--vast-sidebar-tile-bg) !important;
+  box-shadow: none !important;
+  color: var(--vast-muted);
+}
+
+html [data-sidebar-content='compact'] .sidebar-tile.sidebar-tile:hover {
+  background: var(--vast-sidebar-tile-hover) !important;
+  color: var(--vast-text);
+}
+
+html [data-sidebar-content='compact'] .sidebar-tile.sidebar-tile.is-active {
+  border-color: var(--vast-sidebar-tile-active-border) !important;
+  background: var(--vast-sidebar-tile-active) !important;
+  color: var(--vast-text);
+}
+
+/* Utility classes live in a cascade layer, so the global overflow-y-auto
+   gutter rule would otherwise win and push compact tabs off-center. */
+.vertical-tabs-scroll-compact.vertical-tabs-scroll-compact {
+  scrollbar-gutter: auto;
+}
+
+/* Horizontal tab strip: scrolls when tabs no longer fit. The scrollbar is
+   hidden; soft fades show there are more tabs on that side and ease in and
+   out (registered properties make the fade widths animatable). The mask is
+   only applied while the strip overflows. */
+@property --vast-tab-fade-left {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --vast-tab-fade-right {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+.horizontal-tab-strip {
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+
+.horizontal-tab-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.horizontal-tab-strip[data-overflowing] {
+  --vast-tab-fade-left: 0px;
+  --vast-tab-fade-right: 0px;
+  mask-image: linear-gradient(90deg, transparent 0, #000 var(--vast-tab-fade-left), #000 calc(100% - var(--vast-tab-fade-right)), transparent 100%);
+  transition: --vast-tab-fade-left 160ms ease, --vast-tab-fade-right 160ms ease;
+}
+
+.horizontal-tab-strip[data-scroll-left] {
+  --vast-tab-fade-left: 28px;
+}
+
+.horizontal-tab-strip[data-scroll-right] {
+  --vast-tab-fade-right: 28px;
+}
+
+/* Tabs ease into a new width (after closing tabs, when one is added); the
+   slide itself is a transform, so contents never stretch. */
+.horizontal-tab {
+  transition: width 170ms cubic-bezier(0.2, 0.82, 0.24, 1);
+}
+
+.no-motion .horizontal-tab {
+  transition: none;
 }

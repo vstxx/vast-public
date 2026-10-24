@@ -3,7 +3,7 @@ import { BrowserWindow, app, dialog, ipcMain, nativeTheme, protocol, session, we
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { createMainWindow } from './window'
-import { applySpoofingToAllWebContents, checkpointBrowserSessionData, clearSiteData, dispatchExtensionCompatibilityTabOpen, prepareBrowserSessionSecurity, setupTrackerBlocking, setupUserAgent } from './sessions'
+import { applySpoofingToAllWebContents, checkpointBrowserSessionData, clearSiteData, dispatchExtensionCompatibilityTabOpen, holdTabRequestsUntil, prepareBrowserSessionSecurity, setupTrackerBlocking, setupUserAgent } from './sessions'
 import { loadData } from './storage'
 import { DEFAULT_DATA, DEFAULT_SETTINGS } from '../shared/constants'
 import { matchesExtensionMatchPattern } from '../shared/extension-match-pattern'
@@ -240,7 +240,8 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
     approvedRuntime: compatibilityManifest,
     packagedEvidence: packagedCompatibilityEvidence.evidence
   })
-  const cwsNavigationCandidate = compatibilityGate.enabled && (!app.isPackaged || cwsNavigationApproval.navigationApproved)
+  // Only a development run hashes its executable; see cwsNavigationGate.
+  const cwsNavigationCandidate = compatibilityGate.enabled && !app.isPackaged
   const cwsNavigationEnabled = cwsNavigationGate({
     isPackaged: app.isPackaged,
     electronVersion: process.versions.electron,
@@ -326,12 +327,13 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
     onChanged: () => windowRegistry.broadcast('vast:extensions:changed'),
     onContributionsChanged: (snapshot) => windowRegistry.broadcast('vast:extensions:contributions-changed', snapshot)
   })
-  try {
-    await extensionManager.initialize(startupData.workspaces)
-  } catch (error) {
-    console.warn('[extensions] Could not initialize the extension registry:', error)
-  }
-  markPerformance('startup-extensions-initialized')
+  // Restored in the background so the window opens right away; web requests
+  // from tabs wait for it, so no page loads without its extensions. Extension
+  // calls made meanwhile queue behind it in the manager.
+  const extensionsRestored = extensionManager.initialize(startupData.workspaces)
+    .catch((error) => console.warn('[extensions] Could not initialize the extension registry:', error))
+    .finally(() => markPerformance('startup-extensions-initialized'))
+  holdTabRequestsUntil(extensionsRestored)
 
   const onDataSaved = (data: Awaited<ReturnType<typeof loadData>>): void => {
     const previousSettings = currentSettings

@@ -13,7 +13,7 @@ import {
   Volume2,
   X
 } from 'lucide-react'
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { calculateVisibleBookmarkCount } from '../../../shared/bookmarks-bar-layout'
 import { INTERNAL_NEW_TAB_URL } from '../../../shared/constants'
@@ -54,7 +54,7 @@ export function HorizontalChrome(): JSX.Element {
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
 
   return (
-    <header className="horizontal-chrome drag relative z-30 shrink-0 border-b border-white/8 bg-[#07080b]/92 text-white backdrop-blur-2xl">
+    <header className="horizontal-chrome drag relative z-30 shrink-0 border-b border-white/8 bg-[#080808]/92 text-white">
       <div className="horizontal-titlebar-row flex h-10 min-w-0 items-center gap-2 px-3">
         <WorkspacePopover
           workspace={workspace}
@@ -124,7 +124,7 @@ export function WorkspacePopover({
       </button>
 
       {open && (
-        <div className="absolute left-0 top-10 z-50 w-80 overflow-hidden rounded-card border border-white/10 bg-[#090a0d]/98 p-2 shadow-glass backdrop-blur-2xl" data-testid="workspace-popover">
+        <div className="absolute left-0 top-10 z-50 w-80 overflow-hidden rounded-card vast-float border border-white/10 p-2 shadow-glass" data-testid="workspace-popover">
           <div className="px-3 pb-3 pt-2">
             <h2 className="text-2xl font-semibold leading-tight tracking-tight text-white" data-testid="workspace-popover-heading">Workspaces</h2>
           </div>
@@ -214,7 +214,14 @@ function HorizontalTabBar(): JSX.Element {
   const [overflowQuery, setOverflowQuery] = useState('')
   const [dragTargetId, setDragTargetId] = useState<string | null>(null)
   const [stripWidth, setStripWidth] = useState(900)
+  const [scrollEdges, setScrollEdges] = useState({ left: false, right: false })
+  const animations = useBrowserStore((state) => state.settings.animations)
+  // The bar measures the room for tabs; the strip is the scrolling viewport.
+  const barRef = useRef<HTMLDivElement | null>(null)
   const stripRef = useRef<HTMLDivElement | null>(null)
+  const scrollTargetRef = useRef<number | null>(null)
+  // Set while a reveal of the active tab is in flight; any wheel input clears it.
+  const revealPendingRef = useRef(false)
   const overflowRef = useRef<HTMLDivElement | null>(null)
   const overflowMenuRef = useRef<HTMLDivElement | null>(null)
   const [overflowPosition, setOverflowPosition] = useState({ left: 8, top: 48, maxHeight: 440 })
@@ -275,30 +282,162 @@ function HorizontalTabBar(): JSX.Element {
     return [...scoped.filter((tab) => tab.pinned), ...scoped.filter((tab) => !tab.pinned)]
   }, [tabs, workspace?.id])
 
+  // Which tabs show, in order: changes to it slide the tabs. Width changes are
+  // left to the CSS width transition.
+  const tabMotionKey = useMemo(() => workspaceTabs.map((tab) => `${tab.id}${tab.pinned ? '*' : ''}`).join('|'), [workspaceTabs])
+
+  // Closing tabs with the mouse keeps the others at their width, so the next
+  // close button lands under the pointer; they widen once it leaves the strip.
+  const [frozenTabWidth, setFrozenTabWidth] = useState<number | null>(null)
+  const previousTabCount = useRef(workspaceTabs.length)
   useEffect(() => {
-    const node = stripRef.current
-    if (!node) return
-    const update = (): void => {
-      const width = node.getBoundingClientRect().width
-      setStripWidth(width)
+    if (workspaceTabs.length > previousTabCount.current) setFrozenTabWidth(null)
+    previousTabCount.current = workspaceTabs.length
+  }, [workspaceTabs.length])
+  useEffect(() => setFrozenTabWidth(null), [workspace?.id])
+  // A fast move straight into the page skips the bar's pointerleave (the page
+  // is another process), so any move elsewhere or leaving the window releases too.
+  useEffect(() => {
+    if (frozenTabWidth === null) return undefined
+    const release = (): void => setFrozenTabWidth(null)
+    // Last resort when the pointer left without any event reaching this page.
+    let idle = window.setTimeout(release, 2_500)
+    const onPointerMove = (event: PointerEvent): void => {
+      if (!(event.target instanceof Node) || !barRef.current?.contains(event.target)) return release()
+      window.clearTimeout(idle)
+      idle = window.setTimeout(release, 2_500)
     }
+    document.addEventListener('pointermove', onPointerMove, { passive: true })
+    document.addEventListener('pointerleave', release)
+    window.addEventListener('blur', release)
+    return () => {
+      window.clearTimeout(idle)
+      document.removeEventListener('pointermove', onPointerMove)
+      document.removeEventListener('pointerleave', release)
+      window.removeEventListener('blur', release)
+    }
+  }, [frozenTabWidth])
+
+  useEffect(() => {
+    const node = barRef.current
+    if (!node) return
+    const update = (): void => setStripWidth(node.getBoundingClientRect().width)
     update()
     const observer = new ResizeObserver(update)
     observer.observe(node)
     return () => observer.disconnect()
-  }, [workspaceTabs.length])
+  }, [])
 
-  const tabCount = Math.max(workspaceTabs.length, 1)
+  // Tabs shrink to fit down to a minimum width; past that the strip scrolls.
   const minimumTabWidth = 108
   const maximumTabWidth = 188
-  const newTabButtonWidth = 42
-  const visibleCapacity = Math.max(1, Math.min(workspaceTabs.length || 1, Math.floor((stripWidth - newTabButtonWidth) / minimumTabWidth)))
-  const visibleTabs = workspaceTabs.slice(0, visibleCapacity)
-  const overflowTabs = workspaceTabs.slice(visibleCapacity)
-  const visiblePinnedCount = visibleTabs.filter((tab) => tab.pinned).length
-  const overflowButtonWidth = overflowTabs.length > 0 ? 48 : 0
-  const availableForTabs = Math.max(minimumTabWidth, stripWidth - newTabButtonWidth - overflowButtonWidth - 10)
-  const tabWidth = Math.floor(Math.min(maximumTabWidth, Math.max(minimumTabWidth, availableForTabs / Math.max(visibleTabs.length, 1) - 4)))
+  const tabGap = 4
+  const newTabButtonWidth = 36
+  const allTabsButtonWidth = 56
+  const visiblePinnedCount = workspaceTabs.filter((tab) => tab.pinned).length
+  const separatorWidth = visiblePinnedCount > 0 && visiblePinnedCount < workspaceTabs.length ? 10 : 0
+  const tabCount = Math.max(workspaceTabs.length, 1)
+  const overflowing = tabCount * (minimumTabWidth + tabGap) + separatorWidth > stripWidth - newTabButtonWidth
+  const availableForTabs = stripWidth - newTabButtonWidth - separatorWidth - (overflowing ? allTabsButtonWidth : 0)
+  const fittedTabWidth = overflowing
+    ? minimumTabWidth
+    : Math.floor(Math.min(maximumTabWidth, Math.max(minimumTabWidth, availableForTabs / tabCount - tabGap)))
+  const tabWidth = frozenTabWidth !== null && !overflowing ? Math.min(frozenTabWidth, fittedTabWidth) : fittedTabWidth
+  // Read by memoized tabs' close handlers, which do not re-render for this.
+  const stripSizing = useRef({ overflowing, tabWidth })
+  stripSizing.current = { overflowing, tabWidth }
+  const tabLayoutKey = `${workspaceTabs.map((tab) => tab.id).join('|')}:${visiblePinnedCount}:${tabWidth}`
+  const smoothScroll = animations && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  const updateScrollEdges = useCallback((): void => {
+    const strip = stripRef.current
+    if (!strip) return
+    const left = strip.scrollLeft > 1
+    const right = strip.scrollLeft < strip.scrollWidth - strip.clientWidth - 1
+    setScrollEdges((current) => (current.left === left && current.right === right ? current : { left, right }))
+  }, [])
+
+  // Scrolls to a target, retargeting smoothly while a scroll is still running
+  // so quick wheel notches add up instead of restarting from a midpoint.
+  const scrollStripTo = useCallback((target: number, smooth: boolean): void => {
+    const strip = stripRef.current
+    if (!strip) return
+    const max = Math.max(0, strip.scrollWidth - strip.clientWidth)
+    const left = Math.min(max, Math.max(0, Math.round(target)))
+    scrollTargetRef.current = smooth ? left : null
+    strip.scrollTo({ left, behavior: smooth ? 'smooth' : 'auto' })
+  }, [])
+
+  // Scrolls the active tab fully into view with a little breathing room.
+  const revealActiveTab = useCallback((smooth: boolean): void => {
+    const strip = stripRef.current
+    const activeId = useBrowserStore.getState().workspaces.find((item) => item.id === useBrowserStore.getState().activeWorkspaceId)?.activeTabId
+    if (!strip || !activeId) return
+    const tabElement = strip.querySelector<HTMLElement>(`[data-tab-motion-id="${CSS.escape(activeId)}"]`)
+    if (!tabElement) return
+    const margin = 32
+    const left = tabElement.offsetLeft
+    const right = left + tabElement.offsetWidth
+    const viewStart = scrollTargetRef.current ?? strip.scrollLeft
+    const target = left - margin < viewStart
+      ? left - margin
+      : right + margin > viewStart + strip.clientWidth
+        ? right + margin - strip.clientWidth
+        : null
+    if (target === null) return
+    revealPendingRef.current = smooth
+    scrollStripTo(target, smooth)
+  }, [scrollStripTo])
+
+  useEffect(() => {
+    const strip = stripRef.current
+    if (!strip) return undefined
+    const onScrollEnd = (): void => {
+      scrollTargetRef.current = null
+      updateScrollEdges()
+      // A tab's entrance animation briefly shifts it, which can clamp the
+      // reveal a few pixels short; finish the last bit once the glide ends.
+      if (revealPendingRef.current) {
+        revealPendingRef.current = false
+        revealActiveTab(true)
+        revealPendingRef.current = false
+      }
+    }
+    // Passive: vertical wheel over the strip has nothing else to scroll, so
+    // Chromium never has to wait for this listener. Horizontal gestures
+    // (touchpads) stay native.
+    const onWheel = (event: WheelEvent): void => {
+      revealPendingRef.current = false
+      if (event.ctrlKey || event.metaKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return
+      if (strip.scrollWidth <= strip.clientWidth) return
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? strip.clientWidth : 1
+      const delta = event.deltaY * unit
+      // Mouse-wheel notches glide; precise touchpad deltas track the finger 1:1.
+      const notch = event.deltaMode !== 0 || Math.abs(event.deltaY) >= 50
+      const from = scrollTargetRef.current ?? strip.scrollLeft
+      scrollStripTo(from + delta, notch && smoothScroll)
+    }
+    strip.addEventListener('scroll', updateScrollEdges, { passive: true })
+    strip.addEventListener('scrollend', onScrollEnd, { passive: true })
+    strip.addEventListener('wheel', onWheel, { passive: true })
+    return () => {
+      strip.removeEventListener('scroll', updateScrollEdges)
+      strip.removeEventListener('scrollend', onScrollEnd)
+      strip.removeEventListener('wheel', onWheel)
+    }
+  }, [revealActiveTab, scrollStripTo, smoothScroll, updateScrollEdges])
+
+  useLayoutEffect(updateScrollEdges, [stripWidth, tabLayoutKey, updateScrollEdges])
+
+  // Keep the active tab in view: new tabs, keyboard switching, and the
+  // All tabs list glide it in. The first placement in a workspace is instant.
+  const placedWorkspaceRef = useRef<string | undefined>(undefined)
+  useLayoutEffect(() => {
+    if (!workspace?.activeTabId) return
+    const firstPlacement = placedWorkspaceRef.current !== workspace.id
+    placedWorkspaceRef.current = workspace.id
+    revealActiveTab(!firstPlacement && smoothScroll)
+  }, [revealActiveTab, smoothScroll, tabLayoutKey, workspace?.activeTabId, workspace?.id])
 
   const onDrop = (event: DragEvent<HTMLButtonElement>, targetId: string): void => {
     event.preventDefault()
@@ -342,7 +481,10 @@ function HorizontalTabBar(): JSX.Element {
       tab={tab}
       active={tab.id === workspace?.activeTabId}
       onActivate={() => activateTab(tab.id)}
-      onClose={() => closeTab(tab.id)}
+      onClose={() => {
+        if (!stripSizing.current.overflowing) setFrozenTabWidth(stripSizing.current.tabWidth)
+        closeTab(tab.id)
+      }}
       onDrop={(event) => onDrop(event, tab.id)}
       onDragEnd={(event) => onTabDragEnd(event, tab)}
       onDragTarget={() => setDragTargetId(tab.id)}
@@ -350,6 +492,7 @@ function HorizontalTabBar(): JSX.Element {
       dragTarget={dragTargetId === tab.id}
       group={workspaceGroups.find((group) => group.id === tab.groupId)}
       width={tabWidth}
+      layoutKey={tabMotionKey}
     />
   )
 
@@ -360,9 +503,17 @@ function HorizontalTabBar(): JSX.Element {
   })
 
   return (
-    <div className="drag flex min-w-0 flex-1 items-center gap-1">
-      <div ref={stripRef} className="horizontal-tab-strip drag flex min-w-0 flex-1 items-center gap-1 overflow-hidden py-1">
-        {visibleTabs.map((tab, index) => (
+    <div ref={barRef} className="drag flex min-w-0 flex-1 items-center gap-1" onPointerLeave={() => setFrozenTabWidth(null)}>
+      {/* Shrinks to its tabs while they fit (New tab follows the last tab);
+          once they no longer fit it takes the room and scrolls. */}
+      <div
+        ref={stripRef}
+        data-overflowing={overflowing || undefined}
+        data-scroll-left={scrollEdges.left || undefined}
+        data-scroll-right={scrollEdges.right || undefined}
+        className="horizontal-tab-strip no-drag relative flex min-w-0 items-center gap-1 overflow-x-auto overflow-y-hidden py-1"
+      >
+        {workspaceTabs.map((tab, index) => (
           <div key={tab.id} className="contents">
             {index === visiblePinnedCount && visiblePinnedCount > 0 && (
               <span aria-hidden="true" className="mx-0.5 h-5 w-px shrink-0 bg-white/13" />
@@ -370,32 +521,32 @@ function HorizontalTabBar(): JSX.Element {
             {renderTab(tab)}
           </div>
         ))}
-        <button
-          type="button"
-          title="New tab"
-          onClick={() => createTab({ workspaceId: workspace?.id, activate: true })}
-          className="no-drag mt-[3px] grid h-8 w-8 shrink-0 place-items-center self-center rounded-control bg-transparent text-vast-soft/75 transition hover:bg-white/4.5 hover:text-white/90"
-        >
-          <Plus className="h-4 w-4" strokeWidth={1.8} />
-        </button>
       </div>
+      <button
+        type="button"
+        title="New tab"
+        onClick={() => createTab({ workspaceId: workspace?.id, activate: true })}
+        className="no-drag grid h-8 w-8 shrink-0 translate-y-1 place-items-center self-center rounded-control bg-transparent text-vast-soft/75 transition hover:bg-white/4.5 hover:text-white/90"
+      >
+        <Plus className="h-4 w-4" strokeWidth={1.8} />
+      </button>
 
-      {overflowTabs.length > 0 && (
+      {overflowing && (
         <div ref={overflowRef} className="no-drag relative shrink-0 translate-y-1 self-center">
           <button
             type="button"
             onClick={() => overflowOpen ? closeOverflow() : setOverflowOpen(true)}
-            aria-label={`${overflowTabs.length} more tabs`}
+            aria-label={`All ${workspaceTabs.length} tabs`}
             aria-haspopup="dialog"
             aria-expanded={overflowOpen}
             className="flex h-8 items-center gap-1 rounded-control border border-white/8 bg-white/4.5 px-2 text-xs text-vast-soft hover:border-white/[0.14] hover:bg-white/8 hover:text-white"
-            title="More tabs"
+            title="All tabs"
           >
             <MoreHorizontal className="h-4 w-4" />
-            {overflowTabs.length}
+            {workspaceTabs.length}
           </button>
           {overflowOpen && createPortal(
-            <div ref={overflowMenuRef} role="dialog" aria-label={`Tabs in ${workspace?.name ?? 'workspace'}`} style={overflowPosition} className="no-drag fixed z-100 flex w-80 max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-card border border-white/10 bg-[#090a0d] p-2 shadow-glass">
+            <div ref={overflowMenuRef} role="dialog" aria-label={`Tabs in ${workspace?.name ?? 'workspace'}`} style={overflowPosition} className="no-drag fixed z-100 flex w-80 max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-card vast-float border border-white/10 p-2 shadow-glass">
               <div className="flex items-center justify-between px-3 py-2">
                 <span className="text-[13px] font-semibold text-white">Tabs in {workspace?.name ?? 'workspace'}</span>
                 <span className="text-[13px] text-vast-soft">{workspaceTabs.length}</span>
@@ -505,7 +656,8 @@ function HorizontalTabComponent({
   onDragExit,
   dragTarget,
   group,
-  width
+  width,
+  layoutKey
 }: {
   tab: Tab
   active: boolean
@@ -518,8 +670,9 @@ function HorizontalTabComponent({
   dragTarget: boolean
   group?: TabGroup
   width: number
+  layoutKey: string
 }): JSX.Element {
-  const motionRef = useTabMotion(tab.id)
+  const motionRef = useTabMotion(tab.id, layoutKey)
   const showGroupLabel = group && group.name.toLowerCase() !== 'today'
   const isPlainNewTab = tab.url === INTERNAL_NEW_TAB_URL
   const internalMeta = isPlainNewTab ? null : getInternalTabMeta(tab.url)
@@ -556,8 +709,8 @@ function HorizontalTabComponent({
         openTabContextMenu(tab, event.clientX, event.clientY)
       }}
       onClick={onActivate}
-      style={{ width }}
-      className="no-drag group relative h-10 min-w-0 shrink-0 text-left"
+      style={{ width, contentVisibility: 'auto', containIntrinsicSize: `${width}px 40px` }}
+      className="horizontal-tab no-drag group relative h-10 min-w-0 shrink-0 text-left"
     >
       <div
         className={`absolute inset-x-0 bottom-0 flex h-8 min-w-0 items-center gap-2 overflow-hidden rounded-control border px-2 transition duration-150 ${tabTone} ${active ? 'vast-tab-active' : ''} ${dragTarget ? 'ring-2 ring-vast-cyan/70 ring-offset-1 ring-offset-transparent' : ''}`}
@@ -604,7 +757,8 @@ const HorizontalTab = memo(HorizontalTabComponent, (previous, next) =>
   previous.active === next.active &&
   previous.group === next.group &&
   previous.dragTarget === next.dragTarget &&
-  previous.width === next.width
+  previous.width === next.width &&
+  previous.layoutKey === next.layoutKey
 )
 
 function tabDisplayHost(url: string): string {
@@ -644,15 +798,21 @@ export function BookmarksBar({ variant = 'horizontal' }: { variant?: ChromeVaria
     replacedNewTabRef.current = false
   }, [activeTabUrl])
 
-  const rootBookmarks = bookmarks.filter((bookmark) => !bookmark.folderId)
-  const orderedItems: Array<{ type: 'folder'; folder: BookmarkFolder } | { type: 'bookmark'; bookmark: BookmarkModel }> = [
-    ...folders.map((folder) => ({ type: 'folder' as const, folder })),
-    ...rootBookmarks.map((bookmark) => ({ type: 'bookmark' as const, bookmark }))
-  ]
-  const orderedItemKeys = orderedItems.map(bookmarkBarItemKey)
-  const orderedItemSignature = orderedItems
-    .map((item) => (item.type === 'folder' ? `folder:${item.folder.id}:${item.folder.name}` : `bookmark:${item.bookmark.id}:${item.bookmark.title}:${item.bookmark.url}`))
-    .join('|')
+  // Rebuilt only when bookmarks or folders change, not on every navigation.
+  const { orderedItems, orderedItemKeys, orderedItemSignature } = useMemo(() => {
+    const items: Array<{ type: 'folder'; folder: BookmarkFolder } | { type: 'bookmark'; bookmark: BookmarkModel }> = [
+      ...folders.map((folder) => ({ type: 'folder' as const, folder })),
+      ...bookmarks.filter((bookmark) => !bookmark.folderId).map((bookmark) => ({ type: 'bookmark' as const, bookmark }))
+    ]
+    return {
+      orderedItems: items,
+      orderedItemKeys: items.map(bookmarkBarItemKey),
+      orderedItemSignature: items
+        .map((item) => (item.type === 'folder' ? `folder:${item.folder.id}:${item.folder.name}` : `bookmark:${item.bookmark.id}:${item.bookmark.title}:${item.bookmark.url}`))
+        .join('|')
+    }
+  }, [bookmarks, folders])
+  const hiddenOnThisPage = onlyOnNewTab && activeTabUrl !== INTERNAL_NEW_TAB_URL
 
   useLayoutEffect(() => {
     itemWidthCacheRef.current.clear()
@@ -661,7 +821,7 @@ export function BookmarksBar({ variant = 'horizontal' }: { variant?: ChromeVaria
 
   useLayoutEffect(() => {
     const bar = barRef.current
-    if (!visible || onlyOnNewTab && activeTabUrl !== INTERNAL_NEW_TAB_URL) {
+    if (!visible || hiddenOnThisPage) {
       setVisibleCount(Infinity)
       return
     }
@@ -696,11 +856,11 @@ export function BookmarksBar({ variant = 'horizontal' }: { variant?: ChromeVaria
       window.cancelAnimationFrame(frame)
       ro.disconnect()
     }
-  // Re-run when item count changes so newly added items are measured correctly.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderedItems.length, visible, onlyOnNewTab, activeTabUrl])
+  // Re-measure when the items or the bar's visibility change; a navigation
+  // that keeps the bar visible no longer forces a synchronous layout here.
+  }, [orderedItemKeys, visible, hiddenOnThisPage])
 
-  if (!visible || onlyOnNewTab && activeTabUrl !== INTERNAL_NEW_TAB_URL) return null
+  if (!visible || hiddenOnThisPage) return null
 
   const visCount = visibleCount === Infinity ? orderedItems.length : visibleCount
   const visibleItems = orderedItems.slice(0, visCount)
@@ -826,7 +986,7 @@ function BookmarkOverflowMenu({
   onOpen: (url: string) => void
 }): JSX.Element {
   return (
-    <div className="absolute left-0 top-9 z-50 w-80 rounded-card border border-white/10 bg-[#090a0d]/98 p-2 shadow-glass backdrop-blur-2xl">
+    <div className="absolute left-0 top-9 z-50 w-80 rounded-card vast-float border border-white/10 p-2 shadow-glass">
       {items.map((item) => {
         if (item.type === 'bookmark') {
           return <BookmarkMenuItem key={item.bookmark.id} bookmark={item.bookmark} onOpen={onOpen} />
@@ -858,7 +1018,7 @@ function BookmarkMenu({
   onOpen: (url: string) => void
 }): JSX.Element {
   return (
-    <div className="absolute left-0 top-9 z-50 w-72 rounded-card border border-white/10 bg-[#090a0d]/98 p-2 shadow-glass backdrop-blur-2xl">
+    <div className="absolute left-0 top-9 z-50 w-72 rounded-card vast-float border border-white/10 p-2 shadow-glass">
       {bookmarks.length === 0 && <div className="px-3 py-3 text-sm text-vast-soft">No bookmarks in this folder.</div>}
       {bookmarks.map((bookmark) => (
         <BookmarkMenuItem key={bookmark.id} bookmark={bookmark} onOpen={onOpen} />

@@ -35,7 +35,8 @@ test('privacy IPC is narrow and identity configuration is main-owned', () => {
 })
 
 test('spoofing is installed in the page main world at document start and settings changes reload guests', () => {
-  assert.match(guestPreload, /sendSync\('vast:spoofing:document-config'/)
+  assert.match(guestPreload, /sendSync\(GUEST_DOCUMENT_START_CHANNEL, documentStartRequest\)/)
+  assert.match(guestPreload, /executeInMainWorld\(\{ func: installDocumentSpoofing, args: \[documentStart\.spoofing\] \}\)/)
   assert.match(guestPreload, /contextBridge\.executeInMainWorld/)
   assert.match(sessions, /spoofingDocumentConfigForWebContents/)
   for (const command of ['Emulation.setUserAgentOverride', 'Emulation.setLocaleOverride', 'Emulation.setTimezoneOverride', 'Emulation.setHardwareConcurrencyOverride']) {

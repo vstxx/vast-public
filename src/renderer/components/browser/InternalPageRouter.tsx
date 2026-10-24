@@ -35,7 +35,7 @@ const SiteDataPage = lazy(() => import('../site-data/SiteDataPage').then((module
 
 function InternalPageFallback(): JSX.Element {
   return (
-    <div className="internal-page-shell bg-[linear-gradient(180deg,#08090d,#050507)] p-5">
+    <div className="internal-page-shell bg-[linear-gradient(180deg,#090909,#050505)] p-5">
       <div className="mx-auto max-w-6xl">
         <div className="vast-glass-panel rounded-panel p-6">
           <div className="flex items-center gap-3">
@@ -58,7 +58,7 @@ function InternalPageFallback(): JSX.Element {
 
 function UnknownInternalPage({ url }: { url: string }): JSX.Element {
   return (
-    <div className="internal-page-shell grid place-items-center bg-[linear-gradient(180deg,#08090d,#050507)] p-6">
+    <div className="internal-page-shell grid place-items-center bg-[linear-gradient(180deg,#090909,#050505)] p-6">
       <div className="vast-glass-panel max-w-xl rounded-panel p-8 text-center">
         <h2 className="text-xl font-semibold text-white">Unknown Vast page</h2>
         <p className="mt-3 text-sm leading-6 text-vast-soft">This version of Vast does not recognize <code>{url}</code>.</p>

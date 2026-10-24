@@ -576,7 +576,7 @@ export function CommandPalette(): JSX.Element | null {
   return (
     <div style={{ backdropFilter: 'blur(var(--vast-dialog-backdrop-blur))' }} className="command-palette-shell fixed inset-0 z-50 flex items-start justify-center bg-black/46 px-3 pt-[clamp(2rem,9vh,7rem)] sm:px-5">
       <button className="absolute inset-0 cursor-default" aria-label="Close command palette" onClick={() => setOpen(false)} />
-      <div style={{ backdropFilter: 'blur(var(--vast-dialog-effective-blur)) saturate(var(--vast-saturation))' }} className="command-palette-panel relative w-full max-w-3xl overflow-hidden rounded-panel border">
+      <div className="command-palette-panel relative w-full max-w-3xl overflow-hidden rounded-panel border">
         <div className="command-palette-search flex items-center gap-3 border-b border-white/6.5 px-5 py-4">
           <div className="command-palette-symbol grid h-10 w-10 place-items-center rounded-card border text-vast-cyan">
             <CommandIcon className="h-5 w-5" />
@@ -621,7 +621,11 @@ export function CommandPalette(): JSX.Element | null {
             )}
             <button
               type="button"
-              onMouseEnter={() => setSelected(index)}
+              // mouseenter also fires when rows scroll under a still pointer,
+              // which re-rendered the list during every scroll.
+              onMouseMove={(event) => {
+                if ((event.movementX !== 0 || event.movementY !== 0) && index !== selected) setSelected(index)
+              }}
               onClick={() => void run(command)}
               className={`command-palette-item group flex w-full items-center gap-3 rounded-card px-3 py-3 text-left transition ${index === selected ? 'is-selected' : ''}`}
             >

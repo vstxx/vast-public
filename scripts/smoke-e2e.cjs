@@ -619,7 +619,7 @@ async function submitPrompt(session, value, confirmLabel, verifyFocus = false) {
         return { focused: document.activeElement === input, value: input?.value ?? '' };
       })()`)
       assert(state.focused, `Prompt input lost focus after typing ${JSON.stringify(typed)}.`)
-      assert(state.value === typed, `Prompt input value changed unexpectedly after typing ${JSON.stringify(typed)}.`)
+      assert(state.value === typed, `Prompt input value changed unexpectedly after typing ${JSON.stringify(typed)} (value ${JSON.stringify(state.value)}).`)
     }
     await session.evaluate(`([...document.querySelectorAll('form')].at(-1))?.requestSubmit()`)
   }
@@ -1672,7 +1672,7 @@ async function main() {
     const groups = [...document.querySelectorAll('.address-bar-controls')];
     const leftButton = groups[0]?.querySelector(':scope > button');
     const rightButton = groups[1]?.querySelector(':scope > button, :scope > div > button');
-    const panelPin = [...document.querySelectorAll('button')].find((item) => item.title === 'Pin sidebar over page' || item.title === 'Unpin sidebar');
+    const panelPin = [...document.querySelectorAll('button')].find((item) => item.title === 'Pin side panel over page' || item.title === 'Unpin side panel');
     const closeInsidePanel = [...document.querySelectorAll('.side-panel-header button')].some((item) => item.title === 'Close sidebar');
     return address && leftButton && rightButton ? {
       addressHeight: address.getBoundingClientRect().height,
@@ -1753,15 +1753,15 @@ async function main() {
     input.dispatchEvent(new Event('input', { bubbles: true }));
     return true;
   })()`)
-  const initialSidePanelToggle = await session.evaluate(`([...document.querySelectorAll('button')].find((item) => item.title === 'Hide sidebar' || item.title === 'Show sidebar'))?.title`)
+  const initialSidePanelToggle = await session.evaluate(`([...document.querySelectorAll('button')].find((item) => item.title === 'Hide side panel' || item.title === 'Show side panel'))?.title`)
   assert(initialSidePanelToggle, 'Sidebar toggle was not found for address draft regression.')
   await activateButtonByTitle(session, initialSidePanelToggle)
-  const restoredSidePanelToggle = initialSidePanelToggle === 'Hide sidebar' ? 'Show sidebar' : 'Hide sidebar'
+  const restoredSidePanelToggle = initialSidePanelToggle === 'Hide side panel' ? 'Show side panel' : 'Hide side panel'
   await waitFor(session, `Boolean(document.querySelector('button[title=${JSON.stringify(restoredSidePanelToggle)}]'))`, 'Sidebar toggle state after address draft check')
   const addressDraftAfterSidebarToggle = await session.evaluate(`document.querySelector('.address-bar-input')?.value`)
   assert(addressDraftAfterSidebarToggle === 'draft survives sidebar', 'Opening or closing the Sidebar erased the address draft.')
   await activateButtonByTitle(session, restoredSidePanelToggle)
-  await waitForStorage(session, `(data) => data.sidePanelOpen === ${initialSidePanelToggle === 'Hide sidebar'}`, 'Sidebar restored after address draft check')
+  await waitForStorage(session, `(data) => data.sidePanelOpen === ${initialSidePanelToggle === 'Hide side panel'}`, 'Side panel restored after address draft check')
   await wait(300)
   await session.evaluate(`document.querySelector('.address-bar-input')?.focus()`)
   await session.key('Escape', 'Escape', 27)
@@ -1777,7 +1777,8 @@ async function main() {
   await session.screenshot('02-command-palette')
   await session.key('Escape', 'Escape', 27)
 
-  await clickByText(session, 'Workspace')
+  // New workspace is always shown while the list is expanded. Clicking the
+  // active workspace would collapse the list and hide it.
   await clickByText(session, 'New workspace')
   await submitPrompt(session, 'QA Space', 'Create workspace')
   await waitForStorage(session, '(data) => data.workspaces.some((workspace) => workspace.name === "QA Space")', 'workspace creation')
@@ -1921,7 +1922,7 @@ async function main() {
       `(data) => data.settings.security.sitePermissions.some((item) => item.origin === 'http://127.0.0.1:${localServerPort}' && item.permission === 'notifications' && item.setting === 'allow')`,
       'origin notification permission persisted'
     )
-    const permissionAutosaveToggle = await session.evaluate(`([...document.querySelectorAll('button')].find((item) => item.title === 'Hide sidebar' || item.title === 'Show sidebar'))?.title`)
+    const permissionAutosaveToggle = await session.evaluate(`([...document.querySelectorAll('button')].find((item) => item.title === 'Hide side panel' || item.title === 'Show side panel'))?.title`)
     assert(permissionAutosaveToggle, 'Sidebar toggle was not found for permission autosave regression.')
     await activateButtonByTitle(session, permissionAutosaveToggle)
     await wait(1_500)
@@ -1930,7 +1931,7 @@ async function main() {
       `(data) => data.settings.security.sitePermissions.some((item) => item.origin === 'http://127.0.0.1:${localServerPort}' && item.permission === 'notifications' && item.setting === 'allow')`,
       'permission survives renderer autosave'
     )
-    const restoredPermissionToggle = permissionAutosaveToggle === 'Hide sidebar' ? 'Show sidebar' : 'Hide sidebar'
+    const restoredPermissionToggle = permissionAutosaveToggle === 'Hide side panel' ? 'Show side panel' : 'Hide side panel'
     await waitFor(session, `Boolean(document.querySelector('button[title=${JSON.stringify(restoredPermissionToggle)}]'))`, 'Sidebar toggle state after permission autosave')
     await activateButtonByTitle(session, restoredPermissionToggle)
     record('site permission persistence', 'Always allow survives renderer autosave and remains scoped to the requesting origin')
@@ -2062,7 +2063,7 @@ async function main() {
 
   const openedSidebarForLibrary = await session.evaluate(`(() => {
     if (document.querySelector('[title="History"]')) return false;
-    const toggle = document.querySelector('button[title="Show sidebar"]');
+    const toggle = document.querySelector('button[title="Show side panel"]');
     if (!toggle) throw new Error('Sidebar toggle not found before library checks.');
     toggle.click();
     return true;
@@ -2136,9 +2137,9 @@ async function main() {
   await clickByTitle(session, 'Split Primary')
   await waitForStorage(session, `(data) => data.tabs.find((tab) => tab.id === data.workspaces.find((workspace) => workspace.id === data.activeWorkspaceId)?.activeTabId)?.url.endsWith('/split-primary')`, 'split primary focused before toggle')
 
-  const sidePanelWasOpenForSplit = await session.evaluate(`Boolean([...document.querySelectorAll('button')].find((item) => item.title === 'Hide sidebar'))`)
+  const sidePanelWasOpenForSplit = await session.evaluate(`Boolean([...document.querySelectorAll('button')].find((item) => item.title === 'Hide side panel'))`)
   if (sidePanelWasOpenForSplit) {
-    await activateButtonByTitle(session, 'Hide sidebar')
+    await activateButtonByTitle(session, 'Hide side panel')
     await waitForStorage(session, '(data) => data.sidePanelOpen === false', 'Sidebar hidden for split surface interaction')
   }
 
@@ -2219,7 +2220,7 @@ async function main() {
   await waitForStorage(session, '(data) => data.splitView.enabled === false', 'split view disabled')
   await waitFor(session, 'document.querySelector("[data-testid=\\"browser-stage\\"]")?.dataset.split === "false" && document.querySelectorAll("[data-testid=\\"split-pane-header\\"]").length === 0', 'split chrome removed cleanly')
   if (sidePanelWasOpenForSplit) {
-    await activateButtonByTitle(session, 'Show sidebar')
+    await activateButtonByTitle(session, 'Show side panel')
     await waitForStorage(session, '(data) => data.sidePanelOpen === true', 'Sidebar restored after split surface interaction')
   }
   record('split view', 'two live panes, stable focus, pane-scoped navigation, new-tab replacement, resizing, swapping, persistence, and clean toggle-off')
@@ -2238,12 +2239,13 @@ async function main() {
     const style = getComputedStyle(toast);
     return {
       backgroundImage: style.backgroundImage,
-      backdropFilter: style.backdropFilter,
+      floating: toast.classList.contains('vast-float'),
       text: toast.innerText
     };
   })()`)
   assert(downloadProgressStyle?.backgroundImage === 'none', 'Download progress toast still uses a decorative gradient.')
-  assert(downloadProgressStyle?.backdropFilter === 'none', 'Download progress toast still uses backdrop blur.')
+  // Frost (the user's floating-surface blur) applies to it like every other toast.
+  assert(downloadProgressStyle?.floating === true, 'Download progress toast does not use the shared floating surface.')
   assert(downloadProgressStyle?.text.includes('Downloading'), 'Simplified download progress status is not visible.')
   assert(!(await session.bodyText()).includes('Download started'), 'A duplicate download-started toast is visible beside the progress card.')
   await session.screenshot('03c-download-progress')
@@ -2336,7 +2338,7 @@ async function main() {
   await setCheckboxByLabel(session, 'Network Devices', true)
   await setCheckboxByLabel(session, 'Automation', true)
   await setCheckboxByLabel(session, 'Diagnostics', true)
-  await setSelectByLabel(session, 'Sidebar mode', 'docked')
+  await setSelectByLabel(session, 'Side panel mode', 'docked')
   await setSelectByLabel(session, 'Layout', 'horizontal')
   await waitForStorage(
     session,
@@ -2612,15 +2614,15 @@ async function main() {
   await clickByText(session, 'Workspace')
   await waitForStorage(session, '(data) => data.activeWorkspaceId === "workspace-default"', 'returned to persistent workspace')
 
-  const sidebarToggleBeforePinning = await session.evaluate(`([...document.querySelectorAll('button')].find((item) => item.title === 'Hide sidebar' || item.title === 'Show sidebar'))?.title`)
+  const sidebarToggleBeforePinning = await session.evaluate(`([...document.querySelectorAll('button')].find((item) => item.title === 'Hide side panel' || item.title === 'Show side panel'))?.title`)
   assert(sidebarToggleBeforePinning, 'Sidebar toggle was not found before pinning tests.')
-  if (sidebarToggleBeforePinning === 'Show sidebar') {
-    await activateButtonByTitle(session, 'Show sidebar')
+  if (sidebarToggleBeforePinning === 'Show side panel') {
+    await activateButtonByTitle(session, 'Show side panel')
     await waitForStorage(session, '(data) => data.sidePanelOpen === true', 'right Sidebar prepared for pinning tests')
   }
-  await activateButtonByTitle(session, 'Hide sidebar')
+  await activateButtonByTitle(session, 'Hide side panel')
   await waitForStorage(session, '(data) => data.sidePanelOpen === false', 'right Sidebar hidden')
-  await activateButtonByTitle(session, 'Show sidebar')
+  await activateButtonByTitle(session, 'Show side panel')
   await waitForStorage(session, '(data) => data.sidePanelOpen === true', 'right Sidebar restored')
   record('right Sidebar toggle', 'address bar control hides and restores Sidebar')
 
@@ -2629,7 +2631,7 @@ async function main() {
     const slot = document.querySelector('.side-panel-slot.is-docked');
     const panel = slot?.querySelector('.side-panel');
     const header = panel?.querySelector('[data-testid="sidebar-drag-handle"]');
-    const pin = panel ? [...panel.querySelectorAll('button')].find((item) => item.title === 'Pin sidebar over page') : null;
+    const pin = panel ? [...panel.querySelectorAll('button')].find((item) => item.title === 'Pin side panel over page') : null;
     const main = document.querySelector('.app-main-surface');
     if (!slot || !panel || !header || !pin || !main) return null;
     const slotRect = slot.getBoundingClientRect();
@@ -2639,7 +2641,7 @@ async function main() {
       slotWidth: slotRect.width,
       panelWidth: panel.getBoundingClientRect().width,
       pinShadow: getComputedStyle(pin).boxShadow,
-      headerDraggable: header.title === 'Drag sidebar',
+      headerDraggable: header.title === 'Drag side panel',
       mainRight: mainRect.right,
       slotLeft: slotRect.left,
       viewportWidth: window.innerWidth,
@@ -2653,14 +2655,14 @@ async function main() {
   assert(dockedSidebarState.pinShadow === 'none', 'Sidebar pin button still renders a shadow.')
   await session.screenshot('04g-unpinned-sidebar-docked')
 
-  await clickByTitle(session, 'Pin sidebar over page')
+  await clickByTitle(session, 'Pin side panel over page')
   await waitForStorage(session, '(data) => data.settings.sidePanel.mode === "overlay"', 'pinned Sidebar mode persisted')
   await waitFor(session, '!document.querySelector(".side-panel-scrim") && Boolean(document.querySelector(".side-panel-slot.is-pinned"))', 'Sidebar pinned above page without scrim')
   const pinnedPanelBefore = await session.evaluate(`(() => {
     const slot = document.querySelector('.side-panel-slot.is-pinned');
     const panel = slot?.querySelector('.side-panel');
     const header = panel?.querySelector('[data-testid="sidebar-drag-handle"]');
-    const pin = panel ? [...panel.querySelectorAll('button')].find((item) => item.title === 'Unpin sidebar') : null;
+    const pin = panel ? [...panel.querySelectorAll('button')].find((item) => item.title === 'Unpin side panel') : null;
     const main = document.querySelector('.app-main-surface');
     if (!slot || !panel || !header || !pin || !main) return null;
     const panelRect = panel.getBoundingClientRect();
@@ -2705,7 +2707,7 @@ async function main() {
   assert(pinnedPanelAfter.x >= 0 && pinnedPanelAfter.y >= 48 && pinnedPanelAfter.right <= pinnedPanelAfter.viewportWidth && pinnedPanelAfter.bottom <= pinnedPanelAfter.viewportHeight, 'Dragged Sidebar escaped the visible viewport.')
   await session.screenshot('04h-pinned-sidebar-drag')
 
-  await clickByTitle(session, 'Unpin sidebar')
+  await clickByTitle(session, 'Unpin side panel')
   await waitForStorage(session, '(data) => data.settings.sidePanel.mode === "docked"', 'unpinned Sidebar mode persisted')
   await waitFor(session, 'Boolean(document.querySelector(".side-panel-slot.is-docked[data-pinned=\\"false\\"]"))', 'unpinned Sidebar returned to dock')
   const mainRightAfterUnpin = await session.evaluate(`document.querySelector('.app-main-surface')?.getBoundingClientRect().right`)

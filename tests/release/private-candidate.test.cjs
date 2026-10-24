@@ -187,3 +187,16 @@ test('workflow needs no Actions artifacts, never rebuilds on resume and cleans u
   assert.equal(steps[cleanup - 1].run, 'npm run release:verify:published')
   assert.ok(steps.findIndex(step => (step.run || '').includes('publish-source-snapshot')) > packageGate)
 })
+
+// The 0.5.4 publication stopped here: on resume the quality gate (whose test
+// runner used to apply the patch) is skipped, so packaged ECE was compared
+// with an unpatched npm ci.
+test('every release run applies the approved ECE patch before packaged ECE is verified', () => {
+  const yaml = require('js-yaml')
+  for (const name of ['public-unsigned-beta.yml', 'public-release.yml']) {
+    const steps = Object.values(yaml.load(fs.readFileSync(path.join(__dirname, '../../.github/workflows', name), 'utf8')).jobs)[0].steps
+    const install = steps.find(step => /(^|\n)npm ci\n/.test(step.run || ''))
+    assert.equal(install.if, undefined, `${name}: dependencies install on every run`)
+    assert.ok(install.run.indexOf('npm run extension:compat:prepare') > install.run.indexOf('npm ci\n'), `${name}: ECE patch follows npm ci`)
+  }
+})

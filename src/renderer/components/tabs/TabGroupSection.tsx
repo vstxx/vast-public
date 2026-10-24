@@ -113,7 +113,7 @@ function TabGroupSectionComponent({
             <MoreHorizontal className="h-3.5 w-3.5" />
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-7 z-30 w-52 rounded-card border border-white/10 bg-[#0c0d12]/98 p-2 shadow-glass backdrop-blur-xl">
+            <div className="absolute right-0 top-7 z-30 w-52 rounded-card border border-white/10 bg-[#0d0d0d]/98 p-2 shadow-glass backdrop-blur-xl">
               <button
                 type="button"
                 onClick={() => {

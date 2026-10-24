@@ -27,7 +27,7 @@ function findPatchedRuntime(sourceRoot) {
   const candidates = [
     defaultOutputPath(manifest),
     join('C:\\VastCWSBridge', `${manifest.electron.patchsetRevision}-win32-x64`),
-    'D:\\VastElectron44\\src\\out\\VastRelease'
+    'D:\\VastElectron45\\src\\out\\VastRelease'
   ]
   const found = candidates.find((candidate) => existsSync(join(candidate, 'electron.exe')))
   if (!found) throw new Error(`Cannot find the patched Electron ${manifest.electron.version} runtime. Set VAST_PATCHED_ELECTRON_DIST.`)

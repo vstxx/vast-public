@@ -1,6 +1,7 @@
 import { nativeImage } from 'electron'
 import { dialog, type BrowserWindow } from 'electron/main'
-import { readFile, stat, writeFile } from 'node:fs/promises'
+import { readFile, stat, unlink, writeFile } from 'node:fs/promises'
+import { atomicWriteFile } from './atomic-file'
 import { dataFilePath } from './data-path'
 
 const MAX_BACKGROUND_BYTES = 20 * 1024 * 1024
@@ -23,7 +24,8 @@ export function newTabBackgroundMime(bytes: Uint8Array): SupportedBackgroundMime
   return null
 }
 
-function checkedDataUrl(bytes: Buffer): string {
+/** Type of a PNG/JPEG whose header, decode and dimensions all check out. */
+export function inspectNewTabBackground(bytes: Buffer): SupportedBackgroundMime {
   if (bytes.length === 0 || bytes.length > MAX_BACKGROUND_BYTES) {
     throw new Error('The selected image must be 20 MB or smaller.')
   }
@@ -37,7 +39,11 @@ function checkedDataUrl(bytes: Buffer): string {
     width > MAX_BACKGROUND_DIMENSION || height > MAX_BACKGROUND_DIMENSION ||
     width * height > MAX_BACKGROUND_PIXELS
   ) throw new Error('The selected image dimensions are too large.')
-  return `data:${mime};base64,${bytes.toString('base64')}`
+  return mime
+}
+
+function checkedDataUrl(bytes: Buffer): string {
+  return `data:${inspectNewTabBackground(bytes)};base64,${bytes.toString('base64')}`
 }
 
 async function readBackgroundFile(path: string): Promise<Buffer> {
@@ -62,6 +68,34 @@ export async function getNewTabBackgroundDataUrl(): Promise<string | undefined> 
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
     throw error
   }
+}
+
+/** Current image bytes, or undefined when no custom image is stored. */
+export async function readNewTabBackground(): Promise<Buffer | undefined> {
+  try {
+    return await readBackgroundFile(dataFilePath(BACKGROUND_FILE_NAME))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw error
+  }
+}
+
+/** Validates, then atomically replaces the stored image. Returns its data URL. */
+export async function writeNewTabBackground(bytes: Buffer): Promise<string> {
+  const dataUrl = checkedDataUrl(bytes)
+  const path = dataFilePath(BACKGROUND_FILE_NAME)
+  await atomicWriteFile(path, bytes)
+  cachedPath = path
+  cachedDataUrl = dataUrl
+  return dataUrl
+}
+
+export async function clearNewTabBackground(): Promise<void> {
+  cachedPath = ''
+  cachedDataUrl = undefined
+  await unlink(dataFilePath(BACKGROUND_FILE_NAME)).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== 'ENOENT') throw error
+  })
 }
 
 export async function chooseNewTabBackground(owner: BrowserWindow): Promise<{ canceled: boolean; dataUrl?: string }> {

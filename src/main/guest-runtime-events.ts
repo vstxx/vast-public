@@ -1,5 +1,5 @@
 import type { BrowserWindow, WebContents } from 'electron/main'
-import type { HtmlFullscreenState, MediaCaptureState } from '../shared/types'
+import type { GuestNavigationState, HtmlFullscreenState, MediaCaptureState } from '../shared/types'
 import { windowRegistry } from './windows/WindowRegistry'
 
 interface FullscreenSession {
@@ -32,6 +32,23 @@ export function protectGuestMediaCapture(contents: WebContents): void {
 export function clearGuestMediaCapture(contents: WebContents): void {
   if (!protectedCaptureContents.delete(contents.id)) return
   sendMediaCaptureState(contents, false)
+}
+
+// Main-side reads are local; the chrome previously fetched these with one
+// synchronous IPC round trip each, several times per page load.
+function sendNavigationState(contents: WebContents, reason: GuestNavigationState['reason']): void {
+  if (contents.isDestroyed() || !isGuestContents(contents)) return
+  const owner = windowRegistry.vastWindowForWebContents(contents)
+  if (!owner || owner.isDestroyed() || owner.webContents.isDestroyed()) return
+  const payload: GuestNavigationState = {
+    webContentsId: contents.id,
+    reason,
+    url: contents.getURL(),
+    title: contents.getTitle(),
+    canGoBack: contents.navigationHistory.canGoBack(),
+    canGoForward: contents.navigationHistory.canGoForward()
+  }
+  owner.webContents.send('vast:browser:guest-navigation-state', payload)
 }
 
 function enterHtmlFullscreen(contents: WebContents): void {
@@ -76,6 +93,14 @@ export function installGuestRuntimeEventHandling(contents: WebContents): void {
   contents.on('did-start-navigation', (_event, _url, _isInPlace, isMainFrame) => {
     if (isMainFrame) clearGuestMediaCapture(contents)
   })
+  contents.on('did-navigate', () => sendNavigationState(contents, 'navigate'))
+  contents.on('did-navigate-in-page', (_event, _url, isMainFrame) => {
+    // Pages usually set document.title right after pushState; report on the
+    // next tick so that title update has been processed.
+    if (isMainFrame) setImmediate(() => sendNavigationState(contents, 'navigate'))
+  })
+  contents.on('did-stop-loading', () => sendNavigationState(contents, 'stop'))
+  contents.on('dom-ready', () => sendNavigationState(contents, 'ready'))
   const cleanup = (): void => {
     leaveHtmlFullscreen(contents)
     clearGuestMediaCapture(contents)

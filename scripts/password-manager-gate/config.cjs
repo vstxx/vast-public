@@ -114,7 +114,7 @@ function resolveGateConfig(root, args, env = process.env) {
     throw new Error('Password-manager gate modes reuse a profile path.')
   }
 
-  const patchedDist = path.resolve(env.VAST_PATCHED_ELECTRON_DIST || 'D:\\VastElectron44\\src\\out\\VastCompat')
+  const patchedDist = path.resolve(env.VAST_PATCHED_ELECTRON_DIST || 'D:\\VastElectron45\\src\\out\\VastRelease')
   const executableName = process.platform === 'win32' ? 'electron.exe' : 'electron'
   const electronExecutable = path.resolve(env.VAST_PATCHED_ELECTRON_EXE || path.join(patchedDist, executableName))
   if (!isWithin(patchedDist, electronExecutable)) {

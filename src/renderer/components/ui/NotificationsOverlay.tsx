@@ -1,6 +1,7 @@
 import { AlertTriangle, CheckCircle2, Download, Info, LoaderCircle, MonitorUp, ShieldAlert, X } from 'lucide-react'
-import type { DownloadItem, UiNotificationPayload, UiPromptPayload } from '../../../shared/types'
+import type { UiNotificationPayload, UiPromptPayload } from '../../../shared/types'
 import { formatBytes } from '../../lib/format'
+import { useBrowserStore } from '../../store/browser-store'
 import { ModalShell } from './ModalShell'
 import { NotificationCard } from './NotificationCard'
 
@@ -14,10 +15,10 @@ function toneIcon(tone: UiNotificationPayload['tone']): JSX.Element {
 }
 
 function toneStyles(tone: UiNotificationPayload['tone']): string {
-  if (tone === 'success') return 'border-emerald-400/20 bg-[linear-gradient(180deg,rgba(8,18,16,0.98),rgba(7,12,12,0.96))] shadow-[0_24px_60px_rgba(16,185,129,0.12)]'
-  if (tone === 'warning') return 'border-amber-400/20 bg-[linear-gradient(180deg,rgba(24,17,10,0.98),rgba(12,10,8,0.96))] shadow-[0_24px_60px_rgba(245,158,11,0.14)]'
-  if (tone === 'error') return 'border-rose-400/20 bg-[linear-gradient(180deg,rgba(24,10,12,0.98),rgba(12,8,9,0.96))] shadow-[0_24px_60px_rgba(244,63,94,0.16)]'
-  return 'border-sky-400/20 bg-[linear-gradient(180deg,rgba(9,15,21,0.98),rgba(7,10,14,0.96))] shadow-[0_24px_60px_rgba(56,189,248,0.12)]'
+  if (tone === 'success') return 'vast-toast--success border-emerald-400/20 shadow-[0_24px_60px_rgba(16,185,129,0.12)]'
+  if (tone === 'warning') return 'vast-toast--warning border-amber-400/20 shadow-[0_24px_60px_rgba(245,158,11,0.14)]'
+  if (tone === 'error') return 'vast-toast--error border-rose-400/20 shadow-[0_24px_60px_rgba(244,63,94,0.16)]'
+  return 'vast-toast--info border-sky-400/20 shadow-[0_24px_60px_rgba(56,189,248,0.12)]'
 }
 
 function promptActionStyles(tone: NonNullable<UiPromptPayload['actions'][number]['tone']> | undefined): string {
@@ -30,13 +31,14 @@ function promptActionStyles(tone: NonNullable<UiPromptPayload['actions'][number]
 
 export function NotificationsOverlay({
   toasts,
-  downloads,
   onDismiss
 }: {
   toasts: ToastItem[]
-  downloads: DownloadItem[]
   onDismiss: (id: string) => void
 }): JSX.Element | null {
+  // Subscribed here, not in App: download progress events would otherwise
+  // re-render the whole browser chrome several times a second.
+  const downloads = useBrowserStore((state) => state.downloads)
   const activeDownloads = downloads
     .filter((item) => item.state === 'progressing')
     .sort((a, b) => b.updatedAt - a.updatedAt)
@@ -51,7 +53,7 @@ export function NotificationsOverlay({
         return (
           <NotificationCard
             key={`download-${item.id}`}
-            className="download-progress-toast pointer-events-auto overflow-hidden border border-white/10 bg-[#0b0c10]/97 shadow-[0_18px_48px_rgba(0,0,0,0.34)]"
+            className="download-progress-toast vast-float pointer-events-auto overflow-hidden border border-white/10 shadow-[0_18px_48px_rgba(0,0,0,0.34)]"
           >
             <div className="flex items-start gap-3">
               <div className="vast-notification-icon mt-0.5 border border-white/10 bg-white/5 text-vast-soft">
@@ -72,8 +74,8 @@ export function NotificationsOverlay({
                 </div>
                 <div className="mt-3 h-1 overflow-hidden rounded-control bg-white/8">
                   <div
-                    className="h-full rounded-control bg-white/[0.55] transition-[width] duration-300 ease-out"
-                    style={{ width: `${progress ?? 18}%` }}
+                    className="h-full origin-left rounded-control bg-white/[0.55] transition-transform duration-300 ease-out"
+                    style={{ transform: `scaleX(${(progress ?? 18) / 100})` }}
                   />
                 </div>
               </div>
@@ -85,7 +87,7 @@ export function NotificationsOverlay({
       {toasts.map((toast) => (
         <NotificationCard
           key={toast.id}
-          className={`pointer-events-auto overflow-hidden border backdrop-blur-2xl ${toneStyles(toast.tone)}`}
+          className={`vast-toast pointer-events-auto overflow-hidden border ${toneStyles(toast.tone)}`}
         >
           <div className="flex items-start gap-3">
             <div className="vast-notification-icon mt-0.5 border border-white/10 bg-white/5">

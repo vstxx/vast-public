@@ -8,7 +8,7 @@ const browserStageSource = readFileSync(new URL('../../src/renderer/components/b
 
 test('dashboard surfaces use restrained solid backgrounds instead of stacked decorative gradients', () => {
   assert.match(dashboardSource, /new-tab-page min-h-full overflow-auto/)
-  assert.match(dashboardSource, /bg-\[#090a0e\]/)
+  assert.match(dashboardSource, /bg-\[#0a0a0a\]/)
   assert.doesNotMatch(dashboardSource, /vast-hero-aura/)
   assert.doesNotMatch(dashboardSource, /bg-\[radial-gradient/)
 })

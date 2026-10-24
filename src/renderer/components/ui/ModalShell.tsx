@@ -68,9 +68,11 @@ export function ModalShell({
   }, [])
 
   return (
-    <div style={overlayStyle} className={`fixed inset-0 z-50 flex justify-center bg-black/[0.55] px-5 backdrop-blur-xl ${overlayClassName} ${placement === 'center' ? 'items-center py-5' : 'items-start py-[8vh]'}`}>
+    // Background blur. Inline because the minified CSS keeps only the -webkit-
+    // copy of backdrop-filter, which Chromium ignores.
+    <div style={{ backdropFilter: 'blur(var(--vast-dialog-backdrop-blur))', ...overlayStyle }} className={`fixed inset-0 z-50 flex justify-center bg-black/[0.55] px-5 ${overlayClassName} ${placement === 'center' ? 'items-center py-5' : 'items-start py-[8vh]'}`}>
       {dismissOnBackdrop && <button className="absolute inset-0 cursor-default" aria-label="Close dialog" onClick={onClose} />}
-      <div ref={panelRef} style={panelStyle} role="dialog" aria-modal="true" aria-label={ariaLabel} tabIndex={-1} className={`relative max-h-[84vh] w-full ${width} overflow-hidden rounded-modal border border-white/12 bg-[#0b0c11]/95 shadow-glass ${className}`}>
+      <div ref={panelRef} style={panelStyle} role="dialog" aria-modal="true" aria-label={ariaLabel} tabIndex={-1} className={`relative max-h-[84vh] w-full ${width} vast-modal-surface overflow-hidden rounded-modal border border-white/12 shadow-glass ${className}`}>
         {children}
       </div>
     </div>

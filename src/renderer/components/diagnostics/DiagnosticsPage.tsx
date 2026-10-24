@@ -172,7 +172,7 @@ export function DiagnosticsPage(): JSX.Element {
 
   return (
     <InternalPageShell
-      className="labs-page-surface bg-[#06070a] p-5 lg:p-6"
+      className="labs-page-surface bg-[#070707] p-5 lg:p-6"
       data-testid="diagnostics-page"
     >
       <div className="mx-auto max-w-6xl space-y-5">

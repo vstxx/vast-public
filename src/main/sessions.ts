@@ -28,6 +28,7 @@ import { routeWebviewWindowOpen } from '../shared/window-open-policy'
 import { cancelRendererPrompt, requestRendererPrompt } from './ui-bridge'
 import { appChromeCsp } from './csp'
 import { originFromPermissionUrl, permissionKindsFromElectronPermission, permissionOriginFromFrame, resolveStoredPermissionPolicy, upsertOriginPermissionOverride } from './permission-policy'
+import { PROMPTABLE_PERMISSIONS } from '../shared/permission-prompt-state'
 import { vastDataPath } from './data-path'
 import { isTrustedRendererUrl } from './ipc-security'
 import { windowRegistry } from './windows/WindowRegistry'
@@ -277,6 +278,27 @@ function isSafeOAuthPopupNavigationUrl(url: string): boolean {
   return isSafeWebUrl(url)
 }
 
+// The window opens while extensions are still being restored. Web requests
+// from tabs wait until that finishes (capped), so no page loads without its
+// extensions: ad blocking, password managers, content scripts.
+let tabRequestHold: Promise<void> | null = null
+
+export function holdTabRequestsUntil(ready: Promise<unknown>, maxMs = 15_000): void {
+  const settled = Promise.race([
+    ready.then(() => undefined, () => undefined),
+    new Promise<void>((resolve) => { setTimeout(resolve, maxMs).unref() })
+  ])
+  const hold: Promise<void> = settled.then(() => {
+    if (tabRequestHold === hold) tabRequestHold = null
+  })
+  tabRequestHold = hold
+}
+
+function heldUntilExtensionsReady(details: Electron.OnBeforeRequestListenerDetails): boolean {
+  if (!tabRequestHold || typeof details.webContentsId !== 'number' || !/^(?:https?|wss?):/i.test(details.url)) return false
+  return webContents.fromId(details.webContentsId)?.getType() === 'webview'
+}
+
 function configureTrackerBlocking(targetSession: Session, getSettings: () => BrowserSettings): void {
   if (configuredTrackerSessions.has(targetSession)) return
   configuredTrackerSessions.add(targetSession)
@@ -301,7 +323,11 @@ function configureTrackerBlocking(targetSession: Session, getSettings: () => Bro
     }
     return requestPolicy
   }
-  targetSession.webRequest.onBeforeRequest((details, callback) => {
+  targetSession.webRequest.onBeforeRequest(function onBeforeRequest(details, callback) {
+    if (heldUntilExtensionsReady(details)) {
+      void tabRequestHold!.then(() => onBeforeRequest(details, callback))
+      return
+    }
     if (details.resourceType === 'mainFrame') {
       const replacement = blockedTopLevelNavigationReplacement(details.url)
       if (replacement) {
@@ -398,6 +424,11 @@ function configureSpoofingForSession(targetSession: Session, getSettings: () => 
   })
 }
 
+/** Camera/microphone (`media`) or screen capture (`display-capture`, Electron 45+). */
+function isCapturePermission(permission: string): boolean {
+  return permission === 'media' || permission === 'display-capture'
+}
+
 function permissionPolicy(
   permission: string,
   details:
@@ -490,6 +521,37 @@ function permissionLabel(
   return permission
 }
 
+// "Allow once" lasts for the visit, like Chrome's "Allow this time": the page's
+// later checks (device names and IDs, permission status) see the grant until
+// the tab leaves the site or closes. Without this, a call app gets its stream
+// but lists no usable camera or microphone.
+const visitGrants = new Map<number, { origin: string; kinds: Set<SitePermissionKind> }>()
+
+function grantForVisit(contents: Electron.WebContents, origin: string, kinds: readonly SitePermissionKind[]): void {
+  if (kinds.length === 0 || contents.isDestroyed()) return
+  const existing = visitGrants.get(contents.id)
+  if (existing && existing.origin === origin) {
+    for (const kind of kinds) existing.kinds.add(kind)
+    return
+  }
+  const id = contents.id
+  visitGrants.set(id, { origin, kinds: new Set(kinds) })
+  const end = (): void => {
+    if (visitGrants.get(id)?.origin === origin) visitGrants.delete(id)
+    contents.removeListener('did-start-navigation', onNavigation)
+  }
+  const onNavigation = (_event: Electron.Event, url: string, _inPlace: boolean, isMainFrame: boolean): void => {
+    if (isMainFrame && originFromPermissionUrl(url) !== origin) end()
+  }
+  contents.on('did-start-navigation', onNavigation)
+  contents.once('destroyed', end)
+}
+
+function grantedForVisit(contents: Electron.WebContents | null, origin: string, kind: SitePermissionKind): boolean {
+  const grant = contents && !contents.isDestroyed() ? visitGrants.get(contents.id) : undefined
+  return Boolean(grant && grant.origin === origin && grant.kinds.has(kind))
+}
+
 function configurePermissionsForSession(
   targetSession: Session,
 ): void {
@@ -504,12 +566,23 @@ function configurePermissionsForSession(
     const requestMediaType = (details as Electron.PermissionCheckHandlerHandlerDetails | undefined)?.mediaType
     const settings = currentSecuritySettings()
     const workspaceId = sessionIdentityScopes.get(targetSession)
-    if (permission === 'media' && settings.privacy.webRtcPolicy === 'disabled' && !hostMatchesList(origin, settings.privacy.webRtcExceptions)) return false
+    if (isCapturePermission(permission) && settings.privacy.webRtcPolicy === 'disabled' && !hostMatchesList(origin, settings.privacy.webRtcExceptions)) return false
+    // Screen capture is decided by setDisplayMediaRequestHandler's picker.
+    if (permission === 'display-capture') return true
     const basePolicy = permissionPolicy(permission, details, settings)
     if (basePolicy === 'allow' && permission === 'geolocation') return true
+    const allowed = (kind: SitePermissionKind): boolean => {
+      const stored = resolveStoredPermissionPolicy(settings, origin, kind, workspaceId)
+      return stored === 'allow' || (stored !== 'block' && grantedForVisit(requestingContents, origin, kind))
+    }
+    // Choosing an audio output follows the microphone decision, as in Chrome.
+    if (permission === 'speaker-selection') return allowed('microphone')
+    // A media check without a device type gates device names in
+    // enumerateDevices: the site may see them once it may use either device.
+    if (permission === 'media' && !requestMediaType) return allowed('camera') || allowed('microphone')
     const kinds = permissionKindsFromElectronPermission(permission, requestMediaType ? [requestMediaType] : [])
     if (kinds.length === 0) return false
-    return kinds.every((kind) => resolveStoredPermissionPolicy(settings, origin, kind, workspaceId) === 'allow')
+    return kinds.every(allowed)
   })
 
   targetSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
@@ -522,16 +595,17 @@ function configurePermissionsForSession(
 
     const settings = currentSecuritySettings()
     const workspaceId = sessionIdentityScopes.get(targetSession)
-    if (permission === 'media' && settings.privacy.webRtcPolicy === 'disabled' && !hostMatchesList(origin, settings.privacy.webRtcExceptions)) {
+    if (isCapturePermission(permission) && settings.privacy.webRtcPolicy === 'disabled' && !hostMatchesList(origin, settings.privacy.webRtcExceptions)) {
       callback(false)
       return
     }
     const requestMediaTypes = (details as Electron.MediaAccessPermissionRequest | undefined)?.mediaTypes
     const mediaTypes = Array.isArray(requestMediaTypes) ? [...requestMediaTypes] : []
-    // Electron 42 emits an empty `media` permission request before delegating
-    // getDisplayMedia to setDisplayMediaRequestHandler. Device requests include
-    // audio/video mediaTypes; this empty gate grants no source by itself.
-    if (permission === 'media' && mediaTypes.length === 0) {
+    // Before getDisplayMedia reaches setDisplayMediaRequestHandler, Electron 42-44
+    // emit an empty `media` request and Electron 45+ a `display-capture` request.
+    // Device requests include audio/video mediaTypes; this gate grants no source
+    // by itself (the handler requires a user gesture and Vast's source picker).
+    if ((permission === 'media' && mediaTypes.length === 0) || permission === 'display-capture') {
       callback(true)
       return
     }
@@ -546,7 +620,10 @@ function configurePermissionsForSession(
           ? 'allow'
           : basePolicy === 'block'
             ? 'block'
-            : 'ask'
+            : permissionKinds.length > 0 && permissionKinds.every((kind) => grantedForVisit(webContents, origin, kind))
+              // Already allowed once during this visit: don't ask again.
+              ? 'allow'
+              : 'ask'
     if (policy === 'block') {
       callback(false)
       return
@@ -613,6 +690,7 @@ function configurePermissionsForSession(
           windowRegistry.broadcast('vast:site-permissions-changed', settings.security.sitePermissions)
         }
         const allowed = choice === 'allow-once' || choice === 'allow-always'
+        if (choice === 'allow-once' && requestIsCurrent()) grantForVisit(webContents, origin, permissionKinds)
         if (allowed && permission === 'media' && mediaTypes.some((type) => type === 'audio' || type === 'video')) {
           protectGuestMediaCapture(webContents)
         }
@@ -1646,6 +1724,28 @@ export function extensionDocumentRulesAllowed(contents: Electron.WebContents, re
   return !contents.isDestroyed() && Boolean(ownerWindowForWebContents(contents)) &&
     !shouldBypassVastInterference({ url: requestedUrl, authWindow: authCompatibilityWebContents.has(contents.id) }) &&
     !siteInterventionsDisabled({ url: requestedUrl, resourceType: 'mainFrame', webContentsId: contents.id }, currentSecuritySettings().privacy.siteInterventionsDisabled)
+}
+
+/**
+ * Site permissions still set to Ask for the document, which the page should
+ * read as "prompt" rather than the "denied" Electron's check reports. Mirrors
+ * the check and request handlers: blocked WebRTC and fixed spoofed locations
+ * are not undecided.
+ */
+export function undecidedPermissionsForWebContents(contents: Electron.WebContents, requestedUrl: string): string[] {
+  if (contents.isDestroyed() || !ownerWindowForWebContents(contents)) return []
+  const origin = originFromPermissionUrl(requestedUrl)
+  const actualUrl = contents.getURL()
+  if (!origin || (actualUrl && originFromPermissionUrl(actualUrl) !== origin)) return []
+  const settings = currentSecuritySettings()
+  const workspaceId = sessionIdentityScopes.get(contents.session)
+  const webRtcBlocked = settings.privacy.webRtcPolicy === 'disabled' && !hostMatchesList(origin, settings.privacy.webRtcExceptions)
+  const spoofing = spoofingFromSettings(settings)
+  return PROMPTABLE_PERMISSIONS.filter((kind) => {
+    if ((kind === 'camera' || kind === 'microphone') && webRtcBlocked) return false
+    if (kind === 'geolocation' && spoofing.enabled && spoofing.location.mode === 'fixed') return false
+    return resolveStoredPermissionPolicy(settings, origin, kind, workspaceId) === 'ask'
+  })
 }
 
 export function privacyDocumentScriptForWebContents(contents: Electron.WebContents, requestedUrl: string): string {

@@ -357,7 +357,7 @@ function PdfThumbnailItem({
         canvasRef.current.style.height = `${Math.ceil(viewport.height)}px`
 
         context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0)
-        context.fillStyle = '#101217'
+        context.fillStyle = '#121212'
         context.fillRect(0, 0, viewport.width, viewport.height)
 
         renderTask = page.render({
@@ -403,7 +403,7 @@ function PdfThumbnailItem({
         <span>Page</span>
         <span>{label}</span>
       </div>
-      <div className="grid h-[174px] place-items-center rounded-card bg-[#0d1015] p-2 ring-1 ring-white/6">
+      <div className="grid h-[174px] place-items-center rounded-card bg-[#101010] p-2 ring-1 ring-white/6">
         <canvas ref={canvasRef} className={`max-w-full rounded-control shadow-[0_18px_36px_rgba(0,0,0,0.25)] transition ${rendered ? 'opacity-100' : 'opacity-0'}`} />
         {!rendered && !error && <div className="h-[154px] w-[120px] rounded-control bg-white/5" />}
         {error && <div className="px-3 text-center text-xs leading-5 text-vast-soft">Preview failed. Double-click to retry.</div>}
@@ -1092,7 +1092,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
 
   if (!sourceUrl || !resourceId) {
     return (
-      <div className="grid h-full place-items-center bg-[radial-gradient(circle_at_top,rgba(255,162,94,0.12),transparent_26%),linear-gradient(180deg,#09090d,#050507)] p-6">
+      <div className="grid h-full place-items-center bg-[radial-gradient(circle_at_top,rgba(255,162,94,0.12),transparent_26%),linear-gradient(180deg,#090909,#050505)] p-6">
         <InternalEmptyState
           icon={FileText}
           title="Missing PDF source"
@@ -1103,7 +1103,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
   }
 
   return (
-    <div className="pdf-viewer-shell flex h-full min-h-0 flex-col gap-2 bg-[radial-gradient(circle_at_top,rgba(255,162,94,0.12),transparent_26%),linear-gradient(180deg,#09090d,#050507)] p-2 md:p-3">
+    <div className="pdf-viewer-shell flex h-full min-h-0 flex-col gap-2 bg-[radial-gradient(circle_at_top,rgba(255,162,94,0.12),transparent_26%),linear-gradient(180deg,#090909,#050505)] p-2 md:p-3">
       <section className="vast-glass-panel relative z-40 rounded-card px-3 py-2">
         <div className="flex items-center gap-2">
           <span className="shrink-0 rounded-control border border-[rgba(255,175,110,0.22)] bg-[rgba(255,154,82,0.12)] px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#ffd4b4]">Built-in PDF</span>
@@ -1280,7 +1280,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
           </aside>
         )}
 
-        <section className="min-w-0 flex-1 overflow-hidden rounded-panel border border-white/8 bg-[linear-gradient(180deg,rgba(15,17,22,0.94),rgba(9,11,15,0.98))] shadow-[0_20px_50px_rgba(0,0,0,0.25)]">
+        <section className="min-w-0 flex-1 overflow-hidden rounded-panel border border-white/8 bg-[linear-gradient(180deg,rgba(17, 17, 17, 0.94),rgba(11, 11, 11, 0.98))] shadow-[0_20px_50px_rgba(0,0,0,0.25)]">
           <div className="relative flex h-full min-h-0 flex-col">
             <div className="flex items-center justify-between border-b border-white/6 px-4 py-3 text-xs text-vast-soft">
               <div className="flex min-w-0 items-center gap-3">
@@ -1303,11 +1303,11 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
             </div>
 
             <div className="relative min-h-0 flex-1">
-              <div ref={containerRef} className="absolute inset-0 overflow-auto bg-[radial-gradient(circle_at_top,rgba(255,148,67,0.05),transparent_18%),linear-gradient(180deg,#101216,#0b0d12)] px-3 py-5 md:px-5">
+              <div ref={containerRef} className="absolute inset-0 overflow-auto bg-[radial-gradient(circle_at_top,rgba(255,148,67,0.05),transparent_18%),linear-gradient(180deg,#121212,#0d0d0d)] px-3 py-5 md:px-5">
                 <div ref={viewerRef} className={`pdfViewer ${loadState === 'error' ? 'pointer-events-none opacity-0' : ''}`} />
 
                 {loadState === 'loading' && (
-                  <div className="absolute inset-0 z-10 grid place-items-center bg-[rgba(8,9,12,0.72)] backdrop-blur-xs">
+                  <div className="absolute inset-0 z-10 grid place-items-center bg-[rgba(9, 9, 9, 0.72)] backdrop-blur-xs">
                     <div className="text-center">
                       <Loader2 className="mx-auto h-9 w-9 animate-spin text-vast-cyan" />
                       <div className="mt-4 text-lg font-semibold text-white">Loading PDF</div>
@@ -1319,8 +1319,8 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
                       {downloadProgress?.total ? (
                         <div className="mx-auto mt-4 h-1.5 w-64 overflow-hidden rounded-control bg-white/8">
                           <div
-                            className="h-full rounded-control bg-vast-cyan transition-[width] duration-150"
-                            style={{ width: `${Math.min(100, downloadProgress.received / downloadProgress.total * 100)}%` }}
+                            className="h-full origin-left rounded-control bg-vast-cyan transition-transform duration-150"
+                            style={{ transform: `scaleX(${Math.min(1, downloadProgress.received / downloadProgress.total)})` }}
                           />
                         </div>
                       ) : null}
@@ -1329,9 +1329,9 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
                 )}
 
                 {passwordRequest && (
-                  <div className="absolute inset-0 z-20 grid place-items-center bg-[rgba(8,9,12,0.82)] backdrop-blur-md p-6">
+                  <div className="absolute inset-0 z-20 grid place-items-center bg-[rgba(9, 9, 9, 0.82)] backdrop-blur-md p-6">
                     <form
-                      className="w-full max-w-md rounded-panel border border-white/10 bg-[#0d1015]/95 p-5 shadow-[0_28px_70px_rgba(0,0,0,0.36)]"
+                      className="w-full max-w-md rounded-panel border border-white/10 bg-[#101010]/95 p-5 shadow-[0_28px_70px_rgba(0,0,0,0.36)]"
                       onSubmit={(event) => {
                         event.preventDefault()
                         const trimmed = passwordValue.trim()
@@ -1384,7 +1384,7 @@ export function PdfViewerPage({ tab }: { tab: Tab }): JSX.Element {
                 )}
 
                 {loadState === 'error' && (
-                  <div className="absolute inset-0 z-10 grid place-items-center bg-[rgba(8,9,12,0.82)] p-6">
+                  <div className="absolute inset-0 z-10 grid place-items-center bg-[rgba(9, 9, 9, 0.82)] p-6">
                     <InternalEmptyState
                       icon={FileText}
                       title="Unable to render this PDF"

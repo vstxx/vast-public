@@ -242,7 +242,7 @@ export function registerExtensionsIpc(
   })
   handle('vast:extensions:prepare-sidebar', async (_event, key: unknown) => {
     try {
-      if (typeof key !== 'string' || key.length > 160) throw new Error('Invalid extension sidebar.')
+      if (typeof key !== 'string' || key.length > 160) throw new Error('Invalid extension side panel.')
       return { ok: true, surface: await extensionManager.prepareSidebar(key) }
     } catch (error) { return fail(error) }
   })

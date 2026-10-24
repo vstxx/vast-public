@@ -25,7 +25,7 @@ import {
   Trash2,
   X
 } from 'lucide-react'
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import { INTERNAL_NEW_TAB_URL } from '../../../shared/constants'
 import type { BookmarkFolder, SidePanelView } from '../../../shared/types'
 import { useBrowserRuntime } from '../../app/browser-runtime'
@@ -33,7 +33,10 @@ import { formatBytes, formatRelativeTime } from '../../lib/format'
 import { useBrowserStore, selectActiveTab, selectActiveWorkspace } from '../../store/browser-store'
 import { Favicon } from '../ui/Favicon'
 import { IconButton } from '../ui/IconButton'
+import { VastButton } from '../ui/VastButton'
+import { useVastConfirm } from '../ui/useVastConfirm'
 import { VastSelect } from '../ui/VastSelect'
+import { VirtualRows } from '../ui/VirtualRows'
 import { useExtensionContributions } from '../../extensions/extension-runtime'
 
 const views: Array<{ id: SidePanelView; title: string; icon: typeof NotebookPen }> = [
@@ -85,15 +88,20 @@ function clampPanelPosition(
 export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element | null {
   const open = useBrowserStore((state) => state.sidePanelOpen)
   const activeView = useBrowserStore((state) => state.activeSidePanel)
-  const activeWorkspace = useBrowserStore(selectActiveWorkspace)
+  // A boolean, not the workspace object: activating any tab replaces that object.
+  const hideExtensionPanels = useBrowserStore((state) => {
+    const workspace = selectActiveWorkspace(state)
+    return Boolean(workspace?.isPrivate || workspace?.identity?.sessionMode === 'ephemeral')
+  })
   const extensionContributions = useExtensionContributions()
-  const extensionPanels = activeWorkspace?.isPrivate || activeWorkspace?.identity?.sessionMode === 'ephemeral' ? [] : extensionContributions.sidebar
+  const extensionPanels = hideExtensionPanels ? [] : extensionContributions.sidebar
   const [activeExtensionKey, setActiveExtensionKey] = useState<string | null>(null)
   const [extensionSurface, setExtensionSurface] = useState<{ src: string; partition: string } | null>(null)
   const setActiveView = useBrowserStore((state) => state.setActiveSidePanel)
   const sidePanelSettings = useBrowserStore((state) => state.settings.sidePanel)
   const updateSettings = useBrowserStore((state) => state.updateSettings)
   const runtime = useBrowserRuntime()
+  const panelRef = useRef<HTMLElement | null>(null)
   const [width, setWidth] = useState(() => Math.max(304, Math.min(520, sidePanelSettings.width)))
   const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }))
   const [topInset, setTopInset] = useState(measurePanelTopInset)
@@ -189,6 +197,15 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
     const startPointer = { x: event.clientX, y: event.clientY }
     const startPosition = position
     let lastPosition = position
+    // Move the panel directly once per frame; React state is committed on release.
+    let frame = 0
+    const placePanel = (): void => {
+      frame = 0
+      const panel = panelRef.current
+      if (!panel) return
+      panel.style.left = `${lastPosition.x}px`
+      panel.style.top = `${lastPosition.y}px`
+    }
     const onMove = (moveEvent: MouseEvent): void => {
       lastPosition = clampPanelPosition(
         {
@@ -199,9 +216,11 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
         viewport,
         topInset
       )
-      setPosition(lastPosition)
+      if (!frame) frame = window.requestAnimationFrame(placePanel)
     }
     const onUp = (): void => {
+      window.cancelAnimationFrame(frame)
+      setPosition(lastPosition)
       updateSettings({ sidePanel: { positionX: lastPosition.x, positionY: lastPosition.y } })
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
@@ -222,9 +241,10 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
       style={pinned ? undefined : { width }}
     >
     <aside
-      className={`side-panel no-drag z-60 flex min-h-0 shrink-0 flex-col overflow-hidden border border-white/10 bg-[#08090d]/96 backdrop-blur-2xl ${
+      className={`side-panel no-drag z-60 flex min-h-0 shrink-0 flex-col overflow-hidden border border-white/10 bg-[#090909]/96 backdrop-blur-2xl ${
         pinned ? 'rounded-panel shadow-[0_18px_54px_rgba(0,0,0,0.34)]' : 'border-b-0 border-r-0 border-t-0 shadow-none'
       }`}
+      ref={panelRef}
       style={panelStyle}
     >
       <div
@@ -236,12 +256,12 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
       <div
         className={`side-panel-header flex h-[72px] select-none items-center gap-3 border-b border-white/8 px-4 ${pinned ? 'cursor-move' : 'cursor-default'}`}
         data-testid="sidebar-drag-handle"
-        title={pinned ? 'Drag sidebar' : undefined}
+        title={pinned ? 'Drag side panel' : undefined}
         onMouseDown={pinned ? startMove : undefined}
       >
         <IconButton
-          tooltip={pinned ? 'Unpin sidebar' : 'Pin sidebar over page'}
-          aria-label={pinned ? 'Unpin sidebar' : 'Pin sidebar over page'}
+          tooltip={pinned ? 'Unpin side panel' : 'Pin side panel over page'}
+          aria-label={pinned ? 'Unpin side panel' : 'Pin side panel over page'}
           aria-pressed={pinned}
           active={pinned}
           className="side-panel-pin-button"
@@ -252,7 +272,7 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
         <div className="min-w-0 truncate text-left text-xl font-semibold text-white">{activeTitle}</div>
         {pinned && <GripHorizontal className="ml-auto h-4 w-4 text-white/25" aria-hidden="true" />}
       </div>
-      <div role="tablist" aria-label="Sidebar sections" className="flex gap-1 overflow-x-auto border-b border-white/8 p-2">
+      <div role="tablist" aria-label="Side panel sections" className="flex gap-1 overflow-x-auto border-b border-white/8 p-2">
         {views.map((view) => {
           const Icon = view.icon
           return (
@@ -308,36 +328,41 @@ function PanelSearch({ value, onChange, placeholder }: { value: string; onChange
 }
 
 function NotesPanel(): JSX.Element {
-  const activeTab = useBrowserStore(selectActiveTab)
-  const workspace = useBrowserStore(selectActiveWorkspace)
+  // Narrow selectors: title, progress and favicon updates of the active tab
+  // must not re-render the panel; only its URL and the workspace matter here.
+  const activeTabUrl = useBrowserStore((state) => selectActiveTab(state)?.url)
+  const workspaceId = useBrowserStore((state) => selectActiveWorkspace(state)?.id)
   const notes = useBrowserStore((state) => state.notes)
   const addNote = useBrowserStore((state) => state.addNote)
   const updateNote = useBrowserStore((state) => state.updateNote)
   const deleteNote = useBrowserStore((state) => state.deleteNote)
+  const confirm = useVastConfirm()
   const [query, setQuery] = useState('')
   const queryText = query.toLowerCase().trim()
   const workspaceNotes = notes
-    .filter((note) => note.workspaceId === workspace?.id || note.url === activeTab?.url)
+    .filter((note) => note.workspaceId === workspaceId || note.url === activeTabUrl)
     .filter((note) => !queryText || `${note.title} ${note.body} ${note.url ?? ''}`.toLowerCase().includes(queryText))
 
   return (
     <div className="space-y-3">
       <PanelSearch value={query} onChange={setQuery} placeholder="Search notes" />
-      <button
-        type="button"
-        onClick={() =>
+      <VastButton
+        size="sm"
+        className="vast-button--block"
+        icon={<Plus className="h-4 w-4 text-vast-cyan" />}
+        onClick={() => {
+          const state = useBrowserStore.getState()
+          const activeTab = selectActiveTab(state)
           addNote({
             title: activeTab ? activeTab.title : 'New note',
             body: '',
             url: activeTab?.url,
-            workspaceId: workspace?.id
+            workspaceId: selectActiveWorkspace(state)?.id
           })
-        }
-        className="vast-button vast-button--secondary vast-button--sm vast-button--block"
+        }}
       >
-        <Plus className="h-4 w-4 text-vast-cyan" />
         New URL/workspace note
-      </button>
+      </VastButton>
       {workspaceNotes.map((note) => (
         <div key={note.id} className="rounded-card border border-white/10 bg-white/4.5 p-3">
           <input
@@ -354,7 +379,7 @@ function NotesPanel(): JSX.Element {
           />
           <div className="mt-2 flex items-center justify-between text-[11px] text-vast-soft">
             <span>{note.url ? 'URL note' : 'Workspace note'}</span>
-            <button type="button" onClick={() => deleteNote(note.id)} className="text-[11px] text-vast-soft transition hover:text-white">
+            <button type="button" onClick={async () => { if (await confirm(`Delete “${note.title || 'Untitled note'}”?`, 'This note will be deleted.', 'Delete', { danger: true })) deleteNote(note.id) }} className="text-[11px] text-vast-soft transition hover:text-white">
               Delete
             </button>
           </div>
@@ -365,9 +390,27 @@ function NotesPanel(): JSX.Element {
   )
 }
 
+type BookmarkModel = ReturnType<typeof useBrowserStore.getState>['bookmarks'][number]
+
+// One row per virtualized line. Folder cards are split into a header row and
+// item rows whose borders, padding and spacing reproduce the original card.
+type BookmarkRow =
+  | { kind: 'folder'; key: string; folder: BookmarkFolder; empty: boolean }
+  | { kind: 'folder-item'; key: string; bookmark: BookmarkModel; last: boolean }
+  | { kind: 'loose'; key: string; bookmark: BookmarkModel }
+
+// The list ends without a trailing group gap, like the original stack.
+type PlacedBookmarkRow = BookmarkRow & { final?: boolean }
+
+const GROUP_GAP = 16
+const bookmarkRowKey = (row: PlacedBookmarkRow): string => row.key
+const bookmarkRowGap = (row: PlacedBookmarkRow): number =>
+  !row.final && ((row.kind === 'folder' && row.empty) || (row.kind === 'folder-item' && row.last) || row.kind === 'loose') ? GROUP_GAP : 0
+const bookmarkRowEstimate = (row: PlacedBookmarkRow): number =>
+  row.kind === 'folder' ? (row.empty ? 60 : 52) + bookmarkRowGap(row) : row.kind === 'folder-item' ? (row.last ? 52 : 48) + bookmarkRowGap(row) : 44 + GROUP_GAP
+
 function BookmarksPanel(): JSX.Element {
   const runtime = useBrowserRuntime()
-  const activeTab = useBrowserStore(selectActiveTab)
   const bookmarks = useBrowserStore((state) => state.bookmarks)
   const folders = useBrowserStore((state) => state.bookmarkFolders)
   const createFolder = useBrowserStore((state) => state.createBookmarkFolder)
@@ -380,19 +423,150 @@ function BookmarksPanel(): JSX.Element {
   const [editingBookmarkId, setEditingBookmarkId] = useState<string | null>(null)
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
   const queryText = query.toLowerCase().trim()
-  const matchesBookmark = (bookmark: (typeof bookmarks)[number]): boolean =>
-    !queryText || `${bookmark.title} ${bookmark.url}`.toLowerCase().includes(queryText)
-  const looseBookmarks = bookmarks.filter((bookmark) => !bookmark.folderId && matchesBookmark(bookmark))
   const openBookmark = (url: string): void => {
-    if (activeTab?.url === INTERNAL_NEW_TAB_URL) runtime.navigateActive(url)
+    // Read at click time; subscribing re-rendered every bookmark on each tab update.
+    if (selectActiveTab(useBrowserStore.getState())?.url === INTERNAL_NEW_TAB_URL) runtime.navigateActive(url)
     else runtime.openUrlInNewTab(url)
   }
 
+  const rows = useMemo(() => {
+    const matches = (bookmark: BookmarkModel): boolean =>
+      !queryText || `${bookmark.title} ${bookmark.url}`.toLowerCase().includes(queryText)
+    // Group once instead of filtering every bookmark for every folder.
+    const byFolder = new Map<string, BookmarkModel[]>()
+    const loose: BookmarkModel[] = []
+    for (const bookmark of bookmarks) {
+      if (!matches(bookmark)) continue
+      if (!bookmark.folderId) loose.push(bookmark)
+      else {
+        const items = byFolder.get(bookmark.folderId)
+        if (items) items.push(bookmark)
+        else byFolder.set(bookmark.folderId, [bookmark])
+      }
+    }
+    const next: PlacedBookmarkRow[] = []
+    for (const folder of folders) {
+      const items = byFolder.get(folder.id) ?? []
+      if (queryText && items.length === 0 && !folder.name.toLowerCase().includes(queryText)) continue
+      next.push({ kind: 'folder', key: `folder:${folder.id}`, folder, empty: items.length === 0 })
+      items.forEach((bookmark, index) => next.push({ kind: 'folder-item', key: `folder-item:${bookmark.id}`, bookmark, last: index === items.length - 1 }))
+    }
+    for (const bookmark of loose) next.push({ kind: 'loose', key: `loose:${bookmark.id}`, bookmark })
+    if (next.length) next[next.length - 1] = { ...next[next.length - 1], final: true }
+    return next
+  }, [bookmarks, folders, queryText])
+
+  const renderBookmark = (bookmarkItem: BookmarkModel, inFolder: boolean): JSX.Element => (
+    <div className={inFolder ? 'group rounded-control px-2 py-2 hover:bg-white/6' : 'rounded-control px-2 py-2 hover:bg-white/6'}>
+      <div className={inFolder ? 'flex items-center gap-2' : 'group flex items-center gap-2'}>
+        <button
+          type="button"
+          onClick={() => openBookmark(bookmarkItem.url)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        >
+          <Favicon url={bookmarkItem.url} favicon={bookmarkItem.favicon} title={bookmarkItem.title} />
+          <span className="min-w-0 flex-1 truncate text-sm text-white">{bookmarkItem.title}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditingBookmarkId((id) => (id === bookmarkItem.id ? null : bookmarkItem.id))}
+          className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control opacity-0 transition group-hover:opacity-100"
+        >
+          <Edit3 className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => removeBookmark(bookmarkItem.id)}
+          className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control opacity-0 transition group-hover:opacity-100"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {editingBookmarkId === bookmarkItem.id && <div className="mt-2 grid min-w-0 max-w-full gap-2 overflow-hidden pl-6">
+        <input
+          value={bookmarkItem.title}
+          onChange={(event) => updateBookmark(bookmarkItem.id, { title: event.target.value })}
+          className="h-8 w-full min-w-0 max-w-full rounded-control border border-white/8 bg-black/20 px-2 text-xs text-white outline-hidden focus:border-vast-cyan/30"
+        />
+        <div className="grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)_minmax(5.5rem,7.5rem)] gap-2">
+          <input
+            value={bookmarkItem.url}
+            onChange={(event) => updateBookmark(bookmarkItem.id, { url: event.target.value })}
+            className="h-8 min-w-0 flex-1 rounded-control border border-white/8 bg-black/20 px-2 text-xs text-vast-soft outline-hidden focus:border-vast-cyan/30"
+          />
+          <VastSelect
+            value={bookmarkItem.folderId ?? ''}
+            options={[
+              { value: '', label: 'Bar' },
+              ...folders.map((targetFolder) => ({ value: targetFolder.id, label: targetFolder.name }))
+            ]}
+            onChange={(folderId) => updateBookmark(bookmarkItem.id, { folderId: folderId || undefined })}
+            ariaLabel={`Folder for ${bookmarkItem.title || 'bookmark'}`}
+            className="w-full min-w-0 max-w-30"
+            buttonClassName="h-8 min-h-8 rounded-control px-2 text-xs"
+          />
+        </div>
+      </div>}
+    </div>
+  )
+
+  const renderRow = (row: PlacedBookmarkRow): JSX.Element => {
+    if (row.kind === 'loose') return renderBookmark(row.bookmark, false)
+    if (row.kind === 'folder-item') {
+      return (
+        <div className={`min-w-0 overflow-hidden border-x border-white/8 bg-white/2.5 px-2 ${row.last ? 'bookmark-folder-end border-b pb-2' : 'pb-1'}`}>
+          {renderBookmark(row.bookmark, true)}
+        </div>
+      )
+    }
+    const { folder } = row
+    return (
+      <section className={`min-w-0 overflow-hidden rounded-card border border-white/8 bg-white/2.5 px-2 pt-2 ${row.empty ? 'pb-2' : 'bookmark-folder-head border-b-0'}`}>
+        <div className="mb-2 flex items-center gap-2 px-1">
+          <Folder className="h-3.5 w-3.5 text-vast-cyan" />
+          {editingFolderId === folder.id ? (
+            <FolderNameEditor
+              folder={folder}
+              onCommit={(name) => updateFolder(folder.id, { name })}
+              onDone={() => setEditingFolderId(null)}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEditingFolderId(folder.id)}
+              className="min-w-0 flex-1 truncate text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-vast-soft hover:text-white"
+            >
+              {folder.name}
+            </button>
+          )}
+          <button
+            type="button"
+            title="Rename folder"
+            onClick={() => setEditingFolderId(folder.id)}
+            className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control"
+          >
+            <Edit3 className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            title="Delete folder"
+            onClick={() => deleteFolder(folder.id)}
+            className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </section>
+    )
+  }
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <PanelSearch value={query} onChange={setQuery} placeholder="Search bookmarks" />
-      <button
-        type="button"
+      <VastButton
+        size="sm"
+        className="vast-button--block"
+        icon={<Plus className="h-4 w-4 text-vast-cyan" />}
         onClick={() =>
           openPromptDialog({
             title: 'New bookmark folder',
@@ -402,162 +576,13 @@ function BookmarksPanel(): JSX.Element {
             onConfirm: (name) => createFolder(name)
           })
         }
-        className="vast-button vast-button--secondary vast-button--sm vast-button--block"
       >
-        <Plus className="h-4 w-4 text-vast-cyan" />
         New folder
-      </button>
-      {folders.map((folder) => {
-        const items = bookmarks.filter((bookmark) => bookmark.folderId === folder.id && matchesBookmark(bookmark))
-        if (queryText && items.length === 0 && !folder.name.toLowerCase().includes(queryText)) return null
-        return (
-          <section key={folder.id} className="min-w-0 overflow-hidden rounded-card border border-white/8 bg-white/2.5 p-2">
-            <div className="mb-2 flex items-center gap-2 px-1">
-              <Folder className="h-3.5 w-3.5 text-vast-cyan" />
-              {editingFolderId === folder.id ? (
-                <FolderNameEditor
-                  folder={folder}
-                  onCommit={(name) => updateFolder(folder.id, { name })}
-                  onDone={() => setEditingFolderId(null)}
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setEditingFolderId(folder.id)}
-                  className="min-w-0 flex-1 truncate text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-vast-soft hover:text-white"
-                >
-                  {folder.name}
-                </button>
-              )}
-              <button
-                type="button"
-                title="Rename folder"
-                onClick={() => setEditingFolderId(folder.id)}
-                className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control"
-              >
-                <Edit3 className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                title="Delete folder"
-                onClick={() => deleteFolder(folder.id)}
-                className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            <div className="space-y-1">
-              {items.map((bookmarkItem) => (
-                <div key={bookmarkItem.id} className="group rounded-control px-2 py-2 hover:bg-white/6">
-                  <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => openBookmark(bookmarkItem.url)}
-                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                  >
-                    <Favicon url={bookmarkItem.url} favicon={bookmarkItem.favicon} title={bookmarkItem.title} />
-                    <span className="min-w-0 flex-1 truncate text-sm text-white">{bookmarkItem.title}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditingBookmarkId((id) => (id === bookmarkItem.id ? null : bookmarkItem.id))}
-                    className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control opacity-0 transition group-hover:opacity-100"
-                  >
-                    <Edit3 className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => removeBookmark(bookmarkItem.id)}
-                    className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control opacity-0 transition group-hover:opacity-100"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                  </div>
-                  {editingBookmarkId === bookmarkItem.id && <div className="mt-2 grid min-w-0 max-w-full gap-2 overflow-hidden pl-6">
-                    <input
-                      value={bookmarkItem.title}
-                      onChange={(event) => updateBookmark(bookmarkItem.id, { title: event.target.value })}
-                      className="h-8 w-full min-w-0 max-w-full rounded-control border border-white/8 bg-black/20 px-2 text-xs text-white outline-hidden focus:border-vast-cyan/30"
-                    />
-                    <div className="grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)_minmax(5.5rem,7.5rem)] gap-2">
-                      <input
-                        value={bookmarkItem.url}
-                        onChange={(event) => updateBookmark(bookmarkItem.id, { url: event.target.value })}
-                        className="h-8 min-w-0 flex-1 rounded-control border border-white/8 bg-black/20 px-2 text-xs text-vast-soft outline-hidden focus:border-vast-cyan/30"
-                      />
-                      <VastSelect
-                        value={bookmarkItem.folderId ?? ''}
-                        options={[
-                          { value: '', label: 'Bar' },
-                          ...folders.map((targetFolder) => ({ value: targetFolder.id, label: targetFolder.name }))
-                        ]}
-                        onChange={(folderId) => updateBookmark(bookmarkItem.id, { folderId: folderId || undefined })}
-                        ariaLabel={`Folder for ${bookmarkItem.title || 'bookmark'}`}
-                        className="w-full min-w-0 max-w-30"
-                        buttonClassName="h-8 min-h-8 rounded-control px-2 text-xs"
-                      />
-                    </div>
-                  </div>}
-                </div>
-              ))}
-            </div>
-          </section>
-        )
-      })}
-      {looseBookmarks.map((bookmarkItem) => (
-        <div key={bookmarkItem.id} className="rounded-control px-2 py-2 hover:bg-white/6">
-          <div className="group flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => openBookmark(bookmarkItem.url)}
-              className="flex min-w-0 flex-1 items-center gap-2 text-left"
-            >
-              <Favicon url={bookmarkItem.url} favicon={bookmarkItem.favicon} title={bookmarkItem.title} />
-              <span className="min-w-0 flex-1 truncate text-sm text-white">{bookmarkItem.title}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditingBookmarkId((id) => (id === bookmarkItem.id ? null : bookmarkItem.id))}
-              className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control opacity-0 transition group-hover:opacity-100"
-            >
-              <Edit3 className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => removeBookmark(bookmarkItem.id)}
-              className="vast-icon-button vast-icon-button--quiet grid place-items-center h-7 w-7 rounded-control opacity-0 transition group-hover:opacity-100"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          </div>
-          {editingBookmarkId === bookmarkItem.id && <div className="mt-2 grid min-w-0 max-w-full gap-2 overflow-hidden pl-6">
-            <input
-              value={bookmarkItem.title}
-              onChange={(event) => updateBookmark(bookmarkItem.id, { title: event.target.value })}
-              className="h-8 w-full min-w-0 max-w-full rounded-control border border-white/8 bg-black/20 px-2 text-xs text-white outline-hidden focus:border-vast-cyan/30"
-            />
-            <div className="grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)_minmax(5.5rem,7.5rem)] gap-2">
-              <input
-                value={bookmarkItem.url}
-                onChange={(event) => updateBookmark(bookmarkItem.id, { url: event.target.value })}
-                className="h-8 min-w-0 flex-1 rounded-control border border-white/8 bg-black/20 px-2 text-xs text-vast-soft outline-hidden focus:border-vast-cyan/30"
-              />
-              <VastSelect
-                value={bookmarkItem.folderId ?? ''}
-                options={[
-                  { value: '', label: 'Bar' },
-                  ...folders.map((folder) => ({ value: folder.id, label: folder.name }))
-                ]}
-                onChange={(folderId) => updateBookmark(bookmarkItem.id, { folderId: folderId || undefined })}
-                ariaLabel={`Folder for ${bookmarkItem.title || 'bookmark'}`}
-                className="w-full min-w-0 max-w-30"
-                buttonClassName="h-8 min-h-8 rounded-control px-2 text-xs"
-              />
-            </div>
-          </div>}
-        </div>
-      ))}
-      {folders.length === 0 && looseBookmarks.length === 0 && (
+      </VastButton>
+      {rows.length > 0 && (
+        <VirtualRows items={rows} getKey={bookmarkRowKey} estimateHeight={bookmarkRowEstimate} rowGap={bookmarkRowGap} renderRow={renderRow} />
+      )}
+      {folders.length === 0 && rows.length === 0 && (
         <EmptyPanel icon={Bookmark} text={queryText ? 'No bookmarks match this search.' : 'Bookmarks and folders will appear here.'} />
       )}
     </div>
@@ -601,13 +626,21 @@ function FolderNameEditor({
   )
 }
 
+type HistoryEntryModel = ReturnType<typeof useBrowserStore.getState>['history'][number]
+const historyKey = (entry: HistoryEntryModel): string => entry.id
+const historyEstimate = (): number => 52 + 12
+const historyGap = (): number => 12
+
 function HistoryPanel(): JSX.Element {
   const runtime = useBrowserRuntime()
   const history = useBrowserStore((state) => state.history)
   const clearHistory = useBrowserStore((state) => state.clearHistory)
   const [query, setQuery] = useState('')
   const queryText = query.toLowerCase().trim()
-  const filteredHistory = history.filter((entry) => !queryText || `${entry.title} ${entry.url}`.toLowerCase().includes(queryText))
+  const filteredHistory = useMemo(
+    () => history.filter((entry) => !queryText || `${entry.title} ${entry.url}`.toLowerCase().includes(queryText)),
+    [history, queryText]
+  )
 
   return (
     <div className="space-y-3">
@@ -620,9 +653,8 @@ function HistoryPanel(): JSX.Element {
         <Trash2 className="h-4 w-4 text-vast-amber" />
         Clear history
       </button>
-      {filteredHistory.map((entry) => (
+      {filteredHistory.length > 0 && <VirtualRows items={filteredHistory} getKey={historyKey} estimateHeight={historyEstimate} rowGap={historyGap} renderRow={(entry) => (
         <button
-          key={entry.id}
           type="button"
           onClick={() => runtime.openUrlInNewTab(entry.url)}
           className="flex w-full items-center gap-3 rounded-control px-2 py-2 text-left hover:bg-white/6"
@@ -634,7 +666,7 @@ function HistoryPanel(): JSX.Element {
           </div>
           <span className="text-[11px] text-vast-soft">{formatRelativeTime(entry.lastVisitedAt)}</span>
         </button>
-      ))}
+      )} />}
       {filteredHistory.length === 0 && <EmptyPanel icon={History} text={queryText ? 'No history matches this search.' : 'Pages you visit will appear here.'} />}
     </div>
   )
@@ -690,7 +722,7 @@ function DownloadsPanel(): JSX.Element {
             {item.state === 'progressing' && (
               <>
                 <div className="mt-3 h-1.5 overflow-hidden rounded-control bg-white/8">
-                  <div className="h-full rounded-control bg-vast-cyan" style={{ width: `${Math.round(progress * 100)}%` }} />
+                  <div className="h-full origin-left rounded-control bg-vast-cyan" style={{ transform: `scaleX(${progress})` }} />
                 </div>
                 <div className="mt-3 flex gap-2">
                   <button type="button" onClick={() => void (item.paused ? window.vast.downloads.resume(item.id) : window.vast.downloads.pause(item.id))} className="vast-button vast-button--secondary vast-button--sm h-8 px-2.5">

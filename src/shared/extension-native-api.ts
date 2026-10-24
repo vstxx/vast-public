@@ -29,7 +29,7 @@ export const VAST_PERMISSION_METADATA: Record<VastNativePermission, VastPermissi
   'vast.tabs.write': { id: 'vast.tabs.write', title: 'Control normal web tabs', description: 'Create, navigate, reload, activate, and close normal web tabs.', risk: 'high' },
   'vast.theme': { id: 'vast.theme', title: "Change Vast's appearance", description: 'Apply a validated visual theme overlay.', risk: 'low' },
   'vast.toolbar': { id: 'vast.toolbar', title: 'Add buttons to the Vast toolbar', description: 'Add a limited number of native-looking toolbar actions.', risk: 'low' },
-  'vast.sidebar': { id: 'vast.sidebar', title: 'Add panels to the Vast sidebar', description: 'Add sandboxed extension pages to the side panel.', risk: 'medium' },
+  'vast.sidebar': { id: 'vast.sidebar', title: 'Add panels to the Vast side panel', description: 'Add sandboxed extension pages to the side panel.', risk: 'medium' },
   'vast.commands': { id: 'vast.commands', title: 'Add commands and shortcuts', description: 'Add clearly identified actions to the command palette.', risk: 'low' },
   'vast.contextMenus': { id: 'vast.contextMenus', title: 'Add actions to page menus', description: 'Add limited actions to normal webpage context menus.', risk: 'medium' },
   'vast.notifications': { id: 'vast.notifications', title: 'Show Vast notifications', description: 'Show bounded notifications inside Vast.', risk: 'low' }
@@ -69,6 +69,7 @@ export interface VastThemeTokens {
   gradientIntensity?: number
   panelOpacity?: number
   chromeOpacity?: number
+  transparency?: number
   saturation?: number
 }
 

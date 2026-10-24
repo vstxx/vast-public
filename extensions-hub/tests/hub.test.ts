@@ -180,6 +180,54 @@ describe('public catalog and security envelope', () => {
     expect(filteredBody.items.some((item) => item.id === 'pejdijmoenmkgeppbflobdenhhabjlaj')).toBe(false)
     expect(filteredBody.featured.some((item) => item.id === 'pejdijmoenmkgeppbflobdenhhabjlaj')).toBe(false)
   })
+  it('lists every published extension on the public website with logos and no install launcher', async () => {
+    const bitwardenId = 'nngceckbapebfimnlniiiahkandclblb'
+    const iCloudId = 'pejdijmoenmkgeppbflobdenhhabjlaj'
+    await seedPublishedPasswordManager(bitwardenId)
+
+    // A plain website visitor sends no Vast version header at all.
+    const explore = await call('/explore')
+    expect(explore.status).toBe(200)
+    const exploreHtml = await explore.text()
+    expect(exploreHtml).toContain(`/extension/${bitwardenId}`)
+    expect(exploreHtml).toContain(`/extension/${iCloudId}`)
+    expect(exploreHtml).toContain('/extension-icons/bitwarden.png')
+    expect(exploreHtml).toContain('/extension-icons/icloud-passwords.png')
+    expect(exploreHtml).not.toContain('data-action="install"')
+    expect(exploreHtml).not.toContain('Open in Vast')
+
+    const passwordManagers = await (await call('/explore?category=password-managers')).text()
+    expect(passwordManagers).toContain(`/extension/${bitwardenId}`)
+    expect(passwordManagers).toContain(`/extension/${iCloudId}`)
+    expect(await (await call('/explore?category=developer')).text()).not.toContain(`/extension/${iCloudId}`)
+    expect(await (await call('/explore?query=apple')).text()).toContain(`/extension/${iCloudId}`)
+
+    for (const id of [bitwardenId, iCloudId]) {
+      const page = await call(`/extension/${id}`)
+      expect(page.status).toBe(200)
+      const pageHtml = await page.text()
+      expect(pageHtml).not.toContain('data-action="install"')
+      expect(pageHtml).not.toContain('Install extension')
+      expect(pageHtml).not.toContain('vast://')
+    }
+    // Apple's extension is not hosted by the Hub, so it cannot be reported here.
+    expect(await (await call(`/extension/${iCloudId}`)).text()).not.toContain('/report/')
+
+    // The client-facing API keeps its Vast-version gate, but its items now carry the logos.
+    expect((await call(`/v1/extensions/${bitwardenId}`)).status).toBe(404)
+    expect((await call(`/v1/install/${bitwardenId}`)).status).toBe(404)
+    const api = await (await call('/v1/catalog', { headers: { 'x-vast-version': '0.4.1' } })).json() as { items: Array<{ id: string; iconUrl?: string }> }
+    expect(api.items.find((item) => item.id === bitwardenId)?.iconUrl).toBe(`${origin}/extension-icons/bitwarden.png`)
+    expect(api.items.find((item) => item.id === iCloudId)?.iconUrl).toBe(`${origin}/extension-icons/icloud-passwords.png`)
+
+    for (const file of ['bitwarden.png', 'proton-pass.png', 'icloud-passwords.png']) {
+      // Static files are served by the assets layer in production, so read them through the binding.
+      const icon = await env.ASSETS.fetch(`${origin}/extension-icons/${file}`)
+      expect(icon.status).toBe(200)
+      expect(icon.headers.get('content-type')).toContain('image/png')
+      expect((await icon.arrayBuffer()).byteLength).toBeGreaterThan(1000)
+    }
+  })
 
   it('enforces CSRF and delegates request throttling to a native rate-limit binding', async () => {
     await seedPublisher(publisherId, 'publisher', sessionToken, csrfToken)

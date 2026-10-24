@@ -223,7 +223,7 @@ export function NetworkPage(): JSX.Element {
   }
 
   return (
-    <div className="labs-page-surface h-full overflow-y-auto overflow-x-hidden bg-[#06070a] p-5 text-white lg:p-6" data-testid="network-page">
+    <div className="labs-page-surface h-full overflow-y-auto overflow-x-hidden bg-[#070707] p-5 text-white lg:p-6" data-testid="network-page">
       <div className="mx-auto max-w-[1480px] space-y-5">
         <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_410px]">
           <section className="space-y-5">
@@ -309,7 +309,7 @@ export function NetworkPage(): JSX.Element {
                 type="button"
                 key={device.id}
                 onClick={() => setSelectedId(device.id)}
-                className={`vast-glass-panel rounded-panel p-4 text-left transition duration-150 hover:-translate-y-0.5 ${selected?.id === device.id ? 'shadow-[0_0_34px_rgba(116,231,255,0.08),inset_0_0_0_1px_rgba(116,231,255,0.24)]' : ''}`}
+                className={`vast-glass-panel rounded-panel p-4 text-left transition duration-150 hover:-translate-y-0.5 ${selected?.id === device.id ? 'shadow-[0_0_34px_color-mix(in_srgb,var(--vast-accent)_8%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--vast-accent)_24%,transparent)]' : ''}`}
               >
                 <div className="flex items-start gap-4">
                   <div className="grid h-12 w-12 place-items-center rounded-card border border-white/10 bg-white/6 text-vast-cyan">
@@ -375,7 +375,7 @@ export function NetworkPage(): JSX.Element {
                   type="button"
                   title="Favorite device"
                   onClick={() => void updateDevice(selected.id, { favorite: !selected.favorite })}
-                  className="grid h-10 w-10 shrink-0 place-items-center rounded-card bg-white/4.5 text-vast-cyan shadow-[inset_0_0_0_1px_rgba(255,255,255,0.065)] transition hover:bg-white/8 hover:shadow-[inset_0_0_0_1px_rgba(116,231,255,0.24),0_0_24px_rgba(116,231,255,0.08)]"
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-card bg-white/4.5 text-vast-cyan shadow-[inset_0_0_0_1px_rgba(255,255,255,0.065)] transition hover:bg-white/8 hover:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--vast-accent)_24%,transparent),0_0_24px_color-mix(in_srgb,var(--vast-accent)_8%,transparent)]"
                 >
                   <Heart className={`h-4 w-4 ${selected.favorite ? 'fill-current' : ''}`} />
                 </button>
@@ -387,7 +387,7 @@ export function NetworkPage(): JSX.Element {
                   defaultValue={selected.alias ?? ''}
                   onBlur={(event) => void updateDevice(selected.id, { alias: event.target.value })}
                   placeholder={selected.name}
-                  className="rounded-card border border-transparent bg-white/[0.035] px-3 py-2 text-sm text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)] outline-hidden transition focus:shadow-[inset_0_0_0_1px_rgba(116,231,255,0.3),0_0_24px_rgba(116,231,255,0.07)]"
+                  className="rounded-card border border-transparent bg-white/[0.035] px-3 py-2 text-sm text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)] outline-hidden transition focus:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--vast-accent)_30%,transparent),0_0_24px_color-mix(in_srgb,var(--vast-accent)_7%,transparent)]"
                 />
               </label>
 
@@ -416,7 +416,7 @@ export function NetworkPage(): JSX.Element {
                   onBlur={(event) => void updateDevice(selected.id, { notes: event.target.value })}
                   placeholder="Local notes about this device"
                   rows={4}
-                  className="resize-none rounded-card border border-transparent bg-white/[0.032] p-3 text-sm leading-6 text-vast-soft shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)] outline-hidden transition focus:shadow-[inset_0_0_0_1px_rgba(116,231,255,0.3),0_0_24px_rgba(116,231,255,0.07)]"
+                  className="resize-none rounded-card border border-transparent bg-white/[0.032] p-3 text-sm leading-6 text-vast-soft shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055)] outline-hidden transition focus:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--vast-accent)_30%,transparent),0_0_24px_color-mix(in_srgb,var(--vast-accent)_7%,transparent)]"
                 />
               </label>
 

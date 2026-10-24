@@ -4,7 +4,10 @@ import { windowRegistry } from '../windows/WindowRegistry'
 import { createDocumentRuleStore, documentRuleUrl, sanitizeDocumentRules } from './extension-document-rules'
 
 type Decision = { cancel?: boolean; redirectURL?: string; csp?: string }
-interface Provider { contents: WebContents; session: Session; id: string }
+// What the manifest grants is read once when the background page registers: a
+// loaded extension's manifest cannot change, and unloading or reloading it
+// removes the provider (extension-unloaded, destroyed).
+interface Provider { contents: WebContents; session: Session; id: string; hosts: readonly string[]; documentRules: boolean }
 const providers = new Map<number, Provider>()
 const documents = createDocumentRuleStore()
 const watchedSessions = new WeakSet<Session>()
@@ -20,8 +23,16 @@ function authority(contents: WebContents): Provider | undefined {
     if (extension?.manifest.vast_network !== 1) return
     const permissions = extension.manifest.permissions
     if (!Array.isArray(permissions) || !permissions.includes('webRequest') || !permissions.includes('webRequestBlocking')) return
-    return { contents, session: contents.session, id: url.hostname }
+    const hostPermissions = Array.isArray(extension.manifest.host_permissions) ? extension.manifest.host_permissions : []
+    const hosts = [...permissions, ...hostPermissions].filter((host): host is string => typeof host === 'string')
+    const background = extension.manifest.background as { persistent?: boolean } | undefined
+    return { contents, session: contents.session, id: url.hostname, hosts, documentRules: extension.manifest.vast_document_rules === 1 && background?.persistent === true }
   } catch { return }
+}
+
+// Still the registered provider for a live background page.
+function active(provider: Provider): boolean {
+  return !provider.contents.isDestroyed() && providers.get(provider.contents.id) === provider
 }
 
 /** Generic opt-in extension API. No engine, product ID, lists or renderer privileges. */
@@ -53,9 +64,7 @@ export function setupExtensionNetworkBridge(): void {
 }
 
 function documentProvider(provider: Provider): boolean {
-  const manifest = provider.session.extensions.getExtension(provider.id)?.manifest
-  const background = manifest?.background as { persistent?: boolean } | undefined
-  return Boolean(authority(provider.contents) && manifest?.vast_document_rules === 1 && background?.persistent === true)
+  return provider.documentRules && active(provider)
 }
 
 /** Synchronous read by the browser-owned, isolated guest preload only. */
@@ -78,17 +87,19 @@ function sanitizeDecision(result: unknown): Decision {
 }
 
 export async function extensionNetworkDecision(target: Session, details: Pick<OnBeforeRequestListenerDetails, 'url' | 'resourceType' | 'webContentsId' | 'referrer'>, topUrl: string, phase: 'request' | 'headers' = 'request'): Promise<Decision> {
+  // Without a network extension (the usual case) every request leaves here.
+  if (providers.size === 0) return {}
   const contents = details.webContentsId ? webContents.fromId(details.webContentsId) : undefined
   if (!contents || contents.isDestroyed() || !windowRegistry.vastWindowForWebContents(contents) || contents.getType() !== 'webview' || !/^https?:/.test(topUrl) || !/^(?:https?|wss?):/.test(details.url)) return {}
   const documentUrl = contents.getURL()
   const ruleUrl = phase === 'request' && details.resourceType === 'mainFrame' ? documentRuleUrl(details.url) : undefined
   const generation = ruleUrl ? documents.begin(contents.id, ruleUrl) : undefined
-  const applicable = [...providers.values()].filter(provider => {
-    if (provider.session !== target || !authority(provider.contents)) return false
-    const manifest = target.extensions.getExtension(provider.id)?.manifest
-    const hosts = [...(Array.isArray(manifest?.permissions) ? manifest.permissions : []), ...(Array.isArray(manifest?.host_permissions) ? manifest.host_permissions : [])]
-    return hosts.some(host => typeof host === 'string' && matchesExtensionMatchPattern(topUrl, host)) && hosts.some(host => typeof host === 'string' && matchesExtensionMatchPattern(details.url.replace(/^ws/, 'http'), host))
-  })
+  const requestUrl = details.url.replace(/^ws/, 'http')
+  const applicable = [...providers.values()].filter(provider =>
+    provider.session === target && active(provider) &&
+    provider.hosts.some(host => matchesExtensionMatchPattern(topUrl, host)) &&
+    provider.hosts.some(host => matchesExtensionMatchPattern(requestUrl, host))
+  )
   if (!applicable.length || inFlight >= 2048) return {}
   const results = await Promise.all(applicable.map(provider => new Promise<Decision>(resolve => {
     inFlight++
@@ -109,7 +120,7 @@ export async function extensionNetworkDecision(target: Session, details: Pick<On
           const scripts = sanitizeDocumentRules(result)
           if (scripts) documents.stage(contents.id, generation!, ruleUrl!, provider.contents.id, scripts)
         }
-        finish(authority(provider.contents) ? sanitizeDecision(result) : {})
+        finish(active(provider) ? sanitizeDecision(result) : {})
       }, () => finish({})
     )
   })))

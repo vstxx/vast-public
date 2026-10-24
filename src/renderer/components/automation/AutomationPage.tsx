@@ -16,7 +16,7 @@ const actionTypes: Array<{ value: MacroActionType; label: string }> = [
   { value: 'open-internal-page', label: 'Open internal page' },
   { value: 'switch-workspace', label: 'Switch workspace' },
   { value: 'create-note', label: 'Create note' },
-  { value: 'open-side-panel', label: 'Open sidebar' },
+  { value: 'open-side-panel', label: 'Open side panel' },
   { value: 'save-session-snapshot', label: 'Save session snapshot' },
   { value: 'close-duplicate-tabs', label: 'Close duplicate tabs' },
   { value: 'hibernate-inactive-tabs', label: 'Hibernate inactive tabs' },
@@ -153,7 +153,7 @@ export function AutomationPage(): JSX.Element {
   }
 
   return (
-    <div className="labs-page-surface h-full overflow-y-auto overflow-x-hidden bg-[#06070a] p-6 text-white" data-testid="automation-page">
+    <div className="labs-page-surface h-full overflow-y-auto overflow-x-hidden bg-[#070707] p-6 text-white" data-testid="automation-page">
       <div className="mx-auto grid max-w-7xl gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
         <section className="vast-glass-panel rounded-panel p-5">
           <div className="mb-5 flex items-center justify-between gap-3">

@@ -148,7 +148,7 @@ async function measureTabSwitch(session, title) {
       button.click();
       return 'strip';
     }
-    const overflow = document.querySelector('button[title="More tabs"]');
+    const overflow = document.querySelector('button[title="All tabs"]');
     if (!overflow) throw new Error('Missing tab and overflow button: ' + ${JSON.stringify(title)});
     overflow.click();
     return 'overflow';
@@ -300,7 +300,7 @@ async function runScenario(name, profileDir, options = {}) {
   }
   let scrolling
   if (options.scrolling) {
-    await session.evaluate(`document.querySelector('button[title="More tabs"]').click()`)
+    await session.evaluate(`document.querySelector('button[title="All tabs"]').click()`)
     await waitFor(session, `document.querySelector('[role="dialog"]')`)
     scrolling = await session.evaluate(`(async () => {
       const scroller=[...document.querySelectorAll('[role="dialog"] *')].find(e => e.scrollHeight > e.clientHeight + 100 && ['auto','scroll'].includes(getComputedStyle(e).overflowY));
@@ -309,7 +309,7 @@ async function runScenario(name, profileDir, options = {}) {
       for(let i=0;i<90;i++){ await new Promise(requestAnimationFrame); const now=performance.now(); frames.push(now-last); last=now; scroller.scrollTop = (i*90) % scroller.scrollHeight; }
       frames.sort((a,b)=>a-b); return {frames:frames.length,p95FrameMs:frames[Math.floor(frames.length*.95)],maxFrameMs:frames.at(-1)};
     })()`)
-    await session.evaluate(`document.querySelector('button[title="More tabs"]').click()`)
+    await session.evaluate(`document.querySelector('button[title="All tabs"]').click()`)
   }
   let smartUnload
   if (options.smartUnload) {

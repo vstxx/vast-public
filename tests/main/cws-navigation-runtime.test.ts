@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { cwsNavigationGate } from '../../src/main/cws-navigation-runtime.ts'
 import { configureChromeWebStoreNavigation, blockedTopLevelNavigationReplacement, routeTopLevelNavigationUrl } from '../../src/shared/top-level-navigation-policy.ts'
 
+const mainSource = readFileSync(new URL('../../src/main/main.ts', import.meta.url), 'utf8')
+const cwsApproval = JSON.parse(readFileSync(new URL('../../patches/cws-navigation-approval.json', import.meta.url), 'utf8')) as { navigationApproved?: boolean }
 const listing = 'https://chromewebstore.google.com/detail/idu+/nckhacbgboonmhekihinhokldoogagoh'
 const base = {
   isPackaged: false,
@@ -28,6 +31,22 @@ test('CWS navigation requires the approved executable and compatibility runtime'
 test('packaged navigation stays guarded until approved in the manifest', () => {
   assert.equal(cwsNavigationGate({ ...base, isPackaged: true }), false)
   assert.equal(cwsNavigationGate({ ...base, isPackaged: true, approvedRuntime: { ...base.approvedRuntime, cws: { navigationApproved: true } } }), true)
+})
+
+// 0.5.0 shipped with the store guarded. The packaged executable is rewritten
+// by electron-builder and the fuses, so it is never hashed against the raw
+// binary; the packaged compatibility attestation covers the binary instead.
+test('an approved packaged build opens the store without hashing its rewritten executable', () => {
+  const packaged = { ...base, isPackaged: true, binarySha256: '', executablePath: 'C:\\Program Files\\Vast\\Vast.exe', env: {}, approvedRuntime: { ...base.approvedRuntime, cws: { navigationApproved: true } } }
+  assert.equal(cwsNavigationGate(packaged), true)
+  assert.equal(cwsNavigationGate({ ...packaged, compatibilityEnabled: false }), false)
+  assert.equal(cwsNavigationGate({ ...packaged, electronVersion: '44.6.0' }), false)
+  assert.equal(cwsNavigationGate({ ...packaged, env: { VAST_CWS_NAVIGATION_DISABLE: '1' } }), false)
+  assert.match(mainSource, /const cwsNavigationCandidate = compatibilityGate\.enabled && !app\.isPackaged/)
+})
+
+test('the release approves Chrome Web Store navigation for the verified runtime', () => {
+  assert.equal(cwsApproval.navigationApproved, true)
 })
 
 test('the navigation policy switches both address routing and main request guard together', () => {

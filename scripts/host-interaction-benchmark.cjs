@@ -137,9 +137,9 @@ async function main() {
       await host.evaluate(`document.querySelector('button[title="Close settings"]').click()`)
       await waitFor(host, `!document.querySelector('.settings-modal-shell')`)
       console.log(`side panel ${repetition}/3`)
-      const sidePanel = await measure(host, `()=>document.querySelector('button[title="Show sidebar"]').click()`, '.side-panel-slot.is-open .side-panel')
+      const sidePanel = await measure(host, `()=>document.querySelector('button[title="Show side panel"]').click()`, '.side-panel-slot.is-open .side-panel')
       results.push({ action: 'side-panel-open', repetition, ...sidePanel })
-      await host.evaluate(`document.querySelector('button[title="Hide sidebar"]').click()`)
+      await host.evaluate(`document.querySelector('button[title="Hide side panel"]').click()`)
       await waitFor(host, `!document.querySelector('.side-panel-slot.is-open')`)
       await wait(500)
     }

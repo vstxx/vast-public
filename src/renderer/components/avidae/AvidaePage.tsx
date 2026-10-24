@@ -102,7 +102,7 @@ export function AvidaePage(): JSX.Element {
   }
 
   return (
-    <div className="labs-page-surface min-h-full overflow-auto bg-[#06070a] p-6 text-white">
+    <div className="labs-page-surface min-h-full overflow-auto bg-[#070707] p-6 text-white">
       <div className="mx-auto flex min-h-[calc(100vh-160px)] w-full max-w-5xl items-center justify-center">
         <section className="vast-glass-panel w-full overflow-hidden rounded-modal p-6 shadow-[0_32px_120px_rgba(0,0,0,0.4)] md:p-8">
           <div className="space-y-6">

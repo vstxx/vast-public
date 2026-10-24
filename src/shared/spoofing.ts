@@ -381,6 +381,18 @@ export function buildSpoofingInjectionScript(settings: BrowserSpoofingSettings, 
   return `;(${installDocumentSpoofing.toString()})(${JSON.stringify(config)})`
 }
 
+// Settings updates replace the spoofing object, so its identity is a safe key.
+// Permission checks and request hooks call this often; normalizing builds an
+// Intl.DateTimeFormat each time.
+const normalizedSpoofing = new WeakMap<object, BrowserSpoofingSettings>()
+
 export function spoofingFromSettings(settings: BrowserSettings): BrowserSpoofingSettings {
-  return normalizeSpoofingSettings(settings.spoofing)
+  const source = settings.spoofing
+  if (!source || typeof source !== 'object') return normalizeSpoofingSettings(source)
+  let normalized = normalizedSpoofing.get(source)
+  if (!normalized) {
+    normalized = normalizeSpoofingSettings(source)
+    normalizedSpoofing.set(source, normalized)
+  }
+  return normalized
 }

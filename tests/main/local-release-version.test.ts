@@ -8,7 +8,7 @@ const { validateReleaseFileEnv } = require('../../scripts/local-public-release.c
 }
 const sourceCommit = 'a'.repeat(40)
 
-test('0.5.0 Direct release accepts the public 0.4.3 upgrade baseline', () => {
-  assert.doesNotThrow(() => validateReleaseFileEnv({ VAST_PREVIOUS_VERSION: '0.4.3' }, '0.5.0', sourceCommit))
-  assert.throws(() => validateReleaseFileEnv({ VAST_PREVIOUS_VERSION: '0.3.0' }, '0.5.0', sourceCommit))
+test('0.5.4 Direct release accepts the public 0.5.0 upgrade baseline', () => {
+  assert.doesNotThrow(() => validateReleaseFileEnv({ VAST_PREVIOUS_VERSION: '0.5.0' }, '0.5.4', sourceCommit))
+  assert.throws(() => validateReleaseFileEnv({ VAST_PREVIOUS_VERSION: '0.3.0' }, '0.5.4', sourceCommit))
 })

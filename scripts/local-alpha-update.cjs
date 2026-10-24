@@ -14,7 +14,7 @@ const root = resolve(__dirname, '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const manifestPath = join(root, '.vast-build', 'local-alpha', 'manifest.json')
 const payloadPath = join(root, 'release', 'win-unpacked')
-const sourceDir = resolve(process.env.VAST_PATCHED_ELECTRON_SOURCE_DIR || 'D:\\VastElectron44\\src\\out\\VastRelease')
+const sourceDir = resolve(process.env.VAST_PATCHED_ELECTRON_SOURCE_DIR || 'D:\\VastElectron45\\src\\out\\VastRelease')
 const mode = process.argv[2] || 'status'
 const requestedVersion = process.env.VAST_LOCAL_ALPHA_VERSION || '0.5.0-alpha.1'
 const version = mode === 'prepare' || !existsSync(manifestPath)

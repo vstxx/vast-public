@@ -2,6 +2,7 @@ import type { RelayActionResult, RelayClientSnapshot } from './relay-types'
 import type { VastExtensionKind, VastNativeRuntimeState, VastNativePermission, VastPermissionMetadata, VastExtensionContributionSnapshot, VastUiBrokerRequest, VastUiBrokerResponse } from './extension-native-api'
 import type { ExtensionInstallSource, ExtensionPackagePreview, ExtensionTrustLevel, ExtensionUpdateState, VastHubCatalogResult, VastHubExtensionDetails } from './extension-marketplace'
 import type { OnboardingState } from './onboarding'
+import type { VisualProfileValues } from './visual-profile'
 import type { BrowserImportCatalog, BrowserImportCommitReceipt, BrowserImportCommitRequest, BrowserImportExtensionConfirmRequest, BrowserImportExtensionPreparation, BrowserImportExtensionReceipt, BrowserImportPrepareRequest, BrowserImportPreview, BrowserImportRequest, BrowserImportRunResult, BrowserImportStatus } from './browser-import'
 
 export type ID = string
@@ -144,6 +145,16 @@ export interface HtmlFullscreenState {
 export interface MediaCaptureState {
   webContentsId: number
   active: boolean
+}
+
+/** Pushed by the main process so the chrome never has to ask a guest synchronously. */
+export interface GuestNavigationState {
+  webContentsId: number
+  reason: 'navigate' | 'stop' | 'ready'
+  url: string
+  title: string
+  canGoBack: boolean
+  canGoForward: boolean
 }
 
 export interface RecentlyClosedTab {
@@ -314,6 +325,7 @@ export interface BrowserSettings {
     gradientIntensity: number
     panelOpacity: number
     chromeOpacity: number
+    transparency: number
     saturation: number
     forceDarkModeWebsites: boolean
     cleanToolbarIcons: boolean
@@ -893,6 +905,24 @@ export interface StorageImportPreview {
   history: number
 }
 
+export interface VisualProfileSummary {
+  id: string
+  name: string
+  createdAt: number
+  updatedAt: number
+  values: VisualProfileValues
+  /** Carries its own New Tab image (Custom background). */
+  hasImage: boolean
+}
+
+export interface VisualProfileListing {
+  profiles: VisualProfileSummary[]
+  /** Profile last applied or saved, used to show Applied or Modified. */
+  appliedId: string | null
+}
+
+export type VisualProfileResult = ({ ok: true } & VisualProfileListing) | { ok: false; error: string }
+
 export interface DataPathInfo {
   currentDataPath: string
   defaultDataPath: string
@@ -978,6 +1008,18 @@ export interface VastApi {
   newTabBackground: {
     get: () => Promise<{ ok: boolean; dataUrl?: string; error?: string }>
     choose: () => Promise<{ ok: boolean; canceled?: boolean; dataUrl?: string; error?: string }>
+  }
+  visualProfiles: {
+    list: () => Promise<VisualProfileResult>
+    save: (name: string, values: VisualProfileValues) => Promise<VisualProfileResult & { id?: string }>
+    update: (id: string, values: VisualProfileValues) => Promise<VisualProfileResult>
+    rename: (id: string, name: string) => Promise<VisualProfileResult>
+    remove: (id: string) => Promise<VisualProfileResult>
+    setApplied: (id: string | null) => Promise<VisualProfileResult>
+    applyImage: (id: string) => Promise<{ ok: true; dataUrl: string } | { ok: false; error: string }>
+    restoreImage: () => Promise<{ ok: true; dataUrl?: string } | { ok: false; error: string }>
+    exportProfile: (id: string) => Promise<{ ok: true; canceled: boolean } | { ok: false; error: string }>
+    importProfile: () => Promise<(VisualProfileResult & { canceled?: boolean; id?: string })>
   }
   extensions: {
     list: () => Promise<VastExtensionListResult>
@@ -1068,6 +1110,7 @@ export interface VastApi {
     resolveExternalProtocolRequest: (id: ID, allow: boolean) => Promise<{ ok: boolean; error?: string }>
     onHtmlFullscreenState: (callback: (state: HtmlFullscreenState) => void) => () => void
     onMediaCaptureState: (callback: (state: MediaCaptureState) => void) => () => void
+    onGuestNavigationState: (callback: (state: GuestNavigationState) => void) => () => void
     setKeepAwake: (webContentsId: number, keepAwake: boolean) => Promise<{ ok: boolean; error?: string }>
     onShortcut: (callback: (shortcut: string) => void) => () => void
     onPrepareClose: (callback: (requestId: string) => void | Promise<void>) => () => void

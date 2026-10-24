@@ -153,7 +153,7 @@ async function verifyRuntime({ release = false, env = process.env } = {}) {
   if (release) validateReleaseSource({ head: vastCommit, expected: env.VAST_RELEASE_COMMIT, dirty: vastDirty })
 
   const binaryPath = path.resolve(env.VAST_PATCHED_ELECTRON_EXE ||
-    path.join(env.VAST_PATCHED_ELECTRON_DIST || 'D:\\VastElectron44\\src\\out\\VastCompat', manifest.electron.binary.fileName))
+    path.join(env.VAST_PATCHED_ELECTRON_DIST || 'D:\\VastElectron45\\src\\out\\VastRelease', manifest.electron.binary.fileName))
   const stat = fs.statSync(binaryPath)
   if (stat.size !== manifest.electron.binary.size) throw new Error('Electron binary size does not match the compatibility manifest.')
   const binarySha256 = await hashFile(binaryPath)

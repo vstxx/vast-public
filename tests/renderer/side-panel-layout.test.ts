@@ -10,7 +10,7 @@ const automationSource = readFileSync(new URL('../../src/renderer/components/aut
 
 test('sidebar keeps one visibility toggle by the address bar and exposes pin mode beside the title', () => {
   const closeControl = sidePanelSource.indexOf('tooltip="Close sidebar"')
-  const pinControl = sidePanelSource.indexOf("tooltip={pinned ? 'Unpin sidebar' : 'Pin sidebar over page'}")
+  const pinControl = sidePanelSource.indexOf("tooltip={pinned ? 'Unpin side panel' : 'Pin side panel over page'}")
   const title = sidePanelSource.indexOf('{activeTitle}')
 
   assert.equal(closeControl, -1)
@@ -42,11 +42,13 @@ test('only pinned sidebar is draggable, persisted, and clamped below browser chr
   assert.match(sidePanelSource, /data-pinned=\{pinned \? 'true' : 'false'\}/)
 })
 
-test('all user-facing controls consistently call the feature Sidebar', () => {
+// The notes/bookmarks/history panel is the "side panel"; "sidebar" is only the
+// vertical layout's tab column.
+test('all user-facing controls consistently call the feature side panel', () => {
   const userFacingSources = [sidePanelSource, addressBarSource, settingsSource, automationSource].join('\n')
-  assert.doesNotMatch(userFacingSources, /["'`]\s*(?:[^"'`]*\s)?side panel(?:\s[^"'`]*)?["'`]/i)
-  assert.match(addressBarSource, /'Hide sidebar'\s*:\s*'Show sidebar'/)
-  assert.match(settingsSource, /label="Sidebar mode"/)
-  assert.match(settingsSource, /label="Sidebar width"/)
+  assert.doesNotMatch(userFacingSources, /["'`]\s*(?:[^"'`]*\s)?(?:show|hide|pin|unpin|drag|open) sidebar\b/i)
+  assert.match(addressBarSource, /'Hide side panel'\s*:\s*'Show side panel'/)
+  assert.match(settingsSource, /label="Side panel mode"/)
+  assert.match(settingsSource, /label="Side panel width"/)
   assert.match(settingsSource, /Pinned over page/)
 })

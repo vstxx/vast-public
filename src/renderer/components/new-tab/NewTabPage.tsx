@@ -4,6 +4,7 @@ import type { Note, Tab } from '../../../shared/types'
 import { INTERNAL_SESSION_TIMELINE_URL } from '../../../shared/constants'
 import vastLogo from '../../../../assets/logos/vast.png'
 import { formatRelativeTime } from '../../lib/format'
+import { paintableImageUrl } from '../../lib/paintable-image-url'
 import { isSafeLoadUrl, resolveAddressInput, resolveNewTabSearchInput } from '../../lib/url'
 import { useBrowserRuntime } from '../../app/browser-runtime'
 import { useBrowserStore, selectActiveWorkspace } from '../../store/browser-store'
@@ -94,7 +95,7 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
   )
   const minimal = newTabBehavior === 'blank'
   const searchOnly = newTabBehavior === 'search'
-  const dashboardCardClass = `overflow-hidden rounded-card border border-white/[0.07] bg-[#090a0e] ${newTabSettings.compactCards ? 'p-4' : 'p-5'}`
+  const dashboardCardClass = `overflow-hidden rounded-card border border-white/[0.07] bg-[#0a0a0a] ${newTabSettings.compactCards ? 'p-4' : 'p-5'}`
 
   useEffect(() => {
     let active = true
@@ -114,6 +115,7 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
     const onChanged = (event: Event): void => {
       const dataUrl = (event as CustomEvent<unknown>).detail
       if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) setCustomBackgroundDataUrl(dataUrl)
+      else if (dataUrl === null) setCustomBackgroundDataUrl(undefined)
     }
     window.addEventListener('vast-new-tab-background-changed', onChanged)
     return () => window.removeEventListener('vast-new-tab-background-changed', onChanged)
@@ -121,7 +123,7 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
 
   const pageBackgroundStyle = useMemo<CSSProperties | undefined>(() => {
     if (newTabSettings.background !== 'custom' || !customBackgroundDataUrl) return undefined
-    return { '--vast-new-tab-image': `url(${JSON.stringify(customBackgroundDataUrl)})` } as CSSProperties
+    return { '--vast-new-tab-image': `url(${JSON.stringify(paintableImageUrl(customBackgroundDataUrl))})` } as CSSProperties
   }, [customBackgroundDataUrl, newTabSettings.background])
   const pageBackgroundProps = {
     'data-new-tab-background': newTabSettings.background,
@@ -184,7 +186,7 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
   return (
     <div {...pageBackgroundProps} className="new-tab-page min-h-full overflow-auto px-8 py-6 text-white">
       <div className="mx-auto flex max-w-6xl flex-col gap-5">
-        <section className={`relative flex flex-col items-center justify-center overflow-hidden rounded-modal border border-white/[0.07] bg-[#090a0e] px-6 text-center ${newTabSettings.compactCards ? 'min-h-[310px] py-6' : 'min-h-[390px] py-8'}`}>
+        <section className={`relative flex flex-col items-center justify-center overflow-hidden rounded-modal border border-white/[0.07] bg-[#0a0a0a] px-6 text-center ${newTabSettings.compactCards ? 'min-h-[310px] py-6' : 'min-h-[390px] py-8'}`}>
 
           <div className="absolute right-4 top-4 z-10">
             <button
@@ -197,7 +199,7 @@ export function NewTabPage({ tab }: { tab: Tab }): JSX.Element {
               Customize
             </button>
             {customizeOpen && (
-              <div className="absolute right-0 top-12 w-64 rounded-card border border-white/10 bg-[#0b0c11]/98 p-3 text-left shadow-glass">
+              <div className="absolute right-0 top-12 w-64 rounded-card border border-white/10 bg-[#0c0c0c]/98 p-3 text-left shadow-glass">
                 <div className="mb-2 text-[13px] font-semibold text-white">Dashboard sections</div>
                 {([
                   ['showQuickLinks', 'Quick links'],
@@ -679,7 +681,7 @@ function QuickLinkModal({
           if (!valid) return
           onSave({ ...draft, title: draft.title.trim(), url: resolvedUrl, color: draft.color })
         }}
-        className="w-full max-w-md rounded-panel border border-white/12 bg-[#0b0c11]/96 p-5 shadow-glass"
+        className="w-full max-w-md rounded-panel border border-white/12 bg-[#0c0c0c]/96 p-5 shadow-glass"
       >
         <div className="mb-4 flex items-center justify-between">
           <div>

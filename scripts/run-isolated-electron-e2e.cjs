@@ -36,7 +36,7 @@ if (compatibilityTargets.has(target)) {
   isolatedEnvironment.VAST_EXTENSION_COMPATIBILITY = '1'
   isolatedEnvironment.VAST_PATCHED_ELECTRON_COMPAT = '1'
   isolatedEnvironment.VAST_PATCHED_ELECTRON_DIST = resolve(
-    process.env.VAST_PATCHED_ELECTRON_DIST || 'D:\\VastElectron44\\src\\out\\VastCompat'
+    process.env.VAST_PATCHED_ELECTRON_DIST || 'D:\\VastElectron45\\src\\out\\VastRelease'
   )
   run(process.execPath, [join('scripts', 'verify-extension-compat-runtime.cjs')], isolatedEnvironment)
 }

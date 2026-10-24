@@ -12,12 +12,15 @@ import type { ImportCoordinator } from './import/import-coordinator'
 import { commitImportData, recordImportExtensionResult } from './storage'
 import type { BrowserImportCommitRequest, BrowserImportExtensionConfirmRequest, BrowserImportPrepareRequest } from '../shared/browser-import'
 import { takeExtensionDocumentRules } from './extensions/extension-network-bridge'
+import { guestDocumentStartResponse } from './guest-document-start'
+import { GUEST_DOCUMENT_START_CHANNEL } from '../shared/guest-document-start'
 import {
   getGoogleAuthDiagnostics,
   extensionDocumentRulesAllowed,
   isSafeWebUrl,
   openExternalUrl,
   privacyDocumentScriptForWebContents,
+  undecidedPermissionsForWebContents,
   spoofingDocumentConfigForWebContents,
   requestOAuthExternalFallback
 } from './sessions'
@@ -58,6 +61,7 @@ import { registerDownloadsIpc } from './ipc/downloads'
 import { registerExtensionsIpc } from './ipc/extensions'
 import { registerNetworkIpc } from './ipc/network'
 import { registerNewTabBackgroundIpc } from './ipc/new-tab-background'
+import { registerVisualProfilesIpc } from './ipc/visual-profiles'
 import { registerNoticesIpc } from './ipc/notices'
 import { registerPdfIpc } from './ipc/pdf'
 import { registerPrivacyIpc } from './ipc/privacy'
@@ -174,33 +178,22 @@ export function setupIpc(services: IpcServices = {}): void {
     })
     return importCoordinatorPromise
   }
-  ipcMain.on('vast:extensions:document-rules', (event, requestedUrl: unknown) => {
-    let rules: string[] = []
-    try {
-      if (typeof requestedUrl === 'string' && extensionDocumentRulesAllowed(event.sender, requestedUrl)) {
-        rules = takeExtensionDocumentRules(event.sender, requestedUrl, event.senderFrame)
-      }
-    } catch { /* Unavailable document rules must never prevent navigation. */ }
+  // The guest preload's only synchronous request: spoofing config, privacy
+  // script and extension document rules in one round trip at document start.
+  ipcMain.on(GUEST_DOCUMENT_START_CHANNEL, (event, request: unknown) => {
     // Electron sends the synchronous reply when this setter is called.
-    event.returnValue = rules
-  })
-  ipcMain.on('vast:privacy:document-script', (event, requestedUrl: unknown) => {
-    const host = event.sender.hostWebContents
-    const trustedHost = host && windowRegistry.vastWindowForWebContents(host)
-    if (!trustedHost || trustedHost.isDestroyed() || typeof requestedUrl !== 'string' || requestedUrl.length > 32_768) {
-      event.returnValue = ''
-      return
-    }
-    event.returnValue = privacyDocumentScriptForWebContents(event.sender, requestedUrl)
-  })
-  ipcMain.on('vast:spoofing:document-config', (event, requestedUrl: unknown) => {
-    const host = event.sender.hostWebContents
-    const trustedHost = host && windowRegistry.vastWindowForWebContents(host)
-    if (!trustedHost || trustedHost.isDestroyed() || typeof requestedUrl !== 'string' || requestedUrl.length > 32_768) {
-      event.returnValue = null
-      return
-    }
-    event.returnValue = spoofingDocumentConfigForWebContents(event.sender, requestedUrl)
+    event.returnValue = guestDocumentStartResponse(event.sender, event.senderFrame, request, {
+      trustedHost: (contents) => {
+        const host = contents.hostWebContents
+        const trustedHost = host && windowRegistry.vastWindowForWebContents(host)
+        return Boolean(trustedHost && !trustedHost.isDestroyed())
+      },
+      spoofingConfig: spoofingDocumentConfigForWebContents,
+      privacyScript: privacyDocumentScriptForWebContents,
+      undecidedPermissions: undecidedPermissionsForWebContents,
+      documentRulesAllowed: extensionDocumentRulesAllowed,
+      takeDocumentRules: takeExtensionDocumentRules
+    })
   })
   const registeredChannels = new Set<string>()
   const handle = <TArgs extends unknown[]>(
@@ -339,6 +332,7 @@ export function setupIpc(services: IpcServices = {}): void {
   if (extensionManager) registerExtensionsIpc(handle, senderWindowFor, extensionManager, resolveTrustedGuestWebContents)
   registerNetworkIpc(handle, senderWindowFor)
   registerNewTabBackgroundIpc(handle, senderWindowFor)
+  registerVisualProfilesIpc(handle, senderWindowFor)
   registerNoticesIpc(handle)
   handle('vast:relay:state', (event) => {
     const snapshot = relayService?.snapshot() ?? {

@@ -23,8 +23,8 @@ export function SplitPaneHeader({
     <header
       className={`no-drag relative z-20 flex h-10 shrink-0 items-center gap-2 border-b px-2.5 transition-colors ${
         active
-          ? 'border-vast-cyan/20 bg-[color-mix(in_srgb,var(--vast-accent)_7%,#090a0e)]'
-          : 'border-white/[0.07] bg-[#090a0e]'
+          ? 'border-vast-cyan/20 bg-[color-mix(in_srgb,var(--vast-accent)_7%,#0a0a0a)]'
+          : 'border-white/[0.07] bg-[#0a0a0a]'
       }`}
       data-testid="split-pane-header"
       data-active={active ? 'true' : 'false'}

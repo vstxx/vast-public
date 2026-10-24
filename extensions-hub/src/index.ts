@@ -90,10 +90,52 @@ const ICLOUD_PASSWORDS_ITEM = Object.freeze({
   installed: false
 })
 
+// Logos for listings that have no uploaded icon. Served as static assets from public/extension-icons.
+const BUILTIN_ICON_FILES: Readonly<Record<string, string>> = Object.freeze({
+  [HOSTED_PASSWORD_MANAGER_IDS[0]]: 'bitwarden.png',
+  [HOSTED_PASSWORD_MANAGER_IDS[1]]: 'proton-pass.png',
+  [ICLOUD_PASSWORDS_ID]: 'icloud-passwords.png'
+})
+const ICLOUD_PASSWORDS_DESCRIPTION = "Install the original iCloud Passwords extension directly from Apple's Chrome Web Store distribution. Vast does not host, mirror, repackage, or endorse this extension. iCloud for Windows is required."
+const ICLOUD_PASSWORDS_HOMEPAGE = 'https://support.apple.com/guide/icloud-windows/set-up-icloud-passwords-icw2babf5e03/icloud'
+const ICLOUD_PASSWORDS_SOURCE_URL = `https://chromewebstore.google.com/detail/icloud-passwords/${ICLOUD_PASSWORDS_ID}`
+const ICLOUD_PASSWORDS_PERMISSIONS: ExtensionPermissionSnapshot = {
+  chrome: ['privacy', 'declarativeContent', 'nativeMessaging', 'webNavigation', 'storage', 'contextMenus', 'scripting'],
+  hosts: ['*://*/*'],
+  vast: []
+}
+
 function iCloudMatches(url: URL): boolean {
   const query = (url.searchParams.get('query') ?? '').trim().toLowerCase()
   const category = (url.searchParams.get('category') ?? '').trim()
   return (!query || `${ICLOUD_PASSWORDS_ITEM.name} ${ICLOUD_PASSWORDS_ITEM.summary} Apple`.toLowerCase().includes(query)) && (!category || category === ICLOUD_PASSWORDS_ITEM.category)
+}
+
+function iconField(env: Env, id: string, iconKey: string | null): { iconUrl?: string } {
+  if (iconKey) return { iconUrl: `${publicOrigin(env)}/media/${encodeURIComponent(iconKey)}` }
+  const file = BUILTIN_ICON_FILES[id]
+  return file ? { iconUrl: `${publicOrigin(env)}/extension-icons/${file}` } : {}
+}
+
+function iCloudApiItem(env: Env): Record<string, unknown> {
+  return { ...ICLOUD_PASSWORDS_ITEM, ...iconField(env, ICLOUD_PASSWORDS_ID, null) }
+}
+
+function iCloudViewItem(env: Env): CatalogViewItem {
+  return {
+    id: ICLOUD_PASSWORDS_ITEM.id,
+    slug: ICLOUD_PASSWORDS_ITEM.slug,
+    name: ICLOUD_PASSWORDS_ITEM.name,
+    summary: ICLOUD_PASSWORDS_ITEM.summary,
+    publisherName: ICLOUD_PASSWORDS_ITEM.publisher.name,
+    category: ICLOUD_PASSWORDS_ITEM.category,
+    kind: ICLOUD_PASSWORDS_ITEM.kind,
+    version: ICLOUD_PASSWORDS_ITEM.version,
+    downloads: ICLOUD_PASSWORDS_ITEM.downloads,
+    dataPractice: 'undisclosed',
+    remoteServices: '',
+    ...iconField(env, ICLOUD_PASSWORDS_ID, null)
+  }
 }
 
 function passwordManagersAvailable(request: Request): boolean {
@@ -194,7 +236,7 @@ function catalogItem(row: CatalogRow, env: Env): Record<string, unknown> {
     dataPractice: row.data_practice,
     ...(row.privacy_policy_url ? { privacyPolicyUrl: row.privacy_policy_url } : {}),
     remoteServices: row.remote_services,
-    ...(row.icon_key ? { iconUrl: `${publicOrigin(env)}/media/${encodeURIComponent(row.icon_key)}` } : {}),
+    ...iconField(env, row.id, row.icon_key),
     installed: false
   }
 }
@@ -213,7 +255,7 @@ function catalogView(row: CatalogRow, env: Env): CatalogViewItem {
     dataPractice: row.data_practice,
     ...(row.privacy_policy_url ? { privacyPolicyUrl: row.privacy_policy_url } : {}),
     remoteServices: row.remote_services,
-    ...(row.icon_key ? { iconUrl: `${publicOrigin(env)}/media/${encodeURIComponent(row.icon_key)}` } : {})
+    ...iconField(env, row.id, row.icon_key)
   }
 }
 
@@ -261,20 +303,20 @@ async function publicCatalog(request: Request, env: Env): Promise<Response> {
     categories(env)
   ])
   const items = rows.map((row) => catalogItem(row, env))
-  if (page === 1 && includeICloud) items.unshift(ICLOUD_PASSWORDS_ITEM)
-  const featuredItems = [...(includeICloud ? [ICLOUD_PASSWORDS_ITEM] : []), ...featured.results.map((row) => catalogItem(row, env))].slice(0, 6)
+  if (page === 1 && includeICloud) items.unshift(iCloudApiItem(env))
+  const featuredItems = [...(includeICloud ? [iCloudApiItem(env)] : []), ...featured.results.map((row) => catalogItem(row, env))].slice(0, 6)
   return json({ items, page, pageSize: CATALOG_PAGE_SIZE, total: total + (includeICloud ? 1 : 0), featured: featuredItems, categories: categoryList }, { headers: { 'cache-control': 'no-store' } })
 }
 
 async function extensionDetails(request: Request, env: Env, id: string): Promise<Response> {
   assertPasswordManagerAvailable(request, id)
   if (id === ICLOUD_PASSWORDS_ID) return json({
-    ...ICLOUD_PASSWORDS_ITEM,
-    description: 'Install the original iCloud Passwords extension directly from Apple\'s Chrome Web Store distribution. Vast does not host, mirror, repackage, or endorse this extension. iCloud for Windows is required.',
-    homepage: 'https://support.apple.com/guide/icloud-windows/set-up-icloud-passwords-icw2babf5e03/icloud',
-    sourceUrl: `https://chromewebstore.google.com/detail/icloud-passwords/${ICLOUD_PASSWORDS_ID}`,
+    ...iCloudApiItem(env),
+    description: ICLOUD_PASSWORDS_DESCRIPTION,
+    homepage: ICLOUD_PASSWORDS_HOMEPAGE,
+    sourceUrl: ICLOUD_PASSWORDS_SOURCE_URL,
     screenshots: [],
-    permissions: { chrome: ['privacy', 'declarativeContent', 'nativeMessaging', 'webNavigation', 'storage', 'contextMenus', 'scripting'], hosts: ['*://*/*'], vast: [] }
+    permissions: ICLOUD_PASSWORDS_PERMISSIONS
   }, { headers: { 'cache-control': 'no-store' } })
   const row = await getCatalogRow(env, id)
   if (!row) throw new HttpError(404, 'Extension was not found.')
@@ -908,12 +950,26 @@ async function publisherHome(request: Request, env: Env): Promise<Response> {
 
 async function explore(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url)
-  const [{ rows }, categoryList, session] = await Promise.all([catalogRows(env, url, CATALOG_PAGE_SIZE, 0, passwordManagersAvailable(request)), categories(env), optionalSession(request, env)])
-  return html(homePage(rows.map((row) => catalogView(row, env)), (url.searchParams.get('query') ?? '').slice(0, 128), categoryList, session, (url.searchParams.get('category') ?? '').slice(0, 64)), { headers: { 'cache-control': 'no-store' } })
+  // The public website is read-only: it lists every published extension, including the password managers,
+  // regardless of any Vast version. Version gating stays on the client-facing API and install endpoints.
+  const includeICloud = iCloudMatches(url)
+  const [{ rows }, categoryList, session] = await Promise.all([catalogRows(env, url, includeICloud ? CATALOG_PAGE_SIZE - 1 : CATALOG_PAGE_SIZE, 0, true), categories(env), optionalSession(request, env)])
+  const items = rows.map((row) => catalogView(row, env))
+  if (includeICloud) items.push(iCloudViewItem(env))
+  return html(homePage(items, (url.searchParams.get('query') ?? '').slice(0, 128), categoryList, session, (url.searchParams.get('category') ?? '').slice(0, 64)), { headers: { 'cache-control': 'no-store' } })
 }
 
 async function detail(request: Request, env: Env, id: string): Promise<Response> {
-  assertPasswordManagerAvailable(request, id)
+  if (id === ICLOUD_PASSWORDS_ID) {
+    return html(detailPage({
+      ...iCloudViewItem(env),
+      description: ICLOUD_PASSWORDS_DESCRIPTION,
+      homepage: ICLOUD_PASSWORDS_HOMEPAGE,
+      sourceUrl: ICLOUD_PASSWORDS_SOURCE_URL,
+      permissions: ICLOUD_PASSWORDS_PERMISSIONS,
+      upstream: true
+    }, await optionalSession(request, env)), { headers: { 'cache-control': 'no-store' } })
+  }
   const [row, session] = await Promise.all([getCatalogRow(env, id), optionalSession(request, env)])
   if (!row) throw new HttpError(404, 'Extension was not found.')
   return html(detailPage({ ...catalogView(row, env), description: row.description, ...(row.homepage ? { homepage: row.homepage } : {}), ...(row.source_url ? { sourceUrl: row.source_url } : {}), permissions: parsePermissions(row.permissions_snapshot) }, session), { headers: { 'cache-control': 'no-store' } })

@@ -1,4 +1,4 @@
-/** Unlike LatestTaskQueue, every durable mutation is executed and awaited individually. */
+/** Every durable mutation is executed and awaited individually; none is dropped. */
 export class SerializedTaskQueue {
   private tail: Promise<void> = Promise.resolve()
 

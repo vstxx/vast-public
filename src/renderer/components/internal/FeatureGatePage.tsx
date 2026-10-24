@@ -22,7 +22,7 @@ export function FeatureGatePage({
   }
 
   return (
-    <InternalPageShell className="bg-[linear-gradient(180deg,#08090d,#050507)] p-5">
+    <InternalPageShell className="bg-[linear-gradient(180deg,#090909,#050505)] p-5">
       <InternalPageHero
         icon={Settings}
         eyebrow={eyebrow}

@@ -339,7 +339,7 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
             role="dialog"
             aria-label="Extensions"
             data-testid="extensions-toolbar-menu"
-            className="extensions-toolbar-menu absolute right-0 top-11 z-70 flex flex-col overflow-hidden rounded-card border border-white/10 bg-vast-ink/98.5 text-white"
+            className="extensions-toolbar-menu absolute right-0 top-11 z-70 flex flex-col overflow-hidden vast-float rounded-card border border-white/10 text-white"
             style={{ width: menuSize.width, height: menuSize.height }}
           >
           <header className="flex h-13 shrink-0 items-center gap-2 border-b border-white/[0.07] px-3">
@@ -444,7 +444,7 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
           )}
 
           {actionMenu && actionExtension && (
-            <div role="menu" aria-label={`Actions for ${actionExtension.name}`} className="extensions-toolbar-actions absolute right-2 z-20 max-h-[calc(100vh-5.5rem)] w-52 overflow-y-auto rounded-control border border-white/10 bg-[#101116] p-1.5" style={{ top: actionMenu.top }}>
+            <div role="menu" aria-label={`Actions for ${actionExtension.name}`} className="extensions-toolbar-actions absolute right-2 z-20 max-h-[calc(100vh-5.5rem)] w-52 overflow-y-auto rounded-control border border-white/10 bg-[#111111] p-1.5" style={{ top: actionMenu.top }}>
               {actionExtension.ui.popup && actionExtension.enabled && <MenuAction label="Open extension" icon={Puzzle} onClick={() => { void openSurface(actionExtension, 'popup') }} />}
               {actionExtension.ui.options && actionExtension.enabled && <MenuAction label="Extension settings" icon={SlidersHorizontal} onClick={() => { void openSurface(actionExtension, 'options') }} />}
               <MenuAction label={actionExtension.enabled ? 'Disable extension' : 'Enable extension'} icon={Power} onClick={() => { void mutate(actionExtension, () => actionExtension.enabled ? window.vast.extensions.disable(actionExtension.id) : window.vast.extensions.enable(actionExtension.id)) }} />

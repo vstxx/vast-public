@@ -12,7 +12,7 @@ import {
 import { canonicalJson, VEXT_LIMITS } from '../../shared/vext-format.ts'
 import { partitionForWorkspace, resolveWorkspaceIdentity } from '../../shared/workspace-identity.ts'
 import { analyzeExtensionCompatibility } from './extension-compatibility.ts'
-import { chromeExtensionId, validateExtensionManifest } from './extension-manifest.ts'
+import { chromeExtensionId, NATIVE_BLOCKING_WEB_REQUEST_ERROR, usesNativeBlockingWebRequest, validateExtensionManifest } from './extension-manifest.ts'
 import { ExtensionRegistry } from './extension-registry.ts'
 import type {
   ExtensionSessionLike,
@@ -190,6 +190,9 @@ export class ExtensionManager {
       this.eligiblePartitions = new Set(extensionPartitionsForWorkspaces(workspaces))
       this.initialized = true
 
+      // Each install is verified (bytes included) once per startup: the result
+      // is reused below when the install stayed where it was.
+      const verified = new Map<string, ValidatedExtensionManifest>()
       for (const storedRecord of this.registry.list()) {
         if (storedRecord.source === 'unpacked' || storedRecord.source === 'bundled') continue
         try {
@@ -204,6 +207,7 @@ export class ExtensionManager {
           }
           const currentRoot = await this.managedStore.ensureCurrent(storedRecord.id, storedRecord.version)
           if (storedRecord.path !== currentRoot) await this.registry.patch(storedRecord.id, { path: currentRoot })
+          else verified.set(storedRecord.id, legacyManifest)
         } catch (error) {
           this.status(storedRecord.id).validationError = errorMessage(error)
         }
@@ -212,7 +216,7 @@ export class ExtensionManager {
       for (const storedRecord of this.registry.list()) {
         if (!storedRecord.enabled) continue
         try {
-          const { record, validated } = await this.refreshRecord(storedRecord)
+          const { record, validated } = await this.refreshRecord(storedRecord, verified.get(storedRecord.id))
           await this.loadRecordEverywhere(record, validated)
           await this.startNativeIfAllowed(record, validated)
         } catch (error) {
@@ -796,12 +800,12 @@ export class ExtensionManager {
   async prepareSidebar(key: string): Promise<{ src: string; partition: string }> {
     this.cleanupPreparedSurfaces()
     const owner = this.contributions.ownerFor(key)
-    if (!owner || owner.type !== 'sidebar') throw new Error('Extension sidebar is unavailable.')
+    if (!owner || owner.type !== 'sidebar') throw new Error('Extension side panel is unavailable.')
     const record = this.requireRecord(owner.extensionId)
     const manifest = this.manifests.get(record.id) ?? await this.validateInstalledRecord(record)
-    if (!record.enabled || !record.grantedPermissions.includes('vast.sidebar') || !manifest.vast) throw new Error('Extension sidebar is not authorized.')
+    if (!record.enabled || !record.grantedPermissions.includes('vast.sidebar') || !manifest.vast) throw new Error('Extension side panel is not authorized.')
     const panel = this.contributions.snapshot().sidebar.find((item) => item.key === key)
-    if (!panel) throw new Error('Extension sidebar is unavailable.')
+    if (!panel) throw new Error('Extension side panel is unavailable.')
     const partition = `vast-native-surface-${record.id}-${owner.localId.toLowerCase().replace(/[^a-z0-9_-]/g, '-')}`
     const runtime = await this.ensureNativeRuntime()
     await runtime.prepareSurfaceSession(partition, record.id, manifest)
@@ -1334,6 +1338,12 @@ export class ExtensionManager {
   private async loadEnabledForPartition(partition: string): Promise<void> {
     for (const storedRecord of this.registry.list()) {
       if (!storedRecord.enabled) continue
+      // Runs on every tab attach: an extension already running in this
+      // session needs no re-validation, and native Vast extensions are not
+      // loaded into sessions at all.
+      if (storedRecord.runtime === 'vast') continue
+      const loadedId = this.status(storedRecord.id).loaded.get(partition)
+      if (loadedId && this.sessions.get(partition)?.extensions.getExtension(loadedId)) continue
       try {
         const refreshed = await this.refreshRecord(storedRecord)
         if (refreshed.validated.kind !== 'vast') await this.loadRecordIntoPartition(refreshed.record, refreshed.validated, partition)
@@ -1359,18 +1369,27 @@ export class ExtensionManager {
       this.status(record.id).validationError = 'No persistent Vast workspace is available. Extensions stay disabled in private workspaces.'
       return record
     }
-    for (const partition of partitions) {
+    const loadInto = async (partition: string): Promise<string | undefined> => {
       try {
         const actualId = await this.loadRecordIntoPartition(record, validated, partition)
         if (!actualId) throw new Error('Electron did not return an extension runtime ID.')
-        if (!record.runtimeExtensionId) {
-          record = (await this.registry.patch(record.id, { runtimeExtensionId: actualId })) ?? { ...record, runtimeExtensionId: actualId }
-        }
+        return actualId
       } catch (error) {
         this.status(record.id).errors.set(partition, errorMessage(error))
         console.warn(`[extensions] Could not load ${record.name} into a workspace session: ${errorMessage(error)}`)
+        return undefined
       }
     }
+    // Workspace sessions are independent, so they load in parallel once the
+    // runtime ID every other session is checked against is known.
+    let remaining = partitions
+    while (!record.runtimeExtensionId && remaining.length > 0) {
+      const [first, ...rest] = remaining
+      remaining = rest
+      const actualId = await loadInto(first)
+      if (actualId) record = (await this.registry.patch(record.id, { runtimeExtensionId: actualId })) ?? { ...record, runtimeExtensionId: actualId }
+    }
+    await Promise.all(remaining.map(loadInto))
     return record
   }
 
@@ -1401,6 +1420,7 @@ export class ExtensionManager {
       status.errors.delete(partition)
       return loadedId
     }
+    if (usesNativeBlockingWebRequest(validated.manifest as Record<string, unknown>)) throw new Error(NATIVE_BLOCKING_WEB_REQUEST_ERROR)
     const extension = await targetSession.extensions.loadExtension(validated.rootPath, { allowFileAccess: false })
     if (record.source === 'local-chromium' && extension.id !== record.id) {
       targetSession.extensions.removeExtension(extension.id)

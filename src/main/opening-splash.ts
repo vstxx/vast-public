@@ -46,20 +46,20 @@ function splashDocument(platform: string, cornerRadius: number, volume: number):
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <title>Vast</title>
 <style>
-  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #030406; }
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #040404; }
   .vast-opening-overlay {
     width: 100vw; height: 100vh; contain: layout paint style; isolation: isolate;
-    border: 0; border-radius: 0; background-color: #030406;
+    border: 0; border-radius: 0; background-color: #040404;
     background:
       radial-gradient(circle at 50% 45%, rgba(91, 64, 168, 0.032) 0%, transparent 26%),
-      linear-gradient(180deg, #030406 0%, #06070a 54%, #08090b 100%);
+      linear-gradient(180deg, #040404 0%, #070707 54%, #090909 100%);
   }
   .vast-opening-overlay.platform-darwin { border-radius: ${Math.round(cornerRadius)}px; }
   .vast-opening-backdrop {
     position: absolute; inset: 0; z-index: 0;
     background:
       radial-gradient(ellipse at 50% 48%, rgba(91, 64, 168, 0.17) 0%, rgba(42, 25, 82, 0.095) 31%, transparent 66%),
-      linear-gradient(180deg, #030406 0%, #06070a 54%, #08090b 100%);
+      linear-gradient(180deg, #040404 0%, #070707 54%, #090909 100%);
     opacity: 0;
     animation: vast-opening-backdrop ${durationMs}ms cubic-bezier(0.42, 0, 0.16, 1) both;
   }
@@ -257,7 +257,7 @@ export function createOpeningSplashWindow(options: {
     fullscreenable: false,
     skipTaskbar: true,
     hasShadow: false,
-    backgroundColor: '#030406',
+    backgroundColor: '#040404',
     title: 'Vast',
     webPreferences: {
       contextIsolation: true,

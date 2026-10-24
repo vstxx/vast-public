@@ -4,7 +4,7 @@ const { tmpdir } = require('node:os')
 const { join, resolve, basename } = require('node:path')
 
 const profile = mkdtempSync(join(tmpdir(), 'vast-css-env-'))
-const executable = process.env.VAST_PATCHED_ELECTRON_EXE || 'D:\\VastElectron44\\src\\out\\VastCompat\\electron.exe'
+const executable = process.env.VAST_PATCHED_ELECTRON_EXE || 'D:\\VastElectron45\\src\\out\\VastRelease\\electron.exe'
 const env = { ...process.env, VAST_CSS_ENV_TEST_PROFILE: profile }
 delete env.ELECTRON_RUN_AS_NODE
 

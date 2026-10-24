@@ -97,6 +97,7 @@ export const DEFAULT_SETTINGS: BrowserSettings = {
     gradientIntensity: 52,
     panelOpacity: 78,
     chromeOpacity: 84,
+    transparency: 15,
     saturation: 100,
     forceDarkModeWebsites: false,
     cleanToolbarIcons: true

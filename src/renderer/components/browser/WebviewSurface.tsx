@@ -1,7 +1,7 @@
 import { copyText } from '../../lib/clipboard'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { mouseNavigationActionForButton, shouldTriggerMouseNavigation } from '../../../shared/mouse-navigation'
-import type { ID, PdfCaptureEvent, Tab, WorkspaceIdentitySettings } from '../../../shared/types'
+import type { GuestNavigationState, ID, PdfCaptureEvent, Tab, WorkspaceIdentitySettings } from '../../../shared/types'
 import { GuestNavigationUrlQueue, shouldAcceptWebviewNavigationEvent, webviewNavigationUrl } from '../../../shared/webview-navigation'
 import { isLikelyCallUrl } from '../../../shared/call-protection'
 import { cleanTrackingUrl, hostMatchesList, siteDomain } from '../../../shared/url-cleaning'
@@ -199,13 +199,6 @@ function WebviewSurfaceComponent({ tab, visible, selected, isPrivate, identity, 
     }
     confirmCompatibilityTab()
 
-    const updateNavigationFlags = (): void => {
-      updateTab(tab.id, {
-        canGoBack: webview.canGoBack(),
-        canGoForward: webview.canGoForward()
-      })
-    }
-
     const loadRequestedUrl = (url: string): void => {
       try {
         if (webview.getURL() !== url) {
@@ -218,15 +211,18 @@ function WebviewSurfaceComponent({ tab, visible, selected, isPrivate, identity, 
       }
     }
 
-    const rememberCurrentSite = (visited = false): void => {
+    // URL and title come from the main process's navigation state or from
+    // state the chrome already holds; asking the <webview> for them is a
+    // synchronous IPC round trip that blocks the browser UI.
+    const rememberCurrentSite = ({ url, title, visited = false }: { url?: string; title?: string; visited?: boolean } = {}): void => {
       if (isPrivate) return
       const latestTab = latestTabRef.current
-      const currentUrl = webview.getURL() || latestTab.url
+      const currentUrl = url || lastKnownUrlRef.current || latestTab.url
       const site = webOriginFor(currentUrl)
       if (!site) return
       upsertSiteMemory(site.origin, {
         hostname: site.hostname,
-        title: webview.getTitle() || latestTab.title,
+        title: title || latestTab.title,
         favicon: latestTab.favicon,
         lastUrl: currentUrl,
         zoom: latestTab.zoom,
@@ -238,16 +234,15 @@ function WebviewSurfaceComponent({ tab, visible, selected, isPrivate, identity, 
     const onDomReady = (): void => {
       domReadyRef.current = true
       register(tab.id, webview)
-      updateNavigationFlags()
-      const currentUrl = webview.getURL() || latestTabRef.current.url
-      lastKnownUrlRef.current = currentUrl
+      const currentUrl = lastKnownUrlRef.current || latestTabRef.current.url
       webContentsIdRef.current = webview.getWebContentsId()
+      for (const state of unmatchedNavigationStates.splice(0)) onNavigationState(state)
       confirmCompatibilityTab()
       if (visibleRef.current) void window.vast.browser.selectExtensionCompatibilityTab(webContentsIdRef.current).catch(() => undefined)
       void window.vast.privacy.configureIdentity(webContentsIdRef.current, identityRef.current, currentUrl, identitySeedRef.current).catch(() => undefined)
       const latestTab = latestTabRef.current
-      const audioWebview = webview as Electron.WebviewTag & { setAudioMuted?: (muted: boolean) => void }
-      audioWebview.setAudioMuted?.(Boolean(latestTab.muted))
+      // Guests start unmuted; only a muted tab needs the (synchronous) call.
+      if (latestTab.muted) (webview as Electron.WebviewTag & { setAudioMuted?: (muted: boolean) => void }).setAudioMuted?.(true)
       const pendingUrl = pendingUrlRef.current
       if (pendingUrl) {
         pendingUrlRef.current = null
@@ -265,48 +260,58 @@ function WebviewSurfaceComponent({ tab, visible, selected, isPrivate, identity, 
     }
 
     const onStop = (): void => {
-      updateTab(tab.id, {
-        status: 'idle',
-        progress: 1,
-        canGoBack: webview.canGoBack(),
-        canGoForward: webview.canGoForward()
-      })
-      rememberCurrentSite(true)
+      // Back/forward state and the visit are recorded from the main process's
+      // navigation state for this stop.
+      updateTab(tab.id, { status: 'idle', progress: 1 })
       window.setTimeout(() => updateTab(tab.id, { progress: 0 }), 300)
     }
 
     const onNavigate = (event: Event): void => {
-      const latestTab = latestTabRef.current
-      const currentWebviewUrl = webview.getURL()
+      // The event carries the URL; the last committed top-level URL stands in
+      // for the live webview URL in the iframe guard.
+      const currentWebviewUrl = lastKnownUrlRef.current
       if (!shouldAcceptWebviewNavigationEvent(event as unknown as Parameters<typeof shouldAcceptWebviewNavigationEvent>[0], currentWebviewUrl)) {
         return
       }
       const url = webviewNavigationUrl(event as unknown as Parameters<typeof webviewNavigationUrl>[0], currentWebviewUrl)
       lastKnownUrlRef.current = url
       guestNavigationUrlsRef.current.remember(url)
-      updateTab(tab.id, {
-        url,
-        displayUrl: url,
-        canGoBack: webview.canGoBack(),
-        canGoForward: webview.canGoForward(),
-        error: undefined
-      })
+      updateTab(tab.id, { url, displayUrl: url, error: undefined })
       window.dispatchEvent(new Event('vast:persist-navigation'))
-      addHistoryEntry({
-        title: webview.getTitle() || latestTab.title,
-        url,
-        favicon: latestTab.favicon,
-        workspaceId: latestTab.workspaceId
-      })
-      rememberCurrentSite()
+      // History and site memory follow in onNavigationState with the title.
+    }
+
+    // A new guest's first navigation can be reported before its id is known
+    // (the id is readable from dom-ready); hold those briefly and replay.
+    const unmatchedNavigationStates: GuestNavigationState[] = []
+    const onNavigationState = (state: GuestNavigationState): void => {
+      if (webContentsIdRef.current === undefined) {
+        unmatchedNavigationStates.push(state)
+        if (unmatchedNavigationStates.length > 16) unmatchedNavigationStates.shift()
+        return
+      }
+      if (state.webContentsId !== webContentsIdRef.current) return
+      updateTab(tab.id, { canGoBack: state.canGoBack, canGoForward: state.canGoForward })
+      if (state.reason === 'navigate') {
+        const latestTab = latestTabRef.current
+        addHistoryEntry({
+          title: state.title || latestTab.title,
+          url: state.url,
+          favicon: latestTab.favicon,
+          workspaceId: latestTab.workspaceId
+        })
+        rememberCurrentSite({ url: state.url, title: state.title })
+      } else if (state.reason === 'stop') {
+        rememberCurrentSite({ url: state.url, title: state.title, visited: true })
+      }
     }
 
     const onTitle = (event: Event): void => {
       const title = (event as unknown as { title?: string }).title
-      if (title) {
-        updateTab(tab.id, { title })
-        rememberCurrentSite()
-      }
+      // Site memory records the title on navigation and when loading stops.
+      // Live title churn (unread counters, timers) is tab state only; writing
+      // it to site memory rewrote the entire stored profile on every change.
+      if (title) updateTab(tab.id, { title })
     }
 
     const onFavicon = (event: Event): void => {
@@ -470,7 +475,6 @@ function WebviewSurfaceComponent({ tab, visible, selected, isPrivate, identity, 
       const suggestedFilename = params?.suggestedFilename?.trim()
       const selectionText = params?.selectionText?.trim()
       const latestTab = latestTabRef.current
-      const linkPreviewSite = linkUrl && isSafeLoadUrl(linkUrl) ? webOriginFor(linkUrl) : undefined
       const stripAffiliateParameters = useBrowserStore.getState().settings.privacy.stripAffiliateParameters
       const cleanLink = linkUrl ? cleanTrackingUrl(linkUrl, stripAffiliateParameters) : undefined
       const cleanPage = cleanTrackingUrl(latestTab.url, stripAffiliateParameters)
@@ -480,8 +484,8 @@ function WebviewSurfaceComponent({ tab, visible, selected, isPrivate, identity, 
       const canOpenSource = Boolean(sourceUrl && isSafeLoadUrl(sourceUrl))
       const canSaveSource = Boolean(sourceUrl)
       const canCopyImage = isImage && hasImageContents
-      const canGoBack = webview.canGoBack()
-      const canGoForward = webview.canGoForward()
+      // Kept current by the main process; no synchronous round trip on right-click.
+      const { canGoBack, canGoForward } = latestTab
       const sourceKindLabel = isImage ? 'image' : mediaType === 'video' ? 'video' : mediaType === 'audio' ? 'audio' : 'media'
       const sourceDetail = sourceUrl
         ? suggestedFilename ??
@@ -755,14 +759,6 @@ function WebviewSurfaceComponent({ tab, visible, selected, isPrivate, identity, 
         x,
         y,
         title: latestTab.title,
-        preview:
-          linkUrl && isSafeLoadUrl(linkUrl)
-            ? {
-                url: displayUrl(linkUrl),
-                host: linkPreviewSite?.hostname ?? displayUrl(linkUrl),
-                duplicateCount: useBrowserStore.getState().tabs.filter((item) => item.url === linkUrl).length
-              }
-            : undefined,
         items: items.map(item => item.action ? {
           ...item,
           action: () => {
@@ -846,6 +842,7 @@ function WebviewSurfaceComponent({ tab, visible, selected, isPrivate, identity, 
       }
     }
     const unsubscribePdfCapture = window.vast.pdf.onCapture(handlePdfCapture)
+    const unsubscribeNavigationState = window.vast.browser.onGuestNavigationState(onNavigationState)
     if (webContentsIdRef.current) {
       void window.vast.pdf.captures(webContentsIdRef.current).then((result) => {
         result.captures?.forEach(handlePdfCapture)
@@ -886,6 +883,7 @@ function WebviewSurfaceComponent({ tab, visible, selected, isPrivate, identity, 
       ;(webview as HTMLElement).removeEventListener('focus', onFocusedSurface)
       webview.removeEventListener('context-menu', onContextMenu)
       unsubscribePdfCapture()
+      unsubscribeNavigationState()
       window.clearTimeout(mediaPauseTimer)
       domReadyRef.current = false
       register(tab.id, undefined)
@@ -897,7 +895,7 @@ function WebviewSurfaceComponent({ tab, visible, selected, isPrivate, identity, 
   useEffect(() => {
     const webview = ref.current
     if (!webview || !domReadyRef.current) return
-    const currentUrl = webview.getURL() || tab.url
+    const currentUrl = lastKnownUrlRef.current || tab.url
     void window.vast.privacy.configureIdentity(webview.getWebContentsId(), identity, currentUrl, identitySeed).catch(() => undefined)
   }, [identity, identitySeed, privacySettings.webRtcExceptions, privacySettings.webRtcPolicy, tab.url])
 

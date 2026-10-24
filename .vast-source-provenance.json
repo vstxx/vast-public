@@ -1,9 +1,9 @@
 {
   "schema": 2,
-  "version": "0.5.0",
-  "sourceCommit": "7461462f33cc467672284e3ee05e1e63ec77eec9",
+  "version": "0.5.4",
+  "sourceCommit": "c0c59a4f1afd0fe0ec49cc68920341484d8cc214",
   "worktreePreview": false,
-  "exportedAt": "2026-10-14T11:54:27.204Z",
+  "exportedAt": "2026-10-24T19:10:04.016Z",
   "exclusions": [
     "/^audit\\//",
     "/^docs\\/PRODUCTION_CORRECTNESS_AUDIT\\.md$/",
@@ -15,8 +15,6 @@
     "/^relay\\/keys\\/staging-verification\\.json$/",
     "/^scripts\\/release-audit\\.cjs$/",
     "/^tests\\/renderer\\/release-hardening-scripts\\.test\\.ts$/",
-    "/^tests\\/main\\/cws-runtime-promotion\\.test\\.ts$/",
-    "/^tests\\/main\\/idu-plus-first-party\\.test\\.ts$/",
     "/^docs\\/FINAL_POLISH_REPORT\\.md$/",
     "/^docs\\/OPEN_SOURCE_READINESS\\.md$/",
     "/^docs\\/PERFORMANCE_AUDIT\\.md$/",
@@ -34,7 +32,6 @@
   ],
   "transformations": [
     ".github/workflows/windows-ci.yml: private master push trigger normalized to public main",
-    "package.json: release:audit mapped to the public snapshot audit",
-    "public CI: private-only runtime and IDU+ tests excluded; canonical-audit assertion skipped when its private source is absent"
+    "package.json: release:audit mapped to the public snapshot audit"
   ]
 }

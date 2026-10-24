@@ -1,6 +1,12 @@
 import type { CSSProperties } from 'react'
 import type { BrowserSettings } from '../../shared/types'
 
+// DEFAULT_SETTINGS.appearance.surfaceTintColor; not imported so this module stays free of runtime imports.
+const DEFAULT_SURFACE_TINT = '#1d1127'
+const NEUTRAL_SURFACE_TINT = '#141414'
+// DEFAULT_SETTINGS.appearance.transparency
+const DEFAULT_TRANSPARENCY = 15
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
@@ -20,21 +26,32 @@ export function appearanceStyle(settings: Pick<BrowserSettings, 'appearance' | '
   const shadow = clamp(appearance.shadowIntensity, 0, 100)
   const gradient = clamp(appearance.gradientIntensity, 0, 100)
   const panel = clamp(appearance.panelOpacity, 0, 100)
-  const chrome = clamp(appearance.chromeOpacity, 0, 100)
+  // Profiles saved before Transparency existed get the default until resaved.
+  const transparency = clamp(Number.isFinite(appearance.transparency) ? appearance.transparency : DEFAULT_TRANSPARENCY, 0, 100)
   const saturation = clamp(appearance.saturation, 80, 145)
+  // Floating surfaces (side panel, menus, popovers, notifications, dialogs):
+  // Transparency 0-100 maps to 100-30 % opacity, a cap that keeps text
+  // readable. Frost (the stored glassIntensity) blurs what shows through, up
+  // to 20 px, and is skipped when nothing shows through.
+  const floatOpacity = 100 - transparency * 0.7
+  const surfaceTintIsDefault = appearance.surfaceTintColor.toLowerCase() === DEFAULT_SURFACE_TINT
+  const frost = Math.round(glass * 0.2)
 
   return {
     '--vast-accent': settings.accentColor,
     '--vast-accent-secondary': appearance.secondaryAccentColor,
     '--vast-bg-tint': appearance.backgroundTintColor,
-    '--vast-surface-tint': appearance.surfaceTintColor,
+    // The default tint is purple; it renders as a neutral dark gray so the dark
+    // theme stays black and gray. A tint the user picks still applies.
+    '--vast-surface-tint': surfaceTintIsDefault ? NEUTRAL_SURFACE_TINT : appearance.surfaceTintColor,
+    // Dim surfaces stay neutral gray until a surface tint other than the default is chosen.
+    '--vast-dim-surface-tint-mix': surfaceTintIsDefault ? '0%' : '22%',
     '--vast-radius-base': `${radius}px`,
-    '--vast-blur': `${Math.round(blur * 0.4)}px`,
+    '--vast-frost': `${frost}px`,
     '--vast-saturation': `${(saturation / 100).toFixed(2)}`,
     '--vast-panel-mix': `${Math.round(68 + panel * 0.3)}%`,
     '--vast-address-panel-mix': `${Math.round(58 + panel * 0.28)}%`,
     '--vast-focus-panel-mix': `${Math.round(52 + panel * 0.26)}%`,
-    '--vast-surface-mix': `${Math.round(34 + glass * 0.56)}%`,
     '--vast-border-mix': `${Math.round(10 + border * 0.62)}%`,
     '--vast-border-soft-mix': `${Math.round(7 + border * 0.42)}%`,
     '--vast-address-border-mix': `${Math.round(6 + border * 0.42)}%`,
@@ -48,14 +65,11 @@ export function appearanceStyle(settings: Pick<BrowserSettings, 'appearance' | '
     '--vast-gradient-mix': `${Math.round(gradient * 0.22)}%`,
     '--vast-gradient-soft-mix': `${Math.round(gradient * 0.11)}%`,
     '--vast-gradient-strong-mix': `${Math.round(8 + gradient * 0.26)}%`,
-    '--vast-chrome-alpha': `${(0.48 + chrome * 0.005).toFixed(3)}`,
-    '--vast-chrome-mix': `${Math.round(48 + chrome * 0.5)}%`,
-    '--vast-sheen-alpha': `${(0.014 + glass * 0.0007).toFixed(3)}`,
     '--vast-sheen-soft-alpha': `${(0.01 + glass * 0.00038).toFixed(3)}`,
-    '--vast-dialog-opacity': `${(100 - glass * 0.18).toFixed(1)}%`,
-    '--vast-dialog-card-opacity': `${(100 - glass * 0.5).toFixed(1)}%`,
-    '--vast-dialog-blur': `${Math.round(blur * 0.4)}px`,
-    '--vast-dialog-blur-low-effects': `${Math.min(12, Math.round(blur * 0.4))}px`,
+    '--vast-float-opacity': `${floatOpacity.toFixed(1)}%`,
+    '--vast-float-alpha': (floatOpacity / 100).toFixed(3),
+    '--vast-float-filter': transparency > 0 && frost > 0 ? `blur(${frost}px) saturate(${(saturation / 100).toFixed(2)})` : 'none',
+    // Background blur: the dimmed backdrop behind Settings, the palette and dialogs.
     '--vast-dialog-backdrop-blur': `${Math.round(blur * 0.12)}px`,
     '--vast-toolbar-icon-size': appearance.cleanToolbarIcons ? '18px' : '16px'
   } as CSSProperties

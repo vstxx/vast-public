@@ -6,6 +6,8 @@ Cloudflare Worker for the publisher-oriented Vast Publisher Platform, public cat
 
 The published D1 catalog is the only source of truth for Explore. The public website and Vast Browser read the same published extension/current-release rows; Vast only overlays the current profile's local `installed` state. Catalog, details, and current-release metadata use `Cache-Control: no-store`, and the browser revalidates Explore when it is opened or regains focus.
 
+The public website is read-only and lists every published extension, including the password managers and the upstream iCloud Passwords entry, for any visitor and any Vast version; it offers no install launcher. The Vast-version gate for password managers (0.4.1 and newer) applies only to the client-facing `/v1` catalog, details, and install endpoints. Listings without an uploaded icon fall back to the bundled logos in `public/extension-icons/`.
+
 Draft, pending, rejected, suspended, and release-less listings appear in neither client. Installing an unpacked or local package does not publish it: publishing always requires an authenticated publisher upload and a review decision, so private code and profile state never leave the device implicitly. Publishers and reviewers must be different identities, except that an authenticated administrator may approve and sign a release owned by the same publisher identity. That exception is labelled in the UI and recorded with a distinct audit action.
 
 ## Bindings

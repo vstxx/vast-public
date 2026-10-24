@@ -68,7 +68,7 @@ export function WorkspaceAppearancePicker({ workspaceId, icon, color, onChange, 
               aria-label={`Use ${option.label} color`}
               aria-pressed={active}
               onClick={() => onChange({ color: option.value })}
-              className={`relative h-6 w-6 justify-self-center rounded-control transition-opacity hover:opacity-80 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b0c11] ${active ? 'ring-2 ring-white/75 ring-offset-2 ring-offset-[#0b0c11]' : ''}`}
+              className={`relative h-6 w-6 justify-self-center rounded-control transition-opacity hover:opacity-80 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0c0c0c] ${active ? 'ring-2 ring-white/75 ring-offset-2 ring-offset-[#0c0c0c]' : ''}`}
               style={{ backgroundColor: option.value }}
             />
           )

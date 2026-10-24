@@ -155,6 +155,18 @@ function isLegacyNetworkProvider(input: Record<string, unknown>, permissions: re
     permissions.includes('webRequest') && permissions.includes('webRequestBlocking')
 }
 
+export const NATIVE_BLOCKING_WEB_REQUEST_ERROR =
+  'This Manifest V2 extension blocks web requests, which stops every page from loading on the current browser engine. It stays installed but is not loaded. Use its Manifest V3 version if one exists.'
+
+/**
+ * On Electron 45 a native MV2 blocking webRequest listener stalls every request
+ * in its session. Vast network providers block through the Vast bridge instead.
+ */
+export function usesNativeBlockingWebRequest(manifest: Record<string, unknown>): boolean {
+  const permissions = Array.isArray(manifest.permissions) ? manifest.permissions.filter((item): item is string => typeof item === 'string') : []
+  return manifest.manifest_version === 2 && permissions.includes('webRequestBlocking') && !isLegacyNetworkProvider(manifest, permissions)
+}
+
 function isInside(root: string, candidate: string): boolean {
   const next = relative(root, candidate)
   return next === '' || (!next.startsWith(`..${sep}`) && next !== '..' && !isAbsolute(next))

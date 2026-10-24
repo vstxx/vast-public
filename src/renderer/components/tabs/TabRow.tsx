@@ -1,4 +1,4 @@
-import { GripVertical, Moon, X } from 'lucide-react'
+import { Moon, X } from 'lucide-react'
 import { memo, type DragEvent } from 'react'
 import type { Tab, TabGroup } from '../../../shared/types'
 import { openTabContextMenu } from '../../lib/context-menu'
@@ -32,10 +32,12 @@ interface TabRowProps {
   active: boolean
   compact?: boolean
   groups?: TabGroup[]
+  /** Changes when the list order or row geometry changes (drives reorder motion). */
+  layoutKey?: string
 }
 
-function TabRowComponent({ tab, active, compact, groups = [] }: TabRowProps): JSX.Element {
-  const motionRef = useTabMotion<HTMLDivElement>(tab.id)
+function TabRowComponent({ tab, active, compact, groups = [], layoutKey = '' }: TabRowProps): JSX.Element {
+  const motionRef = useTabMotion<HTMLDivElement>(tab.id, layoutKey)
   const activateTab = useBrowserStore((state) => state.activateTab)
   const closeTab = useBrowserStore((state) => state.closeTab)
   const moveTab = useBrowserStore((state) => state.moveTab)
@@ -112,7 +114,7 @@ function TabRowComponent({ tab, active, compact, groups = [] }: TabRowProps): JS
           activateTab(tab.id)
         }
       }}
-      className={`group relative flex w-full items-center gap-2 overflow-hidden rounded-control border px-2 text-left transition duration-150 ease-smooth ${tabTone} ${active ? 'vast-tab-active' : ''} ${compactDensity ? 'h-8' : 'h-10'} ${compact ? 'justify-center px-0' : ''}`}
+      className={`group relative flex w-full items-center gap-2 overflow-hidden rounded-control border px-2 text-left transition duration-150 ease-smooth ${tabTone} ${active ? 'vast-tab-active' : ''} ${compactDensity ? 'h-8' : 'h-10'} ${compact ? `sidebar-tile justify-center px-0 ${active ? 'is-active' : ''}` : ''}`}
       style={{ contentVisibility: 'auto', containIntrinsicSize: compactDensity ? '32px' : '40px' }}
       title={tab.title}
     >
@@ -122,8 +124,10 @@ function TabRowComponent({ tab, active, compact, groups = [] }: TabRowProps): JS
           style={{ transform: `scaleX(${Math.max(tab.progress, 0.12)})`, transformOrigin: 'left' }}
         />
       )}
-      {!compact && <GripVertical className="h-3.5 w-3.5 shrink-0 text-white/20 opacity-0 transition group-hover:opacity-100" />}
-      <Favicon url={tab.url} favicon={tab.favicon} title={tab.title} />
+      {/* Same 24px icon box and 12px gap to the title as a workspace row. */}
+      <span className={`grid h-6 w-6 shrink-0 place-items-center ${compact ? '' : 'mr-1'}`}>
+        <Favicon url={tab.url} favicon={tab.favicon} title={tab.title} />
+      </span>
       {!compact && (
         <>
           <span className={`min-w-0 flex-1 truncate text-[13px] font-medium ${internalMeta ? internalMeta.labelClassName : ''}`}>{tab.title}</span>
@@ -171,5 +175,6 @@ export const TabRow = memo(TabRowComponent, (previous, next) =>
   previous.tab === next.tab &&
   previous.active === next.active &&
   previous.compact === next.compact &&
-  previous.groups === next.groups
+  previous.groups === next.groups &&
+  previous.layoutKey === next.layoutKey
 )

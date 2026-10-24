@@ -6,7 +6,7 @@ on:
       expected_version:
         description: Exact package version to publish as an unsigned release
         required: true
-        default: 0.5.0
+        default: 0.5.4
         type: string
       publish:
         description: Publish the verified candidate (false only builds and verifies)
@@ -48,8 +48,8 @@ jobs:
       VAST_PUBLIC_UNSIGNED_RELEASE: '1'
       VAST_UNSIGNED_RELEASE_ACK: ${{ inputs.risk_ack }}
       VAST_RELEASE_REPO: vstxx/vast-public
-      VAST_PREVIOUS_VERSION: 0.4.3
-      VAST_PREVIOUS_RELEASE_BASE_URL: https://github.com/vstxx/vast-public/releases/download/v0.4.3
+      VAST_PREVIOUS_VERSION: 0.5.0
+      VAST_PREVIOUS_RELEASE_BASE_URL: https://github.com/vstxx/vast-public/releases/download/v0.5.0
       VAST_PREVIOUS_SIGNATURE_POLICY: unsigned
       VAST_CURRENT_SIGNATURE_POLICY: unsigned
       VAST_UPDATE_ENABLED: '1'
@@ -154,6 +154,9 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           npm ci
           npm ci --prefix relay
+          # Packaged ECE is verified against the approved patched source, which
+          # every run (including a resumed publication) must apply itself.
+          npm run extension:compat:prepare
           if ($env:VAST_RESUME_RUN_ID -eq '') { python -m pip install -r resources/avidae/requirements.txt -r resources/avidae/requirements-build.txt }
       - name: Restore exact patched Electron runtime
         if: inputs.resume_run_id == ''
@@ -217,7 +220,7 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           powershell -NoProfile -ExecutionPolicy Bypass -File tests/windows-clean-uninstall.test.ps1 -InstallerPath "release/Installer/Vast-Setup-$version.exe"
-      - name: Verify real public 0.4.3 to local candidate upgrade
+      - name: Verify real public 0.5.0 to local candidate upgrade
         if: inputs.resume_run_id == ''
         shell: pwsh
         run: |
@@ -278,10 +281,10 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           $notes = Join-Path $env:RUNNER_TEMP 'vast-unsigned-release-notes.md'
-          $releaseDetailsPath = 'docs/PUBLIC_RELEASE_0.5.0.md'
+          $releaseDetailsPath = 'docs/PUBLIC_RELEASE_0.5.4.md'
           if (-not (Test-Path -LiteralPath $releaseDetailsPath)) { throw "Missing release notes: $releaseDetailsPath" }
-          $releaseDetails = Get-Content -Raw -Encoding utf8 'docs/PUBLIC_RELEASE_0.5.0.md'
-          if ($releaseDetails.Contains('RELEASE_NOTES_DRAFT')) { throw 'Complete the 0.5.0 release notes before publication.' }
+          $releaseDetails = Get-Content -Raw -Encoding utf8 'docs/PUBLIC_RELEASE_0.5.4.md'
+          if ($releaseDetails.Contains('RELEASE_NOTES_DRAFT')) { throw 'Complete the 0.5.4 release notes before publication.' }
           @(
             "# Vast $version — PUBLIC UNSIGNED RELEASE",
             "",

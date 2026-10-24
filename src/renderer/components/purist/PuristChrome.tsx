@@ -163,8 +163,8 @@ export function PuristChrome(): JSX.Element {
           onClick={openAddress}
           className="topbar-island-compact no-drag absolute inset-0 flex w-full items-center justify-center gap-1.5 px-5 text-center"
         >
-          {activeTab && isSecureUrl(getEffectiveTabUrl(activeTab.url)) && <LockKeyhole className="h-3 w-3 shrink-0" strokeWidth={2} />}
-          <span className="min-w-0 truncate text-[13px] font-medium">{addressLabel}</span>
+          {activeTab && isSecureUrl(getEffectiveTabUrl(activeTab.url)) && <LockKeyhole className="h-2.5 w-2.5 shrink-0" strokeWidth={2} />}
+          <span className="min-w-0 truncate text-[11px] font-medium leading-none">{addressLabel}</span>
           {showLoadingProgress && (
             <span
               className="topbar-island-progress absolute bottom-0 left-0 right-0 h-px origin-left"
@@ -233,6 +233,7 @@ function PuristTabStrip(): JSX.Element {
   }, [tabs, workspace?.id])
 
   const visiblePinnedCount = workspaceTabs.filter((tab) => tab.pinned).length
+  const tabLayoutKey = `${workspaceTabs.map((tab) => tab.id).join('|')}:${visiblePinnedCount}`
 
   const updateOverflowEdges = (): void => {
     const strip = stripRef.current
@@ -326,6 +327,7 @@ function PuristTabStrip(): JSX.Element {
                 active={tab.id === workspace?.activeTabId}
                 group={tab.groupId ? workspaceGroupById.get(tab.groupId) : undefined}
                 dragTarget={dragTargetId === tab.id}
+                layoutKey={tabLayoutKey}
                 onActivate={() => activateTab(tab.id)}
                 onClose={() => {
                   closeTab(tab.id)
@@ -359,6 +361,7 @@ function PuristTabComponent({
   active,
   group,
   dragTarget,
+  layoutKey,
   onActivate,
   onClose,
   onDrop,
@@ -370,6 +373,7 @@ function PuristTabComponent({
   active: boolean
   group?: TabGroup
   dragTarget: boolean
+  layoutKey: string
   onActivate: () => void
   onClose: () => void
   onDrop: (event: DragEvent<HTMLDivElement>) => void
@@ -377,7 +381,7 @@ function PuristTabComponent({
   onDragTarget: () => void
   onDragExit: () => void
 }): JSX.Element {
-  const motionRef = useTabMotion<HTMLDivElement>(tab.id)
+  const motionRef = useTabMotion<HTMLDivElement>(tab.id, layoutKey)
   const groupIsNamed = Boolean(group && group.name.toLowerCase() !== 'today')
 
   return (
@@ -453,5 +457,6 @@ const PuristTab = memo(PuristTabComponent, (previous, next) =>
   previous.tab === next.tab &&
   previous.active === next.active &&
   previous.group === next.group &&
-  previous.dragTarget === next.dragTarget
+  previous.dragTarget === next.dragTarget &&
+  previous.layoutKey === next.layoutKey
 )

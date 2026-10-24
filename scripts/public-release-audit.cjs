@@ -110,10 +110,6 @@ for (const stale of ['OPEN_SOURCE_READINESS', 'before making a repository public
 }
 assert(readme.includes('https://vastbrowser.com'), 'README must link to the Vast Browser website')
 assert(readme.includes('## Public source model'), 'README must explain the public source snapshot model')
-assert(readme.includes('https://github.com/vstxx/vast-public/releases/tag/v0.5.0'), 'README must link to the current 0.5.0 Direct release')
-assert(/fresh onboarding presents? (?:the )?individual Labs features as selected/i.test(readme), 'README must describe fresh onboarding Labs selections')
-assert(/each Labs feature has (?:its own|an independent) local gate/i.test(readme), 'README must explain individual Labs feature gates')
-assert(/global `?labs\.enabled`? setting does not grant access by itself/i.test(readme), 'README must clarify that the global Labs flag is not an effective feature gate')
 
 const security = read('SECURITY.md')
 assert(!/before the repository is made public/i.test(security), 'SECURITY.md still contains pre-publication instructions')

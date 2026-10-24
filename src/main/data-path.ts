@@ -14,8 +14,10 @@ import {
   validateDataRootCandidate,
   writeConfiguredDataRoot
 } from './data-path-utils'
-import { createVastBackupArchive, extractVastBackupArchive } from './vast-backup'
 import { getBuildMetadata } from './build-info'
+
+// Backup archives are only needed for export, import and migrations.
+const vastBackup = () => import('./vast-backup')
 
 const productDataDirName = 'Vast'
 const devDataDirName = 'Vast Dev'
@@ -137,7 +139,7 @@ function timestampSlug(): string {
 
 async function createMigrationBackup(kind: 'pre-import' | 'pre-data-dir-change'): Promise<string> {
   const destination = join(stableDataPathConfigRoot(), 'migration-backups', `${kind}-${timestampSlug()}.vastbackup`)
-  await createVastBackupArchive({
+  await (await vastBackup()).createVastBackupArchive({
     dataRoot: vastDataPath(),
     destinationPath: destination,
     appVersion: releaseAppVersion(),
@@ -201,7 +203,7 @@ export async function exportFullVastData(mainWindow: BrowserWindow): Promise<Mig
     filters: [{ name: 'Vast Backup', extensions: ['vastbackup'] }]
   })
   if (result.canceled || !result.filePath) return { ok: false, error: 'Export cancelled.' }
-  const report = await createVastBackupArchive({
+  const report = await (await vastBackup()).createVastBackupArchive({
     dataRoot: vastDataPath(),
     destinationPath: result.filePath,
     appVersion: releaseAppVersion(),
@@ -244,7 +246,7 @@ export async function importFullVastData(mainWindow: BrowserWindow): Promise<Mig
   const backupPath = await createMigrationBackup('pre-import')
   const importRoot = join(stableDataPathConfigRoot(), 'imports', `import-${timestampSlug()}`)
   await mkdir(importRoot, { recursive: true })
-  const extracted = await extractVastBackupArchive(result.filePaths[0], importRoot)
+  const extracted = await (await vastBackup()).extractVastBackupArchive(result.filePaths[0], importRoot)
   const importedDataPath = join(importRoot, 'data')
   await writeConfiguredDataRoot(stableDataPathConfigRoot(), importedDataPath)
   setTimeout(relaunchWithNewDataPath, 250)

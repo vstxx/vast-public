@@ -34,7 +34,7 @@ test('splash animation avoids large blur filters that lower launch FPS', () => {
 })
 
 test('splash paints its opaque background immediately with no baked-in overlay animation', () => {
-  assert.match(overlayRule, /linear-gradient\(180deg,\s*#030406/)
+  assert.match(overlayRule, /linear-gradient\(180deg,\s*#040404/)
   assert.match(overlayRule, /width:\s*100vw;/)
   assert.match(overlayRule, /height:\s*100vh;/)
   assert.match(overlayRule, /border-radius:\s*0;/)

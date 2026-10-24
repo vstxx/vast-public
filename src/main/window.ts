@@ -68,7 +68,7 @@ export function createMainWindow(
     minWidth: 980,
     minHeight: 680,
     show: options?.showInitially ?? true,
-    backgroundColor: '#030406',
+    backgroundColor: '#040404',
     title: 'Vast',
     icon: APP_ICON_PATH,
     titleBarStyle: 'hidden',

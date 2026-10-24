@@ -88,6 +88,18 @@ const api = {
     get: () => ipcRenderer.invoke('vast:new-tab-background:get'),
     choose: () => ipcRenderer.invoke('vast:new-tab-background:choose')
   },
+  visualProfiles: {
+    list: () => ipcRenderer.invoke('vast:visual-profiles:list'),
+    save: (name, values) => ipcRenderer.invoke('vast:visual-profiles:save', name, values),
+    update: (id, values) => ipcRenderer.invoke('vast:visual-profiles:update', id, values),
+    rename: (id, name) => ipcRenderer.invoke('vast:visual-profiles:rename', id, name),
+    remove: (id) => ipcRenderer.invoke('vast:visual-profiles:remove', id),
+    setApplied: (id) => ipcRenderer.invoke('vast:visual-profiles:set-applied', id),
+    applyImage: (id) => ipcRenderer.invoke('vast:visual-profiles:apply-image', id),
+    restoreImage: () => ipcRenderer.invoke('vast:visual-profiles:restore-image'),
+    exportProfile: (id) => ipcRenderer.invoke('vast:visual-profiles:export', id),
+    importProfile: () => ipcRenderer.invoke('vast:visual-profiles:import')
+  },
   importer: {
     discover: () => ipcRenderer.invoke('vast:importer:discover'),
     prepare: (request) => ipcRenderer.invoke('vast:importer:prepare', request),
@@ -250,6 +262,11 @@ const api = {
       const listener = (_event: Electron.IpcRendererEvent, state: Parameters<typeof callback>[0]) => callback(state)
       ipcRenderer.on('vast:browser:media-capture-state', listener)
       return () => ipcRenderer.removeListener('vast:browser:media-capture-state', listener)
+    },
+    onGuestNavigationState: (callback) => {
+      const listener = (_event: Electron.IpcRendererEvent, state: Parameters<typeof callback>[0]) => callback(state)
+      ipcRenderer.on('vast:browser:guest-navigation-state', listener)
+      return () => ipcRenderer.removeListener('vast:browser:guest-navigation-state', listener)
     },
     setKeepAwake: (webContentsId, keepAwake) =>
       ipcRenderer.invoke('vast:browser:set-keep-awake', webContentsId, keepAwake) as Promise<{ ok: boolean; error?: string }>,

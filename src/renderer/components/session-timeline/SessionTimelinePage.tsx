@@ -66,7 +66,7 @@ export function SessionTimelinePage(): JSX.Element {
   }, [snapshots])
 
   return (
-    <InternalPageShell className="labs-page-surface bg-[#06070a] p-5 lg:p-6">
+    <InternalPageShell className="labs-page-surface bg-[#070707] p-5 lg:p-6">
       <div className="mx-auto max-w-7xl space-y-5">
         <InternalPageHero
           icon={History}

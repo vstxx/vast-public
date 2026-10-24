@@ -7,7 +7,7 @@ import { VastButton } from '../ui/VastButton'
 
 export function UnsupportedExtensionStorePage({ tab }: { tab: Tab }): JSX.Element {
   return (
-    <div className="internal-page-shell grid place-items-center bg-[linear-gradient(180deg,#08090d,#050507)] p-6">
+    <div className="internal-page-shell grid place-items-center bg-[linear-gradient(180deg,#090909,#050505)] p-6">
       <div className="vast-glass-panel max-w-xl rounded-panel p-8 text-center">
         <div className="mx-auto grid h-14 w-14 place-items-center rounded-card border border-white/10 bg-white/5 text-vast-accent">
           <Blocks className="h-7 w-7" />

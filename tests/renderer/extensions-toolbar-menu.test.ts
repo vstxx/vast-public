@@ -9,7 +9,7 @@ const styles = readFileSync(new URL('../../src/renderer/styles/index.css', impor
 test('extension button is placed exactly between bookmark and sidebar controls', () => {
   const bookmark = addressBar.indexOf('tooltip={isBookmarked')
   const extensions = addressBar.indexOf('<ExtensionsToolbarMenu')
-  const sidebar = addressBar.indexOf("tooltip={sidePanelOpen ? 'Hide sidebar'")
+  const sidebar = addressBar.indexOf("tooltip={sidePanelOpen ? 'Hide side panel'")
   assert.ok(bookmark >= 0 && extensions > bookmark && sidebar > extensions)
 })
 
