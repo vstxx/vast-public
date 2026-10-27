@@ -30,7 +30,7 @@ Vast combines Chromium page rendering through Electron with a React application 
 
 Windows x64 is the current release-supported target. Published installers and portable builds are available on the [Releases](https://github.com/vstxx/vast-public/releases) page.
 
-The current stable Direct release is [Vast 0.5.5](https://github.com/vstxx/vast-public/releases/tag/v0.5.5). Direct installs on 0.4.3 and later update to 0.5.5 through `stable-v2.yml`; installs on 0.4.2 require a one-time manual upgrade. 0.5.4 was withdrawn on its release day and replaced by 0.5.5. Microsoft Store availability is tracked separately from Direct releases.
+The current stable Direct release is [Vast 0.5.5](https://github.com/vstxx/vast-public/releases/tag/v0.5.5). Direct installs on 0.4.3 and later update to 0.5.5 through `stable-v2.yml`; installs on 0.4.2 require a one-time manual upgrade. 0.5.4 was withdrawn on its release day and replaced by 0.5.5. Vast 0.5.5 is also available in [Microsoft Store](https://apps.microsoft.com/detail/9MTWRJCKMDTX) (Store package 1.2.13.0), which delivers its own updates.
 
 For most users, use `Vast-Setup-<version>.exe`. The portable build is named `Vast-<version>-Portable.exe`. Other release assets are used by the updater, integrity verification, or third-party source-compliance process.
 
