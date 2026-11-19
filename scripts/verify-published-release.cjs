@@ -158,7 +158,8 @@ function extractRuntime(zipFile, manifest) {
   mkdirSync(extractRoot, { recursive: true })
   const result = spawnSync('powershell.exe', [
     '-NoProfile', '-NonInteractive', '-Command',
-    'Expand-Archive -LiteralPath $env:VAST_ZIP_PATH -DestinationPath $env:VAST_EXTRACT_PATH -Force'
+    // ZipFile directly: Expand-Archive can pick up PowerShell 7's Archive module through an inherited PSModulePath.
+    'Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::ExtractToDirectory($env:VAST_ZIP_PATH, $env:VAST_EXTRACT_PATH)'
   ], { env: { ...process.env, VAST_ZIP_PATH: zipFile, VAST_EXTRACT_PATH: extractRoot }, encoding: 'utf8', windowsHide: true })
   if (result.error || result.status !== 0) throw new Error(`Could not extract the production update package: ${result.stderr || result.stdout}`)
   const payloadRelative = String(manifest.package?.payloadPath || '').replace(/\\/g, '/')
@@ -215,26 +216,15 @@ async function main() {
   if (manifest.package?.url !== zipName) throw new Error('Production update manifest points at an unexpected package.')
   if (manifest.package?.sha256 !== sha256(zip)) throw new Error('Production update package SHA-256 does not match its manifest.')
   if (Number(manifest.package?.size) !== statSync(zip).size) throw new Error('Production update package size does not match its manifest.')
-  const ffmpegProvenance = JSON.parse(readFileSync(downloaded.get('ffmpeg-build-provenance.json'), 'utf8'))
-  const ffmpegCapabilities = downloaded.get('avidae-ffmpeg-capabilities.json')
-  const sourceBundle = downloaded.get('ffmpeg-corresponding-source-win64.tar.zst')
-  if (ffmpegProvenance.sourceBundle?.sha256 !== sha256(sourceBundle) || ffmpegProvenance.sourceBundle?.size !== statSync(sourceBundle).size) {
-    throw new Error('Published FFmpeg corresponding source does not match published provenance.')
-  }
-  if (ffmpegProvenance.capabilityReport?.sha256 !== sha256(ffmpegCapabilities) || ffmpegProvenance.capabilityReport?.size !== statSync(ffmpegCapabilities).size) {
-    throw new Error('Published FFmpeg capability report does not match published provenance.')
-  }
 
   const signatures = assets.filter((asset) => asset.signed).map((asset) => inspectAuthenticode(downloaded.get(asset.name)))
   const extracted = extractRuntime(zip, manifest)
   signatures.push(inspectAuthenticode(extracted.runtime))
-  const compliance = spawnSync(process.execPath, [
-    join(root, 'scripts', 'check-ffmpeg-release-compliance.cjs'),
-    '--root', join(root, '.vast-build', 'ffmpeg'),
-    '--runtime', join(extracted.payload, 'resources', 'avidae-runtime'),
-    '--source-bundle', sourceBundle
-  ], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 10 * 60_000, maxBuffer: 32 * 1024 * 1024 })
-  if (compliance.error || compliance.status !== 0) throw new Error(`Published FFmpeg compliance gate failed: ${compliance.error?.message || compliance.stderr || compliance.stdout}`)
+  // FFmpeg and its corresponding source are published with the Video & Audio
+  // module, never inside Vast Core.
+  for (const name of ['avidae', 'avidae-runtime']) {
+    if (existsSync(join(extracted.payload, 'resources', name))) throw new Error(`Published Core update contains resources/${name}.`)
+  }
   console.log(JSON.stringify({ ok: true, version, source: draftReleaseApi ? `${releaseRepo} draft release API` : baseUrl, signaturePolicy: expectedSignaturePolicy, downloaded: assets.map((asset) => asset.name), signatures }, null, 2))
 }
 

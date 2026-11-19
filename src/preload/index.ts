@@ -63,6 +63,8 @@ const api = {
     load: () => ipcRenderer.invoke('vast:storage:load') as Promise<PersistedData>,
     save: (data) => ipcRenderer.invoke('vast:storage:save', data) as Promise<{ ok: boolean; error?: string }>,
     flush: (data) => ipcRenderer.invoke('vast:storage:flush', data) as Promise<{ ok: boolean; error?: string }>,
+    scrubHistoryBackups: () =>
+      ipcRenderer.invoke('vast:storage:scrub-history-backups') as Promise<{ ok: boolean; scrubbed?: number; skipped?: number; error?: string }>,
     exportData: () =>
       ipcRenderer.invoke('vast:storage:export') as Promise<{ ok: boolean; path?: string; error?: string }>,
     importData: () =>
@@ -134,6 +136,8 @@ const api = {
     prepareSurface: (id, kind, partition) => ipcRenderer.invoke('vast:extensions:prepare-surface', id, kind, partition),
     prepareSidebar: (key) => ipcRenderer.invoke('vast:extensions:prepare-sidebar', key),
     dispatchContribution: (key, context) => ipcRenderer.invoke('vast:extensions:dispatch-contribution', key, context),
+    chromeContextMenu: (guestId) => ipcRenderer.invoke('vast:extensions:chrome-context-menu', guestId),
+    clickChromeContextMenu: (guestId, token) => ipcRenderer.invoke('vast:extensions:chrome-context-menu-click', guestId, token),
     respondToUiRequest: (response) => ipcRenderer.invoke('vast:extensions:ui-response', response),
     reportTabEvent: (name, payload) => ipcRenderer.invoke('vast:extensions:tab-event', name, payload),
     onChanged: (callback) => {
@@ -169,7 +173,17 @@ const api = {
     status: () => ipcRenderer.invoke('vast:avidae:status'),
     start: () => ipcRenderer.invoke('vast:avidae:start'),
     stop: () => ipcRenderer.invoke('vast:avidae:stop'),
-    installDependencies: () => ipcRenderer.invoke('vast:avidae:install-dependencies')
+    installDependencies: () => ipcRenderer.invoke('vast:avidae:install-dependencies'),
+    // Installing downloads hundreds of megabytes; require a real click.
+    installModule: () => navigator.userActivation?.isActive
+      ? ipcRenderer.invoke('vast:avidae:install-module')
+      : Promise.reject(new Error('Installing Video & Audio requires a user action.')),
+    cancelModuleInstall: () => ipcRenderer.invoke('vast:avidae:cancel-module-install'),
+    onModuleChanged: (callback) => {
+      const listener = (_event: Electron.IpcRendererEvent, module: Parameters<typeof callback>[0]): void => callback(module)
+      ipcRenderer.on('vast:avidae:module-changed', listener)
+      return () => ipcRenderer.removeListener('vast:avidae:module-changed', listener)
+    }
   },
   network: {
     getDevices: () => ipcRenderer.invoke('vast:network:get-devices'),

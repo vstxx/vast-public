@@ -10,12 +10,13 @@ import ts from 'typescript'
 import { createUpdaterStateMachine, redactUpdaterError } from '../../src/main/updater-state.ts'
 import { updaterDisabledReason } from '../../src/shared/updater-policy.ts'
 import { stagePendingUpdate, updateCacheKey, pendingUpdatePath, readPendingUpdate } from '../../src/main/updater-pending.ts'
+import { appImageUpdateBlocker, replaceAppImageInPlace } from '../../src/main/appimage-update.ts'
 
 const require = createRequire(import.meta.url)
 const source = await readFile(new URL('../../src/main/updater.ts', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
 
-async function fixture(t: { after: (fn: () => unknown) => void }, options: { env?: Record<string,string>; packaged?: boolean; store?: boolean; installed?: boolean; profileInside?: boolean; channel?: string } = {}) {
+async function fixture(t: { after: (fn: () => unknown) => void }, options: { env?: Record<string,string>; packaged?: boolean; store?: boolean; installed?: boolean; profileInside?: boolean; channel?: string; platform?: string } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'vast-update-test-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const resources = join(root, 'resources')
@@ -60,17 +61,18 @@ publisherName: VastProductions
   const exports: any = {}
   runInNewContext(compiled, {
     exports, URL, console: { warn() {} },
-    process: { platform:'win32',resourcesPath:resources,env:options.env ?? {} },
+    process: { platform:options.platform ?? 'win32',resourcesPath:resources,env:options.env ?? {} },
     setTimeout: (callback: () => void,delay: number) => { const timer = {callback,delay,unref() {}}; timers.push(timer); return timer },
     clearTimeout: (timer: any) => { timer.cleared = true },
     require: (name: string) => {
       if (name === 'electron/main') return {app}
-      if (name === 'electron-updater') return {NsisUpdater:Driver}
+      if (name === 'electron-updater') return {NsisUpdater:Driver,AppImageUpdater:Driver}
       if (name === './build-info') return {getBuildMetadata:()=>metadata}
       if (name === '../shared/build-metadata') return {envFlag:(env: any,key: string,fallback: boolean)=>env[key]===undefined?fallback:env[key]==='1'}
       if (name === '../shared/updater-policy') return {updaterDisabledReason}
       if (name === './updater-state') return {createUpdaterStateMachine,redactUpdaterError}
       if (name === './updater-pending') return {stagePendingUpdate,updateCacheKey,pendingUpdatePath}
+      if (name === './appimage-update') return {appImageUpdateBlocker,replaceAppImageInPlace}
       if (name === './windows/WindowRegistry') return {windowRegistry:{broadcast:(_channel: string,event: any)=>events.push(event)}}
       return require(name)
     }
@@ -183,4 +185,42 @@ for (const [name,options] of Object.entries({
   assert.equal(f.drivers.length,0)
   assert.equal(f.timers.length,0)
   await assert.rejects(f.service.applyUpdateNow())
+})
+
+test('Linux AppImage updates install on quit in place; other Linux runs stay disabled', async t => {
+  const missing = await fixture(t,{platform:'linux',installed:false})
+  assert.equal(missing.driver,undefined)
+  assert.match(missing.service.getUpdaterDiagnostics().reason,/not started from its AppImage/)
+
+  const probe = await fixture(t,{platform:'linux',installed:false,env:{APPIMAGE:'/nonexistent/Vast.AppImage'}})
+  assert.equal(probe.driver,undefined)
+  assert.match(probe.service.getUpdaterDiagnostics().reason,/not writable/)
+
+  const root = await mkdtemp(join(tmpdir(),'vast-appimage-'))
+  t.after(() => rm(root,{recursive:true,force:true}))
+  const appImage = join(root,'vast.AppImage')
+  await writeFile(appImage,'old')
+  const f = await fixture(t,{platform:'linux',installed:false,env:{APPIMAGE:appImage}})
+  assert.equal(f.service.getUpdaterDiagnostics().enabled,true)
+  assert.equal(f.driver.autoInstallOnAppQuit,true)
+  assert.equal(f.driver.autoRunAppAfterInstall,false)
+  assert.equal(f.driver.channel,undefined,'Linux follows latest-linux.yml')
+  assert.equal(f.driver.updateConfigPath,undefined,'the packaged app-update.yml is used as is')
+})
+
+test('AppImage replacement keeps the path, name and mode and never leaves the file missing', async t => {
+  const root = await mkdtemp(join(tmpdir(),'vast-appimage-'))
+  t.after(() => rm(root,{recursive:true,force:true}))
+  const appImage = join(root,'Vast-0.5.5.AppImage')
+  const download = join(root,'cache','Vast-0.6.0.AppImage')
+  await mkdir(join(root,'cache'))
+  await writeFile(appImage,'old')
+  await writeFile(download,'new')
+  assert.equal(appImageUpdateBlocker(appImage),null)
+  assert.equal(replaceAppImageInPlace(appImage,download),appImage)
+  assert.equal(await readFile(appImage,'utf8'),'new')
+  await assert.rejects(readFile(download),/ENOENT/)
+  assert.throws(() => replaceAppImageInPlace(appImage,download),/ENOENT|missing/)
+  assert.equal(await readFile(appImage,'utf8'),'new','a failed replacement keeps the current AppImage')
+  assert.throws(() => replaceAppImageInPlace('relative.AppImage',appImage),/absolute/)
 })

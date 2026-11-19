@@ -67,9 +67,10 @@ async function main() {
   requireFact(sourceText.size === packageText.size && sourceTextSha256 === packageTextSha256,
     'Packaged Vast.exe native .text section differs from release-profile Electron')
 
+  // Electron 45 no longer ships dxil.dll; DXIL validation is part of dxcompiler.dll.
   const runtimeFiles = [
     'chrome_100_percent.pak', 'chrome_200_percent.pak', 'd3dcompiler_47.dll',
-    'dxcompiler.dll', 'dxil.dll', 'ffmpeg.dll', 'icudtl.dat', 'resources.pak',
+    'dxcompiler.dll', 'ffmpeg.dll', 'icudtl.dat', 'resources.pak',
     'snapshot_blob.bin', 'v8_context_snapshot.bin', 'vk_swiftshader.dll', 'vulkan-1.dll'
   ]
   for (const name of runtimeFiles) {

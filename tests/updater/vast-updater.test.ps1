@@ -439,4 +439,72 @@ try {
   Remove-Item -LiteralPath $longPathRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+$avidaeRoot = New-TestRoot
+try {
+  $payload = New-TestPayload -Root $avidaeRoot
+  $install = New-TestInstall -Root $avidaeRoot
+  $userData = New-TestUserData -Root $avidaeRoot
+  # Pre-module installation: bundled runtime and source under resources.
+  $bundledRuntime = Join-Path $install 'resources\avidae-runtime'
+  New-Item -ItemType Directory -Path (Join-Path $bundledRuntime 'media') -Force | Out-Null
+  New-Item -ItemType Directory -Path (Join-Path $bundledRuntime 'ms-playwright\chromium-1\chrome-win64') -Force | Out-Null
+  Set-Content -Path (Join-Path $bundledRuntime 'runtime-manifest.json') -Value '{"schemaVersion":3,"playwrightBrowsersPath":"ms-playwright"}' -Encoding UTF8
+  Set-Content -Path (Join-Path $bundledRuntime 'media\ffmpeg.exe') -Value 'ffmpeg' -Encoding UTF8
+  Set-Content -Path (Join-Path $bundledRuntime 'ms-playwright\chromium-1\chrome-win64\chrome.exe') -Value 'chromium' -Encoding UTF8
+  New-Item -ItemType Directory -Path (Join-Path $install 'resources\avidae\static') -Force | Out-Null
+  Set-Content -Path (Join-Path $install 'resources\avidae\app.py') -Value 'app' -Encoding UTF8
+  # Video & Audio jobs and media live in the profile and must survive.
+  $mediaData = Join-Path $userData 'avidae\downloads'
+  New-Item -ItemType Directory -Path $mediaData -Force | Out-Null
+  Set-Content -Path (Join-Path $mediaData 'recording.mp4') -Value 'user media' -Encoding UTF8
+  # A user folder with a similar name elsewhere must survive.
+  New-Item -ItemType Directory -Path (Join-Path $install 'notes\avidae-runtime') -Force | Out-Null
+  Set-Content -Path (Join-Path $install 'notes\avidae-runtime\keep.txt') -Value 'keep' -Encoding UTF8
+
+  $avidaeResult = Invoke-VastUpdate -InstallPath $install -PayloadPath $payload -UserDataRoot $userData `
+    -BackupRoot (Join-Path $avidaeRoot 'backups') -LogPath (Join-Path $avidaeRoot 'avidae.log') -TargetVersion '1.0.4' -NonInteractive
+  Assert-Equal 'Updated' $avidaeResult.Status 'update with bundled Video & Audio should succeed'
+  Assert-True (-not (Test-Path -LiteralPath $bundledRuntime)) 'obsolete bundled Video & Audio runtime should be removed after the update'
+  Assert-True (-not (Test-Path -LiteralPath (Join-Path $install 'resources\avidae'))) 'obsolete bundled Video & Audio source should be removed after the update'
+  Assert-True (-not (Test-Path -LiteralPath (Join-Path $avidaeResult.TransactionRoot 'obsolete-bundled-avidae\avidae-runtime'))) 'quarantined runtime should be deleted, recovering the disk space'
+  Assert-Equal 'user media' ((Get-Content -Raw -Path (Join-Path $mediaData 'recording.mp4')).Trim()) 'Video & Audio user media must be preserved'
+  Assert-Equal 'keep' ((Get-Content -Raw -Path (Join-Path $install 'notes\avidae-runtime\keep.txt')).Trim()) 'similarly named user folders must be preserved'
+  Assert-Equal 'asar-1.0.4' ((Get-Content -Raw -Path (Join-Path $install 'resources\app.asar')).Trim()) 'core runtime should still be updated'
+  Assert-True ((Get-Content -Raw -Path (Join-Path $avidaeRoot 'avidae.log')) -match 'Removed obsolete bundled Video & Audio folder') 'migration should be logged'
+
+  # A second run is a no-op and does not fail.
+  $again = Invoke-VastUpdate -InstallPath $install -PayloadPath $payload -UserDataRoot $userData `
+    -BackupRoot (Join-Path $avidaeRoot 'backups') -LogPath (Join-Path $avidaeRoot 'avidae-2.log') -TargetVersion '1.0.4' -NonInteractive
+  Assert-Equal 'AlreadyCurrent' $again.Status 'repeat run should be a no-op'
+
+  # Never follow a junction planted in place of the bundled runtime.
+  $outside = Join-Path $avidaeRoot 'outside'
+  New-Item -ItemType Directory -Path $outside -Force | Out-Null
+  Set-Content -Path (Join-Path $outside 'runtime-manifest.json') -Value '{}' -Encoding UTF8
+  Set-Content -Path (Join-Path $outside 'precious.txt') -Value 'precious' -Encoding UTF8
+  New-Item -ItemType Junction -Path $bundledRuntime -Target $outside | Out-Null
+  Assert-Equal 0 (Remove-VastObsoleteBundledAvidae -InstallPath $install -PayloadPath $payload -TransactionRoot (Join-Path $avidaeRoot 'tx')) 'a junction must not be removed or followed'
+  Assert-Equal 'precious' ((Get-Content -Raw -Path (Join-Path $outside 'precious.txt')).Trim()) 'junction target must be untouched'
+  [System.IO.Directory]::Delete($bundledRuntime)
+
+  # A folder that contains a junction is left alone entirely.
+  New-Item -ItemType Directory -Path $bundledRuntime -Force | Out-Null
+  Set-Content -Path (Join-Path $bundledRuntime 'runtime-manifest.json') -Value '{}' -Encoding UTF8
+  New-Item -ItemType Junction -Path (Join-Path $bundledRuntime 'linked') -Target $outside | Out-Null
+  Assert-Equal 0 (Remove-VastObsoleteBundledAvidae -InstallPath $install -PayloadPath $payload -TransactionRoot (Join-Path $avidaeRoot 'tx')) 'a runtime folder containing links must be left in place'
+  Assert-True (Test-Path -LiteralPath (Join-Path $outside 'precious.txt')) 'files behind nested links must be untouched'
+  [System.IO.Directory]::Delete((Join-Path $bundledRuntime 'linked'))
+
+  # An unrecognised folder of the same name is not Vast's to delete.
+  Remove-Item -LiteralPath (Join-Path $bundledRuntime 'runtime-manifest.json') -Force
+  Assert-Equal 0 (Remove-VastObsoleteBundledAvidae -InstallPath $install -PayloadPath $payload -TransactionRoot (Join-Path $avidaeRoot 'tx')) 'unrecognised folders must be left in place'
+
+  # A payload that still bundles the runtime keeps it.
+  Set-Content -Path (Join-Path $bundledRuntime 'runtime-manifest.json') -Value '{}' -Encoding UTF8
+  New-Item -ItemType Directory -Path (Join-Path $payload 'resources\avidae-runtime') -Force | Out-Null
+  Assert-Equal 0 (Remove-VastObsoleteBundledAvidae -InstallPath $install -PayloadPath $payload -TransactionRoot (Join-Path $avidaeRoot 'tx')) 'runtime still shipped by the payload must be kept'
+} finally {
+  Remove-Item -LiteralPath $avidaeRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 Write-Host 'Vast updater tests passed.'

@@ -65,10 +65,12 @@ test('tab insertion and reordering use quick FLIP motion with reduced-motion sup
   assert.match(source, /useTabMotion\(tab\.id, layoutKey\)/)
   // First positions are read inside the store update, before React renders.
   assert.match(motionSource, /useBrowserStore\.subscribe\(\(state, previous\) => \{/)
-  assert.match(motionSource, /stripSignature\(state\) !== stripSignature\(previous\)\) capture\(\)/)
+  assert.match(motionSource, /stripSignature\(state\) !== stripSignature\(previous\)\) capture\(state, previous\)/)
   assert.match(motionSource, /runningMotion\(element\)\?\.cancel\(\)/)
-  assert.match(motionSource, /duration: 170/)
-  assert.match(motionSource, /prefers-reduced-motion: reduce/)
+  // Timing follows the motion level; Off (which includes the system's reduced
+  // motion, resolved once in resolveMotionLevel) measures nothing at all.
+  assert.match(motionSource, /const duration = repositionDuration\(\)/)
+  assert.match(motionSource, /currentMotionLevel\(\) === 'off'\) return/)
   assert.match(motionSource, /element\.closest\('\.no-motion'\)/)
 })
 

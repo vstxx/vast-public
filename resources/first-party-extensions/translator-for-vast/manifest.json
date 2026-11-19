@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "Translator for Vast",
+  "version": "1.0.0",
+  "description": "Translate web pages, selected text and single words on this device. No account, no cloud translation, no telemetry.",
+  "minimum_chrome_version": "130",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAujuinodR6/VqUtf+3FMnkNSETg7nMCoFmWo1oQPs8nbdRF2+uiBigC3dE1aMXRAiOk5+grlVCJoGUX1LERU/Ass7YlIWIuC4g37EVDrOHQUuzBFo/ozbkWy25lfVnAz8JeArJqdiAW7eE3wpRaOtNk6x9aZjHVdrRA1JezxOgCyhbExr8A6EnCAXdXihBKnFriosbyjkM/b+Un9ROEZb77q74pEFhpMig8SaAqSnNN6bikC6mEHPtH7vJDc1pmB9UaXCf/HK9PItnPgxuQqNGdEFHo81hgVf6yboTlJm8cQwxBbL0+r0gcDkQxxYzixTzOb/q3q5VxMkkhbTP8JZGQIDAQAB",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Translator for Vast",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["storage", "unlimitedStorage", "offscreen", "scripting", "contextMenus"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'none'; connect-src 'self' https://storage.googleapis.com/moz-fx-translations-data--303e-prod-translations-data/"
+  },
+  "vast_wasm": {
+    "modules": ["bergamot-translator.wasm"]
+  },
+  "vast": {
+    "api_version": 1,
+    "permissions": ["vast.toolbar"],
+    "contributes": {
+      "toolbar": [
+        { "id": "translate", "title": "Translate", "icon": "icons/toolbar.svg", "action": "popup" }
+      ]
+    }
+  }
+}

@@ -1,5 +1,6 @@
 import type { Workspace, VastExtensionInfo, VastExtensionSurface, VastExtensionSurfaceKind } from '../../shared/types.ts'
-import { VAST_PERMISSION_METADATA, type VastExtensionContributionSnapshot, type VastNativePermission, type VastNativeRuntimeState, type VastUiBrokerResponse } from '../../shared/extension-native-api.ts'
+import { VAST_PERMISSION_METADATA, type VastContributionDispatchOutcome, type VastExtensionContributionSnapshot, type VastNativePermission, type VastNativeRuntimeState, type VastUiBrokerResponse } from '../../shared/extension-native-api.ts'
+import { contextMenuClickPayload, contributionPermission } from '../../shared/extension-native-contributions.ts'
 import {
   hasPermissionEscalation,
   permissionEscalation,
@@ -12,7 +13,7 @@ import {
 import { canonicalJson, VEXT_LIMITS } from '../../shared/vext-format.ts'
 import { partitionForWorkspace, resolveWorkspaceIdentity } from '../../shared/workspace-identity.ts'
 import { analyzeExtensionCompatibility } from './extension-compatibility.ts'
-import { chromeExtensionId, NATIVE_BLOCKING_WEB_REQUEST_ERROR, usesNativeBlockingWebRequest, validateExtensionManifest } from './extension-manifest.ts'
+import { chromeExtensionId, extensionAssetIconDataUrl, TOOLBAR_ICON_MAX_BYTES, NATIVE_BLOCKING_WEB_REQUEST_ERROR, usesNativeBlockingWebRequest, validateExtensionManifest } from './extension-manifest.ts'
 import { ExtensionRegistry } from './extension-registry.ts'
 import type {
   ExtensionSessionLike,
@@ -146,6 +147,7 @@ export class ExtensionManager {
   private nativeUiBroker?: ExtensionUiBroker
   private nativeStates = new Map<string, VastNativeRuntimeState>()
   private nativeErrors = new Map<string, string>()
+  private tabEventDemand = false
   private preparedSurfaces = new Map<string, PreparedExtensionSurface>()
   private surfaceTokens = new Map<string, PreparedExtensionSurface>()
   private boundSurfaces = new Map<number, { extensionId: string; origin: string }>()
@@ -751,6 +753,7 @@ export class ExtensionManager {
       if (!next) throw new Error('Extension is not installed.')
       this.nativeRuntime?.updateAuthority(next, validated)
       if (next.enabled && this.allPermissionsGranted(next, validated)) await this.startNativeIfAllowed(next, validated)
+      this.refreshTabEventDemand()
       this.onChanged?.()
       return this.infoFor(next)
     })
@@ -910,6 +913,15 @@ export class ExtensionManager {
     })
   }
 
+  /** chrome.contextMenus entries ECE resolved for the menu last opened in this tab. */
+  chromeContextMenuEntries(contents: import('electron/main').WebContents): ReturnType<ExtensionCompatibilityRuntime['contextMenuEntries']> {
+    return this.compatibilityRuntime?.contextMenuEntries(contents) ?? []
+  }
+
+  clickChromeContextMenuEntry(contents: import('electron/main').WebContents, token: string): boolean {
+    return this.compatibilityRuntime?.clickContextMenuEntry(contents, token) ?? false
+  }
+
   attachCompatibilityTab(contents: import('electron/main').WebContents, window: import('electron/main').BrowserWindow): void {
     this.compatibilityRuntime?.attachTab(contents, window)
   }
@@ -926,20 +938,42 @@ export class ExtensionManager {
     return this.compatibilityRuntime?.confirmCreatedTab(requestId, contents, window) ?? false
   }
 
-  dispatchContribution(key: string, context?: Record<string, unknown>): boolean {
+  /**
+   * Activates a contribution. Ownership, enablement and the grant behind the
+   * contribution are re-checked against the installed record at this moment;
+   * a stale key, a disabled extension or a revoked grant is rejected. Event
+   * actions resolve only after the owner's background received them.
+   */
+  async dispatchContribution(key: string, context?: unknown): Promise<{ outcome: VastContributionDispatchOutcome; extensionId: string }> {
     const owner = this.contributions.ownerFor(key)
-    if (!owner) return false
-    const event = owner.type === 'toolbar' ? 'toolbar.onClicked' : owner.type === 'commands' ? 'commands.onCommand' : owner.type === 'contextMenus' ? 'contextMenus.onClicked' : undefined
-    if (!event) return false
-    const payload = owner.type === 'contextMenus' ? { menuItemId: owner.localId, ...(context ?? {}) } : { id: owner.localId }
-    this.nativeRuntime?.send(owner.extensionId, event, payload)
-    return true
+    if (!owner || owner.type === 'sidebar') throw new Error('Extension contribution is unavailable.')
+    const record = this.registry.get(owner.extensionId)
+    const manifest = record ? this.manifests.get(record.id) : undefined
+    if (!record?.enabled || !manifest?.vast || manifest.nativeCompatibilityError) throw new Error('The extension is not active.')
+    if (!record.grantedPermissions.includes(contributionPermission(owner.type))) throw new Error('The extension is not allowed to provide this action.')
+    const payload = owner.type === 'contextMenus' ? { menuItemId: owner.localId, ...contextMenuClickPayload(context, owner.contexts) } : { id: owner.localId }
+    if (owner.action === 'popup') {
+      if (!manifest.ui.popup) throw new Error('The extension has no popup.')
+      return { outcome: 'popup', extensionId: record.id }
+    }
+    const event = owner.type === 'toolbar' ? 'toolbar.onClicked' : owner.type === 'commands' ? 'commands.onCommand' : 'contextMenus.onClicked'
+    if (!this.nativeRuntime) throw new Error('The extension background is not running.')
+    await this.nativeRuntime.deliver(record.id, event, payload)
+    return { outcome: 'delivered', extensionId: record.id }
   }
 
+  /** Tab events are produced only while some running background may read tabs. */
   emitTabEvent(name: 'tabs.onActivated' | 'tabs.onCreated' | 'tabs.onUpdated' | 'tabs.onRemoved', payload: unknown): void {
+    if (!this.tabEventDemand || !this.nativeRuntime) return
     for (const record of this.registry.list()) {
-      if (record.enabled && record.grantedPermissions.includes('vast.tabs.read')) this.nativeRuntime?.send(record.id, name, payload)
+      if (record.enabled && record.grantedPermissions.includes('vast.tabs.read') && this.nativeRuntime.isRunning(record.id)) this.nativeRuntime.send(record.id, name, payload)
     }
+  }
+
+  private refreshTabEventDemand(): void {
+    const runtime = this.nativeRuntime
+    this.tabEventDemand = Boolean(runtime) && this.registry.list().some((record) => record.enabled && record.grantedPermissions.includes('vast.tabs.read') && runtime!.isRunning(record.id))
+    this.contributions.setTabEventDemand(this.tabEventDemand)
   }
 
   respondToUiRequest(sender: import('electron/main').WebContents, response: VastUiBrokerResponse): boolean { return this.nativeUiBroker?.respond(sender, response) ?? false }
@@ -1002,7 +1036,11 @@ export class ExtensionManager {
     runtime = new ExtensionNativeRuntime(resources, broker, (id, state, error) => {
       this.nativeStates.set(id, state)
       if (error) this.nativeErrors.set(id, error); else this.nativeErrors.delete(id)
-      if (state === 'error' || state === 'stopped') this.contributions.removeExtension(id)
+      // A stopped or crashed background takes only what it registered with it;
+      // manifest contributions stay, and their event actions become unavailable.
+      if (state === 'running') this.contributions.setHostRunning(id, true)
+      if (state === 'error' || state === 'stopped') this.contributions.removeRuntime(id)
+      this.refreshTabEventDemand()
       this.onChanged?.()
     })
     runtime.registerIpc()
@@ -1011,16 +1049,42 @@ export class ExtensionManager {
     return runtime
   }
 
+  /**
+   * Brings the Native layer to the state the record and manifest allow:
+   * manifest contributions are registered without running extension code, and
+   * a background starts only when declared (an unchanged running one is kept).
+   * Inactive layers hold no host and no contributions.
+   */
   private async startNativeIfAllowed(record: InstalledExtensionRecord, validated: ValidatedExtensionManifest): Promise<void> {
     if (!validated.vast) { this.nativeStates.set(record.id, 'not-applicable'); return }
-    if (validated.nativeCompatibilityError) {
-      this.nativeStates.set(record.id, 'error'); this.nativeErrors.set(record.id, validated.nativeCompatibilityError); return
+    if (validated.nativeCompatibilityError || !this.allPermissionsGranted(record, validated)) {
+      await this.nativeRuntime?.stop(record.id)
+      this.contributions.removeExtension(record.id)
+      if (validated.nativeCompatibilityError) { this.nativeStates.set(record.id, 'error'); this.nativeErrors.set(record.id, validated.nativeCompatibilityError) } else this.nativeStates.set(record.id, 'pending-permission')
+      this.refreshTabEventDemand()
+      return
     }
-    if (!this.allPermissionsGranted(record, validated)) {
-      this.nativeStates.set(record.id, 'pending-permission'); this.contributions.removeExtension(record.id); return
+    this.contributions.setDeclared(record.id, validated.vast.contributes, record.grantedPermissions, await this.declaredIcons(validated))
+    if (!validated.vast.background) {
+      await this.nativeRuntime?.stop(record.id)
+      this.contributions.removeRuntime(record.id)
+      this.nativeStates.set(record.id, 'idle'); this.nativeErrors.delete(record.id)
+      this.refreshTabEventDemand()
+      return
     }
     const runtime = await this.ensureNativeRuntime()
     await runtime.start(record, validated)
+    this.refreshTabEventDemand()
+  }
+
+  private async declaredIcons(validated: ValidatedExtensionManifest): Promise<Map<string, string>> {
+    const icons = new Map<string, string>()
+    for (const item of validated.vast?.contributes?.toolbar ?? []) {
+      if (!item.icon || icons.has(item.icon)) continue
+      const icon = await extensionAssetIconDataUrl(validated.rootPath, item.icon, TOOLBAR_ICON_MAX_BYTES)
+      if (icon) icons.set(item.icon, icon)
+    }
+    return icons
   }
 
   private async stopNative(id: string, nextState: VastNativeRuntimeState): Promise<void> {
@@ -1028,6 +1092,7 @@ export class ExtensionManager {
     this.contributions.removeExtension(id)
     this.nativeStates.set(id, nextState)
     this.nativeErrors.delete(id)
+    this.refreshTabEventDemand()
     for (const [key, prepared] of this.preparedSurfaces) if (prepared.extensionId === id) this.preparedSurfaces.delete(key)
     for (const [token, prepared] of this.surfaceTokens) if (prepared.extensionId === id) this.surfaceTokens.delete(token)
     for (const [contentsId, surface] of this.boundSurfaces) if (surface.extensionId === id) this.boundSurfaces.delete(contentsId)
@@ -1517,7 +1582,7 @@ export class ExtensionManager {
       : 'loaded'
     const nativeState = !validated?.vast ? 'not-applicable' : !record.enabled ? 'stopped' : this.nativeStates.get(record.id) ?? (validated.nativeCompatibilityError ? 'error' : this.allPermissionsGranted(record, validated) ? 'stopped' : 'pending-permission')
     const nativeError = validated?.nativeCompatibilityError ?? this.nativeErrors.get(record.id)
-    const runtimeState = error && (loadedSessionCount === 0 || status.validationError) && nativeState !== 'running'
+    const runtimeState = error && (loadedSessionCount === 0 || status.validationError) && nativeState !== 'running' && nativeState !== 'idle'
       ? 'error'
       : record.enabled
         ? 'loaded'

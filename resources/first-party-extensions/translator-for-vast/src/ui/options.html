@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Translator for Vast settings</title>
+<link rel="stylesheet" href="ui.css">
+</head>
+<body class="options">
+<main>
+  <header>
+    <img class="icon" src="icons/icon-48.png" alt="" width="32" height="32" style="width:32px;height:32px">
+    <div><h1 data-i18n="optionsTitle">Translator for Vast settings</h1><p class="small" data-i18n="localNote">Runs on this device.</p></div>
+  </header>
+
+  <section>
+    <h2 data-i18n="optionsLanguage">Language</h2>
+    <div class="field"><span data-i18n="optionsTarget">Translate into</span><span id="target"></span></div>
+    <div class="field"><span data-i18n="optionsDisplay">Page display</span>
+      <div id="display" class="segmented" role="group" style="min-width:300px">
+        <button type="button" data-mode="replace" data-i18n="displayReplace">Replace text</button>
+        <button type="button" data-mode="bilingual" data-i18n="displayBilingual">Original and translation</button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2 data-i18n="optionsSelection">Selection</h2>
+    <label class="switch"><span data-i18n="optionsSelectionButton">Show a translate button next to selected text</span><input id="selection-button" type="checkbox"></label>
+    <p class="hint" data-i18n="optionsSelectionButtonHint"></p>
+  </section>
+
+  <section>
+    <h2 data-i18n="optionsAutomatic">Automatic translation</h2>
+    <p data-i18n="optionsAlways">Always translate these languages</p>
+    <p class="hint" data-i18n="optionsAlwaysHint"></p>
+    <div id="always"></div>
+    <hr>
+    <p data-i18n="optionsNeverLanguages">Never offer to translate these languages</p>
+    <div id="never-languages"></div>
+    <hr>
+    <p data-i18n="optionsNeverSites">Never translate these websites</p>
+    <div id="never-sites"></div>
+    <form id="site-form" class="row"><input id="site" type="text" placeholder="example.com" autocomplete="off" spellcheck="false" class="grow"><button type="submit" data-i18n="optionsAddSite">Add website</button></form>
+  </section>
+
+  <section>
+    <h2 data-i18n="optionsModels">Language models</h2>
+    <p class="hint" data-i18n="optionsModelsHint"></p>
+    <p id="storage" class="small"></p>
+    <h2 style="margin-top:14px" data-i18n="optionsInstalled">Downloaded</h2>
+    <p id="no-models" class="small" data-i18n="optionsNoModels">No language models downloaded yet.</p>
+    <ul id="installed" class="models"></ul>
+    <div class="row" style="margin-top:10px"><span class="grow"></span><button id="delete-all" class="danger" type="button" data-i18n="optionsDeleteAll">Delete all models</button></div>
+    <h2 style="margin-top:18px" data-i18n="optionsAvailable">Available directions</h2>
+    <input id="filter" type="search" style="width:100%" aria-label="Filter languages" data-i18n-placeholder="optionsSearch">
+    <ul id="available" class="models available"></ul>
+  </section>
+
+  <section>
+    <h2 data-i18n="optionsEngine">Engine</h2>
+    <div class="field"><span data-i18n="optionsIdle">Keep the engine ready after translating for</span><select id="idle"></select></div>
+    <p id="engine-state" class="small"></p>
+  </section>
+
+  <section>
+    <h2 data-i18n="optionsPrivacy">Privacy</h2>
+    <p class="muted" data-i18n="optionsPrivacyText"></p>
+  </section>
+</main>
+<script src="options.js"></script>
+</body>
+</html>

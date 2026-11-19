@@ -2,7 +2,7 @@ import { useEffect, useRef, useSyncExternalStore } from 'react'
 import type { VastExtensionContributionSnapshot, VastExtensionTab, VastUiBrokerRequest, VastUiBrokerResponse } from '../../shared/extension-native-api'
 import { useBrowserStore } from '../store/browser-store'
 
-const EMPTY: VastExtensionContributionSnapshot = { revision: 0, toolbar: [], sidebar: [], commands: [], contextMenus: [] }
+const EMPTY: VastExtensionContributionSnapshot = { revision: 0, toolbar: [], sidebar: [], commands: [], contextMenus: [], nativeTabEvents: false }
 let snapshot = EMPTY
 let started = false
 const listeners = new Set<() => void>()
@@ -59,30 +59,41 @@ async function execute(request: VastUiBrokerRequest): Promise<unknown> {
   return undefined
 }
 
-export function ExtensionRuntimeController(): null {
+// Reports Native tab lifecycle events, mounted only while a running Native
+// background holds vast.tabs.read. Mounting takes the current tabs as the
+// baseline, so a late subscriber receives no synthetic history.
+function NativeTabEventReporter(): null {
   const tabs = useBrowserStore((state) => state.tabs)
   const workspaces = useBrowserStore((state) => state.workspaces)
   const activeWorkspaceId = useBrowserStore((state) => state.activeWorkspaceId)
-  const previousTabsRef = useRef(new Map<string, VastExtensionTab>())
+  const previousTabsRef = useRef<Map<string, VastExtensionTab> | null>(null)
   const previousActiveRef = useRef<string | undefined>(undefined)
+
+  useEffect(() => {
+    const current = ordinaryTabs()
+    const currentMap = new Map(current.map((tab) => [tab.id, tab]))
+    const active = current.find((tab) => tab.active)
+    const previousTabs = previousTabsRef.current
+    previousTabsRef.current = currentMap
+    if (!previousTabs) { previousActiveRef.current = active?.id; return }
+    for (const tab of current) {
+      const previous = previousTabs.get(tab.id)
+      if (!previous) void window.vast.extensions.reportTabEvent('tabs.onCreated', tab)
+      else if (previous.title !== tab.title || previous.url !== tab.url || previous.active !== tab.active) void window.vast.extensions.reportTabEvent('tabs.onUpdated', tab)
+    }
+    for (const id of previousTabs.keys()) if (!currentMap.has(id)) void window.vast.extensions.reportTabEvent('tabs.onRemoved', { id })
+    if (active && active.id !== previousActiveRef.current) void window.vast.extensions.reportTabEvent('tabs.onActivated', active)
+    previousActiveRef.current = active?.id
+  }, [activeWorkspaceId, tabs, workspaces])
+  return null
+}
+
+export function ExtensionRuntimeController(): JSX.Element | null {
+  const tabEvents = useSyncExternalStore((listener) => { start(); listeners.add(listener); return () => listeners.delete(listener) }, () => snapshot.nativeTabEvents, () => false)
 
   useEffect(() => window.vast.extensions.onUiRequest((request) => {
     void execute(request).then((result) => window.vast.extensions.respondToUiRequest({ requestId: request.requestId, ok: true, result })).catch((error) => window.vast.extensions.respondToUiRequest(errorResponse(request.requestId, error)))
   }), [])
 
-  useEffect(() => {
-    const current = ordinaryTabs()
-    const currentMap = new Map(current.map((tab) => [tab.id, tab]))
-    for (const tab of current) {
-      const previous = previousTabsRef.current.get(tab.id)
-      if (!previous) void window.vast.extensions.reportTabEvent('tabs.onCreated', tab)
-      else if (previous.title !== tab.title || previous.url !== tab.url || previous.active !== tab.active) void window.vast.extensions.reportTabEvent('tabs.onUpdated', tab)
-    }
-    for (const id of previousTabsRef.current.keys()) if (!currentMap.has(id)) void window.vast.extensions.reportTabEvent('tabs.onRemoved', { id })
-    const active = current.find((tab) => tab.active)
-    if (active && active.id !== previousActiveRef.current) void window.vast.extensions.reportTabEvent('tabs.onActivated', active)
-    previousTabsRef.current = currentMap
-    previousActiveRef.current = active?.id
-  }, [activeWorkspaceId, tabs, workspaces])
-  return null
+  return tabEvents ? <NativeTabEventReporter /> : null
 }

@@ -139,6 +139,7 @@ export const DEFAULT_SETTINGS: BrowserSettings = {
   },
   restorePreviousSession: true,
   animations: true,
+  motionLevel: 'standard',
   openingAnimation: false,
   openingAnimationSoundVolume: 0,
   privacy: {
@@ -290,7 +291,7 @@ export const DEFAULT_DATA: PersistedData = {
     // The generic settings baseline remains fail-closed for other callers.
     labs: { enabled: true, avidae: true, networkDevices: true, automation: true, advancedDiagnostics: true, spoofing: true }
   },
-  onboarding: { completed: false }
+  onboarding: { completed: false, revision: 1 }
 }
 
 export const BLOCKED_INTERNAL_PROTOCOLS = [

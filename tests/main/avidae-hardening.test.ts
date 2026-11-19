@@ -52,9 +52,11 @@ test('Video & Audio manager stays outside the critical startup bundle', () => {
   assert.match(ipcSource, /registerAvidaeIpc\(handle\)/)
   assert.match(startupSource, /import\('\.\/avidae'\).*stopAvidae/s)
   assert.match(updaterSource, /app\.quit\(\)/) // Main shutdown owns the awaited stopAvidae barrier.
-  for (const method of ['getAvidaeStatus', 'startAvidae', 'stopAvidae', 'installAvidaeDependencies']) {
-    assert.match(avidaeIpcSource, new RegExp(`import.+avidae.+${method}`))
+  for (const method of ['getAvidaeStatus', 'refreshAvidaeModule', 'startAvidae', 'stopAvidae', 'installAvidaeDependencies', 'installAvidaeModule', 'cancelAvidaeModuleInstall']) {
+    assert.match(avidaeIpcSource, new RegExp(String.raw`import\('\.\./avidae'\)[^\n]*\.${method}\(|const avidae = await import\('\.\./avidae'\)[\s\S]*?avidae\.${method}\(`))
   }
+  // The module installer is reachable only through the lazily loaded manager.
+  for (const source of [startupSource, sessionsSource, updaterSource, ipcSource]) assert.doesNotMatch(source, /avidae-module/)
   assert.match(sessionsSource, /from '\.\/avidae-auth'/)
 })
 

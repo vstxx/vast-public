@@ -24,7 +24,11 @@ export function buildFingerprintingProtectionScript(
   const define = (target, key, getter) => {
     try { Object.defineProperty(target, key, { configurable: true, get: getter }); } catch {}
   };
-  define(Navigator.prototype, 'hardwareConcurrency', () => profile === 'maximum' ? 4 : 8);
+  // Standard leaves the core count native. This script runs only in the page's
+  // main world, so workers report the real value anyway: a lower main-world
+  // value hid nothing, made the two disagree, and sized worker pools (map
+  // tiles, decoders, WASM threads) to 8 on machines with more cores.
+  if (profile !== 'standard') define(Navigator.prototype, 'hardwareConcurrency', () => profile === 'maximum' ? 4 : 8);
   define(Navigator.prototype, 'deviceMemory', () => 8);
   try { Object.defineProperty(Navigator.prototype, 'getBattery', { configurable: true, value: undefined }); } catch {}
 

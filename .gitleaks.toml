@@ -19,6 +19,14 @@ regexTarget = "secret"
 regexes = ['''^MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyRmpyYqIt5BBgj5q7E8XSolfRC/0MQFJWmB\+gVXSGa6hzc0mFp13nHLk53NwtLJGXbJRoFoL3WFUme26PpH25sJXgwiMxskvVdqjfvGfeHSXUXkILoJcM\+mXmFfhRLqpamSf2L0GwBJyL3vU\+DcwMZ1Y5HJnh4dlRg5lZsjm39QNL99FCJK0TxKxhLfpo4Fi31hjbj\+2//fBTh/aKExACox4SugYDNajmwgidig2ZzMhGVoeWcWLRexAWkPOec3ZP8qVY4vzr3kAMhcVQiRXOj3qWy6XHEH82n1nON0ZtbS8xdfKKUTbrzKhLe0fFVmbdiCZyuveoXEaLgLFxxoBVwIDAQAB$''']
 
 [[allowlists]]
+targetRules = ["generic-api-key"]
+description = "DER/SPKI public extension identity key (not a private key)"
+condition = "AND"
+paths = ['''^resources/first-party-extensions/translator-for-vast/manifest\.json$''']
+regexTarget = "secret"
+regexes = ['''^MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAujuinodR6/VqUtf\+3FMnkNSETg7nMCoFmWo1oQPs8nbdRF2\+uiBigC3dE1aMXRAiOk5\+grlVCJoGUX1LERU/Ass7YlIWIuC4g37EVDrOHQUuzBFo/ozbkWy25lfVnAz8JeArJqdiAW7eE3wpRaOtNk6x9aZjHVdrRA1JezxOgCyhbExr8A6EnCAXdXihBKnFriosbyjkM/b\+Un9ROEZb77q74pEFhpMig8SaAqSnNN6bikC6mEHPtH7vJDc1pmB9UaXCf/HK9PItnPgxuQqNGdEFHo81hgVf6yboTlJm8cQwxBbL0\+r0gcDkQxxYzixTzOb/q3q5VxMkkhbTP8JZGQIDAQAB$''']
+
+[[allowlists]]
 targetRules = ["sourcegraph-access-token"]
 description = "EasyList upstream public commit metadata"
 condition = "AND"

@@ -41,13 +41,16 @@ try {
     'Updater/updater.config.json',
     "Vast-$Version/win-unpacked/Vast.exe",
     "Vast-$Version/win-unpacked/resources/app.asar",
-    "Vast-$Version/win-unpacked/resources/app-update.yml",
-    "Vast-$Version/win-unpacked/resources/avidae-runtime/runtime-manifest.json"
+    "Vast-$Version/win-unpacked/resources/app-update.yml"
   )
   foreach ($requiredPath in $required) {
     if (-not $names.Contains($requiredPath)) { throw "Update ZIP is missing required entry: $requiredPath" }
   }
   foreach ($name in $names) {
+    # The Video & Audio runtime is a separately signed, downloadable module.
+    if ($name -match '(?i)^Vast-[^/]+/win-unpacked/resources/avidae(?:-runtime)?/' -or $name -match '(?i)/(?:VastVideoAudio|ffmpeg|ffprobe)\.exe$') {
+      throw "Update ZIP contains Video & Audio module content: $name"
+    }
     if ($name -match '(?i)(?:^|/)Vast-Setup-[^/]+\.exe$' -or $name -match '(?i)-Portable\.exe$' -or $name -match '(?i)-update\.zip$') {
       throw "Update ZIP embeds an unrelated distribution artifact: $name"
     }

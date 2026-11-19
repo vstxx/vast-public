@@ -25,12 +25,15 @@ import {
   Trash2,
   X
 } from 'lucide-react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
+import { playMove, PresenceContext, useMotionRef } from '../../lib/motion'
 import { INTERNAL_NEW_TAB_URL } from '../../../shared/constants'
 import type { BookmarkFolder, SidePanelView } from '../../../shared/types'
 import { useBrowserRuntime } from '../../app/browser-runtime'
 import { formatBytes, formatRelativeTime } from '../../lib/format'
 import { useBrowserStore, selectActiveTab, selectActiveWorkspace } from '../../store/browser-store'
+import { HISTORY_RANGES, historyHost, historyMatchesQuery } from '../../lib/history-deletion'
+import { confirmClearAllHistory, deleteHistory } from '../../lib/history-actions'
 import { Favicon } from '../ui/Favicon'
 import { IconButton } from '../ui/IconButton'
 import { VastButton } from '../ui/VastButton'
@@ -87,6 +90,7 @@ function clampPanelPosition(
 
 export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element | null {
   const open = useBrowserStore((state) => state.sidePanelOpen)
+  const overlayPresence = useContext(PresenceContext)
   const activeView = useBrowserStore((state) => state.activeSidePanel)
   // A boolean, not the workspace object: activating any tab replaces that object.
   const hideExtensionPanels = useBrowserStore((state) => {
@@ -102,6 +106,17 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
   const updateSettings = useBrowserStore((state) => state.updateSettings)
   const runtime = useBrowserRuntime()
   const panelRef = useRef<HTMLElement | null>(null)
+  // Floating panels slide in from the edge; a docked panel only eases its
+  // contents in, since its slot resizes the page exactly once either way.
+  const [motionKind] = useState(() => pinned ? 'panel' as const : 'docked' as const)
+  const motionRef = useMotionRef(motionKind)
+  const setPanel = useCallback((element: HTMLElement | null) => {
+    panelRef.current = element
+    motionRef(element)
+  }, [motionRef])
+  // Where the panel was when the pin button was pressed, for a FLIP move to
+  // its pinned or docked place. Mode changes from window width just snap.
+  const pinOriginRef = useRef<DOMRect | null>(null)
   const [width, setWidth] = useState(() => Math.max(304, Math.min(520, sidePanelSettings.width)))
   const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }))
   const [topInset, setTopInset] = useState(measurePanelTopInset)
@@ -148,7 +163,17 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
     if (activeExtensionKey && !extensionPanels.some((panel) => panel.key === activeExtensionKey)) { setActiveExtensionKey(null); setExtensionSurface(null) }
   }, [activeExtensionKey, extensionPanels])
 
-  if (!open) return null
+  useLayoutEffect(() => {
+    const origin = pinOriginRef.current
+    pinOriginRef.current = null
+    const panel = panelRef.current
+    if (!origin || !panel) return
+    const rect = panel.getBoundingClientRect()
+    playMove(panel, origin.left - rect.left, origin.top - rect.top)
+  }, [pinned])
+
+  // Inside an App overlay presence the parent unmounts this after its exit motion.
+  if (!open && !overlayPresence) return null
 
   const openExtensionPanel = (key: string): void => {
     setActiveExtensionKey(key)
@@ -244,7 +269,7 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
       className={`side-panel no-drag z-60 flex min-h-0 shrink-0 flex-col overflow-hidden border border-white/10 bg-[#090909]/96 backdrop-blur-2xl ${
         pinned ? 'rounded-panel shadow-[0_18px_54px_rgba(0,0,0,0.34)]' : 'border-b-0 border-r-0 border-t-0 shadow-none'
       }`}
-      ref={panelRef}
+      ref={setPanel}
       style={panelStyle}
     >
       <div
@@ -265,7 +290,10 @@ export function SidePanel({ pinned = false }: { pinned?: boolean }): JSX.Element
           aria-pressed={pinned}
           active={pinned}
           className="side-panel-pin-button"
-          onClick={() => updateSettings({ sidePanel: { mode: pinned ? 'docked' : 'overlay' } })}
+          onClick={() => {
+            pinOriginRef.current = panelRef.current?.getBoundingClientRect() ?? null
+            updateSettings({ sidePanel: { mode: pinned ? 'docked' : 'overlay' } })
+          }}
         >
           {pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
         </IconButton>
@@ -634,38 +662,106 @@ const historyGap = (): number => 12
 function HistoryPanel(): JSX.Element {
   const runtime = useBrowserRuntime()
   const history = useBrowserStore((state) => state.history)
-  const clearHistory = useBrowserStore((state) => state.clearHistory)
+  const workspaceCount = useBrowserStore((state) => state.workspaces.length)
+  const activeWorkspaceId = useBrowserStore((state) => state.activeWorkspaceId)
+  const openContextMenu = useBrowserStore((state) => state.openContextMenu)
+  const confirm = useVastConfirm()
   const [query, setQuery] = useState('')
-  const queryText = query.toLowerCase().trim()
+  const queryText = query.trim()
   const filteredHistory = useMemo(
-    () => history.filter((entry) => !queryText || `${entry.title} ${entry.url}`.toLowerCase().includes(queryText)),
+    () => history.filter((entry) => historyMatchesQuery(entry, queryText)),
     [history, queryText]
   )
+
+  const clearAll = (workspaceOnly: boolean): Promise<void> => confirmClearAllHistory(confirm, workspaceOnly ? activeWorkspaceId : undefined)
+
+  const openClearMenu = (event: ReactMouseEvent<HTMLButtonElement>): void => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    openContextMenu({
+      x: rect.left,
+      y: rect.bottom + 6,
+      title: 'Delete history from',
+      items: [
+        ...HISTORY_RANGES.filter((range) => range.id !== 'all').map((range) => ({
+          id: `history-range-${range.id}`,
+          label: range.label,
+          action: () => void deleteHistory({ range: range.id })
+        })),
+        { id: 'history-range-separator', label: '', separator: true },
+        ...(workspaceCount > 1 ? [{ id: 'history-range-workspace', label: 'This workspace, all time', action: () => clearAll(true) }] : []),
+        { id: 'history-range-all', label: 'All time', danger: true, action: () => clearAll(false) }
+      ]
+    })
+  }
+
+  const openRowMenu = (event: ReactMouseEvent<HTMLElement>, entry: HistoryEntryModel): void => {
+    event.preventDefault()
+    const host = historyHost(entry.url)
+    openContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      items: [
+        { id: 'history-open', label: 'Open in new tab', action: () => runtime.openUrlInNewTab(entry.url) },
+        { id: 'history-copy', label: 'Copy link', action: () => copyText(entry.url) },
+        { id: 'history-separator', label: '', separator: true },
+        { id: 'history-remove', label: 'Remove from history', danger: true, action: () => void deleteHistory({ ids: [entry.id] }) },
+        ...(host ? [{ id: 'history-remove-site', label: `Remove all from ${host}`, danger: true, action: () => void deleteHistory({ host }) }] : [])
+      ]
+    })
+  }
 
   return (
     <div className="space-y-3">
       <PanelSearch value={query} onChange={setQuery} placeholder="Search history" />
-      <button
-        type="button"
-        onClick={clearHistory}
-        className="vast-button vast-button--secondary vast-button--sm vast-button--block"
-      >
-        <Trash2 className="h-4 w-4 text-vast-amber" />
-        Clear history
-      </button>
-      {filteredHistory.length > 0 && <VirtualRows items={filteredHistory} getKey={historyKey} estimateHeight={historyEstimate} rowGap={historyGap} renderRow={(entry) => (
+      {queryText ? (
         <button
           type="button"
-          onClick={() => runtime.openUrlInNewTab(entry.url)}
-          className="flex w-full items-center gap-3 rounded-control px-2 py-2 text-left hover:bg-white/6"
+          disabled={filteredHistory.length === 0}
+          onClick={() => void deleteHistory({ query: queryText })}
+          className="vast-button vast-button--secondary vast-button--sm vast-button--block"
         >
-          <Favicon url={entry.url} favicon={entry.favicon} title={entry.title} />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm text-white">{entry.title}</div>
-            <div className="truncate text-xs text-vast-soft">{entry.url}</div>
-          </div>
-          <span className="text-[11px] text-vast-soft">{formatRelativeTime(entry.lastVisitedAt)}</span>
+          <Trash2 className="h-4 w-4 text-vast-amber" />
+          {filteredHistory.length === 1 ? 'Delete 1 matching page' : `Delete ${filteredHistory.length} matching pages`}
         </button>
+      ) : (
+        <button
+          type="button"
+          disabled={history.length === 0}
+          onClick={openClearMenu}
+          aria-haspopup="menu"
+          className="vast-button vast-button--secondary vast-button--sm vast-button--block"
+        >
+          <Trash2 className="h-4 w-4 text-vast-amber" />
+          Clear history…
+        </button>
+      )}
+      {filteredHistory.length > 0 && <VirtualRows items={filteredHistory} getKey={historyKey} estimateHeight={historyEstimate} rowGap={historyGap} renderRow={(entry) => (
+        <div
+          className="group relative flex w-full items-center rounded-control hover:bg-white/6"
+          onContextMenu={(event) => openRowMenu(event, entry)}
+        >
+          <button
+            type="button"
+            onClick={() => runtime.openUrlInNewTab(entry.url)}
+            className="flex min-w-0 flex-1 items-center gap-3 px-2 py-2 text-left"
+          >
+            <Favicon url={entry.url} favicon={entry.favicon} title={entry.title} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm text-white">{entry.title}</div>
+              <div className="truncate text-xs text-vast-soft">{entry.url}</div>
+            </div>
+            <span className="text-[11px] text-vast-soft group-hover:hidden group-focus-within:hidden">{formatRelativeTime(entry.lastVisitedAt)}</span>
+          </button>
+          <button
+            type="button"
+            aria-label={`Remove ${entry.title} from history`}
+            title="Remove from history"
+            onClick={() => void deleteHistory({ ids: [entry.id] })}
+            className="vast-icon-button vast-icon-button--quiet mr-1 hidden h-7 w-7 shrink-0 place-items-center rounded-control group-hover:grid group-focus-within:grid"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
       )} />}
       {filteredHistory.length === 0 && <EmptyPanel icon={History} text={queryText ? 'No history matches this search.' : 'Pages you visit will appear here.'} />}
     </div>

@@ -11,6 +11,7 @@ import { createPdfViewerUrl, displayUrl, isInternalUrl, isSafeLoadUrl, webOrigin
 import { takePendingInitialNavigation } from '../../lib/pending-initial-navigation.ts'
 import { useBrowserRuntime } from '../../app/browser-runtime'
 import { getExtensionContributions } from '../../extensions/extension-runtime'
+import { contextMenuApplies } from '../../../shared/extension-native-contributions'
 import { completePendingExtensionCompatibilityTab, pendingExtensionCompatibilityTab } from '../../lib/extension-compatibility-tabs'
 
 interface WebviewSurfaceProps {
@@ -298,7 +299,8 @@ function WebviewSurfaceComponent({ tab, visible, selected, isPrivate, identity, 
           title: state.title || latestTab.title,
           url: state.url,
           favicon: latestTab.favicon,
-          workspaceId: latestTab.workspaceId
+          workspaceId: latestTab.workspaceId,
+          replacesUrl: state.replacedUrl
         })
         rememberCurrentSite({ url: state.url, title: state.title })
       } else if (state.reason === 'stop') {
@@ -738,7 +740,8 @@ function WebviewSurfaceComponent({ tab, visible, selected, isPrivate, identity, 
       })
 
       if (!isPrivate) {
-        const extensionItems = getExtensionContributions().contextMenus
+        const click = { selection: Boolean(selectionText), link: Boolean(linkUrl) }
+        const extensionItems = getExtensionContributions().contextMenus.filter((item) => item.available && contextMenuApplies(item.contexts, click))
         if (extensionItems.length > 0) pushContextSeparator(items, 'extension-actions-separator')
         for (const item of extensionItems) pushContextItem(items, {
           id: `extension-${item.key}`,
@@ -753,25 +756,48 @@ function WebviewSurfaceComponent({ tab, visible, selected, isPrivate, identity, 
         })
       }
 
-      while (items[items.length - 1]?.separator) items.pop()
+      const showMenu = (): void => {
+        while (items[items.length - 1]?.separator) items.pop()
 
-      openContextMenu({
-        x,
-        y,
-        title: latestTab.title,
-        items: items.map(item => item.action ? {
-          ...item,
-          action: () => {
-            if (!(webview as HTMLElement).isConnected || !useBrowserStore.getState().tabs.some(candidate => candidate.id === latestTab.id)) {
-              throw new Error('This tab is no longer available.')
+        openContextMenu({
+          x,
+          y,
+          title: latestTab.title,
+          items: items.map(item => item.action ? {
+            ...item,
+            action: () => {
+              if (!(webview as HTMLElement).isConnected || !useBrowserStore.getState().tabs.some(candidate => candidate.id === latestTab.id)) {
+                throw new Error('This tab is no longer available.')
+              }
+              // Resolve commands against the pane that opened the menu, including
+              // split view and a tab switch while an asynchronous menu is visible.
+              onFocused(latestTab.id)
+              return item.action!()
             }
-            // Resolve commands against the pane that opened the menu, including
-            // split view and a tab switch while an asynchronous menu is visible.
-            onFocused(latestTab.id)
-            return item.action!()
+          } : item)
+        })
+      }
+
+      // chrome.contextMenus entries of Chromium extensions in this tab's
+      // workspace session; private workspaces load no extensions.
+      let guestId: number | undefined
+      try { guestId = isPrivate ? undefined : webview.getWebContentsId() } catch { guestId = undefined }
+      if (guestId === undefined) { showMenu(); return }
+      const ownerGuestId = guestId
+      void window.vast.extensions.chromeContextMenu(ownerGuestId).then((result) => {
+        const entries = result.ok ? result.items ?? [] : []
+        if (entries.length > 0) pushContextSeparator(items, 'chrome-extension-actions-separator')
+        for (const entry of entries) pushContextItem(items, {
+          id: `chrome-extension-${entry.token}`,
+          label: entry.label,
+          detail: entry.group,
+          disabled: !entry.enabled,
+          action: async () => {
+            const clicked = await window.vast.extensions.clickChromeContextMenu(ownerGuestId, entry.token)
+            if (!clicked.ok) throw new Error(clicked.error ?? 'This extension menu action is no longer available.')
           }
-        } : item)
-      })
+        })
+      }, () => undefined).finally(showMenu)
     }
 
     webview.addEventListener('did-start-loading', onStart)

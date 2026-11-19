@@ -14,8 +14,7 @@ const required = {
   'Updater/updater.config.json': Buffer.from('{}'),
   [`Vast-${version}/win-unpacked/Vast.exe`]: Buffer.from('exe'),
   [`Vast-${version}/win-unpacked/resources/app.asar`]: Buffer.from('asar'),
-  [`Vast-${version}/win-unpacked/resources/app-update.yml`]: Buffer.from('provider: github'),
-  [`Vast-${version}/win-unpacked/resources/avidae-runtime/runtime-manifest.json`]: Buffer.from('{}')
+  [`Vast-${version}/win-unpacked/resources/app-update.yml`]: Buffer.from('provider: github')
 }
 
 function run(bytes, extract = false) {
@@ -48,6 +47,18 @@ test('update archive accepts only the complete canonical runtime tree', () => {
   const rejected = run(zipSync(missing))
   assert.notEqual(rejected.status, 0)
   assert.match(rejected.stderr + rejected.stdout, /missing required entry/i)
+})
+
+test('Core update archive rejects the separately distributed Video & Audio runtime', () => {
+  for (const name of [
+    `Vast-${version}/win-unpacked/resources/avidae-runtime/runtime-manifest.json`,
+    `Vast-${version}/win-unpacked/resources/avidae/app.py`,
+    `Vast-${version}/win-unpacked/resources/extra/ffmpeg.exe`
+  ]) {
+    const rejected = run(zipSync({ ...required, [name]: Buffer.from('x') }))
+    assert.notEqual(rejected.status, 0, name)
+    assert.match(rejected.stderr + rejected.stdout, /Video & Audio module content/)
+  }
 })
 
 test('update archive rejects zip-slip, unsafe Windows names, symlinks, and reparse-point entries', () => {

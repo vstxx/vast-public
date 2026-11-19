@@ -9,7 +9,7 @@ test('resume reconstructs the original runtime from ZIP without overwriting deli
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const version = require('../../package.json').version
   const prefix = `Vast-${version}/win-unpacked/`
-  const files = ['Updater/VastUpdater.ps1', 'Updater/updater.config.json', ...['Vast.exe', 'resources/app.asar', 'resources/app-update.yml', 'resources/avidae-runtime/runtime-manifest.json', 'resources/nested/spaced name.bin'].map(file => prefix + file)]
+  const files = ['Updater/VastUpdater.ps1', 'Updater/updater.config.json', ...['Vast.exe', 'resources/app.asar', 'resources/app-update.yml', 'resources/licenses/THIRD_PARTY_NOTICES.md', 'resources/nested/spaced name.bin'].map(file => prefix + file)]
   for (const file of files) {
     const target = path.join(root, 'input', file)
     fs.mkdirSync(path.dirname(target), { recursive: true })

@@ -9,14 +9,15 @@ const {
   resolveDailyProfile, assertAlphaMetadata, assertOutside,
   createPayloadManifest, verifyPayloadManifest
 } = require('./local-alpha-update-utils.cjs')
+const { DEFAULT_LOCAL_ALPHA_VERSION, assertLocalAlphaVersion } = require('./local-alpha-version.cjs')
 
 const root = resolve(__dirname, '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const manifestPath = join(root, '.vast-build', 'local-alpha', 'manifest.json')
 const payloadPath = join(root, 'release', 'win-unpacked')
-const sourceDir = resolve(process.env.VAST_PATCHED_ELECTRON_SOURCE_DIR || 'D:\\VastElectron45\\src\\out\\VastRelease')
+const sourceDir = resolve(process.env.VAST_PATCHED_ELECTRON_SOURCE_DIR || 'C:\\VastElectron45\\src\\out\\VastRelease')
 const mode = process.argv[2] || 'status'
-const requestedVersion = process.env.VAST_LOCAL_ALPHA_VERSION || '0.5.0-alpha.1'
+const requestedVersion = process.env.VAST_LOCAL_ALPHA_VERSION || DEFAULT_LOCAL_ALPHA_VERSION
 const version = mode === 'prepare' || !existsSync(manifestPath)
   ? requestedVersion
   : JSON.parse(readFileSync(manifestPath, 'utf8').replace(/^\uFEFF/, '')).version
@@ -29,7 +30,7 @@ function sourceCommit() {
   const commit = git('rev-parse', 'HEAD').toLowerCase()
   if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error('The current source commit is invalid.')
   if (git('status', '--porcelain', '--untracked-files=all')) {
-    throw new Error('Commit the current CWS Bridge changes before preparing or applying a local alpha update.')
+    throw new Error('Commit the current changes before preparing or applying a local alpha update.')
   }
   return commit
 }
@@ -52,6 +53,7 @@ function packagedMetadata() {
 async function prepare() {
   if (process.platform !== 'win32') throw new Error('The local alpha updater is Windows only.')
   const commit = sourceCommit()
+  assertLocalAlphaVersion(version, pkg.version)
   assertAlphaMetadata({ version, releaseChannel: 'alpha', distributionChannel: 'direct', privateBuild: true, updateEnabled: false, sourceCommit: commit }, version, commit)
   if (!existsSync(join(sourceDir, 'electron.exe'))) throw new Error(`The patched Electron release runtime is missing: ${sourceDir}`)
   const env = {

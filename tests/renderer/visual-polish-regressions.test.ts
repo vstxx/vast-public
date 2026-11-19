@@ -56,7 +56,7 @@ test('Sidebar sheen and active-download toast remain visually restrained', () =>
   assert.match(stylesSource, /\.side-panel::before\s*{[^}]*background: linear-gradient\(180deg, rgba\(255, 255, 255, 0\.026\), transparent 20%\);\s*opacity:\s*0\.58;/s)
 
   const downloadToastStart = notificationsSource.indexOf('className="download-progress-toast')
-  const downloadToastEnd = notificationsSource.indexOf('{toasts.map', downloadToastStart)
+  const downloadToastEnd = notificationsSource.indexOf('</NotificationCard>', downloadToastStart)
   const downloadToastSource = notificationsSource.slice(downloadToastStart, downloadToastEnd)
 
   assert.ok(downloadToastStart >= 0)

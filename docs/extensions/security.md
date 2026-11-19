@@ -13,6 +13,8 @@ Vast does not trust the Hub transport alone, catalog JSON, D1 rows, R2 object na
 - Chrome extensions load only into persistent normal workspace sessions. Electron's extension support is narrower than desktop Chrome and must be tested explicitly.
 - Native background, sidebar, popup, and options surfaces use isolated, in-memory Chromium partitions, `sandbox: true`, `contextIsolation: true`, Node integration disabled, popups denied, and navigation restricted to the extension resource origin.
 - Chrome popup/options surfaces require a one-time main-process attachment token, an enabled installed extension, an eligible persistent workspace, an exact verified local page, and same-extension-origin navigation.
+- Declarative `vast.contributes` entries are data only: a closed action set (`popup`, `event`), local verified assets, per-section permission checks against persisted grants, and ownership bound to the installed record. Every activation re-checks the record, enablement and grant at that moment; `event` actions are acknowledged by the owning background or reported as failed.
+- Chromium `chrome.contextMenus` items are resolved by the compatibility runtime for the exact tab and workspace session; only labels and single-use tokens reach the browser UI, and the tab must belong to the requesting window.
 - `vast-extension://` serves only validated files from the owning managed/unpacked root with containment and MIME checks.
 - The dedicated preload exposes typed `vast.*` methods, not generic IPC. Main authenticates `webContents` ownership for every message.
 - Extension tab APIs exclude private, internal, and non-HTTP(S) tabs. Ephemeral/private partitions never receive extension runtimes.

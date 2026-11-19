@@ -5,6 +5,7 @@ import { VAST_NATIVE_PERMISSIONS, VAST_PERMISSION_METADATA, type VastNativePermi
 import { fail, type IpcHandle, type SenderWindowFor } from './registration'
 import { parseChromeWebStoreListingUrl } from '../../shared/chrome-web-store'
 import type { WebContents } from 'electron/main'
+import { recordExtensionCounter } from '../performance-probe'
 
 const EXTENSION_ID = /^[a-p]{32}$/
 
@@ -247,10 +248,33 @@ export function registerExtensionsIpc(
     } catch (error) { return fail(error) }
   })
 
-  handle('vast:extensions:dispatch-contribution', async (_event, key: unknown, context: unknown) => {
+  // The popup opens in the window that asked, through the same path as a
+  // Chromium action popup; a failed action is reported instead of dropped.
+  handle('vast:extensions:dispatch-contribution', async (event, key: unknown, context: unknown) => {
     try {
-      if (typeof key !== 'string' || key.length > 160 || (context !== undefined && (!context || typeof context !== 'object' || Array.isArray(context)))) throw new Error('Invalid extension contribution action.')
-      if (!extensionManager.dispatchContribution(key, context as Record<string, unknown> | undefined)) throw new Error('Extension contribution is unavailable.')
+      if (typeof key !== 'string' || key.length > 160) throw new Error('Invalid extension contribution action.')
+      const result = await extensionManager.dispatchContribution(key, context)
+      if (result.outcome === 'popup') senderWindowFor(event).webContents.send('vast:extensions:open-popup', result.extensionId)
+      return { ok: true, outcome: result.outcome }
+    } catch (error) {
+      const result = fail(error)
+      showRendererNotification(senderWindowFor(event), { tone: 'error', title: 'Extension action unavailable', message: result.error })
+      return result
+    }
+  })
+
+  // Chromium chrome.contextMenus: the guest must belong to the requesting
+  // window; ECE routes the click to the owning extension in that tab's session.
+  handle('vast:extensions:chrome-context-menu', async (event, guestId: unknown) => {
+    try {
+      if (typeof guestId !== 'number') throw new Error('A browser tab is required.')
+      return { ok: true, items: extensionManager.chromeContextMenuEntries(resolveOwnedGuest(event.sender, guestId)) }
+    } catch (error) { return fail(error) }
+  })
+  handle('vast:extensions:chrome-context-menu-click', async (event, guestId: unknown, token: unknown) => {
+    try {
+      if (typeof guestId !== 'number' || typeof token !== 'string' || token.length > 64) throw new Error('Invalid extension menu action.')
+      if (!extensionManager.clickChromeContextMenuEntry(resolveOwnedGuest(event.sender, guestId), token)) throw new Error('This extension menu action is no longer available.')
       return { ok: true }
     } catch (error) { return fail(error) }
   })
@@ -264,6 +288,7 @@ export function registerExtensionsIpc(
   })
 
   handle('vast:extensions:tab-event', async (_event, name: unknown, payload: unknown) => {
+    recordExtensionCounter('extensionTabEventIpc')
     try {
       if (!['tabs.onActivated', 'tabs.onCreated', 'tabs.onUpdated', 'tabs.onRemoved'].includes(String(name))) throw new Error('Invalid tab event.')
       const encoded = JSON.stringify(payload)

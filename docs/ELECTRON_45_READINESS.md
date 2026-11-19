@@ -1,5 +1,7 @@
 # Electron 45 readiness (2026-10-22)
 
+> **Superseded (2026-11-19):** the runtime is now Electron **45.3.4** + `electron-45.3.4-vast-r1` (Chromium 156.0.8078.100, Node 24.22.3, V8 15.6.75.57). See `experiments/electron-45-patches/README.md` for the rebases (45.2.3 on 2026-11-08, 45.3.4 on 2026-11-19). The text below records the 45.0.0 switch.
+
 Previous runtime: Electron **44.7.0** + Vast patchset `electron-44.7.0-vast-r1` (Chromium 152.0.7977.130).
 Current runtime: Electron **45.0.0** + Vast patchset `electron-45.0.0-vast-r1` (Chromium 156.0.8078.48, Node 24.22.0, V8 15.6.75.19), release GN profile, pinned in `patches/extension-compatibility-runtime.json`.
 

@@ -1,5 +1,6 @@
 import type { BrowserWindow, WebContents } from 'electron/main'
 import type { GuestNavigationState, HtmlFullscreenState, MediaCaptureState } from '../shared/types'
+import { type CommittedEntry, replacedEntryUrl } from './guest-navigation-entries'
 import { windowRegistry } from './windows/WindowRegistry'
 
 interface FullscreenSession {
@@ -11,6 +12,7 @@ interface FullscreenSession {
 const protectedCaptureContents = new Set<number>()
 const fullscreenByWindow = new Map<number, FullscreenSession>()
 const installedContents = new Set<number>()
+const committedEntries = new Map<number, CommittedEntry>()
 
 function isGuestContents(contents: WebContents): boolean {
   return Boolean((contents as WebContents & { hostWebContents?: WebContents }).hostWebContents)
@@ -36,17 +38,26 @@ export function clearGuestMediaCapture(contents: WebContents): void {
 
 // Main-side reads are local; the chrome previously fetched these with one
 // synchronous IPC round trip each, several times per page load.
-function sendNavigationState(contents: WebContents, reason: GuestNavigationState['reason']): void {
+function sendNavigationState(contents: WebContents, reason: GuestNavigationState['reason'], sameDocument = false): void {
   if (contents.isDestroyed() || !isGuestContents(contents)) return
   const owner = windowRegistry.vastWindowForWebContents(contents)
   if (!owner || owner.isDestroyed() || owner.webContents.isDestroyed()) return
+  const url = contents.getURL()
+  let replacedUrl: string | undefined
+  if (reason === 'navigate') {
+    const entry = { url, length: contents.navigationHistory.length(), index: contents.navigationHistory.getActiveIndex() }
+    const previous = committedEntries.get(contents.id)
+    if (sameDocument) replacedUrl = replacedEntryUrl(previous, entry)
+    committedEntries.set(contents.id, { ...entry, documentUrl: sameDocument && previous ? previous.documentUrl : url })
+  }
   const payload: GuestNavigationState = {
     webContentsId: contents.id,
     reason,
-    url: contents.getURL(),
+    url,
     title: contents.getTitle(),
     canGoBack: contents.navigationHistory.canGoBack(),
-    canGoForward: contents.navigationHistory.canGoForward()
+    canGoForward: contents.navigationHistory.canGoForward(),
+    ...(replacedUrl ? { replacedUrl } : {})
   }
   owner.webContents.send('vast:browser:guest-navigation-state', payload)
 }
@@ -97,7 +108,7 @@ export function installGuestRuntimeEventHandling(contents: WebContents): void {
   contents.on('did-navigate-in-page', (_event, _url, isMainFrame) => {
     // Pages usually set document.title right after pushState; report on the
     // next tick so that title update has been processed.
-    if (isMainFrame) setImmediate(() => sendNavigationState(contents, 'navigate'))
+    if (isMainFrame) setImmediate(() => sendNavigationState(contents, 'navigate', true))
   })
   contents.on('did-stop-loading', () => sendNavigationState(contents, 'stop'))
   contents.on('dom-ready', () => sendNavigationState(contents, 'ready'))
@@ -105,6 +116,7 @@ export function installGuestRuntimeEventHandling(contents: WebContents): void {
     leaveHtmlFullscreen(contents)
     clearGuestMediaCapture(contents)
     installedContents.delete(contents.id)
+    committedEntries.delete(contents.id)
   }
   contents.once('destroyed', cleanup)
   contents.once('render-process-gone', cleanup)

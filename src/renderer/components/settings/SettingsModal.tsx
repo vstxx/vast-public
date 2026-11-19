@@ -1,9 +1,10 @@
 import { copyText } from '../../lib/clipboard'
 import { paintableImageUrl } from '../../lib/paintable-image-url'
-import { Activity, Code2, Database, Eraser, FileDown, FileUp, Fingerprint, FlaskConical, FolderOpen, History, Keyboard, LockKeyhole, MapPin, MonitorCheck, Palette, Plus, Search, Shield, Sparkles, Trash2, Wifi, X } from 'lucide-react'
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type InputHTMLAttributes, type ReactNode } from 'react'
+import { Activity, Code2, Database, Eraser, FileDown, FileUp, Fingerprint, FlaskConical, FolderOpen, History, Keyboard, LockKeyhole, MapPin, MonitorCheck, Palette, Plus, RotateCcw, Search, Shield, Sparkles, Trash2, Wifi, X } from 'lucide-react'
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type InputHTMLAttributes, type ReactNode } from 'react'
+import { PresenceContext } from '../../lib/motion'
 import { useShallow } from 'zustand/react/shallow'
-import { DEFAULT_SETTINGS, DEFAULT_SHORTCUTS, INTERNAL_AUTOMATION_URL, INTERNAL_DIAGNOSTICS_URL, INTERNAL_NETWORK_URL, INTERNAL_SESSION_TIMELINE_URL, INTERNAL_SITE_DATA_URL, SEARCH_ENGINES } from '../../../shared/constants'
+import { DEFAULT_SETTINGS, DEFAULT_SHORTCUTS, INTERNAL_AUTOMATION_URL, INTERNAL_DIAGNOSTICS_URL, INTERNAL_NETWORK_URL, INTERNAL_ONBOARDING_URL, INTERNAL_SESSION_TIMELINE_URL, INTERNAL_SITE_DATA_URL, SEARCH_ENGINES } from '../../../shared/constants'
 import { getFeatureState, VastFeatures, type FeatureId, type FeatureState } from '../../../shared/feature-gates'
 import { resolveLayoutMode } from '../../../shared/layout-mode'
 import type { RelayClientSnapshot } from '../../../shared/relay-types'
@@ -17,6 +18,7 @@ import { VastButton } from '../ui/VastButton'
 import { VastChoice } from '../ui/VastChoice'
 import { ModalShell } from '../ui/ModalShell'
 import { useVastConfirm } from '../ui/useVastConfirm'
+import { confirmClearAllHistory } from '../../lib/history-actions'
 import { NotificationCard } from '../ui/NotificationCard'
 import { WorkspaceAppearancePicker } from '../workspaces/WorkspaceAppearancePicker'
 import { WorkspaceIcon } from '../workspaces/WorkspaceIcon'
@@ -346,6 +348,7 @@ const SettingsNavItems = memo(function SettingsNavItems({
 export function SettingsModal(): JSX.Element | null {
   const runtime = useBrowserRuntime()
   const open = useBrowserStore((state) => state.settingsOpen)
+  const overlayPresence = useContext(PresenceContext)
   const setOpen = useBrowserStore((state) => state.setSettingsOpen)
   const settings = useBrowserStore((state) => state.settings)
   const updateSettings = useBrowserStore((state) => state.updateSettings)
@@ -370,7 +373,6 @@ export function SettingsModal(): JSX.Element | null {
   const deleteWorkspace = useBrowserStore((state) => state.deleteWorkspace)
   const openPromptDialog = useBrowserStore((state) => state.openPromptDialog)
   const hydrate = useBrowserStore((state) => state.hydrate)
-  const clearHistory = useBrowserStore((state) => state.clearHistory)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const searchResultsRef = useRef<HTMLDivElement | null>(null)
   const searchHighlightTimerRef = useRef<number | null>(null)
@@ -735,7 +737,8 @@ export function SettingsModal(): JSX.Element | null {
     }
   }
 
-  if (!open) return null
+  // Inside an App overlay presence the parent unmounts this after its exit motion.
+  if (!open && !overlayPresence) return null
 
   return (
     <ModalShell
@@ -870,7 +873,17 @@ export function SettingsModal(): JSX.Element | null {
                       checked={settings.appearance.forceDarkModeWebsites}
                       onChange={(forceDarkModeWebsites) => updateSettings({ appearance: { forceDarkModeWebsites } })}
                     />
-                    <ToggleRow label="Animations" checked={settings.animations} onChange={(animations) => updateSettings({ animations })} />
+                    <SelectRow
+                      label="Motion"
+                      help="Interface animations. Enhanced adds fuller spatial transitions; your system's reduced-motion setting always wins."
+                      value={settings.animations ? settings.motionLevel : 'off'}
+                      onChange={(motion) => motion === 'off' ? updateSettings({ animations: false }) : updateSettings({ motionLevel: motion, animations: true })}
+                      options={[
+                        { value: 'off', label: 'Off' },
+                        { value: 'standard', label: 'Standard' },
+                        { value: 'enhanced', label: 'Enhanced' }
+                      ]}
+                    />
                     <ToggleRow label="Opening animation" checked={settings.openingAnimation} onChange={(openingAnimation) => updateSettings({ openingAnimation })} />
                     <RangeRow
                       label="Opening sound"
@@ -1776,8 +1789,14 @@ export function SettingsModal(): JSX.Element | null {
                 </div>
               </div>
               <div className="settings-rows mt-3.5">
-                <ActionRow label="Browsing history" help="Remove saved history entries.">
-                  <VastButton variant="danger" size="sm" onClick={clearHistory}>
+                <ActionRow label="Setup" help="Walk through Vast's first-run setup again.">
+                  <VastButton variant="secondary" size="sm" data-testid="settings-run-setup-again" onClick={() => { runtime.openUrlInNewTab(INTERNAL_ONBOARDING_URL); setOpen(false) }}>
+                    <RotateCcw className="h-4 w-4" />
+                    Run setup again
+                  </VastButton>
+                </ActionRow>
+                <ActionRow label="Browsing history" help="Remove saved history entries. Individual pages and time ranges can be removed from the History panel.">
+                  <VastButton variant="danger" size="sm" onClick={() => void confirmClearAllHistory(confirm)}>
                     <Trash2 className="h-4 w-4" />
                     Clear history
                   </VastButton>

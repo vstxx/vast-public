@@ -60,8 +60,6 @@ function quoteShellArg(value) {
 function buildDist() {
   run(npmCommand, ['run', 'license:gpl:check'])
   run(npmCommand, ['run', 'release:check'])
-  run(npmCommand, ['run', 'ffmpeg:release:check'])
-  run(npmCommand, ['run', 'avidae:runtime:check'])
   run('node', ['scripts/prepare-patched-electron-dist.cjs'])
   env.VAST_PATCHED_ELECTRON_DIST = defaultOutputPath(compatibilityManifest)
   run(npmCommand, ['run', 'extension:compat:runtime:release-check'])

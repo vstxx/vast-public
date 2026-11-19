@@ -16,7 +16,7 @@ Vast-native code is an optional layer in an unpacked Chrome manifest. Chrome cap
 }
 ```
 
-The background entry is a local ES module. Remote scripts, general network access, Node.js, Electron, raw IPC, filesystem access, arbitrary popup creation, and navigation away from the extension origin are blocked. Declarative `vast.popup` and `vast.options` pages may provide custom toolbar UI. Each extension background, sidebar, popup, and options surface uses a separate in-memory Chromium partition and the dedicated extension preload.
+The optional background entry is a local ES module. Static UI can instead be declared in `vast.contributes` (see [manifest.md](manifest.md#declarative-contributions)); such an extension runs no Native background at all, and its popup, options and side-panel pages still receive the `vast.*` API while they are open. Remote scripts, general network access, Node.js, Electron, raw IPC, filesystem access, arbitrary popup creation, and navigation away from the extension origin are blocked. Declarative `vast.popup` and `vast.options` pages may provide custom toolbar UI. Each extension background, sidebar, popup, and options surface uses a separate in-memory Chromium partition and the dedicated extension preload.
 
 ## Permissions
 
@@ -49,6 +49,15 @@ const tabs = await vast.tabs.query({ active: true })
 await vast.storage.local.set({ lastTitle: tabs[0]?.title ?? null })
 await vast.notifications.create({ title: 'Example', message: tabs[0]?.title ?? 'No ordinary tab' })
 ```
+
+## Lifecycle and delivery
+
+- Native state: `pending-permission` until every requested Vast permission is approved; `idle` when the layer is active without a background; `starting`/`running` while the background loads/runs; `error` after an invalid manifest or a background crash; `stopped` when disabled.
+- A background is started once and kept: enabling an already-enabled extension or changing grants does not restart it. Reload, an update or a changed `vast` section restarts it.
+- `toolbar.onClicked`, `commands.onCommand` and `contextMenus.onClicked` are acknowledged: Vast reports the action as done only when at least one listener received it, and reports an error when the background is not running, has no listener, crashes first, or does not answer within 3 seconds. Asynchronous work a listener starts is not awaited.
+- When a background stops or crashes, the toolbar actions, commands, menu items, panels and theme it registered at runtime are removed; manifest contributions stay and their `event` actions are shown as unavailable until it runs again.
+- Tab events are produced only while at least one running background holds `vast.tabs.read`. Listening starts from the current tabs; no synthetic history is replayed.
+- `contextMenus.create()` accepts an optional `contexts` array (as in `vast.contributes`). Items without it appear in every page menu, as before. Click payloads contain `menuItemId`, `tabId` and `pageUrl`, plus `selectionText` (≤2048 characters) and `linkUrl` only when the item's contexts include them.
 
 ## Distribution and current limits
 

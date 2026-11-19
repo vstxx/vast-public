@@ -1,0 +1,97 @@
+name: Linux AppImage
+
+# Builds and verifies the Linux x64 AppImage. Called by the public release
+# workflow for each candidate; can also be run on its own for a test build.
+on:
+  workflow_call:
+    inputs:
+      expected_version: { type: string, default: '' }
+      channel: { type: string, required: true }
+      risk_ack: { type: string, required: true }
+      store_candidate: { type: boolean, default: false }
+  workflow_dispatch:
+    inputs:
+      expected_version:
+        description: Exact package version
+        required: true
+        type: string
+      channel:
+        description: Distribution channel
+        required: true
+        default: stable
+        type: choice
+        options: [beta, stable]
+      risk_ack:
+        description: Type I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK
+        required: true
+        type: string
+
+# No permissions block: the token keeps the caller's permissions (write for
+# the release workflow's candidate store, read for pull-request CI).
+
+jobs:
+  appimage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      VAST_RELEASE_CHANNEL: ${{ inputs.channel }}
+      VAST_PRIVATE_BUILD: '0'
+      VAST_PUBLIC_UNSIGNED_RELEASE: '1'
+      VAST_UNSIGNED_RELEASE_ACK: ${{ inputs.risk_ack }}
+      VAST_RELEASE_REPO: vstxx/vast-public
+      VAST_RELEASE_COMMIT: ${{ github.sha }}
+      VAST_UPDATE_ENABLED: '1'
+      VAST_OBFUSCATE: '1'
+      VAST_RELAY_ENABLED: '1'
+      VAST_RELAY_ENVIRONMENT: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Validate authorization and version
+        env:
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: |
+          test "$VAST_UNSIGNED_RELEASE_ACK" = 'I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK' || { echo 'Exact unsigned-release risk acknowledgement is required.'; exit 1; }
+          if [ -n "$EXPECTED_VERSION" ]; then test "$(node -p "require('./package.json').version")" = "$EXPECTED_VERSION" || { echo 'package.json version does not match the authorized version.'; exit 1; }; fi
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install build and test prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb fuse3
+          # Ubuntu 24.04 restricts unprivileged user namespaces, which the
+          # Chromium sandbox needs; the update check verifies it is active.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Install exact dependencies
+        run: |
+          npm ci
+          npm run extension:compat:prepare
+      - name: Type check
+        run: npm run lint
+      - name: Build the AppImage
+        run: node scripts/build-linux-appimage.cjs
+      - name: Verify launch, sandbox and self-update from an older build
+        run: |
+          node scripts/build-linux-appimage.cjs --package-only --version 0.0.1 --output release/linux-update-fixture
+          xvfb-run -a node scripts/linux-appimage-update-e2e.cjs --old release/linux-update-fixture/Vast-0.0.1-x86_64.AppImage --new release
+      - name: Checksums
+        working-directory: release
+        run: sha256sum "Vast-$(node -p "require('../package.json').version")-x86_64.AppImage" latest-linux.yml > SHA256SUMS-linux.txt
+      - name: Store the private Linux release candidate
+        if: inputs.store_candidate
+        env:
+          CANDIDATE_TOKEN: ${{ github.token }}
+          VAST_EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: node scripts/linux-release-candidate.cjs store
+      # Test builds (run on their own) keep the AppImage as a workflow artifact.
+      - if: ${{ !inputs.store_candidate }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vast-linux-appimage
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            release/Vast-*-x86_64.AppImage
+            release/latest-linux.yml
+            release/SHA256SUMS-linux.txt

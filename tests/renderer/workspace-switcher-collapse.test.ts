@@ -25,8 +25,11 @@ test('the animation only touches transform and opacity, and respects reduced mot
   const keyframes = [...switcher.matchAll(/\{ (?:opacity|transform): [^}]+\}/g)].map((match) => match[0])
   assert.ok(keyframes.length >= 6)
   for (const frame of keyframes) assert.doesNotMatch(frame, /height|top|margin|width/, frame)
-  assert.match(switcher, /return animations && !window\.matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches/)
-  assert.match(switcher, /if \(!root \|\| !motionAllowed\(animations\)\) return null/)
+  // Off and the system's reduced motion both resolve to the 'off' level (resolveMotionLevel).
+  assert.match(switcher, /if \(!root \|\| currentMotionLevel\(\) === 'off'\) return null/)
+  // A toggle during a running transition retargets instead of being ignored.
+  assert.doesNotMatch(switcher, /if \(runningRef\.current\.length > 0\) return/)
+  assert.match(switcher, /for \(const animation of runningRef\.current\) animation\.cancel\(\)/)
 })
 
 test('the tab list below glides with the switcher', () => {

@@ -1,5 +1,6 @@
 import { ChevronsLeft, ChevronsRight, Plus, Search } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { playEnter } from '../../lib/motion'
 import { useBrowserStore, selectActiveWorkspace } from '../../store/browser-store'
 import { BrandMark } from '../ui/BrandMark'
 import { IconButton } from '../ui/IconButton'
@@ -34,25 +35,40 @@ export function Sidebar({ forcedCollapsed = false, onManualExpand }: { forcedCol
     [pinnedTabs, regularTabs, showCompactContents, compactDensity]
   )
 
+  // Expanded labels appear once the width transition has ended (event-driven:
+  // nothing is measured per frame), then fade in. Collapsing switches to the
+  // compact contents at once, before the width shrinks.
   useEffect(() => {
     if (sidebarCollapsed) {
       setCompactContents(true)
-      return
+      return undefined
     }
-    if (!compactContents) return
-    let frame = 0
-    const revealExpandedContents = (): void => {
-      const width = asideRef.current?.getBoundingClientRect().width
-      if (width === undefined) return
-      if (width >= (compactDensity ? 220 : 248) - 1) {
-        setCompactContents(false)
-      } else {
-        frame = window.requestAnimationFrame(revealExpandedContents)
-      }
+    if (!compactContents) return undefined
+    const aside = asideRef.current
+    if (!aside) return undefined
+    const reveal = (): void => setCompactContents(false)
+    const onTransitionEnd = (event: TransitionEvent): void => {
+      if (event.target === aside && event.propertyName === 'width') reveal()
     }
-    frame = window.requestAnimationFrame(revealExpandedContents)
-    return () => window.cancelAnimationFrame(frame)
+    aside.addEventListener('transitionend', onTransitionEnd)
+    // No transition runs when the width is already final or motion is off.
+    const settled = Math.abs(aside.getBoundingClientRect().width - (compactDensity ? 220 : 248)) < 1
+    const fallback = window.setTimeout(reveal, settled ? 0 : 400)
+    return () => {
+      aside.removeEventListener('transitionend', onTransitionEnd)
+      window.clearTimeout(fallback)
+    }
   }, [sidebarCollapsed, compactContents, compactDensity])
+
+  // The expanded contents fade in as one block, once, after the width settles.
+  const revealedRef = useRef(showCompactContents)
+  useLayoutEffect(() => {
+    const wasCompact = revealedRef.current
+    revealedRef.current = showCompactContents
+    const aside = asideRef.current
+    if (!wasCompact || showCompactContents || !aside) return
+    for (const part of aside.querySelectorAll<HTMLElement>(':scope > [data-sidebar-part]')) playEnter(part, 'fade')
+  }, [showCompactContents])
 
   // While the width animates, pin the page area at its final size so the web
   // page is resized once instead of on every frame of the transition.
@@ -91,12 +107,12 @@ export function Sidebar({ forcedCollapsed = false, onManualExpand }: { forcedCol
     <aside
       ref={asideRef}
       data-tab-sidebar
-      className={`drag relative flex min-h-0 shrink-0 flex-col border-r border-white/8 bg-[#090909]/88 text-white backdrop-blur-2xl transition-[width] duration-200 ease-smooth ${
+      className={`drag relative flex min-h-0 shrink-0 flex-col border-r border-white/8 bg-[#090909]/88 text-white backdrop-blur-2xl transition-[width] duration-(--vast-motion-sidebar) ease-smooth ${
         sidebarCollapsed ? 'w-16' : compactDensity ? 'w-[220px]' : 'w-[248px]'
       }`}
       data-sidebar-content={showCompactContents ? 'compact' : 'expanded'}
     >
-      <div className={`no-drag flex items-center justify-between overflow-hidden px-4 ${compactDensity ? 'h-[58px]' : 'h-[72px]'}`}>
+      <div data-sidebar-part className={`no-drag flex items-center justify-between overflow-hidden px-4 ${compactDensity ? 'h-[58px]' : 'h-[72px]'}`}>
         <BrandMark compact={showCompactContents} />
         {!showCompactContents && (
           <IconButton tooltip="Collapse sidebar" onClick={() => setSidebarCollapsed(true)}>
@@ -114,7 +130,7 @@ export function Sidebar({ forcedCollapsed = false, onManualExpand }: { forcedCol
 
       {/* The side panel is toggled from the address bar in every layout. */}
       {!showCompactContents && (
-        <div className={`no-drag flex items-center gap-2 px-4 ${compactDensity ? 'pb-2' : 'pb-3'}`}>
+        <div data-sidebar-part className={`no-drag flex items-center gap-2 px-4 ${compactDensity ? 'pb-2' : 'pb-3'}`}>
           <button
             type="button"
             onClick={() => setCommandPaletteOpen(true)}
@@ -127,13 +143,13 @@ export function Sidebar({ forcedCollapsed = false, onManualExpand }: { forcedCol
         </div>
       )}
 
-      <div className={`no-drag ${showCompactContents ? 'w-16 shrink-0 px-2' : 'px-4'} ${compactDensity ? 'pb-2' : 'pb-4'}`}>
+      <div data-sidebar-part className={`no-drag ${showCompactContents ? 'w-16 shrink-0 px-2' : 'px-4'} ${compactDensity ? 'pb-2' : 'pb-4'}`}>
         <WorkspaceSwitcher compact={showCompactContents} followRef={tabsListRef} />
       </div>
 
       {/* The 10px scrollbar gutter is reserved inside the right padding, so tab
           rows are exactly as wide as the workspace rows above. */}
-      <div className={`no-drag min-h-0 flex-1 overflow-y-auto ${showCompactContents ? 'vertical-tabs-scroll-compact w-16 shrink-0 px-2' : 'pl-4 pr-1.5'} pb-4`}>
+      <div data-sidebar-part className={`no-drag min-h-0 flex-1 overflow-y-auto ${showCompactContents ? 'vertical-tabs-scroll-compact w-16 shrink-0 px-2' : 'pl-4 pr-1.5'} pb-4`}>
         <div ref={tabsListRef} className="space-y-1" data-testid="vertical-tabs-list">
           {pinnedTabs.map((tab) => (
             <TabRow key={tab.id} tab={tab} active={tab.id === workspace?.activeTabId} compact={showCompactContents} layoutKey={tabLayoutKey} />
@@ -145,7 +161,7 @@ export function Sidebar({ forcedCollapsed = false, onManualExpand }: { forcedCol
         </div>
       </div>
 
-      <div className={`no-drag border-t border-white/[0.07] ${showCompactContents ? 'grid w-16 shrink-0 place-items-center p-2' : 'p-3'}`}>
+      <div data-sidebar-part className={`no-drag border-t border-white/[0.07] ${showCompactContents ? 'grid w-16 shrink-0 place-items-center p-2' : 'p-3'}`}>
         {showCompactContents ? (
           <IconButton className="sidebar-tile" tooltip="New tab" data-testid="vertical-new-tab" onClick={() => createTab({ activate: true })}>
             <Plus className="h-4 w-4" />

@@ -12,6 +12,7 @@ import {
   type ReactNode
 } from 'react'
 import { createPortal } from 'react-dom'
+import { usePresence, useRetained } from '../../lib/motion'
 
 export interface VastSelectOption<T extends string | number = string> {
   value: T
@@ -236,20 +237,30 @@ export function VastSelect<T extends string | number>({
     if (match >= 0) setHighlightedIndex(match)
   }
 
-  const menuStyle: CSSProperties | undefined = position ? {
-    left: position.left,
-    top: position.top,
+  // The list reveals once it is placed; later placement updates (its real
+  // size, scrolling, resizing) move it without restarting the motion. While
+  // it exits it keeps its last place.
+  const presence = usePresence(open && position !== null)
+  const shownPosition = useRetained(position, presence.mounted)
+  const menuMotionRef = presence.ref('menu')
+  const setMenuElement = useCallback((element: HTMLDivElement | null) => {
+    menuRef.current = element
+    menuMotionRef(element)
+  }, [menuMotionRef])
+  const menuStyle: CSSProperties | undefined = shownPosition ? {
+    left: shownPosition.left,
+    top: shownPosition.top,
     width: 'max-content',
-    minWidth: position.minWidth,
-    maxWidth: position.maxWidth,
-    maxHeight: position.maxHeight,
-    transformOrigin: position.placement === 'bottom' ? 'top' : 'bottom'
+    minWidth: shownPosition.minWidth,
+    maxWidth: shownPosition.maxWidth,
+    maxHeight: shownPosition.maxHeight,
+    transformOrigin: shownPosition.placement === 'bottom' ? 'top' : 'bottom'
   } : undefined
   const shell = buttonRef.current?.closest('.app-shell')
   // The menu portals to document.body, outside the app shell that carries the
   // user accent variables; re-declare them here so accent styling follows.
   const portalAccentStyle = (() => {
-    if (!open || !shell) return undefined
+    if (!presence.mounted || !shell) return undefined
     const computed = getComputedStyle(shell)
     const accent = computed.getPropertyValue('--vast-accent').trim()
     if (!accent) return undefined
@@ -290,10 +301,10 @@ export function VastSelect<T extends string | number>({
           <ChevronDown className={`h-4 w-4 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
         </span>
       </button>
-      {open && position && createPortal(
+      {presence.mounted && shownPosition && createPortal(
         <div className={portalThemeClass} data-vast-select-portal-theme style={{ display: 'contents', ...portalAccentStyle }}>
           <div
-            ref={menuRef}
+            ref={setMenuElement}
             id={`${controlId}-listbox`}
             role="listbox"
             tabIndex={-1}
@@ -301,7 +312,8 @@ export function VastSelect<T extends string | number>({
             aria-activedescendant={`${controlId}-option-${highlightedIndex}`}
             className={`vast-select-menu ${menuClassName}`.trim()}
             style={menuStyle}
-            data-placement={position.placement}
+            data-placement={shownPosition.placement}
+            data-motion-side={shownPosition.placement === 'bottom' ? 'below' : 'above'}
             onKeyDown={onMenuKeyDown}
           >
             {options.map((option, index) => {

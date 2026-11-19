@@ -1,11 +1,18 @@
 import { AlertTriangle, CheckCircle2, Download, Info, LoaderCircle, MonitorUp, ShieldAlert, X } from 'lucide-react'
 import type { UiNotificationPayload, UiPromptPayload } from '../../../shared/types'
 import { formatBytes } from '../../lib/format'
+import { PresenceContext, useListPresence, usePresence, useRetained } from '../../lib/motion'
 import { useBrowserStore } from '../../store/browser-store'
 import { ModalShell } from './ModalShell'
 import { NotificationCard } from './NotificationCard'
 
 type ToastItem = UiNotificationPayload & { createdAt: number }
+type DownloadItem = ReturnType<typeof useBrowserStore.getState>['downloads'][number]
+type StackItem = { type: 'download'; download: DownloadItem } | { type: 'toast'; toast: ToastItem }
+
+const stackKey = (entry: StackItem): string => entry.type === 'download' ? `download-${entry.download.id}` : entry.toast.id
+// Warnings and errors (security, failed updates) show at once; only their exit animates.
+const appearsImmediately = (entry: StackItem): boolean => entry.type === 'toast' && (entry.toast.tone === 'error' || entry.toast.tone === 'warning')
 
 function toneIcon(tone: UiNotificationPayload['tone']): JSX.Element {
   if (tone === 'success') return <CheckCircle2 className="h-5 w-5 text-emerald-300" />
@@ -44,15 +51,74 @@ export function NotificationsOverlay({
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, 4)
 
-  if (activeDownloads.length === 0 && toasts.length === 0) return null
+  const stack: StackItem[] = [
+    ...activeDownloads.map((download): StackItem => ({ type: 'download', download })),
+    ...toasts.map((toast): StackItem => ({ type: 'toast', toast }))
+  ]
+  const { entries, ref } = useListPresence(stack, stackKey, 'toast', appearsImmediately)
+
+  if (entries.length === 0) return null
 
   return (
     <div className="vast-notification-stack pointer-events-none fixed right-5 top-5 z-65 flex flex-col gap-3" aria-live="polite">
-      {activeDownloads.map((item) => {
+      {entries.map(({ key, item: entry }) => {
+        if (entry.type === 'toast') {
+          const toast = entry.toast
+          return (
+        <NotificationCard
+          key={key}
+          ref={ref(key)}
+          className={`vast-toast pointer-events-auto overflow-hidden border ${toneStyles(toast.tone)}`}
+        >
+          <div className="flex items-start gap-3">
+            <div className="vast-notification-icon mt-0.5 border border-white/10 bg-white/5">
+              {toneIcon(toast.tone)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-white">{toast.title}</div>
+                  <div className="vast-notification-message">{toast.message}</div>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Dismiss notification"
+                  onClick={() => onDismiss(toast.id)}
+                  className="vast-icon-button vast-icon-button--quiet grid place-items-center h-8 w-8 shrink-0 rounded-control"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              {toast.detail && (
+                <div className="mt-3 max-h-36 overflow-auto whitespace-pre-wrap rounded-card border border-white/10 bg-black/20 px-3 py-2 text-xs leading-5 text-vast-soft">
+                  {toast.detail}
+                </div>
+              )}
+              {toast.actions && toast.actions.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {toast.actions.map((action) => (
+                    <button
+                      key={action.label}
+                      type="button"
+                      className="vast-button vast-button--selected vast-button--xs px-3 py-1.5 text-xs"
+                      onClick={action.action}
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </NotificationCard>
+          )
+        }
+        const item = entry.download
         const progress = item.totalBytes > 0 ? Math.min(100, Math.round((item.receivedBytes / item.totalBytes) * 100)) : undefined
         return (
           <NotificationCard
-            key={`download-${item.id}`}
+            key={key}
+            ref={ref(key)}
             className="download-progress-toast vast-float pointer-events-auto overflow-hidden border border-white/10 shadow-[0_18px_48px_rgba(0,0,0,0.34)]"
           >
             <div className="flex items-start gap-3">
@@ -84,52 +150,6 @@ export function NotificationsOverlay({
         )
       })}
 
-      {toasts.map((toast) => (
-        <NotificationCard
-          key={toast.id}
-          className={`vast-toast pointer-events-auto overflow-hidden border ${toneStyles(toast.tone)}`}
-        >
-          <div className="flex items-start gap-3">
-            <div className="vast-notification-icon mt-0.5 border border-white/10 bg-white/5">
-              {toneIcon(toast.tone)}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-white">{toast.title}</div>
-                  <div className="vast-notification-message">{toast.message}</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onDismiss(toast.id)}
-                  className="vast-icon-button vast-icon-button--quiet grid place-items-center h-8 w-8 shrink-0 rounded-control"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              {toast.detail && (
-                <div className="mt-3 max-h-36 overflow-auto whitespace-pre-wrap rounded-card border border-white/10 bg-black/20 px-3 py-2 text-xs leading-5 text-vast-soft">
-                  {toast.detail}
-                </div>
-              )}
-              {toast.actions && toast.actions.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {toast.actions.map((action) => (
-                    <button
-                      key={action.label}
-                      type="button"
-                      className="vast-button vast-button--selected vast-button--xs px-3 py-1.5 text-xs"
-                      onClick={action.action}
-                    >
-                      {action.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </NotificationCard>
-      ))}
     </div>
   )
 }
@@ -141,8 +161,19 @@ export function ActionPromptModal({
   prompt: UiPromptPayload | null
   onResolve: (actionId: string) => void
 }): JSX.Element | null {
-  if (!prompt) return null
+  // A resolved prompt animates out with its last content while the next
+  // decision (or none) is already in effect.
+  const presence = usePresence(Boolean(prompt))
+  const shownPrompt = useRetained(prompt, presence.mounted)
+  if (!presence.mounted || !shownPrompt) return null
+  return (
+    <PresenceContext.Provider value={presence}>
+      <ActionPromptDialog prompt={shownPrompt} onResolve={(actionId) => { if (prompt) onResolve(actionId) }} />
+    </PresenceContext.Provider>
+  )
+}
 
+function ActionPromptDialog({ prompt, onResolve }: { prompt: UiPromptPayload; onResolve: (actionId: string) => void }): JSX.Element {
   const closeAction = prompt.actions[prompt.actions.length - 1]?.id
   const toneIconElement =
     prompt.choices?.length

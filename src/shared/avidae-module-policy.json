@@ -1,0 +1,13 @@
+{
+  "manifestUrl": "https://github.com/vstxx/vast-public/releases/download/avidae-module/avidae-module.json",
+  "trustedKeys": [
+    {
+      "keyId": "vast-avidae-2026-01",
+      "algorithm": "Ed25519",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEAUGMcaAiDAcOdh0l2np/U2VC3kQh4BblC4nH+Id4lEbA=",
+      "status": "current"
+    }
+  ],
+  "revokedModuleVersions": [],
+  "microsoftStoreDownloads": false
+}

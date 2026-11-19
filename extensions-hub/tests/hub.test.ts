@@ -9,6 +9,7 @@ import { optionalLegalConfig, PUBLISHER_TERMS_VERSION, publisherTermsText } from
 import signerWorker from '../src/signer.ts'
 import { validatePublisherPackage } from '../src/validation.ts'
 import { TEST_SIGNING_KEY_ID, TEST_SIGNING_PRIVATE_PKCS8, TEST_SIGNING_PUBLIC_SPKI } from './fixtures/test-signing-key.ts'
+import hubWranglerSource from '../wrangler.jsonc?raw'
 
 const origin = 'https://extensions.vastbrowser.com'
 const publisherId = 'publisher_0123456789abcdef'
@@ -55,7 +56,7 @@ async function fixturePackage(id: string, version = '1.0.0', source = 'globalThi
   })
 }
 
-async function seedPublishedPasswordManager(id: string): Promise<void> {
+async function seedPublishedFixture(id: string, category = 'password-managers'): Promise<void> {
   const releaseId = `release_${id.slice(0, 16)}`
   const timestamp = '2026-09-25T00:00:00.000Z'
   const descriptor = {
@@ -71,7 +72,7 @@ async function seedPublishedPasswordManager(id: string): Promise<void> {
   }
   await env.DB.batch([
     env.DB.prepare('INSERT INTO publishers(id,github_user_id,github_login,display_name,publisher_name,role,verified,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,0,?7,?7)').bind(publisherId, 'password-manager-fixture', 'password-manager-fixture', 'Password Manager Fixture', 'Password Manager Fixture', 'publisher', timestamp),
-    env.DB.prepare("INSERT INTO extensions(id,slug,name,summary,description,publisher_id,category,kind,status,current_release_id,created_at,updated_at,data_practice,remote_services) VALUES(?1,?2,?3,?4,?5,?6,'password-managers','chrome','published',NULL,?7,?7,'external-processing','fixture')").bind(id, `fixture-${id.slice(0, 8)}`, 'Password Manager Fixture', 'Compatibility-gated fixture.', 'Compatibility-gated fixture.', publisherId, timestamp),
+    env.DB.prepare("INSERT INTO extensions(id,slug,name,summary,description,publisher_id,category,kind,status,current_release_id,created_at,updated_at,data_practice,remote_services) VALUES(?1,?2,?3,?4,?5,?6,?7,'chrome','published',NULL,?8,?8,'external-processing','fixture')").bind(id, `fixture-${id.slice(0, 8)}`, 'Compatibility Fixture', 'Compatibility-gated fixture.', 'Compatibility-gated fixture.', publisherId, category, timestamp),
     env.DB.prepare("INSERT INTO releases(id,extension_id,version,descriptor_json,descriptor_signature,signature_key_id,manifest_summary,permissions_snapshot,validation_json,status,published_at,created_at) VALUES(?1,?2,'1.0.0',?3,'fixture-signature',?4,'{}',?5,'[]','published',?6,?6)").bind(releaseId, id, JSON.stringify(descriptor), TEST_SIGNING_KEY_ID, JSON.stringify(descriptor.permissions), timestamp),
     env.DB.prepare('UPDATE extensions SET current_release_id=?1 WHERE id=?2').bind(releaseId, id)
   ])
@@ -115,14 +116,20 @@ describe('public catalog and security envelope', () => {
       ENVIRONMENT: 'production', HUB_LEGAL_OPERATOR_NAME: operatorName, HUB_LEGAL_CONTACT_URL: contactUrl
     }) as unknown as Env
     expect(optionalLegalConfig(production(' CHANGE_ME ', 'https://vastbrowser.com/legal'))).toBeUndefined()
-    expect(optionalLegalConfig(production('Jan Nowacki', 'http://localhost:8787/legal'))).toBeUndefined()
-    expect(optionalLegalConfig(production('Jan Nowacki', 'https://example.com/TODO'))).toBeUndefined()
-    expect(optionalLegalConfig(production(' Jan Nowacki ', 'https://vastbrowser.com/legal'))).toEqual({ operatorName: 'Jan Nowacki', contactUrl: 'https://vastbrowser.com/legal' })
+    expect(optionalLegalConfig(production('Fixture Legal Operator', 'http://localhost:8787/legal'))).toBeUndefined()
+    expect(optionalLegalConfig(production('Fixture Legal Operator', 'https://example.com/TODO'))).toBeUndefined()
+    expect(optionalLegalConfig(production(' Fixture Legal Operator ', 'https://vastbrowser.com/legal'))).toEqual({ operatorName: 'Fixture Legal Operator', contactUrl: 'https://vastbrowser.com/legal' })
+  })
+  it('keeps the accepted production Publisher Terms version and hash stable', async () => {
+    const config = JSON.parse(hubWranglerSource)
+    expect(config.vars.HUB_LEGAL_OPERATOR_NAME).toBe(config.env.staging.vars.HUB_LEGAL_OPERATOR_NAME)
+    expect(PUBLISHER_TERMS_VERSION).toBe('2026-08-24')
+    expect(await sha256(publisherTermsText(config.vars.HUB_LEGAL_OPERATOR_NAME))).toBe('d61169fa5b7c377547d4aabe727a971e063d31ef9e7c44bb0833a568c228351a')
   })
   it('exposes password managers to Vast 0.4.1 and newer stable versions only', async () => {
     const bitwardenId = 'nngceckbapebfimnlniiiahkandclblb'
     const iCloudId = 'pejdijmoenmkgeppbflobdenhhabjlaj'
-    await seedPublishedPasswordManager(bitwardenId)
+    await seedPublishedFixture(bitwardenId)
     const health = await call('/health')
     expect(health.status).toBe(200)
     const healthBody = await health.json() as { ok: boolean; environment: string; signingKeyId: string; signerProof: unknown }
@@ -180,10 +187,39 @@ describe('public catalog and security envelope', () => {
     expect(filteredBody.items.some((item) => item.id === 'pejdijmoenmkgeppbflobdenhhabjlaj')).toBe(false)
     expect(filteredBody.featured.some((item) => item.id === 'pejdijmoenmkgeppbflobdenhhabjlaj')).toBe(false)
   })
+  it('shows Translator for Vast only to stable Vast 0.6.0 and newer in the client API', async () => {
+    const translatorId = 'oaamgecaoemplhkceohcpahaeampndpj'
+    await seedPublishedFixture(translatorId, 'productivity')
+    const hidden = [undefined, '0.5.5', '0.6.0-beta.1', 'not-a-version']
+    for (const version of hidden) {
+      const headers = version ? { 'x-vast-version': version } : undefined
+      const catalog = await call('/v1/catalog?category=productivity', { headers })
+      const body = await catalog.json() as { items: Array<{ id: string }>; featured: Array<{ id: string }>; total: number }
+      expect(body.items.some((item) => item.id === translatorId)).toBe(false)
+      expect(body.featured.some((item) => item.id === translatorId)).toBe(false)
+      expect(body.total).toBe(0)
+      expect((await call(`/v1/extensions/${translatorId}`, { headers })).status).toBe(404)
+      expect((await call(`/v1/install/${translatorId}`, { headers })).status).toBe(404)
+      expect((await call(`/v1/extensions/${translatorId}/releases/1.0.0`, { headers })).status).toBe(404)
+    }
+    for (const version of ['0.6.0', '0.6.1', '1.0.0']) {
+      const headers = { 'x-vast-version': version }
+      const catalog = await call('/v1/catalog?category=productivity', { headers })
+      const body = await catalog.json() as { items: Array<{ id: string }>; featured: Array<{ id: string }>; total: number }
+      expect(body.items.some((item) => item.id === translatorId)).toBe(true)
+      expect(body.featured.some((item) => item.id === translatorId)).toBe(true)
+      expect(body.total).toBe(1)
+      expect((await call(`/v1/extensions/${translatorId}`, { headers })).status).toBe(200)
+      expect((await call(`/v1/install/${translatorId}`, { headers })).status).toBe(200)
+      expect((await call(`/v1/extensions/${translatorId}/releases/1.0.0`, { headers })).status).toBe(200)
+    }
+    expect((await call('/explore?category=productivity')).status).toBe(200)
+    expect(await (await call('/explore?category=productivity')).text()).toContain(`/extension/${translatorId}`)
+  })
   it('lists every published extension on the public website with logos and no install launcher', async () => {
     const bitwardenId = 'nngceckbapebfimnlniiiahkandclblb'
     const iCloudId = 'pejdijmoenmkgeppbflobdenhhabjlaj'
-    await seedPublishedPasswordManager(bitwardenId)
+    await seedPublishedFixture(bitwardenId)
 
     // A plain website visitor sends no Vast version header at all.
     const explore = await call('/explore')
@@ -195,6 +231,11 @@ describe('public catalog and security envelope', () => {
     expect(exploreHtml).toContain('/extension-icons/icloud-passwords.png')
     expect(exploreHtml).not.toContain('data-action="install"')
     expect(exploreHtml).not.toContain('Open in Vast')
+    // Apple's extension installs from Apple, so the Hub shows its source instead of a download count it cannot know.
+    expect(exploreHtml).toContain('Installed from Apple')
+    expect(exploreHtml).toContain('0 downloads')
+    expect((exploreHtml.match(/ downloads</g) ?? []).length).toBe(1)
+    expect(await (await call(`/extension/${iCloudId}`)).text()).toContain('Installed from Apple')
 
     const passwordManagers = await (await call('/explore?category=password-managers')).text()
     expect(passwordManagers).toContain(`/extension/${bitwardenId}`)
@@ -598,6 +639,63 @@ describe('publisher upload and role-aware review', () => {
     expect(other.status).toBe(404)
     const invalidMedia = await call(`/v1/publisher/extensions/${id}/media?kind=icon`, { method: 'POST', headers: { ...authHeaders(), 'content-type': 'image/png' }, body: encoder.encode('not a png').slice().buffer })
     expect(invalidMedia.status).toBe(400)
+  })
+
+  it('validates declarative Vast contributions with the client parser and the package file list', async () => {
+    const id = 'abcdefghijklmnopabcdefghijklmnop'
+    const check = async (contributes: unknown, permissions = ['vast.toolbar'], files: string[] = ['popup.html', 'icon.svg']) => {
+      const bytes = await createVextPackage({ extensionId: id, version: '1.0.0', publisherId, files: new Map([
+        ['manifest.json', encoder.encode(JSON.stringify({ name: 'Static UI', version: '1.0.0', vast: { api_version: 1, extension_id: id, popup: 'popup.html', permissions, contributes } }))],
+        ...files.map((file): [string, Uint8Array] => [file, encoder.encode(file.endsWith('.svg') ? '<svg xmlns="http://www.w3.org/2000/svg"/>' : '<!doctype html>')])
+      ]) })
+      return validatePublisherPackage(bytes, id, publisherId)
+    }
+    const valid = { toolbar: [{ id: 'open', title: 'Open', icon: 'icon.svg', action: 'popup' }] }
+    expect((await check(valid)).kind).toBe('vast')
+    await expect(check(valid, [])).rejects.toThrow(/requires the vast\.toolbar permission/)
+    await expect(check(valid, ['vast.toolbar'], ['popup.html'])).rejects.toThrow(/missing file: icon\.svg/)
+    await expect(check({ toolbar: [{ id: 'open', title: 'Open', action: 'event' }] })).rejects.toThrow(/no vast\.background/)
+    await expect(check({ toolbar: [{ id: 'open', title: 'Open', icon: '../icon.svg', action: 'popup' }] })).rejects.toThrow(/invalid toolbar icon/)
+    await expect(check({ toolbar: [{ id: 'open', title: 'Open', action: 'https://example.com' }] })).rejects.toThrow(/unsupported action/)
+  })
+
+  it('accepts declared local WebAssembly under a strict Manifest V3 policy and nothing looser', async () => {
+    const id = 'abcdefghijklmnopabcdefghijklmnop'
+    const wasm = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00])
+    const strict = "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; connect-src 'self' https://models.example.org/"
+    const check = async (extra: Record<string, unknown>, files: Array<[string, Uint8Array]> = [['engine.wasm', wasm]], worker = 'WebAssembly.instantiate(bytes, {})', content?: string) => {
+      const manifest = { name: 'Wasm fixture', version: '1.0.0', manifest_version: 3, background: { service_worker: 'worker.js' }, content_security_policy: { extension_pages: strict }, vast_wasm: { modules: ['engine.wasm'] }, ...(content ? { content_scripts: [{ matches: ['https://*/*'], js: ['content.js'] }] } : {}), ...extra }
+      const bytes = await createVextPackage({ extensionId: id, version: '1.0.0', publisherId, files: new Map<string, Uint8Array>([
+        ['manifest.json', encoder.encode(JSON.stringify(manifest))],
+        ['worker.js', encoder.encode(worker)],
+        ...(content ? [['content.js', encoder.encode(content)] as [string, Uint8Array]] : []),
+        ...files
+      ]) })
+      return validatePublisherPackage(bytes, id, publisherId)
+    }
+    const accepted = await check({})
+    expect(accepted.validation).toContain('webassembly-network: https://models.example.org/')
+    expect(accepted.validation.some((entry) => entry.includes('engine.wasm: manual review required for WebAssembly module without reviewed provenance'))).toBe(true)
+    // Undeclared, misdeclared or disguised modules.
+    await expect(check({ vast_wasm: undefined })).rejects.toThrow(/Undeclared WebAssembly module/)
+    await expect(check({}, [['engine.wasm', wasm], ['other.wasm', wasm]])).rejects.toThrow(/Undeclared WebAssembly module: other\.wasm/)
+    await expect(check({}, [['engine.wasm', encoder.encode('console.log(1)')]])).rejects.toThrow(/not a WebAssembly module/)
+    await expect(check({ vast_wasm: { modules: ['engine.wasm'], url: 'https://example.com/x.wasm' } })).rejects.toThrow(/vast_wasm is invalid/)
+    await expect(check({ vast_wasm: { modules: ['missing.wasm'] } })).rejects.toThrow(/does not exist/)
+    // Policies looser than self plus wasm-unsafe-eval.
+    for (const extension_pages of ["script-src 'self'; object-src 'none'", "script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval'; object-src 'none'", "script-src 'self' 'wasm-unsafe-eval' https://cdn.example.com; object-src 'none'", "script-src 'self' 'wasm-unsafe-eval'; worker-src https://cdn.example.com"]) {
+      await expect(check({ content_security_policy: { extension_pages } }), extension_pages).rejects.toThrow(/Static policy/)
+    }
+    await expect(check({ content_security_policy: undefined })).rejects.toThrow(/explicit extension-page policy/)
+    await expect(check({ manifest_version: 2, content_security_policy: "script-src 'self'; object-src 'none'" })).rejects.toThrow(/Manifest V3/)
+    // wasm-unsafe-eval without declared modules, and WebAssembly in a content script.
+    await expect(check({ vast_wasm: undefined }, [])).rejects.toThrow(/may not relax script-src/)
+    await expect(check({}, [['engine.wasm', wasm]], 'globalThis.ok = true', 'WebAssembly.compile(new Uint8Array())')).rejects.toThrow(/content\.js: WebAssembly is prohibited/)
+    // Declaring modules does not lift the dynamic-code rules.
+    await expect(check({}, [['engine.wasm', wasm]], 'new Function("return 1")()')).rejects.toThrow(/dynamic code constructor/)
+    // Without a connect-src restriction the network use goes to a reviewer.
+    const open = await check({ content_security_policy: { extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'" } })
+    expect(open.validation).toContain('manual review required: WebAssembly package without a connect-src restriction')
   })
 
   it('allows local Manifest V2 providers and rejects relaxed CSP or missing background files', async () => {

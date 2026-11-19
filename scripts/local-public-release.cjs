@@ -184,7 +184,7 @@ function publicSourceCommitMessage(version, sourceCommit) {
 const releaseSteps = Object.freeze({
   prepare: [
     'dependencies', 'relay-dependencies', 'compatibility',
-    'preflight', 'relay', 'hub', 'avidae-runtime', 'archive', 'build',
+    'preflight', 'relay', 'hub', 'archive', 'build',
     'updater-background', 'package', 'secret-scan', 'snapshot', 'seal', 'stage'
   ].map((key) => ({ key })),
   verify: ['candidate-verify', 'clean-install', 'public-upgrade'].map((key) => ({ key })),
@@ -193,7 +193,7 @@ const releaseSteps = Object.freeze({
 const hotfixReleaseSteps = Object.freeze({
   prepare: [
     'compatibility-check', 'version-check', 'lint', 'targeted-test',
-    'release-tests', 'updater-stage', 'release-audit', 'avidae-runtime-check', 'archive',
+    'release-tests', 'updater-stage', 'release-audit', 'archive',
     'build', 'updater-background', 'package', 'packaged-scroll',
     'secret-scan', 'snapshot', 'seal', 'stage'
   ].map((key) => ({ key })),
@@ -202,8 +202,8 @@ const hotfixReleaseSteps = Object.freeze({
 })
 
 function assertReleaseProfile(version, requested, stored) {
-  if (requested === 'hotfix') throw new Error('The hotfix route is not approved for Vast 0.5.5.')
-  if (requested === 'standard' && version !== '0.5.5') throw new Error('The standard local route is approved only for Vast 0.5.5.')
+  if (requested === 'hotfix') throw new Error('The hotfix route is not approved for Vast 0.6.0.')
+  if (requested === 'standard' && version !== '0.6.0') throw new Error('The standard local route is approved only for Vast 0.6.0.')
   if (stored !== requested) throw new Error(`Existing release state has profile ${stored}; requested ${requested}.`)
 }
 
@@ -321,11 +321,9 @@ async function main() {
       if (key === 'release-tests') return npm(['run', 'test:release'])
       if (key === 'updater-stage') return npm(['run', 'updater:stage'])
       if (key === 'release-audit') return npm(['run', 'release:audit'])
-      if (key === 'avidae-runtime-check') return npm(['run', 'avidae:runtime:check'])
       if (key === 'preflight') return npm(['run', 'release:preflight'])
       if (key === 'relay') return npm(['run', 'verify:release-checkin', '--prefix', 'relay'])
       if (key === 'hub') return npm(['run', 'hub:verify:production'])
-      if (key === 'avidae-runtime') return npm(['run', 'avidae:runtime:prepare'])
       if (key === 'archive') return { internal: () => archiveRelease('preexisting-release') }
       if (key === 'build') return npm(['run', 'release:public-unsigned'])
       if (key === 'updater-background') return npm(['run', 'test:updater:background'])

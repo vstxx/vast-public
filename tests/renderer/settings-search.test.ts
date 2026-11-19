@@ -18,7 +18,9 @@ test('settings modal exposes a compact search input in the nav', () => {
 test('settings search keeps focus across controlled input renders', () => {
   assert.match(modalShellSource, /const onCloseRef = useRef\(onClose\)/)
   assert.match(modalShellSource, /onCloseRef\.current\(\)/)
-  assert.match(modalShellSource, /useEffect\(\(\) => \{[\s\S]*?const panel = panelRef\.current[\s\S]*?\}, \[\]\)/)
+  // The focus trap is set up once per open; it reruns only when the exit
+  // motion starts (to hand focus back), never on input renders.
+  assert.match(modalShellSource, /useEffect\(\(\) => \{[\s\S]*?const panel = panelRef\.current[\s\S]*?\}, \[exiting\]\)/)
 })
 
 test('settings search draws focus on the rounded container without an inner box', () => {

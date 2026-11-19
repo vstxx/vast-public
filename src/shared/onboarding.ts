@@ -8,10 +8,29 @@ import type { BrowserSettings, PersistedData, SearchEngine } from './types'
  */
 export interface OnboardingState {
   completed: boolean
+  // Written by Vast builds that only show onboarding once and repair profiles
+  // stuck in it; absent on records saved by older builds.
+  revision?: number
 }
+
+export const ONBOARDING_STATE_REVISION = 1
 
 export function onboardingCompleted(data: Pick<PersistedData, 'onboarding'>): boolean {
   return data.onboarding?.completed === true
+}
+
+/**
+ * Older builds could leave an established profile marked as not onboarded
+ * (an inverted migration, and no way to dismiss the flow), which reopened
+ * onboarding on every launch. A profile with clear signs of use is treated as
+ * onboarded when its record predates ONBOARDING_STATE_REVISION.
+ */
+export function profileShowsEstablishedUse(data: Pick<PersistedData, 'history' | 'bookmarks' | 'notes' | 'workspaces'> & { importState?: { phase?: string } }): boolean {
+  return (data.history?.length ?? 0) >= 20 ||
+    (data.bookmarks?.length ?? 0) > 0 ||
+    (data.notes?.length ?? 0) > 0 ||
+    (data.workspaces?.length ?? 0) > 1 ||
+    data.importState?.phase === 'committed'
 }
 
 /** Accent swatches shown by onboarding; mirrors the canonical default accent. */

@@ -46,18 +46,16 @@ function inspectUpdateArchive() {
   }
 }
 
-function inspectFfmpegCompliance(runtimePath) {
-  const result = spawnSync(process.execPath, [
-    join(root, 'scripts', 'check-ffmpeg-release-compliance.cjs'),
-    '--root', join(root, '.vast-build', 'ffmpeg'),
-    '--runtime', runtimePath,
-    '--source-bundle', join(releaseRoot, 'Source', 'ffmpeg-corresponding-source-win64.tar.zst')
-  ], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 10 * 60_000, maxBuffer: 32 * 1024 * 1024 })
-  if (result.error || result.status !== 0) {
-    fail(`packaged FFmpeg compliance verification failed: ${result.error?.message || String(result.stderr || result.stdout || '').trim()}`)
-    return { verified: false }
-  }
-  return { verified: true }
+// Vast Core must not ship the downloadable Video & Audio runtime or any of
+// its heavy binaries; they are distributed only as the signed module.
+function inspectCoreExcludesAvidae(resourcesRoot) {
+  const forbidden = ['avidae', 'avidae-runtime']
+    .map((name) => join(resourcesRoot, name))
+    .filter((path) => existsSync(path))
+  const heavyBinaries = listFiles(resourcesRoot)
+    .filter((file) => /(?:^|[\\/])(?:VastVideoAudio\.exe|ffmpeg\.exe|ffprobe\.exe)$/i.test(file) || /[\\/]ms-playwright[\\/]/i.test(file))
+  for (const path of [...forbidden, ...heavyBinaries]) fail(`Vast Core contains Video & Audio module content: ${relative(root, path)}`)
+  return { excluded: forbidden.length === 0 && heavyBinaries.length === 0 }
 }
 
 function inspectElectronFuses(relativePath) {
@@ -446,7 +444,7 @@ if (existsSync(packagedVastLicense) && !readFileSync(packagedVastLicense).equals
 if (existsSync(packagedEceLicense) && !readFileSync(packagedEceLicense).equals(readFileSync(join(root, 'node_modules', 'electron-chrome-extensions', 'LICENSE-GPL')))) {
   fail('packaged ECE GPL text differs from the reviewed upstream license')
 }
-const ffmpegCompliance = inspectFfmpegCompliance(join(packagedResourcesRoot, 'avidae-runtime'))
+const avidaeModuleExcluded = inspectCoreExcludesAvidae(packagedResourcesRoot)
 const appUpdateConfigPath = join(packagedResourcesRoot, 'app-update.yml')
 if (!existsSync(appUpdateConfigPath)) fail('packaged runtime is missing resources/app-update.yml required by electron-updater')
 if (existsSync(appUpdateConfigPath)) {
@@ -604,7 +602,7 @@ const report = {
   obfuscation,
   electronFuses,
   packagedPeIdentity,
-  ffmpegCompliance,
+  avidaeModuleExcluded,
   updateArchive,
   authenticode,
   failures

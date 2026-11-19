@@ -26,7 +26,7 @@ test('a fresh profile is a clean, silent, single-workspace launch', () => {
   assert.deepEqual(DEFAULT_DATA.macroLogs, [])
   assert.deepEqual(DEFAULT_DATA.sessionSnapshots, [])
   assert.deepEqual(DEFAULT_DATA.history, [])
-  assert.deepEqual(DEFAULT_DATA.onboarding, { completed: false })
+  assert.deepEqual(DEFAULT_DATA.onboarding, { completed: false, revision: 1 })
   assert.equal(onboardingCompleted(DEFAULT_DATA), false)
   assert.equal(DEFAULT_DATA.sidePanelOpen, false)
   assert.equal(DEFAULT_DATA.sidebarCollapsed, true)

@@ -1,7 +1,8 @@
 {
   "name": "vast-browser",
   "productName": "Vast",
-  "version": "0.5.5",
+  "desktopName": "Vast.desktop",
+  "version": "0.6.0",
   "description": "A local-first desktop browser for power users, built with Electron, React, TypeScript, Vite, and Tailwind CSS.",
   "author": "VastProductions",
   "main": "out/main/main.js",
@@ -33,6 +34,9 @@
     "build": "node scripts/build-app.cjs",
     "avidae:runtime:prepare": "node scripts/prepare-avidae-runtime.cjs",
     "avidae:runtime:check": "node scripts/prepare-avidae-runtime.cjs --check",
+    "avidae:module:build": "node scripts/build-avidae-module.cjs",
+    "avidae:module:sign": "node scripts/sign-avidae-module.cjs",
+    "avidae:module:verify": "node scripts/verify-avidae-module.cjs",
     "avidae:ffmpeg:check": "node scripts/avidae-ffmpeg-capabilities.cjs",
     "ffmpeg:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-vast-ffmpeg.ps1",
     "ffmpeg:release:check": "node scripts/check-ffmpeg-release-compliance.cjs",
@@ -63,6 +67,7 @@
     "test:app": "node scripts/run-app-test.cjs",
     "test:purist-click": "npm run build && node scripts/purist-click-e2e.cjs",
     "test:menus": "npm run build && node scripts/menus-e2e.cjs",
+    "test:motion:e2e": "npm run build && node scripts/motion-e2e.cjs",
     "test:fullscreen-appearance:e2e": "node scripts/run-isolated-electron-e2e.cjs fullscreen-appearance-e2e.cjs",
     "test:tab-reorder:e2e": "node scripts/run-isolated-electron-e2e.cjs tab-reorder-state-e2e.cjs",
     "test:extensions:e2e": "node scripts/run-isolated-electron-e2e.cjs extensions-e2e.cjs",
@@ -86,6 +91,8 @@
     "performance:budget": "node scripts/check-performance-budget.cjs",
     "performance:webcontents-view-spike": "node scripts/webcontents-view-spike.cjs",
     "performance:compare": "node scripts/performance-compare.cjs",
+    "performance:motion": "node scripts/motion-performance-e2e.cjs",
+    "performance:heavy-web": "node scripts/heavy-web/bench.cjs",
     "distribution:size-audit": "node scripts/distribution-size-audit.cjs",
     "distribution:size-budget": "npm run distribution:size-audit && node scripts/check-distribution-size-budget.cjs",
     "audit:ci": "npm audit --audit-level=high && npm audit --prefix relay --audit-level=high",
@@ -112,6 +119,11 @@
     "extension:adblock:build": "node scripts/build-adblock-extension.mjs",
     "extension:adblock:typecheck": "tsc --noEmit -p resources/first-party-extensions/adblocker-for-vast/tsconfig.json",
     "test:adblock:extension-e2e": "node scripts/run-isolated-electron-e2e.cjs adblock-extension-e2e.cjs",
+    "extension:translator:engine": "node resources/first-party-extensions/translator-for-vast/tools/fetch-engine.mjs",
+    "extension:translator:build": "node resources/first-party-extensions/translator-for-vast/tools/build.mjs",
+    "extension:translator:typecheck": "tsc --noEmit -p resources/first-party-extensions/translator-for-vast/tsconfig.json",
+    "extension:translator:pack": "npm run extension:translator:build && npm run extension:pack -- resources/first-party-extensions/translator-for-vast/dist --out artifacts/Translator-for-Vast-1.0.0.vext --publisher-id publisher_7b1e2c9f4a806d3e5b709c12",
+    "test:translator:e2e": "node scripts/run-isolated-electron-e2e.cjs translator-e2e.cjs",
     "test:production-pass": "node scripts/production-pass-e2e.cjs",
     "performance:regressions": "node scripts/check-production-regressions.cjs"
   },
@@ -134,7 +146,7 @@
     "7zip-bin": "5.2.0",
     "acorn": "8.18.0",
     "clsx": "2.1.1",
-    "electron": "45.0.0",
+    "electron": "45.3.4",
     "electron-builder": "26.15.3",
     "electron-vite": "5.0.0",
     "javascript-obfuscator": "^5.4.3",
@@ -208,14 +220,6 @@
       {
         "from": "resources/apply-update.ps1",
         "to": "apply-update.ps1"
-      },
-      {
-        "from": "resources/avidae",
-        "to": "avidae"
-      },
-      {
-        "from": "resources/avidae-runtime",
-        "to": "avidae-runtime"
       },
       {
         "from": "assets/logos/vasticon.png",

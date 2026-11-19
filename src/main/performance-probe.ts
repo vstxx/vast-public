@@ -14,7 +14,7 @@ const reportArgument = process.argv.find((value) => value.startsWith('--vast-per
 const reportPath = reportArgument ? resolve(reportArgument.slice('--vast-performance-report='.length)) : undefined
 const probeStartedAt = performance.now()
 const marks: PerformanceMark[] = []
-const counters = { storageWrites: 0, storageBytes: 0, rollingBackups: 0, storageWriteDurationMs: 0, downloadProgressEvents: 0, downloadDurableWrites: 0 }
+const counters = { storageWrites: 0, storageBytes: 0, rollingBackups: 0, storageWriteDurationMs: 0, downloadProgressEvents: 0, downloadDurableWrites: 0, extensionTabEventIpc: 0, nativeExtensionEvents: 0, nativeHostsCreated: 0, nativeHostsDestroyed: 0 }
 const eventLoopDelay = reportPath ? monitorEventLoopDelay({ resolution: 20 }) : undefined
 eventLoopDelay?.enable()
 let ipcRegistered = false
@@ -45,6 +45,10 @@ export function recordDownloadDurableWrite(): void {
   if (reportPath) counters.downloadDurableWrites += 1
 }
 
+export function recordExtensionCounter(name: 'extensionTabEventIpc' | 'nativeExtensionEvents' | 'nativeHostsCreated' | 'nativeHostsDestroyed'): void {
+  if (reportPath) counters[name] += 1
+}
+
 export function registerPerformanceProbeIpc(): void {
   if (!reportPath || ipcRegistered) return
   ipcRegistered = true
@@ -59,7 +63,15 @@ export function registerPerformanceProbeIpc(): void {
     if (!senderUrl.startsWith('file:') && !senderUrl.startsWith('http://localhost:') && !senderUrl.startsWith('http://127.0.0.1:')) {
       throw new Error('Untrusted performance counter request.')
     }
-    return { ...counters }
+    // Main-process event-loop delay since the previous read, so a benchmark
+    // measures contention inside its own window rather than since startup.
+    const sinceLastRead = eventLoopDelay ? {
+      eventLoopDelayP95Ms: eventLoopDelay.percentile(95) / 1e6,
+      eventLoopDelayP99Ms: eventLoopDelay.percentile(99) / 1e6,
+      eventLoopDelayMaxMs: eventLoopDelay.max / 1e6
+    } : {}
+    eventLoopDelay?.reset()
+    return { ...counters, ...sinceLastRead }
   })
 }
 

@@ -49,7 +49,7 @@ Signed service messages and update metadata are separated from executable update
 
 ### Video & Audio
 
-The optional Video & Audio surface starts a packaged local service on loopback. It receives no Node access through the browser UI and uses bounded, verified runtime dependencies. Public builds verify critical bundled runtime hashes and retain the required third-party license/source material.
+The optional Video & Audio surface starts a local service on loopback. It receives no Node access through the browser UI. Its runtime is not part of the browser package: it is a separately downloaded module whose release manifest is Ed25519-signed with keys pinned in Vast, replay-protected by a monotonic sequence, and whose archive is verified byte-for-byte against that manifest before extraction into a per-user module folder. Only the trusted main process can download or install it, after an explicit user action, and executables are re-verified before every launch. See `docs/AVIDAE_MODULE.md`.
 
 ### Network Devices
 

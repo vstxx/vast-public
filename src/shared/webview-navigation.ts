@@ -1,4 +1,5 @@
 export interface WebviewNavigationEventLike {
+  type?: string
   url?: string
   isMainFrame?: boolean
   detail?: {
@@ -54,6 +55,10 @@ export function getWebviewNavigationDetails(event: WebviewNavigationEventLike): 
 }
 
 export function shouldAcceptWebviewNavigationEvent(event: WebviewNavigationEventLike, currentWebviewUrl = ''): boolean {
+  // did-navigate is emitted only for the main frame and carries no isMainFrame
+  // flag. Its URL always differs from the previous one on a link or history
+  // navigation, so the iframe heuristic below must not apply to it.
+  if (event.type === 'did-navigate') return true
   const details = getWebviewNavigationDetails(event)
   if (details.isMainFrame === false) return false
 

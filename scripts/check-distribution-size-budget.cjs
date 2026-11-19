@@ -29,32 +29,41 @@ function formatMiB(bytes) {
 const reportPath = repositoryPath(argument('--report', join('performance-results', 'distribution-size-audit.json')))
 if (!existsSync(reportPath)) throw new Error(`Distribution size audit is missing: ${relative(root, reportPath)}`)
 const report = JSON.parse(readFileSync(reportPath, 'utf8'))
-if (report.schemaVersion !== 1 || report.appVersion !== pkg.version) {
+if (report.schemaVersion !== 2 || report.appVersion !== pkg.version) {
   throw new Error('Distribution size audit schema or application version is stale.')
 }
 
 const artifacts = new Map((report.artifacts || []).map((item) => [item.id, item]))
 const components = new Map((report.components || []).map((item) => [item.id, item]))
 
-// Measured from the optimized 0.1.5 Windows x64 package, with roughly 5-10%
-// headroom for runtime security updates. app.asar/node_modules retain additional
-// headroom because ordinary application code should not require a runtime reset.
+// Vast Core (installer, Portable, update ZIP, installed tree) and the optional
+// Video & Audio module have independent budgets; the module never counts
+// toward the default installed footprint. Core limits keep roughly 5-10%
+// headroom over the measured 0.5.x Core for Electron security updates.
+// Module limits apply only when the module was built in this workspace
+// (avidae:module:build); the module release workflow always builds it.
 const limits = [
-  { id: 'installer', label: 'NSIS installer', source: artifacts, maximum: 350 * MiB },
-  { id: 'portable', label: 'Portable executable', source: artifacts, maximum: 310 * MiB },
-  { id: 'updateZip', label: 'Full update ZIP', source: artifacts, maximum: 495 * MiB },
-  { id: 'winUnpacked', label: 'win-unpacked', source: artifacts, maximum: 1200 * MiB },
-  { id: 'avidaeRuntime', label: 'Video & Audio runtime', source: components, maximum: 810 * MiB },
-  { id: 'playwright', label: 'Playwright runtime', source: components, maximum: 450 * MiB },
-  { id: 'playwrightHeadlessShell', label: 'Redundant Playwright headless shell', source: components, maximum: 0 },
-  { id: 'pyinstaller', label: 'PyInstaller runtime', source: components, maximum: 155 * MiB },
+  { id: 'installer', label: 'Core NSIS installer', source: artifacts, maximum: 120 * MiB },
+  { id: 'portable', label: 'Core Portable executable', source: artifacts, maximum: 120 * MiB },
+  { id: 'updateZip', label: 'Core update ZIP', source: artifacts, maximum: 170 * MiB },
+  { id: 'winUnpacked', label: 'Core installed tree (win-unpacked)', source: artifacts, maximum: 450 * MiB },
+  { id: 'avidaeInCore', label: 'Video & Audio content inside Core', source: artifacts, maximum: 0 },
   { id: 'appAsar', label: 'app.asar', source: components, maximum: 14 * MiB },
-  { id: 'nodeModules', label: 'Packaged node_modules', source: components, maximum: 5 * MiB }
+  { id: 'nodeModules', label: 'Packaged node_modules', source: components, maximum: 5 * MiB },
+  { id: 'moduleArchive', label: 'Video & Audio module download', source: artifacts, maximum: 400 * MiB, module: true },
+  { id: 'moduleInstalled', label: 'Video & Audio module installed', source: artifacts, maximum: 700 * MiB, module: true },
+  { id: 'playwright', label: 'Module Playwright runtime', source: components, maximum: 450 * MiB, module: true },
+  { id: 'playwrightHeadlessShell', label: 'Module redundant Playwright headless shell', source: components, maximum: 0, module: true },
+  { id: 'pyinstaller', label: 'Module PyInstaller runtime', source: components, maximum: 155 * MiB, module: true }
 ]
+const moduleBuilt = Number(artifacts.get('moduleArchive')?.bytes) > 0
 
 const checks = limits.map((limit) => {
   const measured = limit.source.get(limit.id)
   const actual = Number(measured?.bytes)
+  if (limit.module && !moduleBuilt) {
+    return { id: limit.id, label: limit.label, actual: null, maximum: limit.maximum, pass: true, reason: 'module not built in this workspace' }
+  }
   const present = Number.isFinite(actual) && (actual > 0 || limit.maximum === 0)
   return {
     id: limit.id,
@@ -72,15 +81,17 @@ const mediaMaximum = 205 * MiB
 const mediaPresent = Number.isFinite(ffmpegBytes) && ffmpegBytes > 0 && Number.isFinite(ffprobeBytes) && ffprobeBytes > 0
 checks.push({
   id: 'ffmpegAndFfprobe',
-  label: 'FFmpeg + FFprobe',
+  label: 'Module FFmpeg + FFprobe',
   actual: mediaPresent ? ffmpegBytes + ffprobeBytes : null,
   maximum: mediaMaximum,
-  pass: mediaPresent && ffmpegBytes + ffprobeBytes <= mediaMaximum,
-  reason: !mediaPresent
-    ? 'missing measurement'
-    : ffmpegBytes + ffprobeBytes > mediaMaximum
-      ? `over by ${formatMiB(ffmpegBytes + ffprobeBytes - mediaMaximum)}`
-      : 'within budget'
+  pass: !moduleBuilt || (mediaPresent && ffmpegBytes + ffprobeBytes <= mediaMaximum),
+  reason: !moduleBuilt
+    ? 'module not built in this workspace'
+    : !mediaPresent
+      ? 'missing measurement'
+      : ffmpegBytes + ffprobeBytes > mediaMaximum
+        ? `over by ${formatMiB(ffmpegBytes + ffprobeBytes - mediaMaximum)}`
+        : 'within budget'
 })
 
 const result = {

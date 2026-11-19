@@ -208,6 +208,16 @@ test('experimental findings inform without downgrading an otherwise compatible m
   assert.equal(result.summary, 'Content scripts run in website tabs; declared surfaces are unverified and may change with runtime updates.')
 })
 
+test('packaged WebAssembly is supported on the patched runtime where it was measured', () => {
+  const result = analyzeExtensionCompatibility(validated({
+    permissions: ['storage', 'offscreen'],
+    background: { service_worker: 'worker.js' },
+    content_security_policy: { extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'" }
+  }), 'patched-electron-ece')
+  assert.equal(finding(result.capabilities, 'key:csp.wasm').status, 'supported')
+  assert.ok(!result.warnings.some((warning) => warning.includes('wasm-unsafe-eval')))
+})
+
 test('reports manifest commands and missing UI surfaces as unsupported', () => {
   const result = analyzeExtensionCompatibility(validated({
     commands: { 'fill-fields': { suggested_key: { default: 'Alt+Shift+U' }, description: 'Fill' } },

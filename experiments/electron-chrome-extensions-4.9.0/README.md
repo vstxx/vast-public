@@ -31,7 +31,9 @@ patched runtime.
 - uses byte-accurate UTF-8 framing with bounded, buffered parsing for
   fragmented and coalesced host messages;
 - propagates host startup, protocol, size-limit, crash, and disconnect errors
-  without logging extension message payloads.
+  without logging extension message payloads;
+- keeps an extension service worker alive while it holds a `connectNative`
+  port open, as Chrome 105+ does, and releases it when the port closes.
 
 The runtime preparation script applies equivalent transformations to the
 published npm `dist/` files. This source patch is authoritative for source

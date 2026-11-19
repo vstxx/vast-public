@@ -1,5 +1,5 @@
-import type { HTMLAttributes } from 'react'
+import type { ComponentPropsWithRef } from 'react'
 
-export function NotificationCard({ className = '', ...props }: HTMLAttributes<HTMLDivElement>): JSX.Element {
+export function NotificationCard({ className = '', ...props }: ComponentPropsWithRef<'div'>): JSX.Element {
   return <div {...props} className={`vast-notification-card ${className}`.trim()} />
 }

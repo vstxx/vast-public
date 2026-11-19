@@ -1,4 +1,4 @@
-import { app } from 'electron/main'
+import { app, net, session } from 'electron/main'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -7,17 +7,24 @@ import { existsSync } from 'node:fs'
 import { mkdir, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import path from 'node:path'
-import type { AvidaeStatus } from '../shared/types'
+import type { AvidaeModuleStatus, AvidaeStatus } from '../shared/types'
+import { isPublicDistributionBuild } from '../shared/build-metadata'
+import modulePolicy from '../shared/avidae-module-policy.json' with { type: 'json' }
 import { vastDataPath } from './data-path'
+import { portableDataRootFromEnv } from './data-path-utils'
+import { getBuildMetadata } from './build-info'
 import { clearAvidaeAuthorization, setAvidaeAuthorization } from './avidae-auth'
-import { verifyBundledAvidaeRuntime } from './avidae-runtime'
+import { verifyAvidaeRuntime } from './avidae-runtime'
 import { redactAvidaeLogLine } from './avidae-log'
+import { AvidaeModuleManager } from './avidae-module'
+import type { AvidaeModuleTrustedKey } from './avidae-module-manifest'
 
 interface PythonCandidate {
   command: string
   args: string[]
   label: string
   sourceScript: boolean
+  cwd?: string
   runtimeEnvironment?: Record<string, string>
 }
 
@@ -29,10 +36,108 @@ let port: number | undefined
 let url: string | undefined
 let error: string | undefined
 let pythonLabel: string | undefined
-let runtimeBundled = false
 let authToken: string | undefined
 const logs: string[] = []
 const execFileAsync = promisify(execFile)
+let moduleManager: AvidaeModuleManager | undefined
+
+// Test and diagnostic overrides are honoured only by development and private
+// builds; public releases always use the policy compiled into Vast.
+function moduleOverridesAllowed(): boolean {
+  return !app.isPackaged || !isPublicDistributionBuild(getBuildMetadata())
+}
+
+// Development checkouts run the Python service from source unless a test
+// points them at a module release manifest.
+function usesModuleRuntime(): boolean {
+  return app.isPackaged || Boolean(moduleOverridesAllowed() && process.env.VAST_AVIDAE_MODULE_MANIFEST_URL)
+}
+
+// The module lives outside the browser installation and outside the roaming
+// profile: per-user local app data for Direct, the package-virtualized local
+// app data for Microsoft Store, and beside "Vast Data" for Portable copies.
+function moduleRoot(): string {
+  const override = moduleOverridesAllowed() ? process.env.VAST_AVIDAE_MODULE_ROOT?.trim() : undefined
+  if (override) return path.resolve(override)
+  const portableRoot = portableDataRootFromEnv()
+  if (portableRoot) return path.join(path.dirname(portableRoot), 'Vast Modules', 'video-audio')
+  const localAppData = process.env.LOCALAPPDATA?.trim() || path.join(app.getPath('home'), 'AppData', 'Local')
+  const metadata = getBuildMetadata()
+  const product = !app.isPackaged
+    ? 'Vast Dev'
+    : metadata.distributionChannel === 'microsoft-store'
+      ? (metadata.privateBuild ? 'Vast Store Development' : 'Vast Store')
+      : 'Vast'
+  return path.join(localAppData, product, 'Modules', 'video-audio')
+}
+
+function trustedModuleKeys(): AvidaeModuleTrustedKey[] {
+  const keys = [...(modulePolicy.trustedKeys as AvidaeModuleTrustedKey[])]
+  const testKey = moduleOverridesAllowed() ? process.env.VAST_AVIDAE_MODULE_TEST_PUBLIC_KEY?.trim() : undefined
+  if (testKey) keys.push({ keyId: 'vast-avidae-test', algorithm: 'Ed25519', publicKeySpkiBase64: testKey, status: 'current' })
+  return keys
+}
+
+function moduleUnavailableReason(): string | undefined {
+  if (process.platform !== 'win32' || process.arch !== 'x64') return 'Video & Audio is available for Windows x64 only.'
+  if (app.isPackaged && getBuildMetadata().distributionChannel === 'microsoft-store' && modulePolicy.microsoftStoreDownloads !== true) {
+    return 'Video & Audio is not available in the Microsoft Store edition of Vast.'
+  }
+  return undefined
+}
+
+function avidaeModule(): AvidaeModuleManager {
+  if (moduleManager) return moduleManager
+  const overrideUrl = moduleOverridesAllowed() ? process.env.VAST_AVIDAE_MODULE_MANIFEST_URL?.trim() : undefined
+  // A dedicated in-memory session keeps module downloads out of browsing
+  // history, extensions and content blocking while honouring system proxies.
+  const downloadSession = session.fromPartition('vast-avidae-module')
+  moduleManager = new AvidaeModuleManager({
+    root: moduleRoot(),
+    manifestUrl: overrideUrl || modulePolicy.manifestUrl || undefined,
+    trustedKeys: trustedModuleKeys(),
+    unavailableReason: moduleUnavailableReason(),
+    revokedModuleVersions: modulePolicy.revokedModuleVersions,
+    vastVersion: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch,
+    allowLoopbackHttp: moduleOverridesAllowed(),
+    fetch: (input, init) => downloadSession.fetch(input, init),
+    isOnline: () => net.isOnline()
+  })
+  return moduleManager
+}
+
+function moduleStatus(): AvidaeModuleStatus {
+  if (!usesModuleRuntime()) return { state: 'ready', development: true, canCancel: false }
+  return avidaeModule().status()
+}
+
+export function onAvidaeModuleChanged(listener: (status: AvidaeModuleStatus) => void): () => void {
+  if (!usesModuleRuntime()) return () => undefined
+  return avidaeModule().onChange(listener)
+}
+
+// Re-reads the installation and, once per session, the signed release
+// metadata. Only the Video & Audio page triggers this.
+export function refreshAvidaeModule(): void {
+  if (usesModuleRuntime()) void avidaeModule().refresh({ checkRelease: true })
+}
+
+export async function installAvidaeModule(): Promise<AvidaeStatus> {
+  if (!usesModuleRuntime()) return status()
+  if (child || startPromise) await stopAvidae()
+  appendLog('Downloading and installing the Video & Audio runtime.')
+  const result = await avidaeModule().install()
+  if (result.state === 'ready' && !result.error) appendLog(`Video & Audio runtime ${result.installedVersion} is installed.`)
+  else if (result.error) appendLog(result.error)
+  return status()
+}
+
+export function cancelAvidaeModuleInstall(): AvidaeStatus {
+  if (usesModuleRuntime()) avidaeModule().cancel()
+  return status()
+}
 
 const inheritedEnvironmentKeys = [
   'PATH', 'Path', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'HOME', 'USERPROFILE',
@@ -40,8 +145,8 @@ const inheritedEnvironmentKeys = [
 ] as const
 
 function paths(): Pick<AvidaeStatus, 'sourcePath' | 'dataPath'> {
-  const sourcePath = app.isPackaged
-    ? path.join(process.resourcesPath, 'avidae')
+  const sourcePath = usesModuleRuntime()
+    ? moduleRoot()
     : path.join(process.cwd(), 'resources', 'avidae')
   return {
     sourcePath,
@@ -75,20 +180,29 @@ function status(): AvidaeStatus {
     port,
     error,
     python: pythonLabel,
-    runtimeBundled,
     logs: [...logs],
+    module: moduleStatus(),
     ...paths()
   }
 }
 
 async function pythonCandidates(): Promise<PythonCandidate[]> {
-  if (app.isPackaged) {
-    const runtime = await verifyBundledAvidaeRuntime(process.resourcesPath)
+  if (usesModuleRuntime()) {
+    const active = await avidaeModule().activeRuntime()
+    let runtime
+    try {
+      runtime = await verifyAvidaeRuntime(active.root, active)
+    } catch (verificationError) {
+      const message = verificationError instanceof Error ? verificationError.message : String(verificationError)
+      avidaeModule().markRepairRequired(`${message} Reinstall the Video & Audio runtime.`)
+      throw verificationError
+    }
     return [{
       command: runtime.executable,
       args: [],
       label: runtime.label,
       sourceScript: false,
+      cwd: path.dirname(runtime.executable),
       runtimeEnvironment: {
         FFMPEG_PATH: runtime.ffmpeg,
         FFPROBE_PATH: runtime.ffprobe,
@@ -188,7 +302,7 @@ function spawnAvidae(candidate: PythonCandidate, allocatedPort: number, launchTo
   const appPath = path.join(currentPaths.sourcePath, 'app.py')
   const processArgs = candidate.sourceScript ? [...candidate.args, appPath] : [...candidate.args]
   return spawn(candidate.command, processArgs, {
-    cwd: currentPaths.sourcePath,
+    cwd: candidate.cwd ?? currentPaths.sourcePath,
     env: isolatedEnvironment({
       PORT: String(allocatedPort),
       AVIDAE_HOST: '127.0.0.1',
@@ -214,7 +328,6 @@ async function tryStart(candidate: PythonCandidate): Promise<AvidaeStatus> {
   }
   await mkdir(currentPaths.dataPath, { recursive: true })
   pythonLabel = candidate.label
-  runtimeBundled = !candidate.sourceScript
   let lastError: Error | undefined
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -280,6 +393,16 @@ export async function startAvidae(): Promise<AvidaeStatus> {
     clearAvidaeAuthorization()
   }
 
+  if (usesModuleRuntime()) {
+    // A missing, damaged or in-progress module is an installation state, not
+    // a backend failure. The page offers installation instead of Start.
+    const module = await avidaeModule().refresh()
+    if (module.state !== 'ready') {
+      appendLog('The Video & Audio runtime is not installed or needs attention.')
+      return status()
+    }
+  }
+
   startPromise = (async () => {
     state = 'starting'
     error = undefined
@@ -327,7 +450,6 @@ export async function stopAvidae(): Promise<AvidaeStatus> {
   port = undefined
   url = undefined
   authToken = undefined
-  runtimeBundled = false
   clearAvidaeAuthorization()
   const dataRoot = path.resolve(paths().dataPath)
   const tempRoot = path.resolve(dataRoot, 'temp')
@@ -362,11 +484,10 @@ async function runTool(candidate: PythonCandidate, args: string[]): Promise<void
 export async function installAvidaeDependencies(): Promise<AvidaeStatus> {
   if (installPromise) return installPromise
   installPromise = (async () => {
-    if (app.isPackaged && process.env.VAST_ALLOW_RUNTIME_INSTALL !== '1') {
-      state = 'error'
-      error =
-        'Runtime dependency install is disabled in release builds. Bundle Video & Audio dependencies during packaging or use a trusted diagnostic build.'
-      appendLog(error)
+    // Development-only: installs Python packages into the developer's own
+    // interpreter. Packaged builds install the verified module instead.
+    if (usesModuleRuntime()) {
+      appendLog('Python dependency installation is only available in development checkouts.')
       return status()
     }
     await stopAvidae()

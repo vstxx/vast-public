@@ -2,6 +2,7 @@ import { copyFile, mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile
 import { performance } from 'node:perf_hooks'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { DEFAULT_DATA, STORAGE_SCHEMA_VERSION } from '../shared/constants'
+import { ONBOARDING_STATE_REVISION, profileShowsEstablishedUse } from '../shared/onboarding'
 import { migrateLegacyInternalTab, migrateLegacySessionSnapshot, stripRetiredReaderState } from '../shared/legacy-internal-url-migration'
 import { resolveLayoutMode } from '../shared/layout-mode'
 import { mergePersistedDataForMigration } from '../shared/storage-schema-migration'
@@ -365,6 +366,7 @@ const entityGuards = {
 const enumSettings = new Map<string, ReadonlySet<string>>([
   ['theme', new Set(['dark', 'dim', 'light', 'system'])],
   ['sidebarDensity', new Set(['comfortable', 'compact'])],
+  ['motionLevel', new Set(['standard', 'enhanced'])],
   ['layoutMode', new Set(['vertical', 'horizontal', 'purist'])],
   ['tabLayout', new Set(['vertical', 'compact'])],
   ['sidePanel.mode', new Set(['auto', 'docked', 'overlay'])],
@@ -507,13 +509,17 @@ export function migrateData(data: PersistedData): PersistedData {
   }
   const sanitizedSettings = sanitizeBrowserSettings(settingsInput)
   sanitizedSettings.advanced.ramLimitMb = nextRamLimitMb
-  // Profiles stored before onboarding existed (schemaVersion < 9) predate the
-  // flow, so they count as completed; fresh profiles keep DEFAULT_DATA's
-  // `completed: false` and a v9+ file always keeps its own value.
+  // Profiles stored before onboarding existed have no record and count as
+  // completed; fresh profiles keep DEFAULT_DATA's `completed: false`. Records
+  // written by older builds (no revision) that are still incomplete on an
+  // established profile are repaired once, see profileShowsEstablishedUse.
+  const storedOnboarding = isRecord(data.onboarding) ? data.onboarding : undefined
   const onboarding: PersistedData['onboarding'] = {
-    completed: isRecord(data.onboarding)
-      ? data.onboarding.completed === true
-      : data.schemaVersion >= STORAGE_SCHEMA_VERSION
+    completed: storedOnboarding
+      ? storedOnboarding.completed === true ||
+        (storedOnboarding.revision === undefined && profileShowsEstablishedUse(data as Parameters<typeof profileShowsEstablishedUse>[0]))
+      : true,
+    revision: ONBOARDING_STATE_REVISION
   }
   const merged: PersistedData = {
     ...mergePersistedDataForMigration(fallback, data, STORAGE_SCHEMA_VERSION),
@@ -850,6 +856,38 @@ export async function recordImportExtensionResult(operationId: string, result: B
     const disk = normalizePersistedData(JSON.parse(verified) as unknown)
     if (JSON.stringify(disk.importState) !== JSON.stringify(candidate.importState)) throw new Error('Extension import result readback failed.')
     return result
+  })
+}
+
+/**
+ * Removes browsing history from the automatic and manual storage backups after
+ * the user clears all history. Saves first copy the previous file into a
+ * rolling backup, so this must run after the cleared data has been written.
+ * Files that cannot be parsed are left untouched and reported.
+ */
+export async function scrubHistoryFromStorageBackups(): Promise<{ scrubbed: number; skipped: number }> {
+  return durableSaveQueue.run(async () => {
+    let scrubbed = 0
+    let skipped = 0
+    for (const backup of await listStorageBackups()) {
+      try {
+        const raw = await readFile(backup.path, 'utf8')
+        const parsed = JSON.parse(raw) as unknown
+        if (!isRecord(parsed) || !Array.isArray(parsed.history)) {
+          skipped += 1
+          continue
+        }
+        if (parsed.history.length === 0) continue
+        const tmp = `${backup.path}.${process.pid}.${Date.now()}.tmp`
+        await writeFile(tmp, `${JSON.stringify({ ...parsed, history: [] })}
+`, { encoding: 'utf8', flush: true })
+        await rename(tmp, backup.path)
+        scrubbed += 1
+      } catch {
+        skipped += 1
+      }
+    }
+    return { scrubbed, skipped }
   })
 }
 

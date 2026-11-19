@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "reviewedAt": "2026-10-06",
+  "reviewedAt": "2026-10-27",
   "maximumReviewAgeDays": 60,
   "maximumChromiumMajorLag": 2,
-  "upstreamStableVersion": "154.0.8037.92",
+  "upstreamStableVersion": "156.0.8078.47",
   "upstreamSource": "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json",
   "storePolicyUrl": "https://learn.microsoft.com/en-us/windows/apps/publish/store-policies"
 }

@@ -33,6 +33,7 @@ import {
   replaceDataFromImport,
   saveData,
   saveRendererData,
+  scrubHistoryFromStorageBackups,
   storagePath
 } from './storage'
 import { resolveRendererPrompt, showRendererNotification } from './ui-bridge'
@@ -239,6 +240,14 @@ export function setupIpc(services: IpcServices = {}): void {
   handle('vast:storage:save', async (_event, data: PersistedData) => persistRendererData(data))
 
   handle('vast:storage:flush', async (_event, data: PersistedData) => persistRendererData(data))
+
+  handle('vast:storage:scrub-history-backups', async () => {
+    try {
+      return { ok: true as const, ...(await scrubHistoryFromStorageBackups()) }
+    } catch (error) {
+      return fail(error)
+    }
+  })
 
   handle('vast:window:close-ready', async (event, requestId: string, result: { ok?: unknown; error?: unknown }) => {
     if (typeof requestId !== 'string' || !requestId || !result || typeof result !== 'object' || typeof result.ok !== 'boolean') {

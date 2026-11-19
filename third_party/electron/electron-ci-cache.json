@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "repository": "vstxx/vast",
-  "releaseTag": "ci-cache-electron-756a541e66b4d144",
-  "assetName": "electron-45.0.0-vast-r1-win32-x64.zip",
-  "archiveSha256": "b6c75b6cad553daaad42646c86b01785fb34f1fd008fd55ae842222ee908f84b",
-  "patchsetRevision": "electron-45.0.0-vast-r1",
-  "patchsetSha256": "98e36c20715957b3b0f489fc9c7c8e531e4ae3c58a3f3ff534dd26b6edf8b4cb",
-  "binarySha256": "756a541e66b4d144c15cb41ab35f0d627d6cf997900f91fb5b072e09a06c3e67"
+  "releaseTag": "ci-cache-electron-976eb139a42d130f",
+  "assetName": "electron-45.3.4-vast-r1-win32-x64.zip",
+  "archiveSha256": "ca233f5566ef237f956ecc7c1d716c52d4a04cd389872cd4cc82f27873e9e9c3",
+  "patchsetRevision": "electron-45.3.4-vast-r1",
+  "patchsetSha256": "7d324faef4d2dae69ff0c9a05e8d88f4588d075adbc64f595e72fbcf86497987",
+  "binarySha256": "976eb139a42d130f19dcaeadc4cf8fe7ebe0e06c33ae118ce14d916d3c3cba64"
 }

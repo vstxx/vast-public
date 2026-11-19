@@ -33,6 +33,12 @@ const fixtureManifest = JSON.parse(fs.readFileSync(fixtureManifestPath, 'utf8'))
 fixtureManifest.action = { default_popup: 'popup.html' }
 fixtureManifest.options_ui = { page: 'options.html', open_in_tab: false }
 if (verifyCompatibilityTabs) fixtureManifest.permissions = [...new Set([...(fixtureManifest.permissions || []), 'tabs'])]
+// chrome.contextMenus round trip: the worker registers a page item and records
+// the click; the content script mirrors it into the page for verification.
+fixtureManifest.permissions = [...new Set([...(fixtureManifest.permissions || []), 'contextMenus'])]
+fixtureManifest.background = { service_worker: 'worker.js' }
+fs.writeFileSync(path.join(fixturePath, 'worker.js'), "chrome.runtime.onInstalled.addListener(() => { chrome.contextMenus.create({ id: 'fixture-menu', title: 'Fixture menu item', contexts: ['page'] }) })\nchrome.contextMenus.onClicked.addListener((info) => { chrome.storage.local.set({ vastMenuClick: info.menuItemId + '|' + info.pageUrl }) })\n", 'utf8')
+fs.appendFileSync(path.join(fixturePath, 'content.js'), "\nchrome.storage.onChanged.addListener((changes) => { if (changes.vastMenuClick) document.documentElement.dataset.vastMenuClick = changes.vastMenuClick.newValue })\n", 'utf8')
 fs.writeFileSync(fixtureManifestPath, `${JSON.stringify(fixtureManifest, null, 2)}\n`, 'utf8')
 fs.writeFileSync(path.join(fixturePath, 'popup.html'), `<!doctype html><html><head><meta charset="utf-8"><title>Fixture popup</title><style>body{margin:0;padding:20px;background:#0b0c11;color:#f5f7fa;font:14px system-ui}</style></head><body data-vast-toolbar-popup="ready"><strong>Custom extension popup</strong><p id="storage">Checking storage</p>${verifyCompatibilityTabs ? '<p id="tabs">Checking tabs</p>' : ''}<script src="popup.js"></script></body></html>`, 'utf8')
 fs.writeFileSync(path.join(fixturePath, 'popup.js'), `chrome.storage.local.get('vastExtensionFixtureStorage', (value) => { document.querySelector('#storage').textContent = value.vastExtensionFixtureStorage === 'storage-round-trip' ? 'Storage connected' : 'Storage ready' })\n${verifyCompatibilityTabs ? "chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => { const tab = tabs[0]; document.querySelector('#tabs').textContent = tab && typeof tab.id === 'number' && tab.url ? 'Tabs connected' : `Tabs unavailable: ${chrome.runtime.lastError?.message || 'no active tab'}` })\n" : ''}`, 'utf8')
@@ -321,6 +327,28 @@ async function stop(child) {
   if (appProcess === child) appProcess = undefined
 }
 
+// A right-click in the tab lets ECE resolve chrome.contextMenus for that tab;
+// the browser UI gets labels and a single-use token, and the click reaches the
+// extension's service worker in the tab's workspace session.
+async function verifyChromeContextMenu(session, origin) {
+  const visible = "[...document.querySelectorAll('webview.browser-webview')].find((item) => { const rect = item.getBoundingClientRect(); return rect.width > 0 && rect.height > 0 })"
+  const guestId = await session.evaluate(`${visible}.getWebContentsId()`)
+  let entry
+  for (let attempt = 0; attempt < 40 && !entry; attempt += 1) {
+    await session.evaluate(`(() => { const view = ${visible}; for (const type of ['mouseDown', 'mouseUp']) view.sendInputEvent({ type, x: 60, y: 60, button: 'right', clickCount: 1 }) })()`)
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    const result = await session.evaluate(`window.vast.extensions.chromeContextMenu(${guestId})`)
+    entry = result.ok ? result.items.find((item) => item.label === 'Fixture menu item') : undefined
+  }
+  assert(entry, 'chrome.contextMenus item did not reach the Vast page menu.')
+  await session.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))")
+  const clicked = await session.evaluate(`window.vast.extensions.clickChromeContextMenu(${guestId}, ${JSON.stringify(entry.token)})`)
+  assert(clicked.ok, `chrome.contextMenus click failed: ${clicked.error}`)
+  const replay = await session.evaluate(`window.vast.extensions.clickChromeContextMenu(${guestId}, ${JSON.stringify(entry.token)})`)
+  assert(!replay.ok, 'A chrome.contextMenus token was accepted twice.')
+  await waitForGuest(session, `document.documentElement.dataset.vastMenuClick === 'fixture-menu|${origin}/extension-runtime'`, 'chrome.contextMenus.onClicked in the extension worker')
+}
+
 async function verifyRuntime(session, origin) {
   const expression = `document.documentElement.dataset.vastExtensionFixture === 'content-script-loaded' && document.documentElement.dataset.vastExtensionFixtureStorage === 'storage-round-trip'`
   await setAddress(session, `${origin}/extension-runtime`)
@@ -356,6 +384,7 @@ async function runFirstLaunch(origin) {
   assert(initialFixture.loadedSessionCount === 1, 'Extension loaded into an unexpected number of sessions.')
   assert(!initial.extensions.some((extension) => extension.source === 'bundled'), 'Bundled catalog content appeared as preinstalled software.')
   await verifyRuntime(session, origin)
+  await verifyChromeContextMenu(session, origin)
   await waitFor(session, `!document.querySelector('.vast-opening-overlay')`, 'opening presentation to finish', 15_000)
   await wait(750)
   if (await session.evaluate(`Boolean(document.querySelector('[data-testid="relay-notice-dismiss"]'))`)) {
@@ -680,7 +709,7 @@ async function main() {
   }
   await runFirstLaunch(origin)
   await runRestart(origin)
-  console.log('PASS Vast extensions Electron E2E: restore, content script, storage, management UI, disable, enable, reload, Incognito isolation, restart persistence, and remove.')
+  console.log('PASS Vast extensions Electron E2E: restore, content script, storage, chrome.contextMenus in the Vast page menu, management UI, disable, enable, reload, Incognito isolation, restart persistence, and remove.')
   if (process.env.VAST_E2E_CWS_INSTALL === '1') console.log('PASS Chrome Web Store URL review, verified package installation, and live Electron extension load.')
 }
 

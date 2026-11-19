@@ -16,13 +16,16 @@ function event<T>(name: VastNativeEventName): { addListener(callback: (value: T)
   }
 }
 
-ipcRenderer.on('vast-native:event', (_event, name: unknown, payload: unknown) => {
+// User actions carry a delivery ID: Vast reports a click as handled only when
+// a listener received it, so the count (not any listener result) is returned.
+ipcRenderer.on('vast-native:event', (_event, name: unknown, payload: unknown, deliveryId: unknown) => {
   if (typeof name !== 'string') return
-  const bucket = listeners.get(name as VastNativeEventName)
-  if (!bucket) return
-  for (const listener of [...bucket]) {
-    try { listener(payload as never) } catch { /* One extension listener must not break the others. */ }
+  const bucket = [...(listeners.get(name as VastNativeEventName) ?? [])]
+  let failed = 0
+  for (const listener of bucket) {
+    try { listener(payload as never) } catch { failed += 1 /* One extension listener must not break the others. */ }
   }
+  if (typeof deliveryId === 'number') ipcRenderer.send('vast-native:event-ack', deliveryId, bucket.length, failed)
 })
 
 const call = <T>(method: string, ...args: unknown[]): Promise<T> => ipcRenderer.invoke('vast-native:call', method, args) as Promise<T>

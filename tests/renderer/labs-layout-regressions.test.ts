@@ -28,6 +28,22 @@ test('Notes actions use two complete equal-column rows instead of wrapping', () 
   assert.match(notesSource, /<Trash2 className="h-4 w-4" \/>Delete/)
 })
 
+test('Notes list and details collapse to rails so the editor takes the freed width', () => {
+  // Three columns whose side tracks shrink to a rail; the editor is the only flexible track.
+  assert.match(notesSource, /xl:grid-cols-\[var\(--notes-list\)_minmax\(0,1fr\)_var\(--notes-details\)\]/)
+  assert.match(notesSource, /'--notes-list': panels\.list \? '340px' : PANEL_RAIL/)
+  assert.doesNotMatch(notesSource, /max-w-7xl/)
+  assert.match(notesSource, /data-testid="notes-list-rail"/)
+  assert.match(notesSource, /data-testid="notes-details-rail"/)
+  assert.match(notesSource, /aria-expanded=\{open\}/)
+  // Hidden state is a per-viewer convenience: storage failures must not break the page.
+  assert.match(notesSource, /const PANELS_KEY = 'vast:notes-panels'/)
+  assert.match(notesSource, /function readPanels\(\): NotesPanels \{\s*try \{/)
+  assert.match(notesSource, /function writePanels\(panels: NotesPanels\): void \{\s*try \{/)
+  // The column animation honours reduced motion.
+  assert.match(notesSource, /transition-\[grid-template-columns\][^"]*motion-reduce:transition-none/)
+})
+
 test('Automation action bars keep deliberate equal-column grids', () => {
   assert.match(automationSource, /className="mt-3 grid grid-cols-4 gap-2" data-testid="automation-primary-actions"/)
   assert.match(automationSource, /vast-button--danger vast-button--sm mt-2 w-full justify-center/)

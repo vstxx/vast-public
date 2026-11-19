@@ -1,0 +1,462 @@
+{
+ "note": "Reference translations are human-written for this set. Keyword checks catch obvious mistranslations; chrF against the reference is indicative only. Structural checks (protected tokens, markup) are separate from linguistic quality.",
+ "en-pl": [
+  {
+   "id": "news-1",
+   "source": "The government announced new rules for electric scooters on Monday.",
+   "reference": "W poniedziałek rząd ogłosił nowe przepisy dotyczące hulajnóg elektrycznych.",
+   "expect": [
+    [
+     "rząd"
+    ],
+    [
+     "poniedział"
+    ],
+    [
+     "hulajn",
+     "skuter"
+    ]
+   ],
+   "known": "Observed 2026-10-28: the model inflects hulajnóg as \"hulajnów\" (wrong genitive plural). Kept to track the regression or fix."
+  },
+  {
+   "id": "news-2",
+   "source": "Heavy rain is expected in the south of the country over the weekend.",
+   "reference": "W weekend na południu kraju spodziewane są ulewne deszcze.",
+   "expect": [
+    [
+     "deszcz",
+     "opad"
+    ],
+    [
+     "południ"
+    ],
+    [
+     "weekend"
+    ]
+   ]
+  },
+  {
+   "id": "web-1",
+   "source": "Sign in to your account to continue.",
+   "reference": "Zaloguj się na swoje konto, aby kontynuować.",
+   "expect": [
+    [
+     "zaloguj",
+     "zalogowa"
+    ],
+    [
+     "kont"
+    ]
+   ]
+  },
+  {
+   "id": "web-2",
+   "source": "Your order has been shipped and will arrive within three business days.",
+   "reference": "Twoje zamówienie zostało wysłane i dotrze w ciągu trzech dni roboczych.",
+   "expect": [
+    [
+     "zamówieni"
+    ],
+    [
+     "wysła"
+    ],
+    [
+     "trzech",
+     "3"
+    ],
+    [
+     "dni"
+    ]
+   ]
+  },
+  {
+   "id": "web-3",
+   "source": "We use cookies to improve your experience on our website.",
+   "reference": "Używamy plików cookie, aby poprawić Twoje doświadczenia na naszej stronie.",
+   "expect": [
+    [
+     "cookie",
+     "ciasteczk"
+    ],
+    [
+     "stron",
+     "witryn"
+    ]
+   ]
+  },
+  {
+   "id": "tech-1",
+   "source": "Restart the server after updating the configuration file.",
+   "reference": "Uruchom ponownie serwer po zaktualizowaniu pliku konfiguracyjnego.",
+   "expect": [
+    [
+     "serwer"
+    ],
+    [
+     "konfigura"
+    ],
+    [
+     "plik"
+    ]
+   ]
+  },
+  {
+   "id": "tech-2",
+   "source": "The function returns an empty array when the input is invalid.",
+   "reference": "Funkcja zwraca pustą tablicę, gdy dane wejściowe są nieprawidłowe.",
+   "expect": [
+    [
+     "funkcj"
+    ],
+    [
+     "pust"
+    ],
+    [
+     "nieprawidłow",
+     "niepoprawn",
+     "błędn"
+    ]
+   ]
+  },
+  {
+   "id": "tech-3",
+   "source": "Install the package with npm install translator-core and run npm test.",
+   "reference": "Zainstaluj pakiet poleceniem npm install translator-core i uruchom npm test.",
+   "expect": [
+    [
+     "pakiet"
+    ],
+    [
+     "npm install translator-core"
+    ],
+    [
+     "npm test"
+    ]
+   ],
+   "known": "Commands in plain prose are translated (npm install -> \"npm zainstaluj\"). Pages protect them only inside code/kbd/samp or translate=\"no\"; see tech-4."
+  },
+  {
+   "id": "tech-4",
+   "source": "Install the package with <code>npm install translator-core</code> and run <code>npm test</code>.",
+   "reference": "Zainstaluj pakiet poleceniem <code>npm install translator-core</code> i uruchom <code>npm test</code>.",
+   "html": true,
+   "expect": [
+    [
+     "pakiet"
+    ]
+   ],
+   "markup": [
+    "<code>npm install translator-core</code>",
+    "<code>npm test</code>"
+   ],
+   "forbid": [
+    "uciek"
+   ],
+   "known": "Observed 2026-10-28: code is preserved exactly, but \"run\" before the code span is translated as \"uciekać\" (to flee)."
+  },
+  {
+   "id": "ambiguous-1",
+   "source": "She sat on the bank of the river and watched the boats.",
+   "reference": "Usiadła na brzegu rzeki i obserwowała łodzie.",
+   "expect": [
+    [
+     "brzeg"
+    ],
+    [
+     "rzek"
+    ],
+    [
+     "łodzi",
+     "łódk",
+     "statk"
+    ]
+   ],
+   "forbid": [
+    "bank"
+   ]
+  },
+  {
+   "id": "ambiguous-2",
+   "source": "I need to deposit this cheque at the bank before it closes.",
+   "reference": "Muszę wpłacić ten czek w banku, zanim zostanie zamknięty.",
+   "expect": [
+    [
+     "bank"
+    ],
+    [
+     "czek"
+    ]
+   ]
+  },
+  {
+   "id": "short-1",
+   "source": "Cancel",
+   "reference": "Anuluj",
+   "expect": [
+    [
+     "anuluj",
+     "anulowa"
+    ]
+   ]
+  },
+  {
+   "id": "short-2",
+   "source": "Shopping cart",
+   "reference": "Koszyk",
+   "expect": [
+    [
+     "koszyk"
+    ]
+   ]
+  },
+  {
+   "id": "word-1",
+   "source": "weather",
+   "reference": "pogoda",
+   "expect": [
+    [
+     "pogod"
+    ]
+   ]
+  },
+  {
+   "id": "word-2",
+   "source": "library",
+   "reference": "biblioteka",
+   "expect": [
+    [
+     "bibliote"
+    ]
+   ]
+  },
+  {
+   "id": "numbers-1",
+   "source": "The meeting is on 2026-11-03 at 14:30 in room 4B.",
+   "reference": "Spotkanie odbędzie się 2026-11-03 o 14:30 w sali 4B.",
+   "expect": [
+    [
+     "spotkani"
+    ],
+    [
+     "2026-11-03"
+    ],
+    [
+     "14:30"
+    ],
+    [
+     "4B"
+    ]
+   ]
+  },
+  {
+   "id": "html-1",
+   "source": "Read <a href=\"#guide\">the full guide</a> before you <b>start</b>.",
+   "reference": "Przeczytaj <a href=\"#guide\">pełny przewodnik</a>, zanim <b>zaczniesz</b>.",
+   "html": true,
+   "expect": [
+    [
+     "przewodnik",
+     "poradnik"
+    ]
+   ],
+   "markup": [
+    "<a href=\"#guide\">",
+    "</a>",
+    "<b>",
+    "</b>"
+   ]
+  },
+  {
+   "id": "long-1",
+   "source": "Researchers at the university have developed a new method for recycling plastic that uses less energy than existing processes. The team hopes the technique can be used by local recycling plants within the next five years.",
+   "reference": "Naukowcy z uniwersytetu opracowali nową metodę recyklingu plastiku, która zużywa mniej energii niż istniejące procesy. Zespół ma nadzieję, że w ciągu najbliższych pięciu lat technika ta będzie mogła być stosowana przez lokalne zakłady recyklingu.",
+   "expect": [
+    [
+     "naukow",
+     "badacz"
+    ],
+    [
+     "recykling"
+    ],
+    [
+     "energi"
+    ],
+    [
+     "pięciu",
+     "5"
+    ]
+   ]
+  }
+ ],
+ "pl-en": [
+  {
+   "id": "news-1",
+   "source": "Prezydent spotkał się wczoraj z przedstawicielami samorządów.",
+   "reference": "Yesterday the president met with representatives of local governments.",
+   "expect": [
+    [
+     "president"
+    ],
+    [
+     "yesterday"
+    ],
+    [
+     "representative",
+     "official"
+    ]
+   ]
+  },
+  {
+   "id": "news-2",
+   "source": "Ceny paliw na stacjach spadły w tym tygodniu o kilka groszy.",
+   "reference": "Fuel prices at petrol stations fell by a few groszy this week.",
+   "expect": [
+    [
+     "fuel",
+     "petrol",
+     "gas"
+    ],
+    [
+     "price"
+    ],
+    [
+     "week"
+    ]
+   ]
+  },
+  {
+   "id": "web-1",
+   "source": "Nie pamiętasz hasła? Kliknij tutaj, aby je zresetować.",
+   "reference": "Forgot your password? Click here to reset it.",
+   "expect": [
+    [
+     "password"
+    ],
+    [
+     "click"
+    ],
+    [
+     "reset"
+    ]
+   ]
+  },
+  {
+   "id": "web-2",
+   "source": "Dodaj produkt do koszyka i przejdź do kasy.",
+   "reference": "Add the product to the cart and proceed to checkout.",
+   "expect": [
+    [
+     "product"
+    ],
+    [
+     "cart",
+     "basket"
+    ],
+    [
+     "checkout",
+     "check out",
+     "cash"
+    ]
+   ]
+  },
+  {
+   "id": "tech-1",
+   "source": "Aplikacja wymaga połączenia z internetem tylko podczas pierwszego uruchomienia.",
+   "reference": "The application requires an internet connection only on first launch.",
+   "expect": [
+    [
+     "application",
+     "app"
+    ],
+    [
+     "internet"
+    ],
+    [
+     "first"
+    ]
+   ]
+  },
+  {
+   "id": "idiom-1",
+   "source": "Nie mój cyrk, nie moje małpy.",
+   "reference": "Not my circus, not my monkeys.",
+   "expect": [
+    [
+     "circus"
+    ],
+    [
+     "monkey"
+    ]
+   ]
+  },
+  {
+   "id": "short-1",
+   "source": "Zapisz zmiany",
+   "reference": "Save changes",
+   "expect": [
+    [
+     "save"
+    ],
+    [
+     "change"
+    ]
+   ]
+  },
+  {
+   "id": "word-1",
+   "source": "pociąg",
+   "reference": "train",
+   "expect": [
+    [
+     "train"
+    ]
+   ]
+  },
+  {
+   "id": "word-2",
+   "source": "jabłko",
+   "reference": "apple",
+   "expect": [
+    [
+     "apple"
+    ]
+   ]
+  },
+  {
+   "id": "numbers-1",
+   "source": "Zamówienie nr 48213 zostanie dostarczone 12.11.2026.",
+   "reference": "Order no. 48213 will be delivered on 12.11.2026.",
+   "expect": [
+    [
+     "order"
+    ],
+    [
+     "48213"
+    ],
+    [
+     "12.11.2026"
+    ]
+   ]
+  },
+  {
+   "id": "long-1",
+   "source": "W ostatnich latach coraz więcej osób decyduje się na pracę zdalną. Pracodawcy zauważają, że pozwala to obniżyć koszty biura, ale jednocześnie utrudnia budowanie relacji w zespole.",
+   "reference": "In recent years more and more people have chosen to work remotely. Employers notice that it lowers office costs but at the same time makes it harder to build relationships within the team.",
+   "expect": [
+    [
+     "remote"
+    ],
+    [
+     "employer"
+    ],
+    [
+     "office"
+    ],
+    [
+     "team"
+    ]
+   ]
+  }
+ ]
+}

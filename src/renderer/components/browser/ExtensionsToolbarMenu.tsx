@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type MouseEvent as ReactMouseEvent } from 'react'
 import { INTERNAL_EXTENSIONS_URL } from '../../../shared/constants'
+import { usePresence } from '../../lib/motion'
 import {
   clampExtensionMenuSize,
   resizeExtensionMenu,
@@ -314,6 +315,18 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
   }
 
   const actionExtension = actionMenu ? extensions.find((extension) => extension.id === actionMenu.id) : undefined
+  // Motion stays on Vast's own containers: the menu only translates and fades
+  // (never scales), so a hosted extension popup is never distorted.
+  const menuPresence = usePresence(open)
+  const actionPresence = usePresence(Boolean(open && actionMenu && actionExtension))
+  const lastAction = useRef<{ extension: VastExtensionInfo; top: number } | null>(null)
+  if (actionMenu && actionExtension) lastAction.current = { extension: actionExtension, top: actionMenu.top }
+  const shownAction = actionPresence.mounted ? lastAction.current : null
+  const menuMotion = menuPresence.ref('popover')
+  const setMenuElement = useCallback((element: HTMLElement | null) => {
+    menuRef.current = element
+    menuMotion(element)
+  }, [menuMotion])
   const selectedState = selected ? extensionState(selected, activeTab?.url) : undefined
 
   return (
@@ -331,11 +344,11 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
         <Puzzle className="h-4 w-4" />
       </IconButton>
 
-      {open && (
+      {menuPresence.mounted && (
         <>
-          {resizeAxis && <div data-testid="extensions-menu-resize-shield" className={`fixed inset-0 z-100 ${resizeAxis === 'width' ? 'cursor-col-resize' : resizeAxis === 'height' ? 'cursor-row-resize' : 'cursor-nesw-resize'}`} />}
+          {open && resizeAxis && <div data-testid="extensions-menu-resize-shield" className={`fixed inset-0 z-100 ${resizeAxis === 'width' ? 'cursor-col-resize' : resizeAxis === 'height' ? 'cursor-row-resize' : 'cursor-nesw-resize'}`} />}
           <section
-            ref={menuRef}
+            ref={setMenuElement}
             role="dialog"
             aria-label="Extensions"
             data-testid="extensions-toolbar-menu"
@@ -443,8 +456,10 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
             </>
           )}
 
-          {actionMenu && actionExtension && (
-            <div role="menu" aria-label={`Actions for ${actionExtension.name}`} className="extensions-toolbar-actions absolute right-2 z-20 max-h-[calc(100vh-5.5rem)] w-52 overflow-y-auto rounded-control border border-white/10 bg-[#111111] p-1.5" style={{ top: actionMenu.top }}>
+          {shownAction && (() => {
+            const actionExtension = shownAction.extension
+            return (
+            <div ref={actionPresence.ref('context')} role="menu" aria-label={`Actions for ${actionExtension.name}`} className="extensions-toolbar-actions absolute right-2 z-20 max-h-[calc(100vh-5.5rem)] w-52 origin-top-right overflow-y-auto rounded-control border border-white/10 bg-[#111111] p-1.5" style={{ top: shownAction.top }}>
               {actionExtension.ui.popup && actionExtension.enabled && <MenuAction label="Open extension" icon={Puzzle} onClick={() => { void openSurface(actionExtension, 'popup') }} />}
               {actionExtension.ui.options && actionExtension.enabled && <MenuAction label="Extension settings" icon={SlidersHorizontal} onClick={() => { void openSurface(actionExtension, 'options') }} />}
               <MenuAction label={actionExtension.enabled ? 'Disable extension' : 'Enable extension'} icon={Power} onClick={() => { void mutate(actionExtension, () => actionExtension.enabled ? window.vast.extensions.disable(actionExtension.id) : window.vast.extensions.enable(actionExtension.id)) }} />
@@ -452,7 +467,8 @@ export function ExtensionsToolbarMenu({ open, onOpenChange }: ExtensionsToolbarM
               <MenuAction label="Manage extension" icon={Settings2} onClick={() => manageExtensions(actionExtension)} />
               {actionExtension.removable && <><div className="my-1 border-t border-white/[0.07]" /><MenuAction label="Remove from Vast" icon={Trash2} danger onClick={() => { void removeExtension(actionExtension) }} /></>}
             </div>
-          )}
+            )
+          })()}
 
             <div role="separator" aria-label="Resize extensions menu width" aria-orientation="vertical" data-testid="extensions-menu-width-resizer" onMouseDown={(event) => startResize(event, 'width')} className="group absolute bottom-3 left-0 top-3 z-30 w-2 cursor-col-resize touch-none"><span aria-hidden="true" className="absolute bottom-1/3 left-0 top-1/3 w-px bg-transparent transition group-hover:bg-vast-cyan/60" /></div>
             <div role="separator" aria-label="Resize extensions menu height" aria-orientation="horizontal" data-testid="extensions-menu-height-resizer" onMouseDown={(event) => startResize(event, 'height')} className="group absolute bottom-0 left-3 right-3 z-30 h-2 cursor-row-resize touch-none"><span aria-hidden="true" className="absolute bottom-0 left-1/3 right-1/3 h-px bg-transparent transition group-hover:bg-vast-cyan/60" /></div>

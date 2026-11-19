@@ -172,6 +172,24 @@ try {
       throw new Error('Production Store package does not use production Relay.')
     }
   }
+  // The packaged compatibility gate (extensions and Chrome Web Store) reads this
+  // marker beside Vast.exe and the build fingerprint; without them the Store
+  // build would silently run with both turned off.
+  const approvedRuntime = JSON.parse(readFileSync(join(root, 'patches', 'extension-compatibility-runtime.json'), 'utf8')).electron
+  const markerPath = join(unpackRoot, '.vast-electron-dist.json')
+  if (!existsSync(markerPath)) throw new Error('MSIX is missing .vast-electron-dist.json beside Vast.exe; extensions and the Chrome Web Store would be disabled.')
+  const marker = JSON.parse(readFileSync(markerPath, 'utf8').replace(/^﻿/, ''))
+  if (marker.electronVersion !== approvedRuntime.version || marker.patchsetRevision !== approvedRuntime.patchsetRevision ||
+      marker.patchsetSha256 !== approvedRuntime.patchsetSha256 || marker.electronBinarySha256 !== approvedRuntime.binary.sha256) {
+    throw new Error('MSIX Electron distribution marker does not match the approved compatibility runtime.')
+  }
+  if (!development) {
+    const fingerprint = metadata.extensionCompatibilityRuntime
+    if (fingerprint?.electronBinarySha256 !== approvedRuntime.binary.sha256 || fingerprint?.releaseMode !== true || fingerprint?.vastDirty !== false ||
+        fingerprint?.vastSourceCommit !== metadata.sourceCommit) {
+      throw new Error('Production Store package compatibility fingerprint does not match the approved runtime and source commit.')
+    }
+  }
   const mainBundle = asar.extractFile(appAsar, 'out\\main\\main.js').toString('utf8')
   if (!development) {
     if (!packagedMainContains(asar, appAsar, 'https://extensions.vastbrowser.com')) throw new Error('Store package does not contain the production Extensions Hub origin.')

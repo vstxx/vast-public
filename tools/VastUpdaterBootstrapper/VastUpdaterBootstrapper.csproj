@@ -10,7 +10,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>VastUpdater</AssemblyName>
+    <AssemblyTitle>Vast Updater</AssemblyTitle>
     <RootNamespace>VastUpdaterBootstrapper</RootNamespace>
+    <Company>VastProductions</Company>
+    <Authors>VastProductions</Authors>
+    <Product>Vast Updater</Product>
+    <Description>Vast standalone updater</Description>
+    <Copyright>Copyright © 2026 VastProductions</Copyright>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Version>1.0.11</Version>
     <FileVersion>1.0.11.0</FileVersion>

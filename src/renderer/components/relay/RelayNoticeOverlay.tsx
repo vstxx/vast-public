@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { PresenceContext, usePresence, useRetained } from '../../lib/motion'
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -90,7 +91,9 @@ export function RelayNoticeOverlay(): JSX.Element | null {
   const [snapshot, setSnapshot] = useState<RelayClientSnapshot>(EMPTY_SNAPSHOT)
   const [busy, setBusy] = useState(false)
   const reducedMotion = useReducedMotion()
-  const presentation = snapshot.current
+  // The notice withdraws with its last content once dismissed or acted on.
+  const presence = usePresence(Boolean(snapshot.current))
+  const presentation = useRetained(snapshot.current, presence.mounted) ?? null
   const mediaUrl = useVerifiedMedia(presentation, reducedMotion)
 
   useEffect(() => {
@@ -109,7 +112,7 @@ export function RelayNoticeOverlay(): JSX.Element | null {
 
   useEffect(() => setBusy(false), [presentation?.presentationId])
 
-  if (!presentation) return null
+  if (!presence.mounted || !presentation) return null
 
   const dismiss = (): void => {
     if (busy) return
@@ -127,7 +130,10 @@ export function RelayNoticeOverlay(): JSX.Element | null {
     : presentation.type === 'security'
 
   return (
+    <PresenceContext.Provider value={presence}>
     <ModalShell
+      /* Security and required-update notices appear at once; only leaving animates. */
+      motionImmediate={urgent}
       onClose={dismiss}
       dismissOnBackdrop={false}
       dismissOnEscape={false}
@@ -196,5 +202,6 @@ export function RelayNoticeOverlay(): JSX.Element | null {
         </div>
       </aside>
     </ModalShell>
+    </PresenceContext.Provider>
   )
 }

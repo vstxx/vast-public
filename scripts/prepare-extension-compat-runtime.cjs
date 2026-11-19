@@ -4,8 +4,8 @@ const { resolve, join, relative } = require('node:path')
 const { spawnSync } = require('node:child_process')
 
 const ECE_VERSION = '4.9.0'
-const PATCH_SHA256 = '65bb9d19842056f47b6867285950f2649b9db087235f8975ebba4226b3998625'
-const RUNTIME_SHA256 = '94adc4fdae9fbb2de85485c902a4c7ef84a5a070c6c204d30ca03a7901b1c74a'
+const PATCH_SHA256 = '4e73d95f7c1ee30a7d37d4ab81a308394c8d9d99841d61d9c1a5ae7e57e222d7'
+const RUNTIME_SHA256 = '6ee236b72b6974dfa6bc7beaabcaa50054af89a5d647ccc7d1f9ce15b05c37c0'
 const PATCHED_FILES = [
   'dist/chrome-extension-api.preload.js',
   'dist/cjs/index.js',
@@ -31,7 +31,10 @@ const patchPath = join(repositoryRoot, 'patches', 'electron-chrome-extensions-4.
 const checkOnly = process.argv.includes('--check')
 
 function gitApply(args, allowFailure = false) {
-  const result = spawnSync('git', ['apply', ...args, patchPath], {
+  // The pristine package uses CRLF and the patch LF. Pin git's CRLF handling,
+  // which Git for Windows enables system-wide, so the patched bytes (and the
+  // approved runtime hash) are the same on every platform.
+  const result = spawnSync('git', ['-c', 'core.autocrlf=true', 'apply', ...args, patchPath], {
     cwd: packageRoot,
     encoding: 'utf8',
     env: { ...process.env, GIT_CEILING_DIRECTORIES: resolve(packageRoot, '..') },

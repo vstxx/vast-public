@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { useBrowserRuntime } from '../../app/browser-runtime'
+import { focusWhenReady, usePresence } from '../../lib/motion'
 import { useBrowserStore } from '../../store/browser-store'
 import { IconButton } from '../ui/IconButton'
 
@@ -13,11 +14,14 @@ export function FindBar(): JSX.Element | null {
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement | null>(null)
 
-  useEffect(() => {
-    if (findOpen) inputRef.current?.focus()
-  }, [findOpen])
+  const presence = usePresence(findOpen)
 
-  if (!findOpen) return null
+  // Focus before the first paint so typing never waits for the reveal.
+  useLayoutEffect(() => {
+    if (findOpen) focusWhenReady(inputRef.current)
+  }, [findOpen, presence.mounted])
+
+  if (!presence.mounted) return null
 
   const runFind = (nextQuery = query, forward = true, findNext = false): void => {
     setActiveFindQuery(nextQuery)
@@ -25,7 +29,7 @@ export function FindBar(): JSX.Element | null {
   }
 
   return (
-    <div className="no-drag absolute right-4 top-4 z-40 flex items-center gap-2 vast-float rounded-card border border-white/10 p-2 shadow-glass">
+    <div ref={presence.ref('find')} className="no-drag absolute right-4 top-4 z-40 flex origin-top-right items-center gap-2 vast-float rounded-card border border-white/10 p-2 shadow-glass">
       <input
         ref={inputRef}
         value={query}

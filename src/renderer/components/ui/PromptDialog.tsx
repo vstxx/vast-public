@@ -1,22 +1,27 @@
 import { X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { PresenceContext, usePresence, useRetained } from '../../lib/motion'
 import { useBrowserStore } from '../../store/browser-store'
 import { ModalShell } from './ModalShell'
 import { VastButton } from './VastButton'
 
 export function PromptDialog(): JSX.Element | null {
-  const dialog = useBrowserStore((state) => state.promptDialog)
+  const storeDialog = useBrowserStore((state) => state.promptDialog)
+  const presence = usePresence(Boolean(storeDialog))
+  // While it exits the dialog keeps its last content; it is inert by then.
+  const dialog = useRetained(storeDialog, presence.mounted)
   const close = useBrowserStore((state) => state.closePromptDialog)
   const inputRef = useRef<HTMLInputElement | null>(null)
   const [value, setValue] = useState('')
 
   useEffect(() => {
-    setValue(dialog?.defaultValue ?? '')
+    if (!storeDialog) return
+    setValue(storeDialog.defaultValue ?? '')
     // Suggested text starts selected, so typing replaces it.
     window.setTimeout(() => inputRef.current?.select(), 0)
-  }, [dialog])
+  }, [storeDialog])
 
-  if (!dialog) return null
+  if (!presence.mounted || !dialog) return null
   const cancel = (): void => {
     dialog.onCancel?.()
     close()
@@ -26,6 +31,7 @@ export function PromptDialog(): JSX.Element | null {
   const canSubmit = dialog.allowEmpty ? true : !!trimmed
 
   return (
+    <PresenceContext.Provider value={presence}>
     <ModalShell onClose={cancel} width="max-w-md">
       <form
         className="p-5"
@@ -82,5 +88,6 @@ export function PromptDialog(): JSX.Element | null {
         </div>
       </form>
     </ModalShell>
+    </PresenceContext.Provider>
   )
 }

@@ -1,16 +1,19 @@
 import { useLayoutEffect, useRef, type RefObject } from 'react'
 import { useBrowserStore } from '../store/browser-store'
+import { currentMotionLevel, repositionDuration } from './motion'
 
 // FLIP motion for tab strips (horizontal, vertical sidebar, Purist). Right
 // before the store changes which tabs show or their order, where each tab is
 // on screen is recorded; after React renders, each tab slides from there to
 // its new place. Tabs only ever translate (widths change through CSS), so
 // contents never stretch, and nothing is measured unless something moved.
+// Tabs outside the window are left alone, so long strips stay cheap.
 
 const knownTabs = new Set<string>()
 const elements = new Map<string, HTMLElement>()
 const MOTION_ID = 'vast-tab-motion'
-const reducedMotion = typeof window === 'undefined' ? undefined : window.matchMedia('(prefers-reduced-motion: reduce)')
+const EASE_MOVE = 'cubic-bezier(0.2, 0.8, 0.2, 1)'
+const EASE_ENTER = 'cubic-bezier(0.16, 1, 0.3, 1)'
 let positions: Map<string, { left: number; top: number }> | null = null
 let unsubscribe: (() => void) | undefined
 
@@ -23,7 +26,57 @@ function stripSignature(state: StoreState): string {
   return signature
 }
 
-function capture(): void {
+function onScreen(rect: { left: number; top: number }, element: HTMLElement): boolean {
+  return rect.top < window.innerHeight && rect.top + element.offsetHeight > 0 && rect.left < window.innerWidth && rect.left + element.offsetWidth > 0
+}
+
+// The visible part of the strip around an element: a tab scrolled partly out
+// of view must not paint outside its scroller while it withdraws.
+function visibleClip(element: HTMLElement, rect: DOMRect): string | null {
+  let top = 0
+  let left = 0
+  let right = window.innerWidth
+  let bottom = window.innerHeight
+  for (let parent = element.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+    const style = getComputedStyle(parent)
+    if (style.overflowX === 'visible' && style.overflowY === 'visible') continue
+    const box = parent.getBoundingClientRect()
+    top = Math.max(top, box.top)
+    left = Math.max(left, box.left)
+    right = Math.min(right, box.right)
+    bottom = Math.min(bottom, box.bottom)
+  }
+  if (right <= rect.left || left >= rect.right || bottom <= rect.top || top >= rect.bottom) return null
+  return `inset(${Math.max(0, top - rect.top)}px ${Math.max(0, rect.right - right)}px ${Math.max(0, rect.bottom - bottom)}px ${Math.max(0, left - rect.left)}px)`
+}
+
+// A closed tab withdraws as an inert snapshot while its neighbours close the
+// gap; the real tab (and its state) is already gone.
+function withdraw(element: HTMLElement): void {
+  const rect = element.getBoundingClientRect()
+  const clip = visibleClip(element, rect)
+  if (!clip) return
+  const ghost = element.cloneNode(true) as HTMLElement
+  ghost.removeAttribute('data-tab-motion-id')
+  ghost.setAttribute('aria-hidden', 'true')
+  ghost.inert = true
+  Object.assign(ghost.style, {
+    position: 'fixed', left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px`,
+    margin: '0', pointerEvents: 'none', zIndex: '35', clipPath: clip, contentVisibility: 'visible'
+  })
+  document.body.append(ghost)
+  const duration = currentMotionLevel() === 'enhanced' ? 140 : 110
+  const animation = ghost.animate(
+    [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(0.96)' }],
+    { duration, easing: 'cubic-bezier(0.4, 0, 1, 1)', fill: 'forwards' }
+  )
+  const remove = (): void => ghost.remove()
+  animation.onfinish = remove
+  animation.oncancel = remove
+  window.setTimeout(remove, duration + 250)
+}
+
+function capture(state: StoreState, previous: StoreState): void {
   const next = new Map<string, { left: number; top: number }>()
   for (const [id, element] of elements) {
     if (!element.isConnected) continue
@@ -31,6 +84,13 @@ function capture(): void {
     next.set(id, { left: rect.left, top: rect.top })
   }
   positions = next
+  if (state.tabs.length < previous.tabs.length) {
+    const remaining = new Set(state.tabs.map((tab) => tab.id))
+    for (const tab of previous.tabs) {
+      const element = elements.get(tab.id)
+      if (!remaining.has(tab.id) && element?.isConnected && !element.closest('.no-motion')) withdraw(element)
+    }
+  }
   // Every strip has rendered the change by the next frame.
   window.requestAnimationFrame(() => { positions = null })
 }
@@ -38,9 +98,9 @@ function capture(): void {
 function watchStore(): void {
   if (unsubscribe) return
   unsubscribe = useBrowserStore.subscribe((state, previous) => {
-    if (elements.size === 0) return
+    if (elements.size === 0 || currentMotionLevel() === 'off') return
     if (state.tabs === previous.tabs && state.tabGroups === previous.tabGroups && state.activeWorkspaceId === previous.activeWorkspaceId) return
-    if (state.tabGroups !== previous.tabGroups || stripSignature(state) !== stripSignature(previous)) capture()
+    if (state.tabGroups !== previous.tabGroups || stripSignature(state) !== stripSignature(previous)) capture(state, previous)
   })
 }
 
@@ -76,18 +136,23 @@ export function useTabMotion<T extends HTMLElement = HTMLButtonElement>(tabId: s
     if (!element) return
     const known = knownTabs.has(tabId)
     knownTabs.add(tabId)
-    if (!positions || reducedMotion?.matches || element.closest('.no-motion')) return
+    const duration = repositionDuration()
+    if (!positions || !duration || element.closest('.no-motion')) return
 
     const first = positions.get(tabId)
     if (!first) {
       if (known) return
+      const last = element.getBoundingClientRect()
+      if (!onScreen(last, element)) return
+      // A new tab settles into its slot: opacity and a short slide, no scaling.
+      const vertical = Boolean(element.closest('[data-tab-sidebar]'))
       playMotion(
         element,
         [
-          { opacity: 0.4, transform: 'translate3d(-8px, -2px, 0) scale(0.97)' },
-          { opacity: 1, transform: 'translate3d(0, 0, 0) scale(1)' }
+          { opacity: 0, transform: vertical ? 'translate3d(0, -4px, 0)' : 'translate3d(-8px, 0, 0)' },
+          { opacity: 1, transform: 'none' }
         ],
-        { duration: 145, easing: 'cubic-bezier(0.2, 0.82, 0.24, 1)' }
+        { duration, easing: EASE_ENTER }
       )
       return
     }
@@ -97,10 +162,11 @@ export function useTabMotion<T extends HTMLElement = HTMLButtonElement>(tabId: s
     const deltaX = first.left - last.left
     const deltaY = first.top - last.top
     if (Math.abs(deltaX) < 0.5 && Math.abs(deltaY) < 0.5) return
+    if (!onScreen(first, element) && !onScreen(last, element)) return
     playMotion(
       element,
-      [{ transform: `translate3d(${deltaX}px, ${deltaY}px, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
-      { duration: 170, easing: 'cubic-bezier(0.2, 0.82, 0.24, 1)' }
+      [{ transform: `translate3d(${deltaX}px, ${deltaY}px, 0)` }, { transform: 'none' }],
+      { duration, easing: EASE_MOVE }
     )
   }, [tabId, layoutKey])
 

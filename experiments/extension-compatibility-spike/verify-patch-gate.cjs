@@ -4,6 +4,8 @@ const { join, resolve } = require('node:path');
 
 const baseline = process.argv.includes('--baseline');
 const read = (name) => JSON.parse(readFileSync(join(__dirname, 'results', `${name}.json`), 'utf8'));
+// The custom build must be the approved runtime; the baseline is the npm Electron of the same version.
+const expectedVersion = JSON.parse(readFileSync(join(__dirname, '..', '..', 'patches', 'extension-compatibility-runtime.json'), 'utf8')).electron.version;
 const required = [
   'patch-matrix-app-only', 'patch-matrix-extension-only',
   'patch-matrix-both', 'patch-matrix-both-late',
@@ -24,7 +26,7 @@ for (const name of required) {
   assert.equal(resolve(run.electronBinary), expectedBinary);
   assert.equal(run.code, 0, `${name} did not exit cleanly`);
   assert.equal(run.completed, true);
-  assert.equal(read(name).versions.electron, '44.3.0');
+  assert.equal(read(name).versions.electron, expectedVersion);
 }
 const app = read('patch-matrix-app-only');
 const extension = read('patch-matrix-extension-only');
@@ -87,7 +89,7 @@ if (baseline) {
   assert.equal(eventCount(persistSecond, 'alarms-onAlarm', (entry) => entry.data.name === 'persist-probe'), 0);
   assert.equal(restartFirst.profile, restartSecond.profile);
   assert.equal(persistFirst.profile, persistSecond.profile);
-  console.log('Stock Electron 44.3.0 baseline confirmed: webRequest routes are exclusive; alarm and runtime lifecycle events are absent.');
+  console.log(`Stock Electron ${expectedVersion} baseline confirmed: webRequest routes are exclusive; alarm and runtime lifecycle events are absent.`);
   process.exit(0);
 }
 

@@ -4,7 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "lib": ["ES2022", "WebWorker"],
-    "types": ["@cloudflare/vitest-plugin/types"],
+    "types": ["@cloudflare/vitest-plugin/types", "vite/client"],
     "strict": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,

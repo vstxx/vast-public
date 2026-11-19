@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Worker pool fixture</title></head>
+<body>
+<script>
+// Sizes a worker pool from navigator.hardwareConcurrency, as tile decoders and
+// mesh builders do, and times a fixed amount of CPU work spread over it.
+const workerSource = `onmessage = (event) => {
+  let x = event.data.seed >>> 0
+  for (let i = 0; i < event.data.iterations; i++) { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; x >>>= 0 }
+  postMessage({ x, hc: self.navigator.hardwareConcurrency })
+}`
+const url = URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' }))
+window.__fixture = { kind: 'workers', hardwareConcurrency: navigator.hardwareConcurrency }
+window.runWorkerJob = async (chunks = 192, iterations = 12_000_000, poolSize = navigator.hardwareConcurrency) => {
+  const pool = Array.from({ length: poolSize }, () => new Worker(url))
+  // Warm the pool so worker startup is not part of the timed work.
+  await Promise.all(pool.map((worker) => new Promise((resolve) => { worker.onmessage = resolve; worker.postMessage({ seed: 1, iterations: 1000 }) })))
+  const started = performance.now()
+  let next = 0
+  let workerHc
+  await Promise.all(pool.map((worker) => new Promise((resolve) => {
+    const take = () => {
+      if (next >= chunks) return resolve()
+      const seed = ++next
+      worker.onmessage = (event) => { workerHc = event.data.hc; take() }
+      worker.postMessage({ seed, iterations })
+    }
+    take()
+  })))
+  const elapsedMs = performance.now() - started
+  pool.forEach((worker) => worker.terminate())
+  return { poolSize, chunks, iterations, elapsedMs, mainHardwareConcurrency: navigator.hardwareConcurrency, workerHardwareConcurrency: workerHc }
+}
+</script>
+</body>
+</html>

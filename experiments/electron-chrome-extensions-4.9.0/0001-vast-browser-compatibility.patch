@@ -106,7 +106,7 @@ index 0592089..eea752a 100644
  
    private onUpdate() {
 diff --git a/packages/electron-chrome-extensions/src/browser/api/lib/native-messaging-host.ts b/packages/electron-chrome-extensions/src/browser/api/lib/native-messaging-host.ts
-index 1fcbc61..132df65 100644
+index 1fcbc61..41d27aa 100644
 --- a/packages/electron-chrome-extensions/src/browser/api/lib/native-messaging-host.ts
 +++ b/packages/electron-chrome-extensions/src/browser/api/lib/native-messaging-host.ts
 @@ -8,6 +8,11 @@ import { ExtensionSender, IpcEvent } from '../../router'
@@ -187,7 +187,7 @@ index 1fcbc61..132df65 100644
        }
        continue
      }
-@@ -102,9 +117,19 @@ export class NativeMessagingHost {
+@@ -102,9 +117,20 @@ export class NativeMessagingHost {
    private sender?: ExtensionSender
    private connectionId: string
    private connected: boolean = false
@@ -205,10 +205,11 @@ index 1fcbc61..132df65 100644
 +  private destroyed?: boolean
 +  private onDestroyed?: () => void
 +  private responseTimeoutMs: number
++  private keepAliveTask?: { end: () => void }
  
    ready?: Promise<void>
  
-@@ -114,8 +139,12 @@ export class NativeMessagingHost {
+@@ -114,120 +140,294 @@ export class NativeMessagingHost {
      connectionId: string,
      application: string,
      keepAlive: boolean = true,
@@ -221,7 +222,15 @@ index 1fcbc61..132df65 100644
      this.sender = sender
      if (keepAlive) {
        this.sender.ipc.on(`crx-native-msg-${connectionId}`, this.receiveExtensionMessage)
-@@ -124,110 +153,266 @@ export class NativeMessagingHost {
++      if ('startTask' in sender && typeof sender.startTask === 'function') {
++        try {
++          this.keepAliveTask = sender.startTask()
++        } catch {
++          // Chrome keeps a worker alive while its native port is open; a stopping worker cannot be kept.
++        }
++      }
+     }
+     this.connectionId = connectionId
      this.ready = this.launch(application, extensionId)
    }
  
@@ -264,6 +273,13 @@ index 1fcbc61..132df65 100644
 +      }
      }
      this.sender = undefined
++    const keepAliveTask = this.keepAliveTask
++    this.keepAliveTask = undefined
++    try {
++      keepAliveTask?.end()
++    } catch {
++      // The worker may already have been destroyed.
++    }
 +    const onDestroyed = this.onDestroyed
 +    this.onDestroyed = undefined
 +    onDestroyed?.()
@@ -287,12 +303,12 @@ index 1fcbc61..132df65 100644
 -      this.destroy()
 -      return
 +      throw new Error(`Access to native messaging host ${application} is forbidden.`)
-+    }
-+
-+    if (process.platform !== 'win32' && !path.isAbsolute(config.path)) {
-+      throw new Error(`Native messaging host ${application} must use an absolute executable path.`)
      }
  
++    if (process.platform !== 'win32' && !path.isAbsolute(config.path)) {
++      throw new Error(`Native messaging host ${application} must use an absolute executable path.`)
++    }
++
 +    const executablePath =
 +      process.platform === 'win32' && !path.isAbsolute(config.path)
 +        ? path.resolve(path.dirname(manifestPath), config.path)
@@ -335,13 +351,13 @@ index 1fcbc61..132df65 100644
 +    this.process.stdout.on('data', this.receive)
 +    this.process.stderr.on('data', (data: Buffer) => {
 +      d('native messaging host wrote %d bytes to stderr', data.length)
-+    })
-+    this.process.stdin.on('error', () => {
-+      if (!this.destroyed) this.fail(new Error('Native messaging host input stream failed.'))
      })
 -    this.process.on('error', (err) => {
 -      d('error: %s', err)
 -      this.destroy()
++    this.process.stdin.on('error', () => {
++      if (!this.destroyed) this.fail(new Error('Native messaging host input stream failed.'))
++    })
 +    this.process.on('error', () => {
 +      d('native messaging host process error')
 +      this.fail(new Error('Native messaging host failed to start.'))

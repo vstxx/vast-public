@@ -118,7 +118,11 @@ function printTable(rows, columns) {
 }
 
 const releaseRoot = resolve(root, argument('--release-root', 'release'))
+// The Video & Audio runtime is measured as the separately downloaded module:
+// its installed tree (the prepared runtime) and its compressed archive.
 const runtimeRoot = resolve(root, argument('--runtime-root', join('resources', 'avidae-runtime')))
+const moduleInfo = JSON.parse(readFileSync(join(root, 'resources', 'avidae', 'module.json'), 'utf8'))
+const moduleReleaseRoot = join(resolve(root, argument('--module-release-root', join(relative(root, releaseRoot), 'avidae-module'))), moduleInfo.moduleVersion)
 const explicitWinUnpacked = argument('--win-unpacked')
 const winUnpacked = firstExisting([
   explicitWinUnpacked ? resolve(root, explicitWinUnpacked) : '',
@@ -130,8 +134,11 @@ const installer = findArtifact(searchRoots, (name, path) => /^Vast-Setup-.*\.exe
 const portable = findArtifact(searchRoots, (name) => /^Vast-.*-Portable\.exe$/i.test(name))
 const updateZip = findArtifact(searchRoots, (name) => /^Vast-.*-update\.zip$/i.test(name))
 const resources = winUnpacked ? join(winUnpacked, 'resources') : ''
-const packagedAvidaeRuntime = firstExisting([resources && join(resources, 'avidae-runtime'), runtimeRoot], 'directory')
-const packagedAvidae = firstExisting([resources && join(resources, 'avidae'), join(root, 'resources', 'avidae')], 'directory')
+// Anything Video & Audio inside Core is a packaging regression.
+const coreAvidaeDirectories = [resources && join(resources, 'avidae-runtime'), resources && join(resources, 'avidae')]
+  .filter((path) => path && existsSync(path))
+const packagedAvidaeRuntime = firstExisting([runtimeRoot], 'directory')
+const moduleArchive = firstExisting([join(moduleReleaseRoot, `VastVideoAudio-${moduleInfo.moduleVersion}-win-x64.tar.zst`)], 'file')
 const appAsar = firstExisting([resources && join(resources, 'app.asar')], 'file')
 const appAsarUnpacked = firstExisting([resources && join(resources, 'app.asar.unpacked')], 'directory')
 const playwrightRoot = firstExisting([packagedAvidaeRuntime && join(packagedAvidaeRuntime, 'ms-playwright')], 'directory')
@@ -163,7 +170,10 @@ const artifacts = [
   component('updateZip', 'Full update ZIP', updateZip),
   component('winUnpacked', 'win-unpacked', winUnpacked),
   component('appAsar', 'app.asar', appAsar),
-  component('resources', 'resources total', resources)
+  component('resources', 'resources total', resources),
+  component('avidaeInCore', 'Video & Audio content inside Core', resources, coreAvidaeDirectories.reduce((sum, path) => sum + treeBytes(path), 0)),
+  component('moduleArchive', 'Video & Audio module download', moduleArchive),
+  component('moduleInstalled', 'Video & Audio module installed', packagedAvidaeRuntime)
 ]
 const components = [
   component('electronRuntime', 'Electron runtime (excluding locales/resources)', winUnpacked, topLevelRuntimeBytes),
@@ -171,8 +181,6 @@ const components = [
   component('appAsar', 'app.asar', appAsar),
   component('nodeModules', 'Packaged node_modules', appAsar, nodeModules.bytes),
   component('appAsarUnpacked', 'app.asar.unpacked', appAsarUnpacked),
-  component('avidaeSource', 'Video & Audio source assets', packagedAvidae),
-  component('avidaeRuntime', 'Video & Audio runtime total', packagedAvidaeRuntime),
   component('pyinstaller', 'PyInstaller service runtime', pyinstallerRoot),
   component('playwright', 'Playwright browser payload total', playwrightRoot),
   component('playwrightChromium', 'Playwright full Chromium', playwrightRoot, chromiumDirectories.reduce((sum, path) => sum + treeBytes(path), 0)),
@@ -193,14 +201,16 @@ const top50 = winFiles.sort((a, b) => b.bytes - a.bytes).slice(0, 50).map((item)
   bytes: item.bytes
 }))
 const report = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   generatedAt: new Date().toISOString(),
   label: argument('--label', 'current'),
+  moduleVersion: moduleInfo.moduleVersion,
   appVersion: pkg.version,
   paths: {
     releaseRoot: safeRelative(root, releaseRoot),
     winUnpacked: winUnpacked ? safeRelative(root, winUnpacked) : null,
-    sourceRuntime: existsSync(runtimeRoot) ? safeRelative(root, runtimeRoot) : null
+    sourceRuntime: existsSync(runtimeRoot) ? safeRelative(root, runtimeRoot) : null,
+    moduleArchive: moduleArchive ? safeRelative(root, moduleArchive) : null
   },
   artifacts,
   components,

@@ -47,6 +47,7 @@ const sample: VisualProfileValues = {
   surfaceTintColor: '#202830',
   forceDarkModeWebsites: true,
   animations: false,
+  motionLevel: 'enhanced',
   openingAnimation: true,
   openingAnimationSoundVolume: 35,
   bookmarksBarVisible: false,
@@ -165,7 +166,7 @@ test('values are rejected unless they match the schema exactly', () => {
   for (const [label, value] of bad) assert.throws(() => parseVisualProfileValues(value), Error, label)
 })
 
-const documentText = (overrides: Record<string, unknown> = {}): string => JSON.stringify({ format: 'vast.visual-profile', version: 1, name: 'Ocean', appearance: sample, ...overrides })
+const documentText = (overrides: Record<string, unknown> = {}): string => JSON.stringify({ format: 'vast.visual-profile', version: 2, name: 'Ocean', appearance: sample, ...overrides })
 
 test('documents round-trip and carry only the allowlisted values', () => {
   const text = serializeVisualProfileDocument({ name: 'Ocean', values: sample })
@@ -183,7 +184,8 @@ test('malicious and malformed documents are rejected before anything is applied'
     ['not JSON', '{"format":'],
     ['not an object', '[]'],
     ['wrong format', documentText({ format: 'vast.theme' })],
-    ['newer version', documentText({ version: 2 })],
+    ['newer version', documentText({ version: 3 })],
+    ['version 1 carrying a newer field', documentText({ version: 1 })],
     ['older version', documentText({ version: 0 })],
     ['string version', documentText({ version: '1' })],
     ['settings outside Appearance', documentText({ settings: { privacy: { blockTrackers: false } } })],
@@ -202,7 +204,7 @@ test('malicious and malformed documents are rejected before anything is applied'
   for (const [label, text] of rejected) assert.throws(() => parseVisualProfileDocument(text), Error, label)
   assert.throws(() => parseVisualProfileDocument(' '.repeat(VISUAL_PROFILE_MAX_FILE_BYTES + 1)), /too large/)
   assert.equal(({} as Record<string, unknown>).polluted, undefined)
-  assert.match(String((() => { try { parseVisualProfileDocument(documentText({ version: 2 })) } catch (error) { return error } })()), /newer version of Vast/)
+  assert.match(String((() => { try { parseVisualProfileDocument(documentText({ version: 3 })) } catch (error) { return error } })()), /newer version of Vast/)
 })
 
 test('names are cleaned of control and direction-override characters and kept unique', () => {
@@ -211,4 +213,25 @@ test('names are cleaned of control and direction-override characters and kept un
   assert.equal(uniqueVisualProfileName('Ocean', ['ocean', 'Ocean 2']), 'Ocean 3')
   assert.equal(uniqueVisualProfileName('Dusk', ['Ocean']), 'Dusk')
   assert.ok([...uniqueVisualProfileName('x'.repeat(48), ['x'.repeat(48)])].length <= 48)
+})
+
+test('version 1 profiles from older Vast builds still import, with Standard motion', () => {
+  const { motionLevel: _motionLevel, ...legacy } = sample
+  const parsed = parseVisualProfileDocument(JSON.stringify({ format: 'vast.visual-profile', version: 1, name: 'Old', appearance: legacy }))
+  assert.equal(parsed.values.motionLevel, 'standard')
+  assert.equal(parsed.values.animations, false, 'Off stays Off')
+  // Stored library entries written before motionLevel existed load the same way.
+  assert.equal(parseVisualProfileValues(legacy).motionLevel, 'standard')
+  // New files are version 2 and always carry the field.
+  const written = JSON.parse(serializeVisualProfileDocument({ name: 'New', values: sample }))
+  assert.equal(written.version, 2)
+  assert.equal(written.appearance.motionLevel, 'enhanced')
+})
+
+test('the motion level is part of a profile and applies with it', () => {
+  resetStore()
+  store.getState().updateSettings(visualProfileSettingsPatch({ ...sample, animations: true, motionLevel: 'enhanced' }))
+  assert.equal(store.getState().settings.motionLevel, 'enhanced')
+  assert.equal(visualProfileValuesFromSettings(store.getState().settings).motionLevel, 'enhanced')
+  assert.throws(() => parseVisualProfileValues({ ...sample, motionLevel: 'off' }), Error, 'Off is animations: false, not a level')
 })

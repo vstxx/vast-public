@@ -15,6 +15,12 @@ export interface CatalogViewItem {
   privacyPolicyUrl?: string
   remoteServices: string
   iconUrl?: string
+  // Installed directly from the publisher's own distribution, so the Hub has no download count.
+  upstream?: boolean
+}
+
+function downloadsLabel(item: CatalogViewItem): string {
+  return item.upstream ? `Installed from ${escapeHtml(item.publisherName)}` : `${item.downloads.toLocaleString('en-US')} downloads`
 }
 
 type PageSection = 'publishers' | 'explore' | 'dashboard' | 'review'
@@ -93,7 +99,7 @@ function card(item: CatalogViewItem): string {
   return `<article class="card">
     <div class="card__top"><span class="extension-icon">${icon}</span><div class="card__badges"><span class="badge">${escapeHtml(item.kind)}</span><span class="badge badge--quiet">${escapeHtml(item.category)}</span></div></div>
     <div class="card__body"><h2><a href="/extension/${escapeHtml(item.id)}">${escapeHtml(item.name)}</a></h2><p class="muted">${escapeHtml(item.summary)}</p></div>
-    <div class="card__meta"><span>By ${escapeHtml(item.publisherName)}</span><span>v${escapeHtml(item.version)}</span><span>${item.downloads.toLocaleString('en-US')} downloads</span></div>
+    <div class="card__meta"><span>By ${escapeHtml(item.publisherName)}</span><span>v${escapeHtml(item.version)}</span><span>${downloadsLabel(item)}</span></div>
     <div class="card__actions"><a class="button button--quiet" href="/extension/${escapeHtml(item.id)}">Details${svgIcon('arrow-right', 'forward')}</a></div>
   </article>`
 }
@@ -118,12 +124,12 @@ export function homePage(items: CatalogViewItem[], query: string, categories: st
   return page('Extension catalog', body, session, 'explore')
 }
 
-export function detailPage(item: CatalogViewItem & { description: string; homepage?: string; sourceUrl?: string; permissions: ExtensionPermissionSnapshot; upstream?: boolean }, session?: HubSession): string {
+export function detailPage(item: CatalogViewItem & { description: string; homepage?: string; sourceUrl?: string; permissions: ExtensionPermissionSnapshot }, session?: HubSession): string {
   const permissions = [...item.permissions.chrome, ...item.permissions.hosts, ...item.permissions.vast]
   const icon = item.iconUrl ? `<img class="extension-icon__image" src="${escapeHtml(item.iconUrl)}" alt="">` : `<span class="extension-icon__letter">${escapeHtml(item.name.slice(0, 1).toUpperCase())}</span>`
   return page(item.name, `<a class="breadcrumb" href="/explore"><span aria-hidden="true">←</span> Extension catalog</a>
     <section class="detail-hero">
-      <div class="detail-hero__identity"><span class="extension-icon extension-icon--large">${icon}</span><div><h1>${escapeHtml(item.name)}</h1><p class="hero__copy">${escapeHtml(item.description)}</p><div class="detail-meta"><span>Published by ${escapeHtml(item.publisherName)}</span><span>Version ${escapeHtml(item.version)}</span><span>${item.downloads.toLocaleString('en-US')} downloads</span></div></div></div>
+      <div class="detail-hero__identity"><span class="extension-icon extension-icon--large">${icon}</span><div><h1>${escapeHtml(item.name)}</h1><p class="hero__copy">${escapeHtml(item.description)}</p><div class="detail-meta"><span>Published by ${escapeHtml(item.publisherName)}</span><span>Version ${escapeHtml(item.version)}</span><span>${downloadsLabel(item)}</span></div></div></div>
     </section>
     <section class="detail-grid"><article class="panel panel--content"><div class="panel__heading"><h2>Requested permissions</h2></div><div class="permissions">${permissions.length ? permissions.map((permission) => `<span>${escapeHtml(permission)}</span>`).join('') : '<span>No additional permissions</span>'}</div></article><article class="panel panel--content"><div class="panel__heading"><h2>Data practices</h2></div><p>${item.upstream ? "Published and maintained by Apple. Vast does not host or modify this extension, so its data practices are Apple's own." : item.dataPractice === 'local-only' ? 'The publisher declares that this extension processes data only on the device and does not send it to external services.' : item.dataPractice === 'external-processing' ? 'The publisher declares that this extension sends data to or processes data with external services.' : 'No current data-practice declaration is available for this legacy listing.'}</p>${item.remoteServices ? `<p><strong>Remote services:</strong> ${escapeHtml(item.remoteServices)}</p>` : ''}${item.privacyPolicyUrl ? `<a class="resource-link" rel="noreferrer" href="${escapeHtml(item.privacyPolicyUrl)}"><span>Publisher privacy policy</span><span aria-hidden="true">&nearr;</span></a>` : ''}</article><article class="panel panel--content"><div class="panel__heading"><h2>Extension resources</h2></div><div class="resource-links">${item.homepage ? `<a class="resource-link" rel="noreferrer" href="${escapeHtml(item.homepage)}"><span>Homepage</span><span aria-hidden="true">&nearr;</span></a>` : ''}${item.sourceUrl ? `<a class="resource-link" rel="noreferrer" href="${escapeHtml(item.sourceUrl)}"><span>Source code</span><span aria-hidden="true">&nearr;</span></a>` : ''}${!item.homepage && !item.sourceUrl ? '<p class="muted">No external resources supplied.</p>' : ''}${item.upstream ? '' : `<a class="resource-link" href="/report/${escapeHtml(item.id)}"><span>Report extension</span><span aria-hidden="true">&rarr;</span></a>`}</div></article></section>`, session, 'explore')
 }

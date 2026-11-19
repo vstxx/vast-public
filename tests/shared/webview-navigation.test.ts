@@ -41,6 +41,17 @@ test('webview navigation accepts matching top-level navigation events without a 
   )
 })
 
+test('webview navigation accepts every main-frame did-navigate to a new URL (links, back and forward)', () => {
+  // did-navigate has no isMainFrame flag and is only emitted for the main frame;
+  // the chrome compares against the previous committed URL, which always differs.
+  const previous = 'https://example.com/articles/one'
+  const next = 'https://example.org/other'
+  assert.equal(shouldAcceptWebviewNavigationEvent({ type: 'did-navigate', url: next }, previous), true)
+  assert.equal(webviewNavigationUrl({ type: 'did-navigate', url: next }, previous), next)
+  // The iframe heuristic still applies to in-page events without a flag.
+  assert.equal(shouldAcceptWebviewNavigationEvent({ type: 'did-navigate-in-page', url: gmailHovercard }, gmailInbox), false)
+})
+
 test('webview navigation falls back to the current webview URL when the event has no URL', () => {
   assert.equal(webviewNavigationUrl({}, gmailInbox), gmailInbox)
 })

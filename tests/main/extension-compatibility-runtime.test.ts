@@ -10,6 +10,7 @@ import {
   ECE_GPL_LICENSE,
   ExtensionCompatibilityRuntime,
   extensionCompatibilityGate,
+  flattenChromeContextMenu,
   isDeclaredOptionalPermissionRequest,
   type ChromePermissionRequest
 } from '../../src/main/extensions/extension-compatibility-runtime.ts'
@@ -439,4 +440,59 @@ test('privacy writes require a persisted optional privacy grant and remain isola
     value: true,
     levelOfControl: 'controllable_by_this_extension'
   })
+})
+
+test('chrome.contextMenus entries are flattened to labels with single-use tokens and stay in main', () => {
+  let next = 0
+  const clicked: string[] = []
+  const { entries, clicks } = flattenChromeContextMenu([
+    { label: 'Solo &action', click: () => clicked.push('solo') },
+    { type: 'separator' },
+    { label: 'Grouped extension', submenu: [{ label: 'First', click: () => clicked.push('first') }, { label: 'Off', enabled: false, click: () => undefined }] },
+    { label: 'No handler' }
+  ], () => `t${next++}`)
+  assert.deepEqual(entries, [
+    { token: 't0', label: 'Solo action', enabled: true },
+    { token: 't1', label: 'First', enabled: true, group: 'Grouped extension' },
+    { token: 't2', label: 'Off', enabled: false, group: 'Grouped extension' }
+  ])
+  clicks.get('t1')?.()
+  assert.deepEqual(clicked, ['first'])
+  // ECE hands over an extension with several items as a built Electron Menu, not an array.
+  const built = flattenChromeContextMenu([{ label: 'Translator', submenu: { items: [{ label: 'Translate page', click: () => clicked.push('page') }, { label: 'Translate “word”', click: () => clicked.push('word') }] } }], () => 'm')
+  assert.deepEqual(built.entries.map((entry) => [entry.label, entry.group]), [['Translate page', 'Translator'], ['Translate “word”', 'Translator']])
+  assert.equal(flattenChromeContextMenu(Array.from({ length: 80 }, (_, index) => ({ label: `i${index}`, click: () => undefined }))).entries.length, 50)
+})
+
+test('a tab exposes only the menu ECE built for it, and each token runs once', async () => {
+  const targetSession = { extensions: Object.assign(new EventEmitter(), { getExtension: () => undefined }) } as unknown as Session
+  const targetWindow = { id: 9, isDestroyed: () => false } as unknown as BrowserWindow
+  const clicked: number[] = []
+  class FakeEce {
+    addTab(): void {}
+    removeTab(): void {}
+    selectTab(): void {}
+    getContextMenuItems(tab: WebContents): Array<{ label: string; click: () => void }> { return [{ label: `Item for ${tab.id}`, click: () => clicked.push(tab.id) }] }
+  }
+  const runtime = new ExtensionCompatibilityRuntime({
+    gate: enabledGate(), loadEce: async () => ({ ElectronChromeExtensions: FakeEce }), focusedWindow: () => targetWindow, windowById: () => targetWindow,
+    dispatchTabOpen: () => true, dispatchTabCommand: () => undefined, dispatchPopupOpen: () => true
+  })
+  await runtime.prepareSession(targetSession)
+  const tab = (id: number): WebContents => Object.assign(new EventEmitter(), { id, session: targetSession, isDestroyed: () => false }) as unknown as WebContents
+  const first = tab(1)
+  const second = tab(2)
+  runtime.attachTab(first, targetWindow)
+  runtime.attachTab(second, targetWindow)
+  assert.deepEqual(runtime.contextMenuEntries(first), [])
+  first.emit('context-menu', {}, {})
+  const [entry] = runtime.contextMenuEntries(first)
+  assert.equal(entry.label, 'Item for 1')
+  assert.deepEqual(runtime.contextMenuEntries(second), [])
+  assert.equal(runtime.clickContextMenuEntry(second, entry.token), false)
+  first.emit('context-menu', {}, {})
+  const [fresh] = runtime.contextMenuEntries(first)
+  assert.equal(runtime.clickContextMenuEntry(first, fresh.token), true)
+  assert.equal(runtime.clickContextMenuEntry(first, fresh.token), false)
+  assert.deepEqual(clicked, [1])
 })

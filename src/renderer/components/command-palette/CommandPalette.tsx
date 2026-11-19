@@ -26,7 +26,8 @@ import {
   Wifi,
   X
 } from 'lucide-react'
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { focusWhenReady, PresenceContext, useMotionRef } from '../../lib/motion'
 import {
   INTERNAL_AUTOMATION_URL,
   INTERNAL_AVIDAE_URL,
@@ -41,31 +42,49 @@ import { getFeatureState, VastFeatures, type FeatureId, type FeatureState } from
 import type { BrowserSettings, Command } from '../../../shared/types'
 import { useBrowserRuntime } from '../../app/browser-runtime'
 import { formatRelativeTime } from '../../lib/format'
+import { looksLikeUrl, paletteUrlKey, parsePaletteQuery, preparePaletteItem, scorePaletteItem, type PaletteScope } from '../../lib/palette-search'
+import { getSearchEngine } from '../../lib/url'
+import { deleteHistory } from '../../lib/history-actions'
 import { useBrowserStore } from '../../store/browser-store'
 import { VideoAudioMark } from '../avidae/VideoAudioBrand'
 import { Favicon } from '../ui/Favicon'
+import { useVastConfirm } from '../ui/useVastConfirm'
+import { confirmClearAllHistory } from '../../lib/history-actions'
 import { useExtensionContributions } from '../../extensions/extension-runtime'
-
-function fuzzyScore(haystack: string, needle: string): number {
-  const source = haystack.toLowerCase()
-  const query = needle.toLowerCase().trim()
-  if (!query) return 1
-  if (source.startsWith(query)) return 120
-  if (source.includes(query)) return 80
-  let score = 0
-  let cursor = 0
-  for (const char of query) {
-    const index = source.indexOf(char, cursor)
-    if (index < 0) return 0
-    score += Math.max(8 - (index - cursor), 1)
-    cursor = index + 1
-  }
-  return score
-}
 
 type PaletteCommand = Command & {
   featureId?: FeatureId
   featureState?: FeatureState
+  // Relevance added to a matching item: open tabs, frequently visited pages.
+  boost?: number
+}
+
+type PaletteKind = 'tab' | 'bookmark' | 'history' | 'note' | 'command'
+
+function paletteKind(command: PaletteCommand): PaletteKind {
+  if (command.id.startsWith('tab-')) return 'tab'
+  if (command.id.startsWith('bookmark-')) return 'bookmark'
+  if (command.id.startsWith('history-')) return 'history'
+  if (command.id.startsWith('note-')) return 'note'
+  return 'command'
+}
+
+const SCOPE_KIND: Record<PaletteScope, PaletteKind> = {
+  tabs: 'tab',
+  bookmarks: 'bookmark',
+  history: 'history',
+  notes: 'note',
+  commands: 'command'
+}
+
+// Same page found as an open tab, a bookmark and a history entry is listed once.
+const KIND_PRIORITY: Record<PaletteKind, number> = { tab: 3, bookmark: 2, history: 1, note: 0, command: 0 }
+const SECTION_LIMIT: Partial<Record<Command['section'], number>> = { Tabs: 8, Bookmarks: 6, History: 8, Notes: 5 }
+
+function historyBoost(visitCount: number, lastVisitedAt: number, now: number): number {
+  const age = now - lastVisitedAt
+  const recency = age < 86_400_000 ? 10 : age < 7 * 86_400_000 ? 5 : 0
+  return Math.min(24, Math.log2(visitCount + 1) * 6) + recency
 }
 
 const commandSectionOrder: Command['section'][] = ['Actions', 'Navigation', 'Tabs', 'Workspaces', 'Bookmarks', 'History', 'Notes', 'Settings', 'Search']
@@ -73,6 +92,7 @@ const commandSectionOrder: Command['section'][] = ['Actions', 'Navigation', 'Tab
 export function CommandPalette(): JSX.Element | null {
   const runtime = useBrowserRuntime()
   const open = useBrowserStore((state) => state.commandPaletteOpen)
+  const overlayPresence = useContext(PresenceContext)
   const setOpen = useBrowserStore((state) => state.setCommandPaletteOpen)
   const setSettingsOpen = useBrowserStore((state) => state.setSettingsOpen)
   const setSmartUnloadOpen = useBrowserStore((state) => state.setSmartUnloadOpen)
@@ -84,7 +104,7 @@ export function CommandPalette(): JSX.Element | null {
   const notes = useBrowserStore((state) => state.notes)
   const macros = useBrowserStore((state) => state.macros)
   const createMacro = useBrowserStore((state) => state.createMacro)
-  const clearHistory = useBrowserStore((state) => state.clearHistory)
+  const confirm = useVastConfirm()
   const activeWorkspaceId = useBrowserStore((state) => state.activeWorkspaceId)
   const extensionContributions = useExtensionContributions()
   const recentCommandIds = useBrowserStore((state) => state.recentCommandIds)
@@ -95,6 +115,7 @@ export function CommandPalette(): JSX.Element | null {
   const security = useBrowserStore((state) => state.settings.security)
   const spoofing = useBrowserStore((state) => state.settings.spoofing)
   const labs = useBrowserStore((state) => state.settings.labs)
+  const searchEngineName = useBrowserStore((state) => getSearchEngine(state.settings.defaultSearchEngine).name)
   const featureContextSettings = useMemo(() => ({ labs }) as BrowserSettings, [labs])
   const updateSettings = useBrowserStore((state) => state.updateSettings)
   const [query, setQuery] = useState('')
@@ -102,12 +123,16 @@ export function CommandPalette(): JSX.Element | null {
   const inputRef = useRef<HTMLInputElement | null>(null)
   const deferredQuery = useDeferredValue(query)
 
-  useEffect(() => {
-    if (open) {
-      setQuery('')
-      setSelected(0)
-      window.setTimeout(() => inputRef.current?.focus(), 20)
-    }
+  const shellMotionRef = useMotionRef('backdrop')
+  const panelMotionRef = useMotionRef('dialog')
+
+  // Typing works from the first frame: focus before paint, never after the
+  // entrance motion. Reopening while closing starts a fresh search.
+  useLayoutEffect(() => {
+    if (!open) return
+    setQuery('')
+    setSelected(0)
+    focusWhenReady(inputRef.current)
   }, [open])
 
   const commands = useMemo<PaletteCommand[]>(() => {
@@ -370,7 +395,7 @@ export function CommandPalette(): JSX.Element | null {
         title: 'Clear history',
         subtitle: 'Remove local browsing history',
         section: 'History',
-        perform: clearHistory
+        perform: () => confirmClearAllHistory(confirm)
       },
       {
         id: 'copy-url',
@@ -431,16 +456,18 @@ export function CommandPalette(): JSX.Element | null {
       favicon: tab.favicon,
       section: 'Tabs',
       keywords: [tab.workspaceId === activeWorkspaceId ? 'current workspace' : '', tab.pinned ? 'pinned' : ''].filter(Boolean),
+      boost: 12 + (tab.workspaceId === activeWorkspaceId ? 8 : 0),
       perform: () => runtime.switchToTab(tab.id)
     }))
 
-    const bookmarkCommands: PaletteCommand[] = bookmarks.slice(0, 60).map((bookmarkItem) => ({
+    const bookmarkCommands: PaletteCommand[] = bookmarks.map((bookmarkItem) => ({
       id: `bookmark-${bookmarkItem.id}`,
       title: bookmarkItem.title,
       subtitle: bookmarkItem.url,
       url: bookmarkItem.url,
       favicon: bookmarkItem.favicon,
       section: 'Bookmarks',
+      boost: 8,
       perform: () => {
         const state = useBrowserStore.getState()
         const workspace = state.workspaces.find((item) => item.id === state.activeWorkspaceId)
@@ -450,13 +477,15 @@ export function CommandPalette(): JSX.Element | null {
       }
     }))
 
-    const historyCommands: PaletteCommand[] = history.slice(0, 80).map((entry) => ({
+    const now = Date.now()
+    const historyCommands: PaletteCommand[] = history.map((entry) => ({
       id: `history-${entry.id}`,
       title: entry.title,
       subtitle: `${entry.url} - ${formatRelativeTime(entry.lastVisitedAt)}`,
       url: entry.url,
       favicon: entry.favicon,
       section: 'History',
+      boost: historyBoost(entry.visitCount, entry.lastVisitedAt, now),
       perform: () => runtime.openUrlInNewTab(entry.url)
     }))
 
@@ -501,7 +530,7 @@ export function CommandPalette(): JSX.Element | null {
     const visibleBase = base
 
     const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId)
-    const extensionCommands: PaletteCommand[] = activeWorkspace?.isPrivate || activeWorkspace?.identity?.sessionMode === 'ephemeral' ? [] : extensionContributions.commands.map((command) => ({
+    const extensionCommands: PaletteCommand[] = activeWorkspace?.isPrivate || activeWorkspace?.identity?.sessionMode === 'ephemeral' ? [] : extensionContributions.commands.filter((command) => command.available).map((command) => ({
       id: `extension-${command.key}`,
       title: command.title,
       subtitle: command.extensionName,
@@ -512,46 +541,102 @@ export function CommandPalette(): JSX.Element | null {
     }))
 
     return [...visibleBase.map(annotateFeatureState), ...extensionCommands, ...macroCommands, ...workspaceCommands, ...tabCommands, ...noteCommands, ...bookmarkCommands, ...historyCommands, ...settingsCommands]
-  }, [activeWorkspaceId, appearance.forceDarkModeWebsites, bookmarks, clearHistory, createMacro, extensionContributions.commands, featureContextSettings, history, labs.spoofing, macros, notes, privacy.blockThirdPartyCookies, privacy.blockTrackers, privacy.fingerprintingProtection, privacy.stripTrackingParameters, runtime, security.httpsOnlyMode, setActiveWorkspace, setSettingsOpen, setSmartUnloadOpen, spoofing.enabled, tabs, updateSettings, workspaces])
+  }, [activeWorkspaceId, appearance.forceDarkModeWebsites, bookmarks, confirm, createMacro, extensionContributions.commands, featureContextSettings, history, labs.spoofing, macros, notes, privacy.blockThirdPartyCookies, privacy.blockTrackers, privacy.fingerprintingProtection, privacy.stripTrackingParameters, runtime, security.httpsOnlyMode, setActiveWorkspace, setSettingsOpen, setSmartUnloadOpen, spoofing.enabled, tabs, updateSettings, workspaces])
+
+  // Normalized search fields are built once per data change, not per keystroke.
+  // Page items search their title and URL only; subtitles such as "2 hours ago"
+  // would otherwise match unrelated text.
+  const prepared = useMemo(() => commands.map((command) => ({
+    command,
+    kind: paletteKind(command),
+    fields: preparePaletteItem({
+      title: command.title,
+      subtitle: command.url ? undefined : command.subtitle,
+      url: command.url,
+      keywords: command.keywords
+    })
+  })), [commands])
+
+  const parsedQuery = useMemo(() => parsePaletteQuery(deferredQuery), [deferredQuery])
 
   const filtered = useMemo(() => {
     const recentRank = new Map(recentCommandIds.map((id, index) => [id, recentCommandIds.length - index]))
-    const scored = commands
-      .map((command) => {
-        const haystack = `${command.title} ${command.subtitle ?? ''} ${command.section} ${(command.keywords ?? []).join(' ')}`
-        const hasQuery = Boolean(deferredQuery.trim())
-        const score =
-          fuzzyScore(haystack, deferredQuery) +
-          (recentRank.get(command.id) ?? 0) * 4 +
-          (favoriteCommandIds.includes(command.id) ? 32 : 0) +
-          (hasQuery && command.keywords?.includes('current workspace') ? 8 : 0)
-        return { command, score }
-      })
-      .filter((item) => item.score > 0)
-    const items = scored
-      .sort((a, b) => {
-        const sectionDifference = commandSectionOrder.indexOf(a.command.section) - commandSectionOrder.indexOf(b.command.section)
-        return sectionDifference || b.score - a.score
-      })
-      .map((item) => item.command)
-      .slice(0, 48)
-    if (deferredQuery.trim()) {
-      items.push({
-        id: 'search-web',
-        title: `Search the web for "${deferredQuery.trim()}"`,
-        subtitle: 'Default search engine',
-        section: 'Search',
-        perform: () => runtime.openUrlInNewTab(deferredQuery.trim())
-      })
+    const { scope, text, tokens } = parsedQuery
+    const usage = (command: PaletteCommand): number =>
+      (recentRank.get(command.id) ?? 0) * 4 + (favoriteCommandIds.includes(command.id) ? 40 : 0)
+
+    if (!scope && tokens.length === 0) {
+      return commands
+        .map((command) => ({ command, score: 1 + usage(command) }))
+        .sort((a, b) => commandSectionOrder.indexOf(a.command.section) - commandSectionOrder.indexOf(b.command.section) || b.score - a.score)
+        .map((item) => item.command)
+        .slice(0, 48)
+    }
+
+    const scored: Array<{ command: PaletteCommand; kind: PaletteKind; score: number }> = []
+    for (const item of prepared) {
+      if (scope && item.kind !== SCOPE_KIND[scope]) continue
+      const match = scorePaletteItem(item.fields, tokens)
+      // Usage boosts only reorder matches; they never admit a non-match.
+      if (match === 0) continue
+      scored.push({ command: item.command, kind: item.kind, score: match + (item.command.boost ?? 0) + usage(item.command) })
+    }
+
+    const bestByUrl = new Map<string, (typeof scored)[number]>()
+    const unique: typeof scored = []
+    for (const item of scored) {
+      if (!item.command.url || item.kind === 'command' || item.kind === 'note') {
+        unique.push(item)
+        continue
+      }
+      const key = paletteUrlKey(item.command.url)
+      const existing = bestByUrl.get(key)
+      if (!existing || KIND_PRIORITY[item.kind] > KIND_PRIORITY[existing.kind] ||
+          (KIND_PRIORITY[item.kind] === KIND_PRIORITY[existing.kind] && item.score > existing.score)) {
+        bestByUrl.set(key, item)
+      }
+    }
+    unique.push(...bestByUrl.values())
+
+    // Sections are ordered by their best match, items by score within them.
+    const sections = new Map<Command['section'], typeof scored>()
+    for (const item of unique.sort((a, b) => b.score - a.score)) {
+      const list = sections.get(item.command.section) ?? []
+      if (list.length < (scope ? 48 : SECTION_LIMIT[item.command.section] ?? 8)) list.push(item)
+      sections.set(item.command.section, list)
+    }
+    const items: PaletteCommand[] = [...sections.values()].flat().map((item) => item.command).slice(0, 48)
+
+    if (!scope || scope === 'commands') {
+      if (text && looksLikeUrl(text)) {
+        items.unshift({
+          id: 'open-url',
+          title: `Open ${text}`,
+          subtitle: 'Go to this address',
+          section: 'Search',
+          url: /^[a-z][a-z0-9+.-]*:/i.test(text) ? text : `https://${text}`,
+          perform: () => runtime.openUrlInNewTab(text)
+        })
+      }
+      if (text) {
+        items.push({
+          id: 'search-web',
+          title: `Search ${searchEngineName} for "${text}"`,
+          subtitle: 'Default search engine',
+          section: 'Search',
+          perform: () => runtime.openUrlInNewTab(text)
+        })
+      }
     }
     return items
-  }, [commands, deferredQuery, favoriteCommandIds, recentCommandIds, runtime])
+  }, [commands, favoriteCommandIds, parsedQuery, prepared, recentCommandIds, runtime, searchEngineName])
 
   useEffect(() => {
     setSelected(0)
   }, [query])
 
-  if (!open) return null
+  // Inside an App overlay presence the parent unmounts this after its exit motion.
+  if (!open && !overlayPresence) return null
 
   const run = async (command: PaletteCommand): Promise<void> => {
     if (command.featureState && !command.featureState.available) {
@@ -574,9 +659,9 @@ export function CommandPalette(): JSX.Element | null {
   }
 
   return (
-    <div style={{ backdropFilter: 'blur(var(--vast-dialog-backdrop-blur))' }} className="command-palette-shell fixed inset-0 z-50 flex items-start justify-center bg-black/46 px-3 pt-[clamp(2rem,9vh,7rem)] sm:px-5">
+    <div ref={shellMotionRef} style={{ backdropFilter: 'blur(var(--vast-dialog-backdrop-blur))' }} className="command-palette-shell fixed inset-0 z-50 flex items-start justify-center bg-black/46 px-3 pt-[clamp(2rem,9vh,7rem)] sm:px-5">
       <button className="absolute inset-0 cursor-default" aria-label="Close command palette" onClick={() => setOpen(false)} />
-      <div className="command-palette-panel relative w-full max-w-3xl overflow-hidden rounded-panel border">
+      <div ref={panelMotionRef} className="command-palette-panel relative w-full max-w-3xl overflow-hidden rounded-panel border">
         <div className="command-palette-search flex items-center gap-3 border-b border-white/6.5 px-5 py-4">
           <div className="command-palette-symbol grid h-10 w-10 place-items-center rounded-card border text-vast-cyan">
             <CommandIcon className="h-5 w-5" />
@@ -598,6 +683,11 @@ export function CommandPalette(): JSX.Element | null {
               if (event.key === 'Enter' && filtered[selected]) {
                 event.preventDefault()
                 void run(filtered[selected])
+              }
+              // Shift+Delete removes the highlighted history entry, as in Chrome.
+              if (event.key === 'Delete' && event.shiftKey && filtered[selected]?.id.startsWith('history-')) {
+                event.preventDefault()
+                void deleteHistory({ ids: [filtered[selected].id.slice('history-'.length)] })
               }
             }}
             placeholder="Command, tab, bookmark, history, or search"
@@ -657,10 +747,12 @@ export function CommandPalette(): JSX.Element | null {
             </button>
             </div>
           ))}
-          {filtered.length === 0 && <div className="px-4 py-12 text-center text-sm text-vast-soft">No commands, tabs, notes, or settings match this search.</div>}
+          {filtered.length === 0 && <div className="px-4 py-12 text-center text-sm text-vast-soft">{parsedQuery.scope ? `No ${parsedQuery.scope} match this search.` : 'No commands, tabs, notes, or settings match this search.'}</div>}
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-white/6.5 px-5 py-2 text-[11px] text-vast-soft">
-          <span><kbd>↑↓</kbd> navigate</span><span><kbd>Enter</kbd> run</span><span><kbd>Esc</kbd> close</span><span className="ml-auto">Favorites and recent commands rank first</span>
+          <span><kbd>↑↓</kbd> navigate</span><span><kbd>Enter</kbd> run</span><span><kbd>Esc</kbd> close</span>
+          {filtered[selected]?.id.startsWith('history-') && <span><kbd>Shift+Del</kbd> remove from history</span>}
+          <span className="ml-auto">{parsedQuery.scope ? `Searching ${parsedQuery.scope}` : '@tabs @history @bookmarks @notes · > commands'}</span>
         </div>
       </div>
     </div>

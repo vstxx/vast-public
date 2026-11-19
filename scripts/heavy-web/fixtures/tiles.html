@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Tile fetch fixture</title></head>
+<body>
+<script>
+// Many small subresource requests, as a map or globe viewer streams tiles.
+// Measures request throughput and per-request latency; the server answers
+// immediately, so the difference between browsers is request handling.
+window.__fixture = { kind: 'tiles' }
+window.runTiles = async (count = 2000, concurrency = 24, run = String(Math.random()).slice(2)) => {
+  performance.clearResourceTimings()
+  performance.setResourceTimingBufferSize(count + 100)
+  const latencies = []
+  let next = 0
+  const started = performance.now()
+  await Promise.all(Array.from({ length: concurrency }, async () => {
+    while (next < count) {
+      const index = next++
+      const begin = performance.now()
+      const response = await fetch(`/tile/${run}/${index}`, { cache: 'no-store' })
+      await response.arrayBuffer()
+      latencies.push(performance.now() - begin)
+    }
+  }))
+  const elapsedMs = performance.now() - started
+  latencies.sort((a, b) => a - b)
+  const pick = (q) => +latencies[Math.min(latencies.length - 1, Math.floor(q * latencies.length))].toFixed(2)
+  return { count, concurrency, elapsedMs: +elapsedMs.toFixed(1), requestsPerSecond: +(count / elapsedMs * 1000).toFixed(0), p50: pick(0.5), p95: pick(0.95), p99: pick(0.99) }
+}
+</script>
+</body>
+</html>

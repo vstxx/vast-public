@@ -1,0 +1,7 @@
+{
+  "moduleId": "vast-video-audio",
+  "moduleVersion": "1.0.0",
+  "sequence": 1,
+  "hostApi": 1,
+  "minVastVersion": "0.5.5"
+}

@@ -1,5 +1,5 @@
-import { Archive, Download, FileText, Link2, Pin, Plus, Redo2, Search, Star, Tag, Trash2, Undo2 } from 'lucide-react'
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { Archive, Download, FileText, Link2, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Pin, Plus, Redo2, Search, Star, Tag, Trash2, Undo2 } from 'lucide-react'
+import { memo, useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useBrowserStore, selectActiveTab, selectActiveWorkspace } from '../../store/browser-store'
 import { formatRelativeTime } from '../../lib/format'
 import { VastSelect } from '../ui/VastSelect'
@@ -34,7 +34,7 @@ function renderInlineMarkdown(text: string): Array<string | JSX.Element> {
   })
 }
 
-function MarkdownPreview({ body }: { body: string }): JSX.Element {
+const MarkdownPreview = memo(function MarkdownPreview({ body }: { body: string }): JSX.Element {
   const lines = body.split(/\r?\n/)
   const blocks: JSX.Element[] = []
   for (let index = 0; index < lines.length; index += 1) {
@@ -75,6 +75,41 @@ function MarkdownPreview({ body }: { body: string }): JSX.Element {
     blocks.push(line ? <p key={index} className="min-h-6">{renderInlineMarkdown(line)}</p> : <div key={index} className="h-3" />)
   }
   return <div className="text-sm leading-7 text-vast-soft">{blocks.length > 0 ? blocks : 'Preview appears as you write.'}</div>
+})
+
+interface NotesPanels {
+  list: boolean
+  details: boolean
+}
+
+const PANELS_KEY = 'vast:notes-panels'
+const PANEL_RAIL = '56px'
+
+function readPanels(): NotesPanels {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(PANELS_KEY) ?? '{}') as Partial<NotesPanels>
+    return { list: stored.list !== false, details: stored.details !== false }
+  } catch {
+    return { list: true, details: true }
+  }
+}
+
+function writePanels(panels: NotesPanels): void {
+  try {
+    window.localStorage.setItem(PANELS_KEY, JSON.stringify(panels))
+  } catch {
+    // Remembering which panels are hidden is a convenience only.
+  }
+}
+
+function PanelToggle({ open, side, label, controls, onClick }: { open: boolean; side: 'left' | 'right'; label: string; controls: string; onClick: () => void }): JSX.Element {
+  const Icon = side === 'left' ? (open ? PanelLeftClose : PanelLeftOpen) : (open ? PanelRightClose : PanelRightOpen)
+  const title = `${open ? 'Hide' : 'Show'} ${label}`
+  return (
+    <button type="button" onClick={onClick} title={title} aria-label={title} aria-expanded={open} aria-controls={controls} className="vast-button vast-button--ghost vast-button--sm h-9 w-9 shrink-0 justify-center px-0 text-vast-soft hover:text-white">
+      <Icon className="h-4 w-4" />
+    </button>
+  )
 }
 
 interface NoteRevisionHistory {
@@ -115,6 +150,30 @@ export function NotesPage(): JSX.Element {
       .filter((note) => !needle || `${note.title} ${note.body} ${(note.tags ?? []).join(' ')} ${note.url ?? ''}`.toLowerCase().includes(needle))
   }, [deferredQuery, scopedNotes])
   const selected = notes.find((note) => note.id === selectedId) ?? filtered[0]
+  // The preview re-parses Markdown; let typing win and catch it up when idle.
+  const previewBody = useDeferredValue(selected?.body ?? '')
+  const [panels, setPanels] = useState<NotesPanels>(readPanels)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const focusSearchOnOpen = useRef(false)
+
+  const togglePanel = (panel: keyof NotesPanels): void => {
+    setPanels((current) => {
+      const next = { ...current, [panel]: !current[panel] }
+      writePanels(next)
+      return next
+    })
+  }
+
+  const openSearch = (): void => {
+    focusSearchOnOpen.current = true
+    togglePanel('list')
+  }
+
+  useEffect(() => {
+    if (!panels.list || !focusSearchOnOpen.current) return
+    focusSearchOnOpen.current = false
+    searchRef.current?.focus()
+  }, [panels.list])
 
   useEffect(() => () => {
     Object.values(editBurstTimers.current).forEach((timer) => window.clearTimeout(timer))
@@ -192,112 +251,141 @@ export function NotesPage(): JSX.Element {
 
   return (
     <div className="labs-page-surface h-full min-h-0 overflow-y-auto overflow-x-hidden bg-[#070707] p-6 text-white" data-testid="notes-page">
-      <div className="mx-auto grid max-w-7xl gap-5 xl:grid-cols-[370px_minmax(0,1fr)]">
-        <section className="vast-glass-panel rounded-panel p-5">
-          <div className="mb-5 flex items-start justify-between gap-3">
-            <h1 className="text-3xl font-semibold">Notes</h1>
-            <button type="button" onClick={() => createNote(false)} className="vast-button vast-button--primary vast-button--md h-11 w-11 justify-center rounded-card px-0" title="Create note">
-              <Plus className="h-5 w-5" />
-            </button>
-          </div>
-          <div className="relative mb-3">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-vast-soft" />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search notes, pages, tags" className="h-11 w-full rounded-card border border-white/10 bg-black/20 pl-10 pr-3 text-sm text-white outline-hidden" data-testid="notes-search-input" />
-          </div>
-          <div className="mb-4 flex flex-wrap gap-2">
-            <button type="button" onClick={() => setShowArchived((value) => !value)} className={`vast-button ${showArchived ? 'vast-button--selected' : 'vast-button--ghost'} vast-button--xs`}>Archived</button>
-            {allTags.slice(0, 8).map((tag) => (
-              <button key={tag} type="button" onClick={() => setTagFilter((value) => (value === tag ? '' : tag))} className={`vast-button ${tagFilter === tag ? 'vast-button--selected' : 'vast-button--ghost'} vast-button--xs`}>#{tag}</button>
-            ))}
-          </div>
-          <div className="space-y-2">
-            {filtered.map((note) => (
-              <button key={note.id} type="button" onClick={() => setSelectedId(note.id)} className={`w-full rounded-card p-3 text-left transition ${selected?.id === note.id ? 'bg-white/10' : 'hover:bg-white/5.5'}`}>
-                <div className="flex items-center gap-2">
-                  {note.pinned && <Star className="h-3.5 w-3.5 fill-current text-vast-amber" />}
-                  <div className="min-w-0 flex-1 truncate text-sm font-semibold">{note.title}</div>
-                  <span className="text-[11px] text-vast-soft">{formatRelativeTime(note.updatedAt)}</span>
+      <div
+        className="mx-auto grid max-w-[1920px] gap-4 transition-[grid-template-columns] duration-200 ease-out motion-reduce:transition-none xl:grid-cols-[var(--notes-list)_minmax(0,1fr)_var(--notes-details)]"
+        style={{ '--notes-list': panels.list ? '340px' : PANEL_RAIL, '--notes-details': selected && panels.details ? '340px' : PANEL_RAIL } as CSSProperties}
+        data-testid="notes-layout"
+      >
+        {panels.list ? (
+          <section id="notes-list-panel" className="vast-glass-panel min-w-0 overflow-hidden rounded-panel p-5" data-testid="notes-list-panel">
+            {/* A fixed inner width clips, rather than reflows, while the column animates. */}
+            <div className="xl:min-w-[300px]">
+              <div className="mb-5 flex items-center justify-between gap-2">
+                <h1 className="text-3xl font-semibold">Notes</h1>
+                <div className="flex items-center gap-1.5">
+                  <button type="button" onClick={() => createNote(false)} className="vast-button vast-button--primary vast-button--md h-11 w-11 justify-center rounded-card px-0" title="Create note">
+                    <Plus className="h-5 w-5" />
+                  </button>
+                  <PanelToggle open side="left" label="notes list" controls="notes-list-panel" onClick={() => togglePanel('list')} />
                 </div>
-                <div className="mt-2 line-clamp-2 text-xs leading-5 text-vast-soft">{markdownPreview(note.body) || 'Empty note'}</div>
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {(note.tags ?? []).slice(0, 4).map((tag) => <span key={tag} className="rounded-control bg-white/6 px-2 py-0.5 text-[10px] text-vast-soft">#{tag}</span>)}
-                </div>
-              </button>
-            ))}
-            {filtered.length === 0 && <div className="rounded-panel border border-dashed border-white/10 p-8 text-center text-sm text-vast-soft">No notes match this view.</div>}
-          </div>
-        </section>
-
-        <section className="vast-glass-panel min-h-[720px] rounded-panel p-5">
-          {selected ? (
-            <div className="grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-              <div className="flex min-h-0 flex-col">
-                <div className="mb-3 flex items-center gap-3">
-                  <input value={selected.title} onChange={(event) => { updateNote(selected.id, { title: event.target.value }); markSaving() }} className="min-w-0 flex-1 bg-transparent text-4xl font-semibold text-white outline-hidden" data-testid="note-title-input" />
-                  <span className={`shrink-0 text-[13px] ${saveStatus === 'saved' ? 'text-emerald-300' : 'text-vast-soft'}`}>{saveStatus === 'saved' ? 'Saved locally' : 'Saving…'}</span>
-                </div>
-                <div className="mb-3 space-y-2" data-testid="notes-action-toolbar">
-                  <div className="grid grid-cols-4 gap-2" data-testid="notes-primary-actions">
-                    <button type="button" onClick={undoBody} disabled={!revisionHistory[selected.id]?.past.length} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2"><Undo2 className="h-4 w-4" />Undo</button>
-                    <button type="button" onClick={redoBody} disabled={!revisionHistory[selected.id]?.future.length} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2"><Redo2 className="h-4 w-4" />Redo</button>
-                    <button type="button" onClick={() => updateAdvancedNote({ pinned: !selected.pinned })} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2"><Pin className="h-4 w-4" />{selected.pinned ? 'Unpin' : 'Pin'}</button>
-                    <button type="button" onClick={() => updateAdvancedNote({ favorite: !selected.favorite })} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2"><Star className="h-4 w-4" />{selected.favorite ? 'Unfavorite' : 'Favorite'}</button>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2" data-testid="notes-secondary-actions">
-                    <button type="button" onClick={() => updateAdvancedNote({ archived: !selected.archived })} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2"><Archive className="h-4 w-4" />{selected.archived ? 'Unarchive' : 'Archive'}</button>
-                    <button type="button" onClick={() => void window.vast.notes.exportMarkdown(selected.title, selected.body)} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center" title="Export as Markdown (.md)" aria-label="Export note as Markdown"><Download className="h-4 w-4" />Export</button>
-                    <button type="button" onClick={() => { void removeSelected() }} className="vast-button vast-button--danger vast-button--sm min-w-0 justify-center"><Trash2 className="h-4 w-4" />Delete</button>
-                  </div>
-                </div>
-                <textarea value={selected.body} onChange={(event) => updateBody(event.target.value)} placeholder="Write Markdown. Use # headings, **bold**, lists, quotes, links, and fenced code." className="min-h-[420px] flex-1 resize-none rounded-panel border border-white/10 bg-black/22 p-5 text-base leading-8 text-white outline-hidden focus:border-vast-cyan/35" data-testid="note-body-input" />
               </div>
-              <aside className="space-y-4">
-                <div className="rounded-panel border border-white/10 bg-white/[0.035] p-4">
-                  <div className="mb-2 flex items-center gap-2 text-sm font-semibold"><Tag className="h-4 w-4 text-vast-cyan" />Tags</div>
-                  <input value={(selected.tags ?? []).join(', ')} onChange={(event) => updateAdvancedNote({ tags: parseTags(event.target.value) })} placeholder="research, quote, school" className="h-10 w-full rounded-control border border-white/10 bg-black/20 px-3 text-sm text-white outline-hidden" />
+              <div className="relative mb-3">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-vast-soft" />
+                <input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search notes, pages, tags" className="h-11 w-full rounded-card border border-white/10 bg-black/20 pl-10 pr-3 text-sm text-white outline-hidden" data-testid="notes-search-input" />
+              </div>
+              <div className="mb-4 flex flex-wrap gap-2">
+                <button type="button" onClick={() => setShowArchived((value) => !value)} className={`vast-button ${showArchived ? 'vast-button--selected' : 'vast-button--ghost'} vast-button--xs`}>Archived</button>
+                {allTags.slice(0, 8).map((tag) => (
+                  <button key={tag} type="button" onClick={() => setTagFilter((value) => (value === tag ? '' : tag))} className={`vast-button ${tagFilter === tag ? 'vast-button--selected' : 'vast-button--ghost'} vast-button--xs`}>#{tag}</button>
+                ))}
+              </div>
+              <div className="space-y-2">
+                {filtered.map((note) => (
+                  <button key={note.id} type="button" onClick={() => setSelectedId(note.id)} className={`w-full rounded-card p-3 text-left transition ${selected?.id === note.id ? 'bg-white/10' : 'hover:bg-white/5.5'}`}>
+                    <div className="flex items-center gap-2">
+                      {note.pinned && <Star className="h-3.5 w-3.5 fill-current text-vast-amber" />}
+                      <div className="min-w-0 flex-1 truncate text-sm font-semibold">{note.title}</div>
+                      <span className="text-[11px] text-vast-soft">{formatRelativeTime(note.updatedAt)}</span>
+                    </div>
+                    <div className="mt-2 line-clamp-2 text-xs leading-5 text-vast-soft">{markdownPreview(note.body) || 'Empty note'}</div>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {(note.tags ?? []).slice(0, 4).map((tag) => <span key={tag} className="rounded-control bg-white/6 px-2 py-0.5 text-[10px] text-vast-soft">#{tag}</span>)}
+                    </div>
+                  </button>
+                ))}
+                {filtered.length === 0 && <div className="rounded-panel border border-dashed border-white/10 p-8 text-center text-sm text-vast-soft">No notes match this view.</div>}
+              </div>
+            </div>
+          </section>
+        ) : (
+          <nav id="notes-list-panel" aria-label="Notes" className="vast-glass-panel flex items-center gap-1.5 rounded-panel p-2.5 xl:flex-col" data-testid="notes-list-rail">
+            <PanelToggle open={false} side="left" label="notes list" controls="notes-list-panel" onClick={() => togglePanel('list')} />
+            <button type="button" onClick={() => createNote(false)} className="vast-button vast-button--ghost vast-button--sm h-9 w-9 justify-center px-0" title="Create note" aria-label="Create note"><Plus className="h-4 w-4" /></button>
+            <button type="button" onClick={openSearch} className="vast-button vast-button--ghost vast-button--sm h-9 w-9 justify-center px-0 text-vast-soft hover:text-white" title="Search notes" aria-label="Search notes"><Search className="h-4 w-4" /></button>
+          </nav>
+        )}
+
+        <section className={`vast-glass-panel flex min-h-[720px] min-w-0 flex-col rounded-panel p-5 ${selected ? '' : 'xl:col-span-2'}`} data-testid="notes-editor-panel">
+          {selected ? (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="mb-3 flex items-center gap-3">
+                <input value={selected.title} onChange={(event) => { updateNote(selected.id, { title: event.target.value }); markSaving() }} className="min-w-0 flex-1 bg-transparent text-4xl font-semibold text-white outline-hidden" data-testid="note-title-input" />
+                <span className={`shrink-0 text-[13px] ${saveStatus === 'saved' ? 'text-emerald-300' : 'text-vast-soft'}`}>{saveStatus === 'saved' ? 'Saved locally' : 'Saving…'}</span>
+              </div>
+              <div className="mb-3 space-y-2" data-testid="notes-action-toolbar">
+                <div className="grid grid-cols-4 gap-2" data-testid="notes-primary-actions">
+                  <button type="button" onClick={undoBody} disabled={!revisionHistory[selected.id]?.past.length} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2"><Undo2 className="h-4 w-4" />Undo</button>
+                  <button type="button" onClick={redoBody} disabled={!revisionHistory[selected.id]?.future.length} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2"><Redo2 className="h-4 w-4" />Redo</button>
+                  <button type="button" onClick={() => updateAdvancedNote({ pinned: !selected.pinned })} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2"><Pin className="h-4 w-4" />{selected.pinned ? 'Unpin' : 'Pin'}</button>
+                  <button type="button" onClick={() => updateAdvancedNote({ favorite: !selected.favorite })} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2"><Star className="h-4 w-4" />{selected.favorite ? 'Unfavorite' : 'Favorite'}</button>
                 </div>
-                <div className="rounded-panel border border-white/10 bg-white/[0.035] p-4">
-                  <div className="mb-2 flex items-center gap-2 text-sm font-semibold"><Link2 className="h-4 w-4 text-vast-cyan" />Linked page</div>
-                  <input value={selected.url ?? ''} onChange={(event) => updateAdvancedNote({ url: event.target.value || undefined })} placeholder="https://..." className="h-10 w-full rounded-control border border-white/10 bg-black/20 px-3 text-sm text-white outline-hidden" />
-                  <button type="button" onClick={createLinkedNote} className="vast-button vast-button--secondary vast-button--sm mt-3 w-full justify-center">New note for active page</button>
-                  <div className="mt-3 block text-[13px] text-vast-soft">
-                    <span>Workspace</span>
-                    <VastSelect
-                      value={selected.workspaceId ?? ''}
-                      options={[
-                        { value: '', label: 'All workspaces' },
-                        ...workspaces.map((item) => ({ value: item.id, label: item.name }))
-                      ]}
-                      onChange={(workspaceId) => updateAdvancedNote({ workspaceId: workspaceId || undefined })}
-                      ariaLabel="Workspace"
-                      className="mt-1 w-full"
-                      buttonClassName="h-10 min-h-10"
-                      align="start"
-                    />
-                  </div>
+                <div className="grid grid-cols-3 gap-2" data-testid="notes-secondary-actions">
+                  <button type="button" onClick={() => updateAdvancedNote({ archived: !selected.archived })} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center px-2"><Archive className="h-4 w-4" />{selected.archived ? 'Unarchive' : 'Archive'}</button>
+                  <button type="button" onClick={() => void window.vast.notes.exportMarkdown(selected.title, selected.body)} className="vast-button vast-button--secondary vast-button--sm min-w-0 justify-center" title="Export as Markdown (.md)" aria-label="Export note as Markdown"><Download className="h-4 w-4" />Export</button>
+                  <button type="button" onClick={() => { void removeSelected() }} className="vast-button vast-button--danger vast-button--sm min-w-0 justify-center"><Trash2 className="h-4 w-4" />Delete</button>
                 </div>
-                <div className="rounded-panel border border-white/10 bg-white/[0.035] p-4">
-                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold"><FileText className="h-4 w-4 text-vast-cyan" />Preview</div>
-                  <div className="max-h-96 overflow-auto"><MarkdownPreview body={selected.body} /></div>
-                </div>
-                {(selected.quotes ?? []).length > 0 && (
-                  <div className="rounded-panel border border-white/10 bg-white/[0.035] p-4">
-                    <div className="mb-3 text-sm font-semibold">Captured quotes</div>
-                    {(selected.quotes ?? []).map((quote) => (
-                      <blockquote key={quote.id} className="mb-3 border-l-2 border-vast-cyan/50 pl-3 text-sm leading-6 text-vast-soft">
-                        {quote.text}
-                      </blockquote>
-                    ))}
-                  </div>
-                )}
-              </aside>
+              </div>
+              <textarea value={selected.body} onChange={(event) => updateBody(event.target.value)} placeholder="Write Markdown. Use # headings, **bold**, lists, quotes, links, and fenced code." className="min-h-[420px] flex-1 resize-none rounded-panel border border-white/10 bg-black/22 p-5 text-base leading-8 text-white outline-hidden focus:border-vast-cyan/35" data-testid="note-body-input" />
             </div>
           ) : (
-            <div className="grid h-full place-items-center text-center">
+            <div className="grid flex-1 place-items-center text-center">
               <div><FileText className="mx-auto mb-4 h-10 w-10 text-vast-cyan" /><div className="text-xl font-semibold">No notes yet</div><button type="button" onClick={() => createNote(false)} className="vast-button vast-button--primary vast-button--md mt-4 justify-center rounded-card">Create note</button></div>
             </div>
           )}
         </section>
+
+        {selected && (panels.details ? (
+          <aside id="notes-details-panel" aria-label="Note details" className="vast-glass-panel min-w-0 overflow-hidden rounded-panel p-4" data-testid="notes-details-panel">
+            <div className="space-y-4 xl:min-w-[308px]">
+              <div className="flex items-center justify-between gap-2 pl-1">
+                <h2 className="text-sm font-semibold text-vast-soft">Details</h2>
+                <PanelToggle open side="right" label="details" controls="notes-details-panel" onClick={() => togglePanel('details')} />
+              </div>
+              <div className="rounded-panel border border-white/10 bg-white/[0.035] p-4">
+                <div className="mb-2 flex items-center gap-2 text-sm font-semibold"><Tag className="h-4 w-4 text-vast-cyan" />Tags</div>
+                <input value={(selected.tags ?? []).join(', ')} onChange={(event) => updateAdvancedNote({ tags: parseTags(event.target.value) })} placeholder="research, quote, school" className="h-10 w-full rounded-control border border-white/10 bg-black/20 px-3 text-sm text-white outline-hidden" />
+              </div>
+              <div className="rounded-panel border border-white/10 bg-white/[0.035] p-4">
+                <div className="mb-2 flex items-center gap-2 text-sm font-semibold"><Link2 className="h-4 w-4 text-vast-cyan" />Linked page</div>
+                <input value={selected.url ?? ''} onChange={(event) => updateAdvancedNote({ url: event.target.value || undefined })} placeholder="https://..." className="h-10 w-full rounded-control border border-white/10 bg-black/20 px-3 text-sm text-white outline-hidden" />
+                <button type="button" onClick={createLinkedNote} className="vast-button vast-button--secondary vast-button--sm mt-3 w-full justify-center">New note for active page</button>
+                <div className="mt-3 block text-[13px] text-vast-soft">
+                  <span>Workspace</span>
+                  <VastSelect
+                    value={selected.workspaceId ?? ''}
+                    options={[
+                      { value: '', label: 'All workspaces' },
+                      ...workspaces.map((item) => ({ value: item.id, label: item.name }))
+                    ]}
+                    onChange={(workspaceId) => updateAdvancedNote({ workspaceId: workspaceId || undefined })}
+                    ariaLabel="Workspace"
+                    className="mt-1 w-full"
+                    buttonClassName="h-10 min-h-10"
+                    align="start"
+                  />
+                </div>
+              </div>
+              <div className="rounded-panel border border-white/10 bg-white/[0.035] p-4">
+                <div className="mb-3 flex items-center gap-2 text-sm font-semibold"><FileText className="h-4 w-4 text-vast-cyan" />Preview</div>
+                <div className="max-h-96 overflow-auto"><MarkdownPreview body={previewBody} /></div>
+              </div>
+              {(selected.quotes ?? []).length > 0 && (
+                <div className="rounded-panel border border-white/10 bg-white/[0.035] p-4">
+                  <div className="mb-3 text-sm font-semibold">Captured quotes</div>
+                  {(selected.quotes ?? []).map((quote) => (
+                    <blockquote key={quote.id} className="mb-3 border-l-2 border-vast-cyan/50 pl-3 text-sm leading-6 text-vast-soft">
+                      {quote.text}
+                    </blockquote>
+                  ))}
+                </div>
+              )}
+            </div>
+          </aside>
+        ) : (
+          <nav id="notes-details-panel" aria-label="Note details" className="vast-glass-panel flex items-center gap-1.5 rounded-panel p-2.5 xl:flex-col" data-testid="notes-details-rail">
+            <PanelToggle open={false} side="right" label="details" controls="notes-details-panel" onClick={() => togglePanel('details')} />
+          </nav>
+        ))}
       </div>
       {lastDeleted && (
         <NotificationCard role="status" className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 border border-white/10 bg-[#0c0c0c]/95 text-sm text-white shadow-glass">

@@ -18,8 +18,7 @@ function requiredReleaseFiles(version, unsigned = false) {
     `Downloads/Vast-${version}-update.zip`,
     'Checksums/SHA256SUMS.txt', 'Checksums/SHA512SUMS.txt', 'Checksums/checksums.json',
     'Docs/release-manifest.json', 'Docs/data-migration-and-storage.md',
-    'Docs/ffmpeg-build-provenance.json', 'Docs/avidae-ffmpeg-capabilities.json',
-    'Source/ffmpeg-corresponding-source-win64.tar.zst', 'README.md', 'version.json',
+    'README.md', 'version.json',
     ...(unsigned ? ['PUBLIC-UNSIGNED-RELEASE.md'] : [])
   ].sort()
 }

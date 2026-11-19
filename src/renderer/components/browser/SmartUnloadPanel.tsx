@@ -1,5 +1,6 @@
 import { Gauge, Moon, Power, Snowflake, X, Zap } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useContext, useMemo, useState } from 'react'
+import { PresenceContext, useMotionRef } from '../../lib/motion'
 import { useBrowserRuntime } from '../../app/browser-runtime'
 import { formatBytes, formatRelativeTime } from '../../lib/format'
 import { isInternalUrl } from '../../lib/url'
@@ -9,6 +10,7 @@ import { isInactiveTabUnloadCandidate } from '../../store/tab-lifecycle'
 export function SmartUnloadPanel(): JSX.Element | null {
   const runtime = useBrowserRuntime()
   const open = useBrowserStore((state) => state.smartUnloadOpen)
+  const overlayPresence = useContext(PresenceContext)
   const setOpen = useBrowserStore((state) => state.setSmartUnloadOpen)
   const tabs = useBrowserStore((state) => state.tabs)
   const activeTab = useBrowserStore(selectActiveTab)
@@ -56,7 +58,9 @@ export function SmartUnloadPanel(): JSX.Element | null {
     }
   }, [activeTab?.id, keepAwakeTabIds, keepPinnedTabsAwake, ramLimitMb, splitView, tabs])
 
-  if (!open) return null
+  const panelMotionRef = useMotionRef('panel')
+  // Inside an App overlay presence the parent unmounts this after its exit motion.
+  if (!open && !overlayPresence) return null
 
   const runUnload = (lifecycle: 'sleeping' | 'discarded'): void => {
     const count = unloadInactiveTabs(lifecycle)
@@ -65,8 +69,9 @@ export function SmartUnloadPanel(): JSX.Element | null {
 
   return (
     <div className="smart-unload-layer fixed inset-0 z-50 pointer-events-none">
-      <button type="button" aria-label="Close smart unload" className="smart-unload-backdrop pointer-events-auto absolute inset-0 cursor-default" onClick={() => setOpen(false)} />
-      <aside className="smart-unload-panel pointer-events-auto absolute right-4 top-20 flex max-h-[calc(100vh-6rem)] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-panel border border-white/10 shadow-glass backdrop-blur-2xl">
+      {/* The click-away layer goes with the logical close, never lingering over the page. */}
+      {open && <button type="button" aria-label="Close smart unload" className="smart-unload-backdrop pointer-events-auto absolute inset-0 cursor-default" onClick={() => setOpen(false)} />}
+      <aside ref={panelMotionRef} className="smart-unload-panel pointer-events-auto absolute right-4 top-20 flex max-h-[calc(100vh-6rem)] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-panel border border-white/10 shadow-glass backdrop-blur-2xl">
         <header className="smart-unload-header flex items-start justify-between gap-3 border-b p-4">
           <div>
             <div className="flex items-center gap-2 text-sm font-semibold text-white">

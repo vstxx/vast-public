@@ -19,7 +19,7 @@ const VastFeatures = {
 
 const expectedSensitiveHandlers = {
   [VastFeatures.Avidae]: [
-    'vast:avidae:status', 'vast:avidae:start', 'vast:avidae:stop', 'vast:avidae:install-dependencies'
+    'vast:avidae:status', 'vast:avidae:start', 'vast:avidae:stop', 'vast:avidae:install-dependencies', 'vast:avidae:install-module', 'vast:avidae:cancel-module-install'
   ],
   [VastFeatures.NetworkDevices]: [
     'vast:network:get-devices', 'vast:network:scan', 'vast:network:update-device',

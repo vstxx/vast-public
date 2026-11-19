@@ -5,6 +5,7 @@ import { ExtensionStorage } from './extension-storage.ts'
 import { ExtensionContributionRegistry } from './extension-contributions.ts'
 import { ExtensionUiBroker } from './extension-ui-broker.ts'
 import { showRendererNotification } from '../ui-bridge.ts'
+import { extensionAssetIconDataUrl, TOOLBAR_ICON_MAX_BYTES } from './extension-manifest.ts'
 
 export interface NativeExtensionAuthority { record: InstalledExtensionRecord; manifest: ValidatedExtensionManifest; sender: WebContents }
 
@@ -84,8 +85,8 @@ export class ExtensionCapabilityBroker {
     if (method === 'storage.local.clear') return this.storage.clear(id)
     if (method === 'theme.apply') return this.contributions.applyTheme(id, args[0])
     if (method === 'theme.clear') return this.contributions.clearTheme(id)
-    if (method === 'toolbar.create') return this.contributions.createToolbar(id, args[0])
-    if (method === 'toolbar.update') return this.contributions.updateToolbar(id, args[0], args[1])
+    if (method === 'toolbar.create') return this.contributions.createToolbar(id, args[0], await this.toolbarIcon(manifest, args[0]))
+    if (method === 'toolbar.update') return this.contributions.updateToolbar(id, args[0], args[1], await this.toolbarIcon(manifest, args[1]))
     if (method === 'toolbar.remove') return this.contributions.removeToolbar(id, args[0])
     if (method === 'sidebar.create') return this.contributions.createSidebar(id, args[0])
     if (method === 'sidebar.remove') return this.contributions.removeSidebar(id, args[0])
@@ -101,6 +102,13 @@ export class ExtensionCapabilityBroker {
     if (method === 'notifications.create') return this.notify(authority, args[0])
     if (method.startsWith('tabs.')) return this.tabs(method, args)
     throw new Error('Unknown Vast extension API method.')
+  }
+
+  // The icon path is validated again by the registry; an unreadable or unsafe
+  // file simply falls back to the generic icon.
+  private async toolbarIcon(manifest: ValidatedExtensionManifest, input: unknown): Promise<string | undefined> {
+    const icon = input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>).icon : undefined
+    return typeof icon === 'string' && icon.length <= 1_024 ? extensionAssetIconDataUrl(manifest.rootPath, icon, TOOLBAR_ICON_MAX_BYTES) : undefined
   }
 
   private async tabs(method: string, args: unknown[]): Promise<unknown> {
@@ -130,6 +138,6 @@ export class ExtensionCapabilityBroker {
     showRendererNotification(undefined, { tone: 'info', title: source.title.trim(), message: source.message.trim() })
   }
 
-  sendEvent(sender: WebContents, name: VastNativeEventName, payload: unknown): void { if (!sender.isDestroyed()) sender.send('vast-native:event', name, payload) }
+  sendEvent(sender: WebContents, name: VastNativeEventName, payload: unknown, deliveryId?: number): void { if (!sender.isDestroyed()) sender.send('vast-native:event', name, payload, deliveryId) }
   cleanup(id: string): void { this.calls.delete(id); this.notifications.delete(id) }
 }

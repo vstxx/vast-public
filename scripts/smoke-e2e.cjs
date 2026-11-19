@@ -973,6 +973,51 @@ async function startDownloadServer() {
   })
 }
 
+async function runNotesPanelsSmoke(session) {
+  await clickHorizontalBrowserTools(session)
+  await clickByText(session, 'Notes')
+  await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"notes-page\\"]"))', 'notes page visible')
+  await clickByTitle(session, 'Create note')
+  await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"notes-details-panel\\"]"))', 'notes details panel visible')
+  const measure = () => session.evaluate(`(() => {
+    const width = (id) => Math.round(document.querySelector('[data-testid="' + id + '"]')?.getBoundingClientRect().width ?? 0);
+    return { editor: width('notes-editor-panel'), list: width('notes-list-panel') || width('notes-list-rail'), details: width('notes-details-panel') || width('notes-details-rail'), page: width('notes-page') };
+  })()`)
+  // Let the 200 ms column transition settle before measuring.
+  const settle = () => wait(450)
+  await settle()
+  const open = await measure()
+  assert(open.page >= 1280, `Notes panels smoke needs the xl layout; page is ${open.page}px wide. Set VAST_E2E_WINDOW_SIZE=1600x1000.`)
+  await session.screenshot('notes-panels-open')
+
+  await clickByTitle(session, 'Hide notes list')
+  await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"notes-list-rail\\"]"))', 'notes list rail')
+  await settle()
+  const listHidden = await measure()
+  assert(listHidden.list <= 60, `Collapsed notes list rail is ${listHidden.list}px wide.`)
+  assert(listHidden.editor > open.editor + 250, `Editor did not widen when the list was hidden (${open.editor} -> ${listHidden.editor}).`)
+  await session.screenshot('notes-panels-list-hidden')
+
+  await clickByTitle(session, 'Hide details')
+  await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"notes-details-rail\\"]"))', 'notes details rail')
+  await settle()
+  const bothHidden = await measure()
+  assert(bothHidden.details <= 60, `Collapsed details rail is ${bothHidden.details}px wide.`)
+  assert(bothHidden.editor > listHidden.editor + 250, `Editor did not widen when details were hidden (${listHidden.editor} -> ${bothHidden.editor}).`)
+  const stored = await session.evaluate('localStorage.getItem("vast:notes-panels")')
+  assertStrict.deepEqual(JSON.parse(stored), { list: false, details: false }, 'Hidden Notes panels were not remembered.')
+  await session.screenshot('notes-panels-both-hidden')
+
+  await clickByTitle(session, 'Search notes')
+  await waitFor(session, 'document.activeElement?.getAttribute("data-testid") === "notes-search-input"', 'search focused after reopening the list')
+  await clickByTitle(session, 'Show details')
+  await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"notes-details-panel\\"]"))', 'notes details panel restored')
+  await settle()
+  const restored = await measure()
+  assert(Math.abs(restored.editor - open.editor) <= 2, `Editor width did not return after reopening both panels (${open.editor} -> ${restored.editor}).`)
+  record('notes hideable panels', `editor ${open.editor}px -> ${listHidden.editor}px -> ${bothHidden.editor}px; rails ${bothHidden.list}/${bothHidden.details}px; state remembered`)
+}
+
 async function runSplitViewSmoke(session, localServerPort) {
   await setAddress(session, `http://127.0.0.1:${localServerPort}/split-primary`)
   await waitForActiveWebview(session, `document.title === 'Split Primary'`, 'split primary page')
@@ -1607,6 +1652,14 @@ async function main() {
     console.log(`Artifacts: ${artifactsDir}`)
     return
   }
+  if (process.argv.includes('--notes-only')) {
+    await runNotesPanelsSmoke(session)
+    session.close()
+    cleanup()
+    console.log(`\n${checks.length} targeted app checks passed.`)
+    console.log(`Artifacts: ${artifactsDir}`)
+    return
+  }
   if (process.argv.includes('--split-view-only')) {
     await runSplitViewSmoke(session, localServerPort)
     const unexpectedRendererIssues = rendererIssues.filter(
@@ -1812,6 +1865,30 @@ async function main() {
   await waitForStorage(session, '(data) => data.tabs.some((tab) => tab.url.includes("127.0.0.1"))', 'navigated tab persisted')
   await waitForActiveWebview(session, `document.title === 'Vast Local Test'`, 'local page navigation', 45_000)
   record('real navigation', 'local deterministic page loaded through webview')
+
+  // Navigations started inside the page (a link, then back and forward) must
+  // update the address bar, not only those typed into it.
+  const addressShows = (path) => `(() => {
+    const input = document.querySelector('.address-bar-input');
+    return Boolean(input) && input.value.includes(${JSON.stringify(path)});
+  })()`
+  await executeInActiveWebview(session, `(() => {
+    const link = document.createElement('a');
+    link.href = '/split-primary';
+    link.textContent = 'Linked page';
+    document.body.append(link);
+    link.click();
+    return true;
+  })()`)
+  await waitForActiveWebview(session, `document.title === 'Split Primary'`, 'page opened by an in-page link')
+  await waitFor(session, addressShows('/split-primary'), 'address bar after an in-page link')
+  await executeInActiveWebview(session, 'history.back(), true')
+  await waitForActiveWebview(session, `document.title === 'Vast Local Test'`, 'page restored by back navigation')
+  await waitFor(session, addressShows('/page'), 'address bar after back navigation')
+  await executeInActiveWebview(session, 'history.forward(), true')
+  await waitForActiveWebview(session, `document.title === 'Split Primary'`, 'page restored by forward navigation')
+  await waitFor(session, addressShows('/split-primary'), 'address bar after forward navigation')
+  record('in-page navigation address', 'a link, back and forward each update the address bar')
 
   // Start this navigation through the address bar instead of a coordinate-based
   // guest click. The click can race a transient duplicate webview in headless
@@ -2391,6 +2468,12 @@ async function main() {
   )
   await clickByText(session, 'Video & Audio')
   await waitForStorage(session, '(data) => data.tabs.some((tab) => tab.url === "vast://avidae")', 'avidae tab opened from overflow')
+  const avidaeInitialStatus = await session.evaluate('window.vast.avidae.status()')
+  if (avidaeInitialStatus.module?.state !== 'ready') {
+    await waitFor(session, 'Boolean(document.querySelector("[data-testid=\\"avidae-module-install\\"]")) && !document.body.innerText.includes("Start backend")', 'avidae module installation surface')
+    await session.screenshot('04a-avidae-module-install')
+    record('avidae overflow', `browser tools opens Video & Audio; module state ${avidaeInitialStatus.module?.state} offers installation instead of starting a backend`)
+  } else {
   await waitFor(session, 'document.body.innerText.includes("Start backend")', 'avidae explicit start screen')
   await assertEqualActionGrid(session, 'avidae-primary-actions', 3, 1)
   await session.screenshot('04a-avidae-actions')
@@ -2410,6 +2493,7 @@ async function main() {
   await waitForStorage(session, '(data) => data.tabs.filter((tab) => tab.url === "vast://avidae").length >= 2', 'avidae command opened')
   await waitFor(session, 'Boolean(document.querySelector("iframe[title=\\"Video & Audio\\"]"))', 'avidae command page visible', 20000)
   record('avidae command', 'command palette opens the built-in Video & Audio page')
+  }
 
   await clickHorizontalBrowserTools(session)
   await clickByText(session, 'Network Devices')
@@ -2728,6 +2812,14 @@ async function main() {
 
   await openCommand(session, 'clear history')
   await clickByText(session, 'Clear history')
+  // Clearing everything asks once; the dialog's confirm button carries the same label.
+  await waitFor(session, 'document.body.innerText.includes("Clear all history?")', 'clear history confirmation')
+  await session.evaluate(`(() => {
+    const button = [...document.querySelectorAll('[role="dialog"] button')].find((item) => item.innerText.trim() === 'Clear history');
+    if (!button) throw new Error('Clear history confirmation button not found.');
+    button.click();
+    return true;
+  })()`)
   await waitForStorage(session, '(data) => data.history.length === 0', 'command clear history')
   record('clear history command', 'history cleared from command palette')
 

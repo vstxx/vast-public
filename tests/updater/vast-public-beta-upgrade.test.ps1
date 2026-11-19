@@ -89,7 +89,11 @@ try {
   Assert-Equal (Get-Sha256 $previousZip) ([string] $previousManifest.package.sha256).ToLowerInvariant() 'previous package hash must match'
 
   $previousExpanded = Join-Path $testRoot 'previous-expanded'
-  Expand-Archive -LiteralPath $previousZip -DestinationPath $previousExpanded -Force
+  # Not Expand-Archive: when Windows PowerShell is started from pwsh it can load PowerShell 7's
+  # Archive module, which calls a .NET Core-only ExtractToDirectory overload and fails.
+  if (Test-Path -LiteralPath $previousExpanded) { Remove-Item -LiteralPath $previousExpanded -Recurse -Force }
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [System.IO.Compression.ZipFile]::ExtractToDirectory($previousZip, $previousExpanded)
   $installPath = Join-Path $previousExpanded ([string] $previousManifest.package.payloadPath)
   Assert-Signature (Join-Path $installPath 'Vast.exe') $PreviousSignaturePolicy
   Assert-Signature $currentUpdater $CurrentSignaturePolicy

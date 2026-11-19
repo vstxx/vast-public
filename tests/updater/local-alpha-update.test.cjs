@@ -31,7 +31,7 @@ test('local alpha uses the configured daily profile and rejects a missing custom
 test('local alpha refuses a public build or an enabled network updater', () => {
   const sourceCommit = 'a'.repeat(40)
   const valid = {
-    version: '0.5.0-alpha.1', releaseChannel: 'alpha', distributionChannel: 'direct',
+    version: '0.6.0', releaseChannel: 'alpha', distributionChannel: 'direct',
     privateBuild: true, updateEnabled: false, sourceCommit
   }
   assert.doesNotThrow(() => assertAlphaMetadata(valid, valid.version, sourceCommit))

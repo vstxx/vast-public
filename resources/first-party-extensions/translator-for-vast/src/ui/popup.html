@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Translator for Vast</title>
+<link rel="stylesheet" href="ui.css">
+</head>
+<body class="popup">
+<main>
+  <header>
+    <img class="icon" src="icons/icon-32.png" alt="">
+    <h1 class="grow" data-i18n="appName">Translator for Vast</h1>
+    <button id="open-settings" class="ghost" type="button" data-i18n="settings">Settings</button>
+  </header>
+  <div class="langs">
+    <label><span data-i18n="from">From</span><select id="source"></select></label>
+    <span class="arrow" aria-hidden="true">→</span>
+    <label><span data-i18n="to">To</span><select id="target"></select></label>
+  </div>
+  <button id="action" class="primary action" type="button" disabled data-i18n="translatePage">Translate page</button>
+  <p id="status" class="status" role="status" aria-live="polite"></p>
+  <div id="download" class="download" hidden>
+    <p id="download-text" class="small"></p>
+    <div id="download-bar" class="bar" hidden><i></i></div>
+    <div class="row">
+      <button id="download-button" class="primary grow" type="button"></button>
+      <button id="download-cancel" class="grow" type="button" hidden data-i18n="cancel">Cancel</button>
+    </div>
+  </div>
+  <div id="controls" hidden>
+    <hr>
+    <div class="row" style="margin-bottom:6px"><span class="small grow" data-i18n="displayMode">Display</span></div>
+    <div id="display" class="segmented" role="group">
+      <button type="button" data-mode="replace" data-i18n="displayReplace">Replace text</button>
+      <button type="button" data-mode="bilingual" data-i18n="displayBilingual">Original and translation</button>
+    </div>
+    <label class="switch" style="margin-top:8px"><span id="always-label"></span><input id="always" type="checkbox"></label>
+    <label class="switch"><span id="never-label"></span><input id="never" type="checkbox"></label>
+  </div>
+  <p class="local"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="2"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/></svg><span data-i18n="localNote">Runs on this device. Page text is never sent anywhere.</span></p>
+</main>
+<script src="popup.js"></script>
+</body>
+</html>

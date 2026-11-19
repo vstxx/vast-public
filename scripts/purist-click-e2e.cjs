@@ -13,6 +13,8 @@ async function main() {
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
   const origin = `http://127.0.0.1:${server.address().port}`
   const data = structuredClone((await import(require('node:url').pathToFileURL(path.join(root,'src/shared/constants.ts')).href)).DEFAULT_DATA)
+  // An established profile: a fresh one opens the setup page instead of the fixture tab.
+  data.onboarding = { completed: true, revision: 1 }
   data.settings.layoutMode = 'purist'
   data.settings.advanced.experimentalFeatures = true
   data.settings.advanced.confirmBeforeClosingManyTabs = false
@@ -53,8 +55,10 @@ async function main() {
     cdp = await connectRenderer(port)
     await cdp.evaluate(`window.__puristClicks=[]; for(const type of ['pointerdown','pointerup','click'])document.addEventListener(type,e=>window.__puristClicks.push({type,x:e.clientX,y:e.clientY,target:e.target?.outerHTML?.slice(0,140)}),true)`)
     await waitFor(cdp, `[...document.querySelectorAll('webview')].some(v=>v.getURL().startsWith('${origin}') && !v.isLoading())`,30000)
-    await waitFor(cdp, `document.querySelector('button[aria-label="Dismiss Vast message"]')`,15000)
-    await cdp.evaluate(`document.querySelector('button[aria-label="Dismiss Vast message"]').click()`)
+    // A live Relay message may or may not be published; close it when it shows.
+    if (await waitFor(cdp, `document.querySelector('button[aria-label="Dismiss Vast message"]')`,8000).then(()=>true,()=>false)) {
+      await cdp.evaluate(`document.querySelector('button[aria-label="Dismiss Vast message"]').click()`)
+    }
     await waitFor(cdp, `document.querySelector('${island}')?.dataset.state==='collapsed'`,30000)
     assert.equal(await cdp.evaluate(`getComputedStyle(document.querySelector('.purist-titlebar-row')).getPropertyValue('-webkit-app-region')`),'no-drag')
     assert.equal(await cdp.evaluate(`getComputedStyle(document.querySelector('.topbar-island-expanded')).visibility`),'hidden')

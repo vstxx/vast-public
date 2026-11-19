@@ -2,6 +2,7 @@ import { parseVextPackage, VEXT_EXTENSION_ID, VEXT_VERSION, type ParsedVextPacka
 import { VAST_NATIVE_API_VERSION, VAST_NATIVE_PERMISSIONS, type VastExtensionKind, type VastNativePermission } from '../../src/shared/extension-native-api.ts'
 import type { ExtensionPermissionSnapshot } from '../../src/shared/extension-marketplace.ts'
 import { parseExtensionMatchPattern } from '../../src/shared/extension-match-pattern.ts'
+import { parseDeclarativeContributions } from '../../src/shared/extension-native-contributions.ts'
 import { documentRulesManifestError, DOCUMENT_RULE_PERMISSION } from '../../src/shared/extension-document-capability.ts'
 import { HttpError } from './security.ts'
 import { parse } from 'acorn'
@@ -14,6 +15,16 @@ const reviewedUpstreamPackages = new Map<string, { extensionId: string; version:
 const safeSlug = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const safeCategory = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const forbiddenSourceFallback = /(?:\beval\s*\(|\bnew\s+Function\s*\(|\bFunction\s*\(|\bWebAssembly\b|\bimportScripts\s*\(\s*["'`]https?:\/\/|\bimport\s*\(\s*["'`]https?:\/\/|\bfrom\s*["'`]https?:\/\/|\bset(?:Timeout|Interval)\s*\(\s*["'`])/i
+// WebAssembly is executable code. A package may ship it only as declared local modules
+// (vast_wasm.modules), under a Manifest V3 extension-page policy that adds nothing but
+// 'wasm-unsafe-eval' to 'self'. Whether a module's bytes are trusted is the Hub's own record of
+// reviewed provenance below, never a hash or claim inside the package; a module without a record
+// is accepted only for human review.
+const reviewedWasmModules = new Map<string, string>([
+  ['f38ef807636a7c994afedaab7ff8ffe0d590d21897f05139f747b80fd7bbe926', 'bergamot-translator v0.6.0+eea6e5a8 (Mozilla translations-wasm-v2 4.0, MPL-2.0)']
+])
+const WASM_MAGIC = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]
+const MAX_WASM_MODULES = 8
 const forbiddenRemoteHtml = /<(?:script\b[^>]*\bsrc|link\b[^>]*\b(?:href|src))\s*=\s*["']https?:\/\//i
 const nativePermissionSet = new Set<string>(VAST_NATIVE_PERMISSIONS)
 
@@ -106,7 +117,7 @@ function memberPath(value: unknown): string | undefined {
   return objectPath && property ? `${objectPath}.${property}` : undefined
 }
 
-function scanAstPolicy(root: AstNode, path: string): string[] {
+function scanAstPolicy(root: AstNode, path: string, allowWebAssembly = false): string[] {
   const violations = new Set<string>()
   const scriptVariables = new Set<string>()
   const createsScript = (value: unknown): boolean => {
@@ -120,7 +131,7 @@ function scanAstPolicy(root: AstNode, path: string): string[] {
       const name = identifierName(node.id)
       if (name) scriptVariables.add(name)
     }
-    if (node.type === 'Identifier' && node.name === 'WebAssembly') violations.add(`${path}: WebAssembly is prohibited`)
+    if (node.type === 'Identifier' && node.name === 'WebAssembly' && !allowWebAssembly) violations.add(`${path}: WebAssembly is prohibited`)
     if (node.type === 'ImportExpression' && /^https?:\/\//i.test(literalString(node.source) ?? '')) violations.add(`${path}: remote import`)
     if (['ImportDeclaration', 'ExportNamedDeclaration', 'ExportAllDeclaration'].includes(node.type) && /^https?:\/\//i.test(literalString(node.source) ?? '')) violations.add(`${path}: remote module source`)
     if (node.type === 'CallExpression' || node.type === 'NewExpression') {
@@ -160,7 +171,7 @@ function scanAstPolicy(root: AstNode, path: string): string[] {
   return [...violations]
 }
 
-function scanStaticPolicy(files: ReadonlyMap<string, Uint8Array>): string[] {
+function scanStaticPolicy(files: ReadonlyMap<string, Uint8Array>, wasm: WasmPolicy = NO_WASM): string[] {
   const findings: string[] = []
   const review: string[] = []
   for (const [path, bytes] of files) {
@@ -176,7 +187,7 @@ function scanStaticPolicy(files: ReadonlyMap<string, Uint8Array>): string[] {
           findings.push(`${path}: JavaScript could not be parsed for static review`)
         }
       }
-      if (program) findings.push(...scanAstPolicy(program, path))
+      if (program) findings.push(...scanAstPolicy(program, path, wasm.scripts.has(path)))
       // Parsed JavaScript is inspected structurally: comments and strings may
       // legitimately document forbidden APIs without executing them. Parse failures
       // above are rejected, so no source-text fallback is needed here.
@@ -187,7 +198,84 @@ function scanStaticPolicy(files: ReadonlyMap<string, Uint8Array>): string[] {
     } else if (forbiddenRemoteHtml.test(source) || forbiddenSourceFallback.test(source)) findings.push(`${path}: remote or dynamic code execution`)
   }
   if (findings.length > 0) throw new HttpError(400, `Static policy validation failed (${findings.slice(0, 5).join('; ')}).`)
-  return ['strict-archive', 'identity', 'manifest', 'local-resources', 'no-native-binaries', 'no-remote-or-dynamic-code', ...review]
+  return ['strict-archive', 'identity', 'manifest', 'local-resources', 'no-native-binaries', 'no-remote-or-dynamic-code', ...wasm.validation, ...review, ...wasm.review]
+}
+
+interface WasmPolicy {
+  // Scripts that may reference WebAssembly: the extension scripts of a package that declares modules.
+  scripts: ReadonlySet<string>
+  modules: string[]
+  validation: string[]
+  review: string[]
+}
+
+const NO_WASM: WasmPolicy = { scripts: new Set(), modules: [], validation: [], review: [] }
+
+function cspDirectives(policy: string): Map<string, string[]> {
+  const directives = new Map<string, string[]>()
+  for (const directive of policy.split(';')) {
+    const [name, ...values] = directive.trim().split(/\s+/)
+    if (!name) continue
+    if (directives.has(name.toLowerCase())) throw new HttpError(400, 'Duplicate CSP directives are prohibited.')
+    directives.set(name.toLowerCase(), values)
+  }
+  return directives
+}
+
+// Manifest V3 extension pages: no remote or string-evaluated script, and 'wasm-unsafe-eval' only in
+// a package that declares its modules. Returns the remote connect-src sources ('*' when unrestricted).
+function validateExtensionPagePolicy(manifest: Record<string, unknown>, declaresWasm: boolean): string[] {
+  const csp = manifest.content_security_policy
+  if (csp === undefined) {
+    if (declaresWasm) throw new HttpError(400, 'WebAssembly modules require an explicit extension-page policy with wasm-unsafe-eval.')
+    return ['*']
+  }
+  if (!object(csp) || (csp.extension_pages !== undefined && typeof csp.extension_pages !== 'string')) throw new HttpError(400, 'content_security_policy is invalid.')
+  const directives = cspDirectives(typeof csp.extension_pages === 'string' ? csp.extension_pages : '')
+  const scriptSources = new Set(["'self'", "'none'", ...(declaresWasm ? ["'wasm-unsafe-eval'"] : [])])
+  for (const name of ['script-src', 'script-src-elem', 'worker-src', 'default-src']) {
+    if (directives.get(name)?.some((value) => !scriptSources.has(value.toLowerCase()))) throw new HttpError(400, `The extension-page policy may not relax ${name}.`)
+  }
+  if (directives.get('object-src')?.some((value) => !["'self'", "'none'"].includes(value.toLowerCase()))) throw new HttpError(400, 'The extension-page policy may not allow remote objects.')
+  if (declaresWasm && !(directives.get('script-src') ?? []).map((value) => value.toLowerCase()).includes("'wasm-unsafe-eval'")) throw new HttpError(400, 'Declared WebAssembly modules require wasm-unsafe-eval in script-src.')
+  const connect = directives.get('connect-src')
+  return connect ? connect.filter((value) => !["'self'", "'none'"].includes(value.toLowerCase())) : ['*']
+}
+
+async function validateWasmPolicy(manifest: Record<string, unknown>, files: ReadonlyMap<string, Uint8Array>): Promise<WasmPolicy> {
+  const mv3 = manifest.manifest_version === 3
+  const packaged = [...files.keys()].filter((path) => /\.wasm$/i.test(path))
+  const declaration = manifest.vast_wasm
+  if (declaration === undefined) {
+    if (packaged.length > 0) throw new HttpError(400, `Undeclared WebAssembly module: ${packaged[0]}. Declare packaged modules in vast_wasm.modules.`)
+    if (mv3) validateExtensionPagePolicy(manifest, false)
+    return NO_WASM
+  }
+  if (!mv3) throw new HttpError(400, 'WebAssembly modules require Manifest V3.')
+  if (!object(declaration) || Object.keys(declaration).some((key) => key !== 'modules') || !Array.isArray(declaration.modules) || declaration.modules.length === 0 || declaration.modules.length > MAX_WASM_MODULES) {
+    throw new HttpError(400, 'vast_wasm is invalid.')
+  }
+  const modules = declaration.modules.map((entry) => localPath(entry, 'WebAssembly module', files))
+  if (new Set(modules).size !== modules.length || modules.some((path) => !/\.wasm$/i.test(path))) throw new HttpError(400, 'vast_wasm is invalid.')
+  for (const path of packaged) if (!modules.includes(path)) throw new HttpError(400, `Undeclared WebAssembly module: ${path}.`)
+  const network = validateExtensionPagePolicy(manifest, true)
+  const validation: string[] = []
+  const review: string[] = []
+  for (const path of modules) {
+    const bytes = files.get(path)!
+    if (bytes.byteLength < WASM_MAGIC.length || WASM_MAGIC.some((byte, index) => bytes[index] !== byte)) throw new HttpError(400, `${path} is not a WebAssembly module.`)
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes.slice()))
+    const sha = [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+    const reviewed = reviewedWasmModules.get(sha)
+    if (reviewed) validation.push(`webassembly-reviewed-provenance: ${path} = ${reviewed}`)
+    else review.push(`${path}: manual review required for WebAssembly module without reviewed provenance (sha256 ${sha})`)
+  }
+  if (network.includes('*')) review.push('manual review required: WebAssembly package without a connect-src restriction')
+  else validation.push(`webassembly-network: ${network.join(' ') || 'none'}`)
+  // Content scripts run inside websites; they never get WebAssembly.
+  const contentScripts = new Set(Array.isArray(manifest.content_scripts) ? manifest.content_scripts.flatMap((entry) => object(entry) ? strings(entry.js, 'Content script files') : []) : [])
+  const scripts = new Set([...files.keys()].filter((path) => /\.(?:c?js|mjs)$/i.test(path) && !contentScripts.has(path)))
+  return { scripts, modules, validation, review }
 }
 
 export interface HubPackageSummary {
@@ -221,6 +309,16 @@ export async function validatePublisherPackage(bytes: Uint8Array, expectedExtens
   const vastPermissions = strings(vast?.permissions, 'Vast permissions', 64)
   if (vast && (vast.api_version !== VAST_NATIVE_API_VERSION || vastPermissions.some((permission) => !nativePermissionSet.has(permission)))) {
     throw new HttpError(400, 'The Vast API version or native permissions are unsupported.')
+  }
+  // Declarative contributions are checked with the client's own parser, and
+  // every referenced icon or page must ship in the signed package.
+  if (vast?.contributes !== undefined) {
+    const chromePopup = [manifest.action, manifest.browser_action].some((action) => object(action) && action.default_popup !== undefined)
+    let assets: string[]
+    try {
+      assets = parseDeclarativeContributions(vast.contributes, { permissions: vastPermissions as VastNativePermission[], hasBackground: vast.background !== undefined, hasPopup: vast.popup !== undefined || chromePopup }).assets
+    } catch (error) { throw new HttpError(400, error instanceof Error ? error.message : 'vast.contributes is invalid.') }
+    for (const asset of assets) if (!parsed.files.has(asset)) throw new HttpError(400, `vast.contributes references a missing file: ${asset}.`)
   }
   const chromePermissions = strings(manifest.permissions, 'Chrome permissions')
   const contentScriptHosts = Array.isArray(manifest.content_scripts)
@@ -259,9 +357,13 @@ export async function validatePublisherPackage(bytes: Uint8Array, expectedExtens
   }
   validateReferencedFiles(manifest, parsed.files)
   const reviewedUpstream = reviewedUpstreamPackages.get(parsed.packageSha256)
-  const validation = reviewedUpstream && reviewedUpstream.extensionId === expectedExtensionId && reviewedUpstream.version === version && reviewedUpstream.publisherId === publisherId
+  const curated = reviewedUpstream && reviewedUpstream.extensionId === expectedExtensionId && reviewedUpstream.version === version && reviewedUpstream.publisherId === publisherId
+  // A curated upstream package was reviewed as a whole, its WebAssembly included.
+  const validation = curated
     ? ['strict-archive', 'identity', 'manifest', 'local-resources', 'no-native-binaries', 'curated-upstream-static-policy-reviewed']
-    : scanStaticPolicy(parsed.files)
+    : scanStaticPolicy(parsed.files, await validateWasmPolicy(manifest, parsed.files).catch((error: unknown) => {
+      throw new HttpError(400, `Static policy validation failed (${error instanceof Error ? error.message : String(error)}).`)
+    }))
   return {
     parsed,
     name,

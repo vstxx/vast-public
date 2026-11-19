@@ -1,27 +1,33 @@
 param(
+  [Parameter(Mandatory = $true)]
+  [ValidateNotNullOrEmpty()]
+  [string] $OldEmail,
+  [string] $NewEmail = '106024432+vstxx@users.noreply.github.com',
   [switch] $Execute
 )
 
 $ErrorActionPreference = 'Stop'
-$OldEmail = 'jas.nowacki@gmail.com'
-$NewEmail = '106024432+vstxx@users.noreply.github.com'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+
+if ($OldEmail -notmatch '^[^\s@]+@[^\s@]+\.[^\s@]+$' -or $NewEmail -notmatch '^[^\s@]+@[^\s@]+\.[^\s@]+$') {
+  throw 'Both email parameters must be valid email addresses.'
+}
+if ($OldEmail -eq $NewEmail) { throw 'Old and replacement email addresses must differ.' }
 
 Push-Location $RepoRoot
 try {
-  $dirty = @(git status --porcelain)
-  if ($dirty.Count -ne 0) {
-    throw 'History rewrite requires a clean, fully committed worktree.'
-  }
-
   $matching = @(git log --all --format='%H%x09%ae%x09%ce' | Select-String -SimpleMatch $OldEmail)
   Write-Host "Commits/refs containing old email: $($matching.Count)"
   Write-Host "Replacement: $NewEmail"
 
   if (-not $Execute) {
     Write-Host 'Dry run only. Re-run with -Execute after installing git-filter-repo and storing the backup safely.'
-    exit 0
+    return
   }
+
+  $dirty = @(git status --porcelain)
+  if ($dirty.Count -ne 0) { throw 'History rewrite requires a clean, fully committed worktree.' }
+  if ($matching.Count -eq 0) { throw 'No matching commit metadata was found; no rewrite was performed.' }
 
   git filter-repo --version *> $null
   if ($LASTEXITCODE -ne 0) {
@@ -35,11 +41,15 @@ try {
     throw 'Failed to create the pre-rewrite Git bundle.'
   }
 
+  $oldHex = [BitConverter]::ToString([Text.Encoding]::UTF8.GetBytes($OldEmail)).Replace('-', '')
+  $newHex = [BitConverter]::ToString([Text.Encoding]::UTF8.GetBytes($NewEmail)).Replace('-', '')
   $callback = @"
-if commit.author_email == b'$OldEmail':
-    commit.author_email = b'$NewEmail'
-if commit.committer_email == b'$OldEmail':
-    commit.committer_email = b'$NewEmail'
+old_email = bytes.fromhex('$oldHex')
+new_email = bytes.fromhex('$newHex')
+if commit.author_email == old_email:
+    commit.author_email = new_email
+if commit.committer_email == old_email:
+    commit.committer_email = new_email
 "@
   git filter-repo --force --commit-callback $callback
   if ($LASTEXITCODE -ne 0) {

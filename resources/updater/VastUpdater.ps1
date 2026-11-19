@@ -1387,6 +1387,87 @@ function Restore-VastRuntimeBackup {
   }
 }
 
+function Test-VastTreeHasReparsePoint {
+  param([string] $Path)
+
+  # Walks with .NET so junctions and symbolic links are detected, never followed.
+  $pending = New-Object System.Collections.Generic.Stack[string]
+  $pending.Push($Path)
+  while ($pending.Count -gt 0) {
+    $directory = $pending.Pop()
+    foreach ($entry in [System.IO.Directory]::EnumerateFileSystemEntries($directory)) {
+      $attributes = [System.IO.File]::GetAttributes($entry)
+      if (($attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { return $true }
+      if (($attributes -band [System.IO.FileAttributes]::Directory) -ne 0) { $pending.Push($entry) }
+    }
+  }
+  return $false
+}
+
+# Vast 0.5.x bundled the Video & Audio runtime in resources\avidae-runtime and
+# its source in resources\avidae. Newer Core payloads ship neither (the runtime
+# is a separately installed module), and this updater only copies payload
+# files, so the obsolete folders would otherwise remain forever. Only those two
+# exact, Vast-shaped folders directly under <install>\resources are removed,
+# after the update has been verified. User media and Video & Audio job data
+# live in the profile (<data>\avidae) and are never touched.
+function Remove-VastObsoleteBundledAvidae {
+  param(
+    [string] $InstallPath,
+    [string] $PayloadPath,
+    [string] $TransactionRoot
+  )
+
+  $removed = 0
+  $resourcesRoot = [System.IO.Path]::GetFullPath((Join-Path $InstallPath 'resources')).TrimEnd('\')
+  $markers = [ordered]@{
+    'avidae-runtime' = 'runtime-manifest.json'
+    'avidae' = 'app.py'
+  }
+  foreach ($name in $markers.Keys) {
+    if (Test-Path -LiteralPath (Join-Path (Join-Path $PayloadPath 'resources') $name)) {
+      continue
+    }
+    $target = Join-Path $resourcesRoot $name
+    if (-not (Test-Path -LiteralPath $target)) {
+      continue
+    }
+    try {
+      $item = Get-Item -LiteralPath $target -Force
+      $full = [System.IO.Path]::GetFullPath($item.FullName).TrimEnd('\')
+      if (-not $item.PSIsContainer -or ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0 -or
+          -not [string]::Equals([System.IO.Path]::GetDirectoryName($full), $resourcesRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        Write-VastLog "Leaving $target in place: it is not a plain Vast resources folder." 'WARN'
+        continue
+      }
+      if (-not (Test-Path -LiteralPath (Join-Path $full $markers[$name]) -PathType Leaf)) {
+        Write-VastLog "Leaving $target in place: it does not look like the bundled Video & Audio $name folder." 'WARN'
+        continue
+      }
+      if (Test-VastTreeHasReparsePoint -Path $full) {
+        Write-VastLog "Leaving $target in place: it contains links that will not be followed." 'WARN'
+        continue
+      }
+      # A same-volume move is atomic, so an interrupted cleanup never leaves a
+      # half-deleted folder in the installation.
+      $quarantineRoot = Join-Path $TransactionRoot 'obsolete-bundled-avidae'
+      New-Item -ItemType Directory -Path $quarantineRoot -Force | Out-Null
+      $quarantine = Join-Path $quarantineRoot $name
+      [System.IO.Directory]::Move($full, $quarantine)
+      $removed++
+      Write-VastLog "Removed obsolete bundled Video & Audio folder: resources\$name"
+      try {
+        [System.IO.Directory]::Delete($quarantine, $true)
+      } catch {
+        Write-VastLog "Obsolete Video & Audio files were moved to $quarantine but could not be deleted yet: $($_.Exception.Message)" 'WARN'
+      }
+    } catch {
+      Write-VastLog "Could not remove obsolete bundled Video & Audio folder $target`: $($_.Exception.Message)" 'WARN'
+    }
+  }
+  return $removed
+}
+
 function Write-VastInstalledVersionFile {
   param(
     [string] $InstallPath,
@@ -1532,6 +1613,9 @@ function Invoke-VastUpdate {
       Write-VastLog "Installed version is already $TargetVersion and runtime files match the payload."
       if (-not $DryRun) {
         Update-VastRegistryMetadata -InstallPath $resolvedInstall -TargetVersion $TargetVersion | Out-Null
+        # Finishes a cleanup that an earlier run of this version could not complete.
+        $cleanupRoot = Join-Path (Join-Path $resolvedInstall '.vast-update') ((Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss'))
+        Remove-VastObsoleteBundledAvidae -InstallPath $resolvedInstall -PayloadPath $resolvedPayload -TransactionRoot $cleanupRoot | Out-Null
       }
       return [pscustomobject]@{
         Status = 'AlreadyCurrent'
@@ -1574,6 +1658,7 @@ function Invoke-VastUpdate {
       throw "Post-update version verification failed. Expected '$TargetVersion', detected '$installedAfter'."
     }
     Update-VastRegistryMetadata -InstallPath $resolvedInstall -TargetVersion $TargetVersion | Out-Null
+    Remove-VastObsoleteBundledAvidae -InstallPath $resolvedInstall -PayloadPath $resolvedPayload -TransactionRoot $runtimeResult.TransactionRoot | Out-Null
   }
 
   if ($DryRun) {

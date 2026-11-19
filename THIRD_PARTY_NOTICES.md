@@ -25,7 +25,7 @@ The locally bundled Google, DuckDuckGo, Brave Search, Perplexity, Chrome, Edge, 
 
 ## Video & Audio runtime
 
-Public Windows packages can bundle a generated Python/Playwright/media runtime. `scripts/prepare-avidae-runtime.cjs` inventories and hashes the license files copied into that runtime.
+Vast installers do not include this runtime. It is distributed separately as the signed, optionally downloaded Video & Audio module (see `docs/AVIDAE_MODULE.md`). `scripts/prepare-avidae-runtime.cjs` inventories and hashes the license files copied into the module, and every module archive carries them.
 
 | Component | License or status | Notes |
 | --- | --- | --- |
@@ -38,9 +38,9 @@ Public Windows packages can bundle a generated Python/Playwright/media runtime. 
 | yt-dlp | Unlicense | Preserve the supplied license file. |
 | bidict | MPL-2.0 | Preserve its file-level MPL notice and make modified MPL-covered files available when required. It does not relicense unrelated Vast source. |
 | PyInstaller | GPL-2.0-or-later with the PyInstaller bootloader exception | Used as build tooling. The exception permits generated executables to use the application's license, subject to licenses of bundled dependencies. |
-| Vast self-built FFmpeg 9.0.1 (`ffmpeg.exe`, `ffprobe.exe`) with x264, libvpx, Opus, libogg, libvorbis and LAME | GPLv3 overall; component and compiler-runtime licenses are inventoried with the runtime | These are separate executables. Public distributions include license texts and publish the hash-bound complete corresponding-source archive, including signed sources/package recipes for linked compiler runtime code, beside the binary assets. |
+| Vast self-built FFmpeg 9.0.1 (`ffmpeg.exe`, `ffprobe.exe`) with x264, libvpx, Opus, libogg, libvorbis and LAME | GPLv3 overall; component and compiler-runtime licenses are inventoried with the runtime | These are separate executables shipped only in the Video & Audio module. Each module release includes the license texts and publishes the hash-bound complete corresponding-source archive, including signed sources/package recipes for linked compiler runtime code, beside the module archive; the signed module manifest pins its digest. |
 
-FFmpeg's GPL terms apply to the self-built FFmpeg executables; they do not change the license of Vast-owned source merely because Vast launches those executables as separate processes. This distinction does not remove FFmpeg redistribution obligations. Exact build and source provenance is in `third_party/ffmpeg/ffmpeg-build.lock.json` and the release's `ffmpeg-build-provenance.json`.
+FFmpeg's GPL terms apply to the self-built FFmpeg executables; they do not change the license of Vast-owned source merely because Vast launches those executables as separate processes. This distinction does not remove FFmpeg redistribution obligations. Exact build and source provenance is in `third_party/ffmpeg/ffmpeg-build.lock.json` and the module's `ffmpeg-build-provenance.json`.
 
 ## Chromium-port overlay
 

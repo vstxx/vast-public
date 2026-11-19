@@ -75,7 +75,7 @@ for (const path of snapshotPaths) {
   if (!contents.includes(0)) {
     const text = contents.toString('utf8')
     assert(!/^-----BEGIN (?:[A-Z ]*PRIVATE KEY|CERTIFICATE)-----\r?$/m.test(text), `private key/certificate material in snapshot: ${path}`)
-    assert(!/(?:[A-Z]:[\\/]+Users[\\/]+jnowa|D:[\\/]+All Side Files|\/Users\/jnowa|\/home\/jnowa)/i.test(text), `private workstation path in snapshot: ${path}`)
+    assert(!/(?:[A-Z]:[\\/]+Users[\\/]+[^\\/\s"'<>]+[\\/]+(?:AppData|Desktop|Documents|Downloads|OneDrive|\.ssh)[\\/]+|[A-Z]:[\\/]+All Side Files[\\/]+|\/(?:Users|home)\/[^\/\s"'<>]+\/(?:Desktop|Documents|Downloads|Library|\.config)\/)/i.test(text), `private workstation path in snapshot: ${path}`)
   }
 }
 for (const path of ['audit', '.gitleaksignore', 'release-candidate.json', 'release', 'out']) {

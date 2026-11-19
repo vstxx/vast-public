@@ -1,0 +1,146 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Heavy WebGL2 fixture</title>
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#000}canvas{display:block;width:100vw;height:100vh}</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// A deterministic GPU-bound scene: a raymarched full-screen pass whose cost is
+// set by ?steps, plus ?instances instanced cubes. ?replace=<hz> rewrites the
+// URL with history.replaceState like map viewers do while the camera moves.
+const params = new URLSearchParams(location.search)
+const steps = Number(params.get('steps') || 96)
+const instances = Number(params.get('instances') || 20000)
+const replaceHz = Number(params.get('replace') || 0)
+const powerPreference = params.get('power') || 'default'
+const canvas = document.getElementById('c')
+const dpr = devicePixelRatio
+canvas.width = Math.round(innerWidth * dpr)
+canvas.height = Math.round(innerHeight * dpr)
+const gl = canvas.getContext('webgl2', { antialias: false, powerPreference })
+const debug = gl.getExtension('WEBGL_debug_renderer_info')
+window.__fixture = {
+  kind: 'webgl',
+  renderer: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+  vendor: debug ? gl.getParameter(debug.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR),
+  hardwareConcurrency: navigator.hardwareConcurrency,
+  viewport: { width: innerWidth, height: innerHeight, dpr, backing: [canvas.width, canvas.height] },
+  frames: [], recording: false, replaced: 0, events: []
+}
+
+function program(vs, fs) {
+  const p = gl.createProgram()
+  for (const [type, src] of [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]]) {
+    const s = gl.createShader(type)
+    gl.shaderSource(s, src)
+    gl.compileShader(s)
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s))
+    gl.attachShader(p, s)
+  }
+  gl.linkProgram(p)
+  return p
+}
+
+const march = program(`#version 300 es
+in vec2 p; out vec2 uv; void main(){ uv=p; gl_Position=vec4(p,0.,1.); }`, `#version 300 es
+precision highp float; in vec2 uv; out vec4 o; uniform float t; uniform vec2 r;
+float map(vec3 q){ q.xz*=mat2(cos(t*.2),-sin(t*.2),sin(t*.2),cos(t*.2)); vec3 c=mod(q,4.)-2.; return min(length(c)-.8, length(max(abs(c)-.6,0.))-.05); }
+void main(){ vec2 s=uv*vec2(r.x/r.y,1.); vec3 ro=vec3(0.,0.,t), rd=normalize(vec3(s,1.5)); float d=0.;
+  for(int i=0;i<${steps};i++){ float h=map(ro+rd*d); if(h<.001||d>60.) break; d+=h; }
+  vec3 col=vec3(.6,.7,.9)*exp(-.05*d)+.2*sin(vec3(1.,2.,3.)*d*.1+t); o=vec4(col,1.); }`)
+const cubes = program(`#version 300 es
+in vec3 pos; in vec4 inst; uniform float t; uniform vec2 r; out vec3 c;
+void main(){ float a=t*inst.w; vec3 q=pos*.012; q.xy=mat2(cos(a),-sin(a),sin(a),cos(a))*q.xy; q+=inst.xyz;
+  c=.5+.5*sin(inst.xyz*6.+t); gl_Position=vec4(q.x*r.y/r.x,q.y,q.z*.5,1.); }`, `#version 300 es
+precision mediump float; in vec3 c; out vec4 o; void main(){ o=vec4(c,1.); }`)
+
+const quad = gl.createBuffer()
+gl.bindBuffer(gl.ARRAY_BUFFER, quad)
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW)
+const quadVao = gl.createVertexArray()
+gl.bindVertexArray(quadVao)
+gl.enableVertexAttribArray(gl.getAttribLocation(march, 'p'))
+gl.vertexAttribPointer(gl.getAttribLocation(march, 'p'), 2, gl.FLOAT, false, 0, 0)
+
+const cube = []
+for (const [x, y, z] of [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,-1,1],[1,1,1],[-1,1,1],[-1,-1,-1],[-1,1,-1],[-1,1,1],[-1,-1,-1],[-1,1,1],[-1,-1,1],[1,-1,-1],[1,1,-1],[1,1,1],[1,-1,-1],[1,1,1],[1,-1,1]]) cube.push(x, y, z)
+let seed = 7
+const random = () => ((seed = Math.imul(seed, 1664525) + 1013904223 >>> 0) / 4294967296)
+const inst = new Float32Array(instances * 4)
+for (let i = 0; i < instances; i++) inst.set([random() * 2 - 1, random() * 2 - 1, random(), random() * 4 - 2], i * 4)
+const cubeVao = gl.createVertexArray()
+gl.bindVertexArray(cubeVao)
+const cubeBuffer = gl.createBuffer()
+gl.bindBuffer(gl.ARRAY_BUFFER, cubeBuffer)
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cube), gl.STATIC_DRAW)
+gl.enableVertexAttribArray(gl.getAttribLocation(cubes, 'pos'))
+gl.vertexAttribPointer(gl.getAttribLocation(cubes, 'pos'), 3, gl.FLOAT, false, 0, 0)
+const instBuffer = gl.createBuffer()
+gl.bindBuffer(gl.ARRAY_BUFFER, instBuffer)
+gl.bufferData(gl.ARRAY_BUFFER, inst, gl.STATIC_DRAW)
+const instLocation = gl.getAttribLocation(cubes, 'inst')
+gl.enableVertexAttribArray(instLocation)
+gl.vertexAttribPointer(instLocation, 4, gl.FLOAT, false, 0, 0)
+gl.vertexAttribDivisor(instLocation, 1)
+
+let lastReplace = 0
+// A <webview> lays out after the page loads; follow the viewport every frame
+// so every host renders the same number of pixels.
+function fitCanvas() {
+  const width = Math.round(innerWidth * devicePixelRatio)
+  const height = Math.round(innerHeight * devicePixelRatio)
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width
+    canvas.height = height
+    window.__fixture.viewport = { width: innerWidth, height: innerHeight, dpr: devicePixelRatio, backing: [width, height] }
+  }
+}
+
+function frame(now) {
+  fitCanvas()
+  const t = now / 1000
+  gl.viewport(0, 0, canvas.width, canvas.height)
+  gl.disable(gl.DEPTH_TEST)
+  gl.useProgram(march)
+  gl.uniform1f(gl.getUniformLocation(march, 't'), t)
+  gl.uniform2f(gl.getUniformLocation(march, 'r'), canvas.width, canvas.height)
+  gl.bindVertexArray(quadVao)
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+  gl.enable(gl.DEPTH_TEST)
+  gl.useProgram(cubes)
+  gl.uniform1f(gl.getUniformLocation(cubes, 't'), t)
+  gl.uniform2f(gl.getUniformLocation(cubes, 'r'), canvas.width, canvas.height)
+  gl.bindVertexArray(cubeVao)
+  gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, instances)
+  const fixture = window.__fixture
+  if (fixture.recording) fixture.frames.push(now)
+  if (replaceHz > 0 && now - lastReplace >= 1000 / replaceHz) {
+    lastReplace = now
+    const lat = (52.2297 + Math.sin(t) * 0.01).toFixed(6)
+    const lng = (21.0122 + Math.cos(t) * 0.01).toFixed(6)
+    history.replaceState(null, '', `/webgl.html/@${lat},${lng},${(300 + t % 50).toFixed(2)}a${location.search}`)
+    fixture.replaced += 1
+  }
+  requestAnimationFrame(frame)
+}
+requestAnimationFrame(frame)
+
+// Input responsiveness: Event Timing reports input-to-next-paint per event.
+new PerformanceObserver((list) => {
+  for (const entry of list.getEntries()) {
+    if (!window.__fixture.recording) continue
+    window.__fixture.events.push({ name: entry.name, duration: entry.duration, delay: entry.processingStart - entry.startTime, processing: entry.processingEnd - entry.processingStart })
+  }
+}).observe({ type: 'event', durationThreshold: 16, buffered: false })
+addEventListener('pointerdown', () => {
+  // A small, fixed amount of handler work, as an app would do on click.
+  const end = performance.now() + 2
+  while (performance.now() < end) {}
+  document.body.dataset.clicks = String(Number(document.body.dataset.clicks || 0) + 1)
+})
+</script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+{
+  "name": "heavy-web-min-host",
+  "private": true,
+  "main": "main.js"
+}

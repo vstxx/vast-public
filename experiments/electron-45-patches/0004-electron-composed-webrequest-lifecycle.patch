@@ -1,8 +1,8 @@
 diff --git a/shell/browser/api/electron_api_web_request.cc b/shell/browser/api/electron_api_web_request.cc
-index b2274f53df56b6f64b2056d7feef6eb3a8cb802a..fc68707009472e099edc50ad17e37830451e5910 100644
+index 3975e06e94d4522d11a6f30e04f0c84f8d3a1e14..62866bc3643f2938c2ee24b103edf9af81e66d19 100644
 --- a/shell/browser/api/electron_api_web_request.cc
 +++ b/shell/browser/api/electron_api_web_request.cc
-@@ -927,13 +927,16 @@ void WebRequest::HandleSimpleEvent(SimpleEvent event,
+@@ -934,13 +934,16 @@ void WebRequest::HandleSimpleEvent(SimpleEvent event,
  void WebRequest::OnLoginAuthResult(
      uint64_t id,
      net::AuthCredentials* credentials,
@@ -22,7 +22,7 @@ index b2274f53df56b6f64b2056d7feef6eb3a8cb802a..fc68707009472e099edc50ad17e37830
      action = AuthRequiredResponse::AUTH_REQUIRED_RESPONSE_SET_AUTH;
    }
 diff --git a/shell/browser/api/electron_api_web_request.h b/shell/browser/api/electron_api_web_request.h
-index ec428c31b1e6a77c70d8820618f1ec1eb3127527..741b85f92abb3b0f4336557f9c8b56f4d48f2641 100644
+index 429c353be3691929583a566d15315551aa6b776c..74b2a0706603dcf6667111e438111ad7d3d976b8 100644
 --- a/shell/browser/api/electron_api_web_request.h
 +++ b/shell/browser/api/electron_api_web_request.h
 @@ -232,7 +232,8 @@ class WebRequest final : public gin::Wrappable<WebRequest> {
@@ -36,21 +36,22 @@ index ec428c31b1e6a77c70d8820618f1ec1eb3127527..741b85f92abb3b0f4336557f9c8b56f4
    class RequestFilter {
     public:
 diff --git a/shell/browser/electron_browser_client.cc b/shell/browser/electron_browser_client.cc
-index 63130d3b8362572de5c1efe26995dbbb0f331f90..e2bc7c78b531c0a98a33d1dfbc899a3e7c487b7d 100644
+index 3ae2ac555b965395db295f3c1255979f30ffba0d..f442c55b084e6afa05ca22d8790a23308914174b 100644
 --- a/shell/browser/electron_browser_client.cc
 +++ b/shell/browser/electron_browser_client.cc
-@@ -173,6 +173,7 @@
- #include "content/public/browser/web_ui_url_loader_factory.h"
+@@ -175,6 +175,7 @@
  #include "extensions/browser/api/mime_handler_private/mime_handler_private.h"
+ #include "extensions/browser/api/web_request/extension_web_request_event_router.h"
  #include "extensions/browser/api/web_request/web_request_api.h"
 +#include "base/functional/callback_helpers.h"
  #include "extensions/browser/browser_context_keyed_api_factory.h"
  #include "extensions/browser/event_router.h"
  #include "extensions/browser/extension_host.h"
-@@ -1527,19 +1528,14 @@ void ElectronBrowserClient::CreateWebSocket(
+@@ -1644,19 +1645,9 @@ void ElectronBrowserClient::CreateWebSocket(
+   auto* web_request = api::WebRequest::FromOrCreate(isolate, browser_context);
    DCHECK(web_request);
  
- #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
+-#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
 -  if (!web_request->HasListener()) {
 -    auto* web_request_api = extensions::BrowserContextKeyedAPIFactory<
 -        extensions::WebRequestAPI>::Get(browser_context);
@@ -62,21 +63,18 @@ index 63130d3b8362572de5c1efe26995dbbb0f331f90..e2bc7c78b531c0a98a33d1dfbc899a3e
 -      return;
 -    }
 -  }
-+  LOG(INFO) << "[vast-compat] websocket app_listener="
-+            << web_request->HasListener() << " url=" << url;
+-#endif
 +  // The Electron proxy is the single owner of the handshake. Extension
 +  // webRequest stages are composed within that proxy rather than selecting a
 +  // competing proxy according to listener registration order.
- #endif
  
-+  LOG(INFO) << "[vast-compat] websocket route=electron";
    ProxyingWebSocket::StartProxying(
        web_request, std::move(factory), url, site_for_cookies, user_agent,
-       std::move(handshake_client), true, frame->GetProcess()->GetDeprecatedID(),
-@@ -1571,28 +1567,14 @@ void ElectronBrowserClient::WillCreateURLLoaderFactory(
+@@ -1688,28 +1679,8 @@ void ElectronBrowserClient::WillCreateURLLoaderFactory(
+       api::WebRequest::FromOrCreate(isolate, browser_context);
    DCHECK(web_request);
  
- #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
+-#if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
 -  // Factories for requests made from the main process (e.g. net.fetch) have
 -  // no frame and are not routed through extensions.
 -  const bool is_browser_process_request =
@@ -97,39 +95,13 @@ index 63130d3b8362572de5c1efe26995dbbb0f331f90..e2bc7c78b531c0a98a33d1dfbc899a3e
 -    if (used_proxy_for_web_request)
 -      return;
 -  }
-+  LOG(INFO) << "[vast-compat] factory app_listener="
-+            << web_request->HasListener()
-+            << " type=" << static_cast<int>(type);
+-#endif
 +  // Keep one URLLoaderFactory state machine regardless of when either listener
 +  // was registered. Extension decisions are composed in the Electron proxy.
- #endif
  
-+  LOG(INFO) << "[vast-compat] factory route=electron";
    auto [proxied_receiver, target_factory_remote] = factory_builder.Append();
  
-   // Renderer-facing factories get an IO-thread gate in front of the proxy, so
-@@ -1699,12 +1681,20 @@ void ElectronBrowserClient::RegisterAssociatedInterfaceBindersForServiceWorker(
-     const content::ServiceWorkerVersionBaseInfo& service_worker_version_info,
-     blink::AssociatedInterfaceRegistry& associated_registry) {
-   CHECK(service_worker_version_info.process_id);
-+  LOG(INFO) << "[vast-compat] register worker binders process="
-+            << service_worker_version_info.process_id;
-   associated_registry.AddInterface<mojom::ElectronApiIPC>(
-       base::BindRepeating(&ElectronApiSWIPCHandlerImpl::BindReceiver,
-                           service_worker_version_info.process_id,
-                           service_worker_version_info.version_id));
- 
- #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
-+  // Extension service workers register persistent event listeners through this
-+  // interface. Without the binder, events such as alarms.onAlarm never reach
-+  // the worker even though addListener() succeeds in JavaScript.
-+  associated_registry.AddInterface<extensions::mojom::EventRouter>(
-+      base::BindRepeating(&extensions::EventRouter::BindForRenderer,
-+                          service_worker_version_info.process_id));
-   associated_registry.AddInterface<extensions::mojom::RendererHost>(
-       base::BindRepeating(&extensions::RendererStartupHelper::BindForRenderer,
-                           service_worker_version_info.process_id));
-@@ -2062,10 +2052,56 @@ ElectronBrowserClient::CreateLoginDelegate(
+@@ -2226,10 +2197,56 @@ ElectronBrowserClient::CreateLoginDelegate(
      bool first_auth_attempt,
      content::GuestPageHolder* guest_page_holder,
      content::LoginDelegate::LoginAuthRequiredCallback auth_required_callback) {
@@ -187,10 +159,10 @@ index 63130d3b8362572de5c1efe26995dbbb0f331f90..e2bc7c78b531c0a98a33d1dfbc899a3e
  
  std::vector<std::unique_ptr<blink::URLLoaderThrottle>>
 diff --git a/shell/browser/extensions/electron_extension_loader.cc b/shell/browser/extensions/electron_extension_loader.cc
-index 6d687b53da8d05a98b69278940fbbb5692c783a5..ab67d61c5783ac3be2b4bf37f28419f5a153fe05 100644
+index 4aceea844cccabec55a8439172b6fc8226595e6c..b378ff24f02e3fd1900d6c3904fd4c455b5dd389 100644
 --- a/shell/browser/extensions/electron_extension_loader.cc
 +++ b/shell/browser/extensions/electron_extension_loader.cc
-@@ -17,12 +17,16 @@
+@@ -18,14 +18,18 @@
  #include "base/strings/string_number_conversions.h"
  #include "base/strings/utf_string_conversions.h"
  #include "base/task/sequenced_task_runner.h"
@@ -199,22 +171,26 @@ index 6d687b53da8d05a98b69278940fbbb5692c783a5..ab67d61c5783ac3be2b4bf37f28419f5
  #include "base/time/time.h"
 +#include "components/sync/model/string_ordinal.h"
  #include "content/public/browser/browser_context.h"
+ #include "content/public/browser/service_worker_context.h"
+ #include "content/public/browser/storage_partition.h"
 +#include "extensions/browser/api/runtime/runtime_api.h"
  #include "extensions/browser/extension_file_task_runner.h"
  #include "extensions/browser/extension_pref_names.h"
  #include "extensions/browser/extension_prefs.h"
 +#include "extensions/browser/event_router.h"
  #include "extensions/browser/extension_registry.h"
+ #include "extensions/browser/extension_util.h"
  #include "extensions/browser/pref_names.h"
- #include "extensions/common/constants.h"
-@@ -30,11 +34,22 @@
+@@ -35,6 +39,8 @@
  #include "extensions/common/file_util.h"
  #include "extensions/common/manifest_constants.h"
  #include "extensions/common/manifest_handlers/background_info.h"
 +#include "shell/browser/electron_browser_context.h"
 +#include "shell/browser/net/url_loader_factory_gate.h"
+ #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
+ #include "third_party/blink/public/common/storage_key/storage_key.h"
  
- namespace extensions {
+@@ -42,6 +48,15 @@ namespace extensions {
  
  namespace {
  
@@ -230,7 +206,7 @@ index 6d687b53da8d05a98b69278940fbbb5692c783a5..ab67d61c5783ac3be2b4bf37f28419f5
  std::pair<scoped_refptr<const Extension>, std::string> LoadUnpacked(
      const base::FilePath& extension_dir,
      int load_flags) {
-@@ -139,6 +154,15 @@ void ElectronExtensionLoader::UnloadExtension(
+@@ -146,6 +161,15 @@ void ElectronExtensionLoader::UnloadExtension(
      const ExtensionId& extension_id,
      extensions::UnloadedExtensionReason reason) {
    extension_registrar_->RemoveExtension(extension_id, reason);
@@ -246,17 +222,13 @@ index 6d687b53da8d05a98b69278940fbbb5692c783a5..ab67d61c5783ac3be2b4bf37f28419f5
  }
  
  void ElectronExtensionLoader::FinishExtensionLoad(
-@@ -147,19 +171,70 @@ void ElectronExtensionLoader::FinishExtensionLoad(
-   scoped_refptr<const Extension> extension = result.first;
+@@ -184,19 +208,64 @@ void ElectronExtensionLoader::AddLoadedExtension(
+     const std::string& error_or_warnings) {
    if (extension) {
      ExtensionPrefs* extension_prefs = ExtensionPrefs::Get(browser_context_);
 +    std::string previous_version;
 +    extension_prefs->ReadPrefAsString(
 +        extension->id(), kElectronInstalledVersionPref, &previous_version);
-+    LOG(INFO) << "[vast-compat] extension load id=" << extension->id()
-+              << " previous_version="
-+              << extension_prefs->GetVersionString(extension->id())
-+              << " incoming_version=" << extension->version().GetString();
  
      if (BackgroundInfo::IsServiceWorkerBased(extension.get())) {
        // Tell Chromium that it needs to start the extension's service worker.
@@ -302,8 +274,6 @@ index 6d687b53da8d05a98b69278940fbbb5692c783a5..ab67d61c5783ac3be2b4bf37f28419f5
 +    } else {
 +      extension_registrar_->AddExtension(extension);
 +    }
-+    LOG(INFO) << "[vast-compat] extension registered id="
-+              << extension->id();
 +
 +    const bool first_load_this_run =
 +        loaded_this_run_.insert(extension->id()).second;
@@ -322,7 +292,7 @@ index 6d687b53da8d05a98b69278940fbbb5692c783a5..ab67d61c5783ac3be2b4bf37f28419f5
  
      // Write extension install time to ExtensionPrefs.
      // This is required by extensions::WebRequestAPI
-@@ -167,7 +242,10 @@ void ElectronExtensionLoader::FinishExtensionLoad(
+@@ -204,7 +273,10 @@ void ElectronExtensionLoader::AddLoadedExtension(
      //
      // Implementation for writing the pref was based on
      // PreferenceAPIBase::SetExtensionControlledPref.
@@ -334,8 +304,8 @@ index 6d687b53da8d05a98b69278940fbbb5692c783a5..ab67d61c5783ac3be2b4bf37f28419f5
        ExtensionPrefs::ScopedDictionaryUpdate update(
            extension_prefs, extension.get()->id(),
            extensions::pref_names::kPrefPreferences);
-@@ -182,11 +260,24 @@ void ElectronExtensionLoader::FinishExtensionLoad(
-   std::move(cb).Run(extension.get(), result.second);
+@@ -219,11 +291,24 @@ void ElectronExtensionLoader::AddLoadedExtension(
+   std::move(cb).Run(extension.get(), error_or_warnings);
  }
  
 +void ElectronExtensionLoader::DispatchStartupEvent(
@@ -359,19 +329,8 @@ index 6d687b53da8d05a98b69278940fbbb5692c783a5..ab67d61c5783ac3be2b4bf37f28419f5
      extension_registrar_->AddExtension(extension);
    }
  }
-@@ -204,7 +295,9 @@ void ElectronExtensionLoader::PreAddExtension(const Extension* extension,
- }
- 
- void ElectronExtensionLoader::PostActivateExtension(
--    scoped_refptr<const Extension> extension) {}
-+    scoped_refptr<const Extension> extension) {
-+  LOG(INFO) << "[vast-compat] extension activated id=" << extension->id();
-+}
- 
- void ElectronExtensionLoader::PostDeactivateExtension(
-     scoped_refptr<const Extension> extension) {}
 diff --git a/shell/browser/extensions/electron_extension_loader.h b/shell/browser/extensions/electron_extension_loader.h
-index 9aa372c1791762d3ca03e1ae37b08b344c79efca..02a523806f69a7b6d8203f1c42f7bde69ca1d774 100644
+index 8f632fcf3d9bebb78bb7f895cf9b36635514e813..acbe661cfe3f2b86c9c276ca9f35e3a55763e903 100644
 --- a/shell/browser/extensions/electron_extension_loader.h
 +++ b/shell/browser/extensions/electron_extension_loader.h
 @@ -8,6 +8,7 @@
@@ -382,15 +341,15 @@ index 9aa372c1791762d3ca03e1ae37b08b344c79efca..02a523806f69a7b6d8203f1c42f7bde6
  #include "base/functional/callback_forward.h"
  #include "base/memory/raw_ptr.h"
  #include "base/memory/weak_ptr.h"
-@@ -72,6 +73,7 @@ class ElectronExtensionLoader : public ExtensionRegistrar::Delegate {
-   void FinishExtensionLoad(
+@@ -76,6 +77,7 @@ class ElectronExtensionLoader : public ExtensionRegistrar::Delegate {
        base::OnceCallback<void(const Extension*, const std::string&)> cb,
-       std::pair<scoped_refptr<const Extension>, std::string> result);
+       scoped_refptr<const Extension> extension,
+       const std::string& error_or_warnings);
 +  void DispatchStartupEvent(const ExtensionId& extension_id);
    void DoLoadExtensionForReload(const ExtensionId& extension_id,
                                  const base::FilePath& path);
  
-@@ -107,6 +109,7 @@ class ElectronExtensionLoader : public ExtensionRegistrar::Delegate {
+@@ -111,6 +113,7 @@ class ElectronExtensionLoader : public ExtensionRegistrar::Delegate {
    // Used by ReloadExtension() to check whether ExtensionRegistrar calls
    // LoadExtensionForReload().
    bool did_schedule_reload_ = false;
@@ -398,57 +357,6 @@ index 9aa372c1791762d3ca03e1ae37b08b344c79efca..02a523806f69a7b6d8203f1c42f7bde6
  
    base::WeakPtrFactory<ElectronExtensionLoader> weak_factory_{this};
  };
-diff --git a/shell/browser/extensions/electron_extension_system.cc b/shell/browser/extensions/electron_extension_system.cc
-index 613f1235ddb72117ffac0fb834d8edf74bd98d51..aeeb11c6d94b80a170081db4fc90f65fca87e9c9 100644
---- a/shell/browser/extensions/electron_extension_system.cc
-+++ b/shell/browser/extensions/electron_extension_system.cc
-@@ -26,6 +26,7 @@
- #include "extensions/browser/null_app_sorting.h"
- #include "extensions/browser/quota_service.h"
- #include "extensions/browser/service_worker_manager.h"
-+#include "extensions/browser/state_store.h"
- #include "extensions/browser/user_script_manager.h"
- #include "extensions/common/constants.h"
- #include "shell/browser/extensions/electron_extension_loader.h"
-@@ -73,6 +74,9 @@ void ElectronExtensionSystem::Shutdown() {
- }
- 
- void ElectronExtensionSystem::InitForRegularProfile(bool extensions_enabled) {
-+  state_store_ = std::make_unique<StateStore>(
-+      browser_context_, store_factory_, StateStore::BackendType::STATE,
-+      /*deferred_load=*/false);
-   service_worker_manager_ =
-       std::make_unique<ServiceWorkerManager>(browser_context_);
-   quota_service_ = std::make_unique<QuotaService>();
-@@ -142,7 +146,7 @@ UserScriptManager* ElectronExtensionSystem::user_script_manager() {
- }
- 
- StateStore* ElectronExtensionSystem::state_store() {
--  return nullptr;
-+  return state_store_.get();
- }
- 
- StateStore* ElectronExtensionSystem::rules_store() {
-diff --git a/shell/browser/extensions/electron_extension_system.h b/shell/browser/extensions/electron_extension_system.h
-index 6e8b569315030b53c492c7d86770383b5fd668d2..e6cbfec47b1f0943888205e3b9512379bde9fe6b 100644
---- a/shell/browser/extensions/electron_extension_system.h
-+++ b/shell/browser/extensions/electron_extension_system.h
-@@ -26,6 +26,7 @@ class BrowserContext;
- namespace extensions {
- 
- class ElectronExtensionLoader;
-+class StateStore;
- 
- // A simplified version of ExtensionSystem for app_shell. Allows
- // app_shell to skip initialization of services it doesn't need.
-@@ -93,6 +94,7 @@ class ElectronExtensionSystem : public ExtensionSystem {
-   std::unique_ptr<UserScriptManager> user_script_manager_;
-   std::unique_ptr<AppSorting> app_sorting_;
-   std::unique_ptr<ManagementPolicy> management_policy_;
-+  std::unique_ptr<StateStore> state_store_;
- 
-   std::unique_ptr<ElectronExtensionLoader> extension_loader_;
- 
 diff --git a/shell/browser/extensions/electron_extension_web_contents_observer.cc b/shell/browser/extensions/electron_extension_web_contents_observer.cc
 index 635d8d43c9b317a131e3c5f2073d7631ba3067df..6e2cbbb7c6c1e7cc0fa75b417adf7b30e4af5697 100644
 --- a/shell/browser/extensions/electron_extension_web_contents_observer.cc
@@ -481,7 +389,7 @@ index 635d8d43c9b317a131e3c5f2073d7631ba3067df..6e2cbbb7c6c1e7cc0fa75b417adf7b30
    FromWebContents(web_contents)->Initialize();
  }
 diff --git a/shell/browser/login_handler.cc b/shell/browser/login_handler.cc
-index 4ab93a76182ddf6024247a528cf3c30e60f767ba..ec1c593b54ebc54fa35c6586756a388569b17237 100644
+index d0be16e1d8f918626b8fccd0790e46087ce9b30a..de1a99adf79c9d25cc50e792822c79a0c2b6dfff 100644
 --- a/shell/browser/login_handler.cc
 +++ b/shell/browser/login_handler.cc
 @@ -71,6 +71,38 @@ LoginHandler::LoginHandler(
@@ -630,7 +538,7 @@ index 92a0e4d0db50ae12a4e9f4519313d3522bf8f7c8..110e7244b201a88698742f6a16f2de1a
    base::WeakPtrFactory<LoginHandler> weak_factory_{this};
  };
 diff --git a/shell/browser/net/proxying_url_loader_factory.cc b/shell/browser/net/proxying_url_loader_factory.cc
-index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e02f4879c2 100644
+index ce5d9b9f9f43dcc3ed478d9cbf891dbf16e3a072..bc76dd2d6ff93f6b713cc1a4f15b6964d915badc 100644
 --- a/shell/browser/net/proxying_url_loader_factory.cc
 +++ b/shell/browser/net/proxying_url_loader_factory.cc
 @@ -13,6 +13,12 @@
@@ -646,7 +554,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
  #include "extensions/browser/extension_navigation_ui_data.h"
  #include "mojo/public/cpp/bindings/self_owned_receiver.h"
  #include "net/base/completion_repeating_callback.h"
-@@ -36,6 +42,28 @@ namespace electron {
+@@ -37,6 +43,28 @@ namespace electron {
  
  namespace {
  
@@ -675,7 +583,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
  class NoOpHeaderClient final : public network::mojom::TrustedHeaderClient {
   public:
    NoOpHeaderClient() = default;
-@@ -92,6 +120,16 @@ ProxyingURLLoaderFactory::InProgressRequest::InProgressRequest(
+@@ -93,6 +121,16 @@ ProxyingURLLoaderFactory::InProgressRequest::InProgressRequest(
        has_any_extra_headers_listeners_(network_service_request_id != 0 &&
                                         factory->web_request_ &&
                                         factory->web_request_->HasListener()) {
@@ -692,7 +600,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
    // If there is a client error, clean up the request.
    target_client_.set_disconnect_handler(base::BindOnce(
        &ProxyingURLLoaderFactory::InProgressRequest::OnRequestError,
-@@ -122,6 +160,13 @@ ProxyingURLLoaderFactory::InProgressRequest::~InProgressRequest() {
+@@ -123,6 +161,13 @@ ProxyingURLLoaderFactory::InProgressRequest::~InProgressRequest() {
    // to reference state owned by this object.
    if (info_) {
      factory_->web_request_->OnRequestWillBeDestroyed(&info_.value());
@@ -706,7 +614,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
    }
    if (on_before_send_headers_callback_) {
      std::move(on_before_send_headers_callback_)
-@@ -131,8 +176,73 @@ ProxyingURLLoaderFactory::InProgressRequest::~InProgressRequest() {
+@@ -132,8 +177,73 @@ ProxyingURLLoaderFactory::InProgressRequest::~InProgressRequest() {
      std::move(on_headers_received_callback_)
          .Run(net::ERR_ABORTED, std::nullopt, std::nullopt);
    }
@@ -780,7 +688,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
  void ProxyingURLLoaderFactory::InProgressRequest::Restart() {
    UpdateRequestInfo();
    RestartInternal();
-@@ -169,18 +279,13 @@ void ProxyingURLLoaderFactory::InProgressRequest::RestartInternal() {
+@@ -170,18 +280,13 @@ void ProxyingURLLoaderFactory::InProgressRequest::RestartInternal() {
    // If the header client will be used, we start the request immediately, and
    // OnBeforeSendHeaders and OnSendHeaders will be handled there. Otherwise,
    // send these events before the request starts.
@@ -803,7 +711,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
    redirect_url_ = GURL();
    int result = factory_->web_request_->OnBeforeRequest(
        &info_.value(), request_, continuation, &redirect_url_);
-@@ -212,6 +317,59 @@ void ProxyingURLLoaderFactory::InProgressRequest::RestartInternal() {
+@@ -213,6 +318,59 @@ void ProxyingURLLoaderFactory::InProgressRequest::RestartInternal() {
    continuation.Run(net::OK);
  }
  
@@ -863,7 +771,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
  void ProxyingURLLoaderFactory::InProgressRequest::FollowRedirect(
      network::HttpRequestHeadersUpdateParams headers_update_params,
      const std::optional<GURL>& new_url) {
-@@ -334,6 +492,13 @@ void ProxyingURLLoaderFactory::InProgressRequest::OnComplete(
+@@ -335,6 +493,13 @@ void ProxyingURLLoaderFactory::InProgressRequest::OnComplete(
    target_client_->OnComplete(status);
    factory_->web_request_->OnCompleted(&info_.value(), request_,
                                        status.error_code);
@@ -877,7 +785,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
  
    // Deletes |this|.
    factory_->RemoveRequest(network_service_request_id_, request_id_);
-@@ -344,6 +509,18 @@ bool ProxyingURLLoaderFactory::IsForServiceWorkerScript() const {
+@@ -345,6 +510,18 @@ bool ProxyingURLLoaderFactory::IsForServiceWorkerScript() const {
                                       URLLoaderFactoryType::kServiceWorkerScript;
  }
  
@@ -896,7 +804,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
  void ProxyingURLLoaderFactory::InProgressRequest::OnLoaderCreated(
      mojo::PendingReceiver<network::mojom::TrustedHeaderClient> receiver) {
    // When CORS is involved there may be multiple network::URLLoader associated
-@@ -479,6 +656,46 @@ void ProxyingURLLoaderFactory::InProgressRequest::ContinueToBeforeSendHeaders(
+@@ -480,6 +657,46 @@ void ProxyingURLLoaderFactory::InProgressRequest::ContinueToBeforeSendHeaders(
    if (proxied_client_receiver_.is_bound())
      proxied_client_receiver_.Resume();
  
@@ -943,7 +851,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
    auto continuation = base::BindRepeating(
        &InProgressRequest::ContinueToSendHeaders, weak_factory_.GetWeakPtr());
    // Note: In Electron onBeforeSendHeaders is called for all protocols.
-@@ -499,7 +716,7 @@ void ProxyingURLLoaderFactory::InProgressRequest::ContinueToBeforeSendHeaders(
+@@ -500,7 +717,7 @@ void ProxyingURLLoaderFactory::InProgressRequest::ContinueToBeforeSendHeaders(
      //
      // We pause the receiver here to prevent further client message processing.
      if (proxied_client_receiver_.is_bound())
@@ -952,7 +860,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
      return;
    }
    DCHECK_EQ(net::OK, result);
-@@ -577,17 +794,19 @@ void ProxyingURLLoaderFactory::InProgressRequest::ContinueToSendHeaders(
+@@ -578,17 +795,19 @@ void ProxyingURLLoaderFactory::InProgressRequest::ContinueToSendHeaders(
      std::move(on_before_send_headers_callback_)
          .Run(error_code, request_.headers, std::nullopt);
    } else if (pending_follow_redirect_params_) {
@@ -980,7 +888,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
        }
      }
  
-@@ -612,6 +831,13 @@ void ProxyingURLLoaderFactory::InProgressRequest::ContinueToSendHeaders(
+@@ -613,6 +832,13 @@ void ProxyingURLLoaderFactory::InProgressRequest::ContinueToSendHeaders(
    // Note: In Electron onSendHeaders is called for all protocols.
    factory_->web_request_->OnSendHeaders(&info_.value(), request_,
                                          request_.headers);
@@ -994,7 +902,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
  
    if (!current_request_uses_header_client_)
      ContinueToStartRequest(net::OK);
-@@ -709,6 +935,13 @@ void ProxyingURLLoaderFactory::InProgressRequest::ContinueToResponseStarted(
+@@ -710,6 +936,13 @@ void ProxyingURLLoaderFactory::InProgressRequest::ContinueToResponseStarted(
    proxied_client_receiver_.Resume();
  
    factory_->web_request_->OnResponseStarted(&info_.value(), request_);
@@ -1008,7 +916,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
    auto response = current_response_.Clone();
    response->cache_storage_side_data_writer =
        std::move(current_response_->cache_storage_side_data_writer);
-@@ -732,6 +965,13 @@ void ProxyingURLLoaderFactory::InProgressRequest::ContinueToBeforeRedirect(
+@@ -740,6 +973,13 @@ void ProxyingURLLoaderFactory::InProgressRequest::ContinueToBeforeRedirect(
  
    factory_->web_request_->OnBeforeRedirect(&info_.value(), request_,
                                             redirect_info.new_url);
@@ -1022,7 +930,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
    target_client_->OnReceiveRedirect(redirect_info, current_response_.Clone());
    bool should_clear_upload = false;
    net::RedirectUtil::UpdateHttpRequest(
-@@ -750,6 +990,49 @@ void ProxyingURLLoaderFactory::InProgressRequest::
+@@ -758,6 +998,49 @@ void ProxyingURLLoaderFactory::InProgressRequest::
    redirect_url_ = GURL();
  
    info_->AddResponseInfoFromResourceResponse(*current_response_);
@@ -1072,7 +980,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
  
    auto callback_pair = base::SplitOnceCallback(std::move(continuation));
    DCHECK(info_.has_value());
-@@ -783,6 +1066,13 @@ void ProxyingURLLoaderFactory::InProgressRequest::OnRequestError(
+@@ -791,6 +1074,13 @@ void ProxyingURLLoaderFactory::InProgressRequest::OnRequestError(
      target_client_->OnComplete(status);
    factory_->web_request_->OnErrorOccurred(&info_.value(), request_,
                                            status.error_code);
@@ -1086,7 +994,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
  
    // Deletes |this|.
    factory_->RemoveRequest(network_service_request_id_, request_id_);
-@@ -825,6 +1115,19 @@ ProxyingURLLoaderFactory::ProxyingURLLoaderFactory(
+@@ -833,6 +1123,19 @@ ProxyingURLLoaderFactory::ProxyingURLLoaderFactory(
        base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
            switches::kIgnoreConnectionsLimit),
        ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
@@ -1106,7 +1014,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
  }
  
  bool ProxyingURLLoaderFactory::ShouldIgnoreConnectionsLimit(
-@@ -881,7 +1184,11 @@ void ProxyingURLLoaderFactory::CreateLoaderAndStart(
+@@ -889,7 +1192,11 @@ void ProxyingURLLoaderFactory::CreateLoaderAndStart(
    const auto route =
        browser_context_ ? browser_context_->intercept_state()->RouteFor(request)
                         : InterceptState::Route::kProxy;
@@ -1119,7 +1027,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
      auto& target_factory = override_target_factory.is_bound()
                                 ? override_target_factory
                                 : target_factory_;
-@@ -913,6 +1220,23 @@ void ProxyingURLLoaderFactory::CreateLoaderAndStart(
+@@ -921,6 +1228,23 @@ void ProxyingURLLoaderFactory::CreateLoaderAndStart(
    if (request_id)
      network_request_id_to_web_request_id_.emplace(request_id, web_request_id);
  
@@ -1143,7 +1051,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
    auto result = requests_.emplace(
        web_request_id,
        std::make_unique<InProgressRequest>(
-@@ -966,7 +1290,36 @@ void ProxyingURLLoaderFactory::OnLoaderForCorsPreflightCreated(
+@@ -974,7 +1298,36 @@ void ProxyingURLLoaderFactory::OnLoaderForCorsPreflightCreated(
    result.first->second->Restart();
  }
  
@@ -1181,7 +1089,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
  
  void ProxyingURLLoaderFactory::OnTargetFactoryError() {
    target_factory_.reset();
-@@ -984,6 +1337,22 @@ void ProxyingURLLoaderFactory::OnProxyBindingError() {
+@@ -992,6 +1345,22 @@ void ProxyingURLLoaderFactory::OnProxyBindingError() {
  
  void ProxyingURLLoaderFactory::RemoveRequest(int32_t network_service_request_id,
                                               uint64_t request_id) {
@@ -1205,7 +1113,7 @@ index 2a9fa9f17ff3d1039d5f6ed390e49e7d63573b10..0b0039da7121ef870bc565bbbcade3e0
    requests_.erase(request_id);
  
 diff --git a/shell/browser/net/proxying_url_loader_factory.h b/shell/browser/net/proxying_url_loader_factory.h
-index 9310081d50f8c48bd1c94db4d279bd1cd9ceed78..ca6f827294a4104636e20bbcfb489e82f7b3411f 100644
+index 6e50253e2a9b0d579baa6d3a445ad8d02329e799..cce81c4615b1101d67692abe646c54e976ad8688 100644
 --- a/shell/browser/net/proxying_url_loader_factory.h
 +++ b/shell/browser/net/proxying_url_loader_factory.h
 @@ -17,12 +17,18 @@
@@ -1270,10 +1178,10 @@ index 9310081d50f8c48bd1c94db4d279bd1cd9ceed78..ca6f827294a4104636e20bbcfb489e82
      void HandleBeforeRequestRedirect();
  
      raw_ptr<ProxyingURLLoaderFactory> const factory_;
-@@ -163,6 +188,13 @@ class ProxyingURLLoaderFactory
-     mojo::ScopedDataPipeConsumerHandle current_body_;
+@@ -164,6 +189,13 @@ class ProxyingURLLoaderFactory
      scoped_refptr<net::HttpResponseHeaders> override_headers_;
      GURL redirect_url_;
+     int redirect_count_ = 0;
 +    std::set<std::string> extension_removed_headers_;
 +    std::set<std::string> extension_set_headers_;
 +    bool extension_router_used_ = false;
@@ -1284,7 +1192,7 @@ index 9310081d50f8c48bd1c94db4d279bd1cd9ceed78..ca6f827294a4104636e20bbcfb489e82
  
      const bool for_cors_preflight_ = false;
  
-@@ -247,6 +279,14 @@ class ProxyingURLLoaderFactory
+@@ -248,6 +280,14 @@ class ProxyingURLLoaderFactory
        override;
  
    bool IsForServiceWorkerScript() const;
@@ -1299,7 +1207,7 @@ index 9310081d50f8c48bd1c94db4d279bd1cd9ceed78..ca6f827294a4104636e20bbcfb489e82
  
   private:
    void OnTargetFactoryError();
-@@ -289,6 +329,11 @@ class ProxyingURLLoaderFactory
+@@ -290,6 +330,11 @@ class ProxyingURLLoaderFactory
    // internally generated request ID for the same request.
    base::flat_map<int32_t, uint64_t> network_request_id_to_web_request_id_;
  
@@ -1745,7 +1653,7 @@ index db3c9013f4051d5beb5b6f54501a66e73146a302..290784c5f21b006b05ac20b0598fff1f
    bool has_extra_headers_;
    mojo::PendingRemote<network::mojom::WebSocket> websocket_;
 diff --git a/shell/browser/net/url_loader_factory_gate.cc b/shell/browser/net/url_loader_factory_gate.cc
-index 44e789564e6e6919df59f3c6d705e71cb6b9ba86..088b1164981c37fbf58c76b8083acfcb88ee1528 100644
+index cf9d993954c0460cb07978bb1ebf7b962e39cd9d..bfc7b9df2ccb49a0a93a6abf3116f098af5bc285 100644
 --- a/shell/browser/net/url_loader_factory_gate.cc
 +++ b/shell/browser/net/url_loader_factory_gate.cc
 @@ -91,6 +91,16 @@ void InterceptState::SetListenerTypes(uint32_t blocking_types,

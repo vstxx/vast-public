@@ -1,5 +1,5 @@
 import { copyText } from '../lib/clipboard'
-import { lazy, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { INTERNAL_AUTOMATION_URL, INTERNAL_NEW_TAB_URL } from '../../shared/constants'
 import { findOwnTabBookmark } from '../../shared/bookmark-identity'
 import { getFeatureState, VastFeatures } from '../../shared/feature-gates'
@@ -54,6 +54,7 @@ import { selectActiveTab, selectActiveWorkspace, useBrowserStore } from '../stor
 import { hasPersistedStateChanged } from '../store/persisted-change'
 import { isInactiveTabUnloadCandidate } from '../store/tab-lifecycle'
 import { ExtensionRuntimeController, useExtensionContributions } from '../extensions/extension-runtime'
+import { PresenceContext, resolveMotionLevel, setMotionLevel, usePresence } from '../lib/motion'
 
 const CommandPalette = lazy(() => import('../components/command-palette/CommandPalette').then((module) => ({ default: module.CommandPalette })))
 const loadPuristChrome = () => import('../components/purist/PuristChrome').then((module) => ({ default: module.PuristChrome }))
@@ -218,6 +219,7 @@ export function App(): JSX.Element {
   const focusMode = useBrowserStore((state) => state.focusMode)
   const accentColor = useBrowserStore((state) => state.settings.accentColor)
   const animations = useBrowserStore((state) => state.settings.animations)
+  const motionPreference = useBrowserStore((state) => state.settings.motionLevel)
   const appearance = useBrowserStore((state) => state.settings.appearance)
   const extensionContributions = useExtensionContributions()
   const experimentalFeatures = useBrowserStore((state) => state.settings.advanced.experimentalFeatures)
@@ -244,12 +246,25 @@ export function App(): JSX.Element {
     const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory
     return navigator.hardwareConcurrency <= 4 || (typeof memory === 'number' && memory <= 4)
   }, [])
+  const motionLevel = resolveMotionLevel({ animations, preference: motionPreference, reducedMotion: systemPrefersReducedMotion, constrainedGraphics })
+  // Set while rendering so every surface's layout effects in this commit
+  // already see the level; the attribute drives the CSS motion tokens,
+  // including for menus portaled outside .app-shell.
+  setMotionLevel(motionLevel)
+  useLayoutEffect(() => {
+    document.documentElement.dataset.vastMotion = motionLevel
+  }, [motionLevel])
   const resolvedTheme = theme === 'system' ? (systemPrefersLight ? 'light' : 'dark') : theme
   const sidebarPinned = sidePanelMode === 'overlay' || (sidePanelMode === 'auto' && narrowSidePanel)
   const browserChromeHidden = windowFullscreen || Boolean(htmlFullscreenSession)
   const showSidebar = !focusMode && !browserChromeHidden && layoutMode === 'vertical'
   const showHorizontalChrome = !focusMode && !browserChromeHidden && layoutMode === 'horizontal'
   const showPuristChrome = !focusMode && !browserChromeHidden && layoutMode === 'purist'
+  // Overlays stay mounted, inert, only while their exit motion plays.
+  const sidePanelPresence = usePresence(!focusMode && !browserChromeHidden && sidePanelOpen)
+  const commandPalettePresence = usePresence(!htmlFullscreenSession && commandPaletteOpen)
+  const smartUnloadPresence = usePresence(!htmlFullscreenSession && smartUnloadOpen)
+  const settingsPresence = usePresence(!htmlFullscreenSession && settingsOpen)
   const activeTabIsNewTab = activeTabUrl === INTERNAL_NEW_TAB_URL
   const visualStyle = useMemo(() => {
     const tokens = extensionContributions.theme?.tokens
@@ -343,6 +358,31 @@ export function App(): JSX.Element {
     delete toastTimersRef.current[id]
     startTransition(() => setToasts((current) => current.filter((toast) => toast.id !== id)))
   }
+  const dismissToastRef = useRef(dismissToast)
+  dismissToastRef.current = dismissToast
+
+  // Toasts requested by feature code (see lib/history-actions). Their actions
+  // close the toast once they run.
+  useEffect(() => {
+    const onToast = (event: Event): void => {
+      const request = (event as CustomEvent<Omit<UiNotificationPayload, 'id'> & { id?: string }>).detail
+      if (!request) return
+      const id = request.id ?? crypto.randomUUID()
+      pushToastRef.current({
+        ...request,
+        id,
+        actions: request.actions?.map((item) => ({
+          label: item.label,
+          action: () => {
+            dismissToastRef.current(id)
+            item.action()
+          }
+        }))
+      })
+    }
+    window.addEventListener('vast:toast', onToast)
+    return () => window.removeEventListener('vast:toast', onToast)
+  }, [])
 
   queuePersistedSaveRef.current = (payload, serialized, reason): void => {
     const failureToastId = 'storage-autosave-failed'
@@ -1572,25 +1612,33 @@ export function App(): JSX.Element {
           </div>
         </section>
         <Suspense fallback={null}>
-          {!focusMode && !browserChromeHidden && sidePanelOpen && (
-            <LocalErrorBoundary name="Side panel" overlay onDismiss={() => useBrowserStore.getState().setSidePanelOpen(false)}>
-              <SidePanel pinned={sidebarPinned} />
-            </LocalErrorBoundary>
+          {sidePanelPresence.mounted && (
+            <PresenceContext.Provider value={sidePanelPresence}>
+              <LocalErrorBoundary name="Side panel" overlay onDismiss={() => useBrowserStore.getState().setSidePanelOpen(false)}>
+                <SidePanel pinned={sidebarPinned} />
+              </LocalErrorBoundary>
+            </PresenceContext.Provider>
           )}
-          {!htmlFullscreenSession && commandPaletteOpen && (
-            <LocalErrorBoundary name="Command palette" overlay onDismiss={() => useBrowserStore.getState().setCommandPaletteOpen(false)}>
-              <CommandPalette />
-            </LocalErrorBoundary>
+          {commandPalettePresence.mounted && (
+            <PresenceContext.Provider value={commandPalettePresence}>
+              <LocalErrorBoundary name="Command palette" overlay onDismiss={() => useBrowserStore.getState().setCommandPaletteOpen(false)}>
+                <CommandPalette />
+              </LocalErrorBoundary>
+            </PresenceContext.Provider>
           )}
-          {!htmlFullscreenSession && smartUnloadOpen && (
-            <LocalErrorBoundary name="Tab unload panel" overlay onDismiss={() => useBrowserStore.getState().setSmartUnloadOpen(false)}>
-              <SmartUnloadPanel />
-            </LocalErrorBoundary>
+          {smartUnloadPresence.mounted && (
+            <PresenceContext.Provider value={smartUnloadPresence}>
+              <LocalErrorBoundary name="Tab unload panel" overlay onDismiss={() => useBrowserStore.getState().setSmartUnloadOpen(false)}>
+                <SmartUnloadPanel />
+              </LocalErrorBoundary>
+            </PresenceContext.Provider>
           )}
-          {!htmlFullscreenSession && settingsOpen && (
-            <LocalErrorBoundary name="Settings" overlay onDismiss={() => useBrowserStore.getState().setSettingsOpen(false)}>
-              <SettingsModal />
-            </LocalErrorBoundary>
+          {settingsPresence.mounted && (
+            <PresenceContext.Provider value={settingsPresence}>
+              <LocalErrorBoundary name="Settings" overlay onDismiss={() => useBrowserStore.getState().setSettingsOpen(false)}>
+                <SettingsModal />
+              </LocalErrorBoundary>
+            </PresenceContext.Provider>
           )}
         </Suspense>
         {!htmlFullscreenSession && <PromptDialog />}

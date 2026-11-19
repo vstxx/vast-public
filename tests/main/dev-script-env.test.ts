@@ -9,10 +9,11 @@ const devScriptSource = readFileSync(new URL('../../scripts/dev.cjs', import.met
 const currentDevScriptSource = readFileSync(new URL('../../scripts/dev-current.cjs', import.meta.url), 'utf8')
 const compatibilityDevScriptSource = readFileSync(new URL('../../scripts/dev-extension-compat.cjs', import.meta.url), 'utf8')
 
-test('default dev startup routes to the CWS Bridge worktree', () => {
-  assert.equal(packageJson.version, '0.5.5')
+test('default dev startup runs this checkout on the patched runtime', () => {
+  assert.equal(packageJson.version, '0.6.0')
   assert.equal(packageJson.scripts?.dev, 'node scripts/dev-current.cjs')
-  assert.match(currentDevScriptSource, /refs\/heads\/codex\/cws-bridge-integration/)
+  assert.match(currentDevScriptSource, /VAST_DEV_SOURCE_ROOT \|\| join\(__dirname, '\.\.'\)/)
+  assert.match(currentDevScriptSource, /defaultOutputPath\(manifest\)/)
   assert.match(currentDevScriptSource, /dev-extension-compat\.cjs/)
   assert.match(currentDevScriptSource, /VAST_PATCHED_ELECTRON_DIST: patchedDist/)
   assert.equal(packageJson.scripts?.['dev:extension-compat'], 'node scripts/dev-extension-compat.cjs')

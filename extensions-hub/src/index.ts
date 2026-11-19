@@ -74,6 +74,8 @@ const ICLOUD_PASSWORDS_ID = 'pejdijmoenmkgeppbflobdenhhabjlaj'
 const PASSWORD_MANAGER_MIN_VAST_VERSION = '0.4.1'
 const HOSTED_PASSWORD_MANAGER_IDS = ['nngceckbapebfimnlniiiahkandclblb', 'ghmbeldphafepmbegfdlkpapadhbakde'] as const
 const PASSWORD_MANAGER_IDS = new Set<string>([...HOSTED_PASSWORD_MANAGER_IDS, ICLOUD_PASSWORDS_ID])
+const TRANSLATOR_ID = 'oaamgecaoemplhkceohcpahaeampndpj'
+const TRANSLATOR_MIN_VAST_VERSION = '0.6.0'
 const ICLOUD_PASSWORDS_ITEM = Object.freeze({
   id: ICLOUD_PASSWORDS_ID,
   slug: 'icloud-passwords',
@@ -134,17 +136,28 @@ function iCloudViewItem(env: Env): CatalogViewItem {
     downloads: ICLOUD_PASSWORDS_ITEM.downloads,
     dataPractice: 'undisclosed',
     remoteServices: '',
+    upstream: true,
     ...iconField(env, ICLOUD_PASSWORDS_ID, null)
   }
 }
 
-function passwordManagersAvailable(request: Request): boolean {
+function minimumVastVersionAvailable(request: Request, minimum: string): boolean {
   const version = request.headers.get('x-vast-version')
-  return version !== null && semver.valid(version) !== null && semver.prerelease(version) === null && semver.gte(version, PASSWORD_MANAGER_MIN_VAST_VERSION)
+  return version !== null && semver.valid(version) !== null && semver.prerelease(version) === null && semver.gte(version, minimum)
 }
 
-function assertPasswordManagerAvailable(request: Request, id: string): void {
-  if (PASSWORD_MANAGER_IDS.has(id) && !passwordManagersAvailable(request)) throw new HttpError(404, 'Extension was not found.')
+function passwordManagersAvailable(request: Request): boolean {
+  return minimumVastVersionAvailable(request, PASSWORD_MANAGER_MIN_VAST_VERSION)
+}
+
+function translatorAvailable(request: Request): boolean {
+  return minimumVastVersionAvailable(request, TRANSLATOR_MIN_VAST_VERSION)
+}
+
+function assertClientAvailable(request: Request, id: string): void {
+  if ((PASSWORD_MANAGER_IDS.has(id) && !passwordManagersAvailable(request)) || (id === TRANSLATOR_ID && !translatorAvailable(request))) {
+    throw new HttpError(404, 'Extension was not found.')
+  }
 }
 
 interface OwnedExtensionRow { id: string; publisher_id: string; current_release_id: string | null; status: string }
@@ -259,18 +272,23 @@ function catalogView(row: CatalogRow, env: Env): CatalogViewItem {
   }
 }
 
-function catalogWhere(url: URL, includePasswordManagers: boolean): { where: string; bindings: string[]; query: string; category: string } {
+function catalogCompatibilityFilter(includePasswordManagers: boolean, includeTranslator: boolean): string {
+  const excluded = [...(includePasswordManagers ? [] : HOSTED_PASSWORD_MANAGER_IDS), ...(includeTranslator ? [] : [TRANSLATOR_ID])]
+  return excluded.length ? ` AND e.id NOT IN ('${excluded.join("','")}')` : ''
+}
+
+function catalogWhere(url: URL, includePasswordManagers: boolean, includeTranslator: boolean): { where: string; bindings: string[]; query: string; category: string } {
   const query = (url.searchParams.get('query') ?? '').trim().slice(0, 128)
   const category = (url.searchParams.get('category') ?? '').trim().slice(0, 64)
   if (category && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(category)) throw new HttpError(400, 'Category is invalid.')
   const escaped = query.toLowerCase().replace(/[\\%_]/g, '\\$&')
-  const compatibility = includePasswordManagers ? '' : ` AND e.id NOT IN ('${HOSTED_PASSWORD_MANAGER_IDS.join("','")}')`
+  const compatibility = catalogCompatibilityFilter(includePasswordManagers, includeTranslator)
   const where = `e.status='published' AND r.status='published' AND (?1='' OR lower(e.name||' '||e.summary||' '||p.publisher_name) LIKE ?2 ESCAPE '\\') AND (?3='' OR e.category=?3)${compatibility}`
   return { where, bindings: [query, `%${escaped}%`, category], query, category }
 }
 
-async function catalogRows(env: Env, url: URL, limit: number, offset: number, includePasswordManagers = false): Promise<{ rows: CatalogRow[]; total: number }> {
-  const input = catalogWhere(url, includePasswordManagers)
+async function catalogRows(env: Env, url: URL, limit: number, offset: number, includePasswordManagers = false, includeTranslator = false): Promise<{ rows: CatalogRow[]; total: number }> {
+  const input = catalogWhere(url, includePasswordManagers, includeTranslator)
   const base = `FROM extensions e JOIN publishers p ON p.id=e.publisher_id JOIN releases r ON r.id=e.current_release_id LEFT JOIN download_counters d ON d.extension_id=e.id WHERE ${input.where}`
   const sort = url.searchParams.get('sort') === 'updated' ? 'e.updated_at DESC,e.id' : 'COALESCE(d.count,0) DESC,e.updated_at DESC,e.id'
   const [list, count] = await Promise.all([
@@ -294,12 +312,13 @@ async function publicCatalog(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url)
   const page = Math.max(1, Math.min(1_000, Number.parseInt(url.searchParams.get('page') ?? '1', 10) || 1))
   const includePasswordManagers = passwordManagersAvailable(request)
+  const includeTranslator = translatorAvailable(request)
   const includeICloud = includePasswordManagers && iCloudMatches(url)
   const databaseOffset = Math.max(0, (page - 1) * CATALOG_PAGE_SIZE - (includeICloud ? 1 : 0))
   const databaseLimit = page === 1 && includeICloud ? CATALOG_PAGE_SIZE - 1 : CATALOG_PAGE_SIZE
   const [{ rows, total }, featured, categoryList] = await Promise.all([
-    catalogRows(env, url, databaseLimit, databaseOffset, includePasswordManagers),
-    env.DB.prepare(`SELECT e.id,e.slug,e.name,e.summary,e.description,e.category,e.kind,e.updated_at,e.homepage,e.source_url,e.icon_key,e.data_practice,e.privacy_policy_url,e.remote_services,e.attribution_name,e.attribution_url,e.license_spdx,e.source_ref,p.id publisher_id,p.publisher_name,p.verified,r.version,r.permissions_snapshot,COALESCE(d.count,0) downloads FROM extensions e JOIN publishers p ON p.id=e.publisher_id JOIN releases r ON r.id=e.current_release_id LEFT JOIN download_counters d ON d.extension_id=e.id WHERE e.status='published' AND r.status='published'${includePasswordManagers ? '' : ` AND e.id NOT IN ('${HOSTED_PASSWORD_MANAGER_IDS.join("','")}')`} ORDER BY COALESCE(d.count,0) DESC,e.updated_at DESC LIMIT 6`).all<CatalogRow>(),
+    catalogRows(env, url, databaseLimit, databaseOffset, includePasswordManagers, includeTranslator),
+    env.DB.prepare(`SELECT e.id,e.slug,e.name,e.summary,e.description,e.category,e.kind,e.updated_at,e.homepage,e.source_url,e.icon_key,e.data_practice,e.privacy_policy_url,e.remote_services,e.attribution_name,e.attribution_url,e.license_spdx,e.source_ref,p.id publisher_id,p.publisher_name,p.verified,r.version,r.permissions_snapshot,COALESCE(d.count,0) downloads FROM extensions e JOIN publishers p ON p.id=e.publisher_id JOIN releases r ON r.id=e.current_release_id LEFT JOIN download_counters d ON d.extension_id=e.id WHERE e.status='published' AND r.status='published'${catalogCompatibilityFilter(includePasswordManagers, includeTranslator)} ORDER BY COALESCE(d.count,0) DESC,e.updated_at DESC LIMIT 6`).all<CatalogRow>(),
     categories(env)
   ])
   const items = rows.map((row) => catalogItem(row, env))
@@ -309,7 +328,7 @@ async function publicCatalog(request: Request, env: Env): Promise<Response> {
 }
 
 async function extensionDetails(request: Request, env: Env, id: string): Promise<Response> {
-  assertPasswordManagerAvailable(request, id)
+  assertClientAvailable(request, id)
   if (id === ICLOUD_PASSWORDS_ID) return json({
     ...iCloudApiItem(env),
     description: ICLOUD_PASSWORDS_DESCRIPTION,
@@ -327,7 +346,7 @@ async function extensionDetails(request: Request, env: Env, id: string): Promise
 async function releaseDescriptor(request: Request, env: Env, extension: string, version?: string): Promise<Response> {
   await enforceRateLimit(request, env.HUB_PUBLIC_RATE_LIMIT, 'install-metadata')
   assertExtensionId(extension)
-  assertPasswordManagerAvailable(request, extension)
+  assertClientAvailable(request, extension)
   if (version && !VEXT_VERSION.test(version)) throw new HttpError(404, 'Release was not found.')
   const row = await env.DB.prepare(`SELECT r.descriptor_json,r.descriptor_signature,r.signature_key_id FROM releases r JOIN extensions e ON e.id=r.extension_id WHERE r.extension_id=?1 AND r.status='published' AND e.status='published' AND ${version ? 'r.version=?2' : 'r.id=e.current_release_id'}`).bind(...(version ? [extension, version] : [extension])).first<{ descriptor_json: string; descriptor_signature: string; signature_key_id: string }>()
   if (!row) throw new HttpError(404, 'Release was not found.')
@@ -953,7 +972,7 @@ async function explore(request: Request, env: Env): Promise<Response> {
   // The public website is read-only: it lists every published extension, including the password managers,
   // regardless of any Vast version. Version gating stays on the client-facing API and install endpoints.
   const includeICloud = iCloudMatches(url)
-  const [{ rows }, categoryList, session] = await Promise.all([catalogRows(env, url, includeICloud ? CATALOG_PAGE_SIZE - 1 : CATALOG_PAGE_SIZE, 0, true), categories(env), optionalSession(request, env)])
+  const [{ rows }, categoryList, session] = await Promise.all([catalogRows(env, url, includeICloud ? CATALOG_PAGE_SIZE - 1 : CATALOG_PAGE_SIZE, 0, true, true), categories(env), optionalSession(request, env)])
   const items = rows.map((row) => catalogView(row, env))
   if (includeICloud) items.push(iCloudViewItem(env))
   return html(homePage(items, (url.searchParams.get('query') ?? '').slice(0, 128), categoryList, session, (url.searchParams.get('category') ?? '').slice(0, 64)), { headers: { 'cache-control': 'no-store' } })
@@ -966,8 +985,7 @@ async function detail(request: Request, env: Env, id: string): Promise<Response>
       description: ICLOUD_PASSWORDS_DESCRIPTION,
       homepage: ICLOUD_PASSWORDS_HOMEPAGE,
       sourceUrl: ICLOUD_PASSWORDS_SOURCE_URL,
-      permissions: ICLOUD_PASSWORDS_PERMISSIONS,
-      upstream: true
+      permissions: ICLOUD_PASSWORDS_PERMISSIONS
     }, await optionalSession(request, env)), { headers: { 'cache-control': 'no-store' } })
   }
   const [row, session] = await Promise.all([getCatalogRow(env, id), optionalSession(request, env)])

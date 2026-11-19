@@ -4,6 +4,8 @@
     "vast:avidae:start": "avidae",
     "vast:avidae:stop": "avidae",
     "vast:avidae:install-dependencies": "avidae",
+    "vast:avidae:install-module": "avidae",
+    "vast:avidae:cancel-module-install": "avidae",
     "vast:network:get-devices": "network-devices",
     "vast:network:scan": "network-devices",
     "vast:network:update-device": "network-devices",

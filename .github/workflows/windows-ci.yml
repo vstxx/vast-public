@@ -73,8 +73,19 @@ jobs:
         uses: ./.github/actions/prepare-ffmpeg
         with:
           github-token: ${{ github.token }}
-      - name: Prepare and verify self-contained Video & Audio runtime
+      - name: Prepare and verify the Video & Audio module runtime
         run: npm run avidae:runtime:prepare
+      - name: Build, sign with an ephemeral key, and verify the Video & Audio module
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $keyDir = Join-Path $env:RUNNER_TEMP 'avidae-ci-key'
+          $moduleVersion = (Get-Content -Raw resources/avidae/module.json | ConvertFrom-Json).moduleVersion
+          $key = node scripts/sign-avidae-module.cjs --generate-key $keyDir | ConvertFrom-Json
+          node scripts/build-avidae-module.cjs --base-url http://127.0.0.1:9/avidae-module --skip-check --level 3
+          node scripts/sign-avidae-module.cjs --dir "release/avidae-module/$moduleVersion" --key-id ci-ephemeral --key-file $key.privateKey --allow-unpinned
+          node scripts/verify-avidae-module.cjs --dir "release/avidae-module/$moduleVersion" --public-key $key.publicKeySpkiBase64
       - run: npm run lint
       - run: python -m unittest tests/avidae/avidae_security_test.py
       - name: Validate Vast Relay Workers
@@ -139,3 +150,11 @@ jobs:
           $storeVersion = node -p "require('./scripts/store-msix-config.cjs').storePackageVersion()"
           $package = Resolve-Path "release/store/Vast-$version-Store-$storeVersion-x64-Development.msix"
           powershell -NoProfile -ExecutionPolicy Bypass -File tests/store/store-msix-upgrade.test.ps1 -PackagePath $package
+
+  linux-appimage:
+    # Test build in the unsigned-release configuration; its AppImage is a
+    # workflow artifact for manual testing and is never published.
+    uses: ./.github/workflows/linux-appimage.yml
+    with:
+      channel: stable
+      risk_ack: I_ACCEPT_UNSIGNED_PUBLIC_RELEASE_RISK

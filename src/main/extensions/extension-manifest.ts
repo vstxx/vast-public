@@ -6,10 +6,13 @@ import type { ChromeExtensionManifest, ValidatedExtensionManifest } from './exte
 import { VAST_NATIVE_API_VERSION, VAST_NATIVE_PERMISSIONS, type VastExtensionManifestSection, type VastNativePermission } from '../../shared/extension-native-api.ts'
 import { VEXT_EXTENSION_ID } from '../../shared/vext-format.ts'
 import { parseExtensionMatchPattern } from '../../shared/extension-match-pattern.ts'
+import type { VastDeclarativeContributions } from '../../shared/extension-native-contributions.ts'
 
 const MAX_MANIFEST_BYTES = 1024 * 1024
 const MAX_LOCALE_MESSAGES_BYTES = 4 * 1024 * 1024
 const MAX_ICON_BYTES = 1024 * 1024
+/** Toolbar icons travel in every contribution snapshot, so they stay small. */
+export const TOOLBAR_ICON_MAX_BYTES = 64 * 1024
 const VERSION = /^\d+(?:\.\d+){0,3}$/
 const LOCALE_NAME = /^[A-Za-z0-9_-]{1,32}$/
 const LOCALIZED_MESSAGE = /^__MSG_([A-Za-z0-9_@]+)__$/
@@ -62,7 +65,7 @@ function isHostPattern(value: string): boolean {
 
 const NATIVE_PERMISSION_SET = new Set<string>(VAST_NATIVE_PERMISSIONS)
 
-async function validateVastSection(rootPath: string, value: unknown): Promise<{
+async function validateVastSection(rootPath: string, value: unknown, hasChromePopup: boolean): Promise<{
   vast?: VastExtensionManifestSection
   compatibilityError?: string
 }> {
@@ -86,21 +89,42 @@ async function validateVastSection(rootPath: string, value: unknown): Promise<{
       throw new Error('vast.background must be a local JavaScript module inside the extension.')
     }
   }
+  const permissions = unique.filter((permission): permission is VastNativePermission => NATIVE_PERMISSION_SET.has(permission))
+  // Contributions that cannot be honoured disable only the Native layer, like
+  // an unknown permission does; the Chrome layer of a hybrid keeps working.
+  let contributes: VastDeclarativeContributions | undefined
+  let contributesError: string | undefined
+  if (value.contributes !== undefined) {
+    try {
+      // Loaded on demand: browsers without declarative extensions never pay for the parser at startup.
+      const { parseDeclarativeContributions } = await import('../../shared/extension-native-contributions.ts')
+      const parsed = parseDeclarativeContributions(value.contributes, { permissions, hasBackground: Boolean(background), hasPopup: Boolean(popup) || hasChromePopup })
+      for (const asset of parsed.assets) {
+        const info = await resolveExtensionAssetPath(rootPath, asset).then((file) => stat(file)).catch(() => undefined)
+        if (!info?.isFile()) throw new Error(`vast.contributes references a missing file: ${asset}.`)
+      }
+      contributes = parsed.contributions
+    } catch (error) {
+      contributesError = error instanceof Error ? error.message : 'vast.contributes is invalid.'
+    }
+  }
   const vast: VastExtensionManifestSection = {
     api_version: Number(value.api_version),
     ...(extensionId ? { extension_id: extensionId } : {}),
     ...(background ? { background } : {}),
     ...(popup ? { popup } : {}),
     ...(options ? { options } : {}),
-    permissions: unique.filter((permission): permission is VastNativePermission => NATIVE_PERMISSION_SET.has(permission))
+    permissions,
+    ...(contributes ? { contributes } : {})
   }
   const compatibilityError = unknown.length > 0
     ? `Unknown Vast permission${unknown.length === 1 ? '' : 's'}: ${unknown.join(', ')}.`
     : vast.api_version !== VAST_NATIVE_API_VERSION
       ? `Vast API version ${vast.api_version} is not supported by this version of Vast.`
-      : !background
-        ? 'Vast-native extensions must declare vast.background.'
-        : undefined
+      : contributesError
+        ?? (!background && !popup && !options && !contributes
+          ? 'Vast-native extensions must declare vast.background, vast.popup, vast.options or vast.contributes.'
+          : undefined)
   return { vast, ...(compatibilityError ? { compatibilityError } : {}) }
 }
 
@@ -184,27 +208,37 @@ export async function resolveExtensionAssetPath(rootPath: string, manifestPath: 
   return canonicalCandidate
 }
 
+/**
+ * A verified local image as a data: URL, so browser UI can show it without
+ * loading anything from the extension. Active SVG content is refused.
+ */
+export async function extensionAssetIconDataUrl(rootPath: string, iconPath: string, maxBytes = MAX_ICON_BYTES): Promise<string | undefined> {
+  try {
+    const file = await resolveExtensionAssetPath(rootPath, iconPath)
+    const mime = ASSET_MIME.get(extname(file).toLowerCase())
+    if (!mime) return undefined
+    const info = await stat(file)
+    if (!info.isFile() || info.size <= 0 || info.size > maxBytes) return undefined
+    const data = await readFile(file)
+    if (mime === 'image/svg+xml') {
+      const source = data.toString('utf8')
+      if (/<(?:script|foreignObject)\b|\son[a-z]+\s*=|(?:href|src)\s*=\s*["'](?:https?:|\/\/)/i.test(source)) return undefined
+    }
+    return `data:${mime};base64,${data.toString('base64')}`
+  } catch {
+    return undefined
+  }
+}
+
 async function extensionIconDataUrl(rootPath: string, icons: unknown): Promise<string | undefined> {
   if (!object(icons)) return undefined
   const candidates = Object.entries(icons)
     .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
     .sort((left, right) => (Number(right[0]) || 0) - (Number(left[0]) || 0))
+  // Try each declared icon in turn and fall back to the native puzzle icon.
   for (const [, iconPath] of candidates) {
-    try {
-      const file = await resolveExtensionAssetPath(rootPath, iconPath)
-      const mime = ASSET_MIME.get(extname(file).toLowerCase())
-      if (!mime) continue
-      const info = await stat(file)
-      if (!info.isFile() || info.size <= 0 || info.size > MAX_ICON_BYTES) continue
-      const data = await readFile(file)
-      if (mime === 'image/svg+xml') {
-        const source = data.toString('utf8')
-        if (/<(?:script|foreignObject)\b|\son[a-z]+\s*=|(?:href|src)\s*=\s*["'](?:https?:|\/\/)/i.test(source)) continue
-      }
-      return `data:${mime};base64,${data.toString('base64')}`
-    } catch {
-      // Try the next declared icon and fall back to the native puzzle icon.
-    }
+    const icon = await extensionAssetIconDataUrl(rootPath, iconPath)
+    if (icon) return icon
   }
   return undefined
 }
@@ -301,12 +335,12 @@ export async function validateExtensionManifest(extensionPath: string, options: 
   }
 
   await validateContentScripts(rootPath, input.content_scripts)
-  const native = await validateVastSection(rootPath, input.vast)
   if (input.action !== undefined && !object(input.action)) throw new Error('Extension manifest has an invalid action.')
   if (input.browser_action !== undefined && !object(input.browser_action)) throw new Error('Extension manifest has an invalid browser_action.')
   if (input.options_ui !== undefined && !object(input.options_ui)) throw new Error('Extension manifest has invalid options_ui.')
   const action = object(input.action) ? input.action : object(input.browser_action) ? input.browser_action : undefined
   const chromePopup = action ? await optionalHtmlAsset(rootPath, action.default_popup, 'extension action popup') : undefined
+  const native = await validateVastSection(rootPath, input.vast, Boolean(chromePopup))
   const chromeOptions = object(input.options_ui)
     ? await optionalHtmlAsset(rootPath, input.options_ui.page, 'extension options page')
     : await optionalHtmlAsset(rootPath, input.options_page, 'extension options page')

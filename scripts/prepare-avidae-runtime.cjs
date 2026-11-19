@@ -25,20 +25,30 @@ const ffmpegCapabilityAudit = join(__dirname, 'avidae-ffmpeg-capabilities.cjs')
 const ffmpegComplianceAudit = join(__dirname, 'check-ffmpeg-release-compliance.cjs')
 const ffmpegBuildRoot = join(root, '.vast-build', 'ffmpeg')
 const ffmpegSourceBundle = join(ffmpegBuildRoot, 'ffmpeg-corresponding-source-win64.tar.zst')
-const runtimeManifestSchema = 3
+const runtimeManifestSchema = 4
 const checkOnly = process.argv.includes('--check')
 const resume = process.argv.includes('--resume')
+// Local developer FFmpeg builds cannot pass the release compliance audit. A
+// local-test runtime is marked as such and can only be packaged for loopback
+// test servers (see build-avidae-module.cjs); release builds never set this.
+const localTest = process.argv.includes('--local-test')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+// The runtime is distributed as the separately versioned, downloadable Video
+// & Audio module; its version is independent of the Vast version.
+const moduleInfo = JSON.parse(readFileSync(join(sourceRoot, 'module.json'), 'utf8'))
+// Files that live in the workspace runtime folder but are not module payload.
+const nonPayloadFiles = new Set(['runtime-manifest.json', 'README.md'])
 if (runtimeRootArgumentIndex >= 0 && !runtimeRootArgument) fail('--runtime-root requires a path.')
 if (runtimeRootArgument && !checkOnly) fail('--runtime-root is supported only with --check.')
 if (runtimeRootArgument && runtimeRoot !== resolve(root) && !runtimeRoot.startsWith(`${resolve(root)}${sep}`)) fail('Runtime check path must remain inside the repository.')
 const runtimeReadme = `# Generated Video & Audio runtime
 
-Public Vast packages replace this development placeholder with a generated,
-integrity-manifested PyInstaller runtime, Playwright Chromium, FFmpeg and
-FFprobe. Generate it with \`npm run avidae:runtime:prepare\`; verify it with
-\`npm run avidae:runtime:check\`. Generated binaries are release artifacts and
-are intentionally not committed.
+This folder holds the generated, integrity-manifested PyInstaller runtime,
+Playwright Chromium, FFmpeg and FFprobe that make up the downloadable Video &
+Audio module. It is not part of the Vast installer. Generate it with
+\`npm run avidae:runtime:prepare\`, verify it with \`npm run avidae:runtime:check\`
+and package it with \`npm run avidae:module:build\`. Generated binaries are
+release artifacts and are intentionally not committed.
 `
 const runtimeReadmePath = join(runtimeRoot, 'README.md')
 const preservedRuntimeReadme = existsSync(runtimeReadmePath)
@@ -146,7 +156,23 @@ function verifyRuntime(executeSelfTest) {
   } catch {
     fail('Video & Audio runtime manifest is invalid JSON.')
   }
-  if (manifest.schemaVersion !== runtimeManifestSchema || manifest.appVersion !== pkg.version) fail('Video & Audio runtime manifest targets a different Vast version.')
+  if (manifest.schemaVersion !== runtimeManifestSchema || manifest.moduleId !== moduleInfo.moduleId ||
+      manifest.moduleVersion !== moduleInfo.moduleVersion || manifest.hostApi !== moduleInfo.hostApi) {
+    fail('Video & Audio runtime manifest does not match resources/avidae/module.json. Run npm run avidae:runtime:prepare -- --resume.')
+  }
+  if (!Array.isArray(manifest.files) || manifest.files.length === 0) fail('Video & Audio runtime manifest has no file inventory.')
+  const inventoryPaths = new Set()
+  for (const record of manifest.files) {
+    if (!record || !/^[a-f0-9]{64}$/.test(String(record.sha256 || '')) || !Number.isSafeInteger(record.size)) fail('Runtime inventory record is invalid.')
+    const file = safeResolve(runtimeRoot, record.path)
+    if (inventoryPaths.has(record.path.toLowerCase())) fail(`Runtime inventory lists a duplicate path: ${record.path}`)
+    inventoryPaths.add(record.path.toLowerCase())
+    if (!existsSync(file) || statSync(file).size !== record.size || sha256(file) !== record.sha256) fail(`Runtime file failed inventory verification: ${record.path}`)
+  }
+  for (const file of findFiles(runtimeRoot, () => true)) {
+    const relativePath = relative(runtimeRoot, file).replace(/\\/g, '/')
+    if (!nonPayloadFiles.has(relativePath) && !inventoryPaths.has(relativePath.toLowerCase())) fail(`Runtime contains a file outside its inventory: ${relativePath}`)
+  }
   if (manifest.browser?.engine !== 'chromium' || manifest.browser?.distribution !== 'playwright-chromium' || manifest.browser?.headlessMode !== 'new') {
     fail('Video & Audio runtime browser policy is invalid.')
   }
@@ -248,7 +274,8 @@ function prepareRuntime() {
 
   const ffmpegSource = auditedFfmpegPath('ffmpeg', process.env.VAST_AVIDAE_FFMPEG)
   const ffprobeSource = auditedFfmpegPath('ffprobe', process.env.VAST_AVIDAE_FFPROBE)
-  run(process.execPath, [ffmpegComplianceAudit, '--root', ffmpegBuildRoot], { timeout: 10 * 60_000 })
+  if (localTest) console.warn('LOCAL TEST RUNTIME: skipping the FFmpeg release compliance audit. This runtime cannot be published.')
+  else run(process.execPath, [ffmpegComplianceAudit, '--root', ffmpegBuildRoot], { timeout: 10 * 60_000 })
   const approvedRuntimeRoot = resolve(root, 'resources', 'avidae-runtime')
   const approvedBuildRoot = resolve(root, '.vast-build', 'avidae')
   if (resolve(runtimeRoot) !== approvedRuntimeRoot || resolve(buildRoot) !== approvedBuildRoot) fail('Generated runtime paths are not the approved workspace paths.')
@@ -359,8 +386,12 @@ function prepareRuntime() {
   }).map(fileRecord)
   const manifest = {
     schemaVersion: runtimeManifestSchema,
-    appVersion: pkg.version,
-    runtimeVersion: `${pkg.version}-python-${run(python, ['--version'], { capture: true }).replace(/^Python\s+/i, '')}`,
+    moduleId: moduleInfo.moduleId,
+    moduleVersion: moduleInfo.moduleVersion,
+    hostApi: moduleInfo.hostApi,
+    builtWithVastVersion: pkg.version,
+    ...(localTest ? { localTest: true } : {}),
+    runtimeVersion: `${moduleInfo.moduleVersion}-python-${run(python, ['--version'], { capture: true }).replace(/^Python\s+/i, '')}`,
     createdAt: new Date().toISOString(),
     python: run(python, ['--version'], { capture: true }),
     playwright: actualPlaywright,
@@ -383,7 +414,12 @@ function prepareRuntime() {
       executable: fileRecord(chromium)
     },
     playwrightBrowsersPath: relative(runtimeRoot, browsersPath).replace(/\\/g, '/'),
-    licenseFiles
+    licenseFiles,
+    // Complete payload inventory: the module installer accepts exactly these
+    // files and nothing else.
+    files: findFiles(runtimeRoot, (file) => !nonPayloadFiles.has(relative(runtimeRoot, file).replace(/\\/g, '/')))
+      .map(fileRecord)
+      .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
   }
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
   console.log('Runtime manifest written; running executable and integrity self-tests...')

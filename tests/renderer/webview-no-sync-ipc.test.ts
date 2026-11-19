@@ -19,7 +19,7 @@ test('page event handlers make no synchronous webview calls', () => {
 
 test('back/forward, history and site memory come from main-process navigation state', () => {
   assert.match(runtime, /canGoBack: contents\.navigationHistory\.canGoBack\(\)/)
-  assert.match(runtime, /contents\.on\('did-navigate-in-page', \(_event, _url, isMainFrame\) => \{[\s\S]*?if \(isMainFrame\) setImmediate\(\(\) => sendNavigationState\(contents, 'navigate'\)\)/)
+  assert.match(runtime, /contents\.on\('did-navigate-in-page', \(_event, _url, isMainFrame\) => \{[\s\S]*?if \(isMainFrame\) setImmediate\(\(\) => sendNavigationState\(contents, 'navigate', true\)\)/)
   assert.match(runtime, /contents\.on\('did-stop-loading', \(\) => sendNavigationState\(contents, 'stop'\)\)/)
   const onState = handler('onNavigationState', 'onTitle')
   assert.match(onState, /if \(state\.webContentsId !== webContentsIdRef\.current\) return/)

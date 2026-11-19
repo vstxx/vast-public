@@ -1,5 +1,5 @@
 import type { RelayActionResult, RelayClientSnapshot } from './relay-types'
-import type { VastExtensionKind, VastNativeRuntimeState, VastNativePermission, VastPermissionMetadata, VastExtensionContributionSnapshot, VastUiBrokerRequest, VastUiBrokerResponse } from './extension-native-api'
+import type { VastExtensionKind, VastNativeRuntimeState, VastNativePermission, VastPermissionMetadata, VastExtensionContributionSnapshot, VastContributionDispatchOutcome, VastUiBrokerRequest, VastUiBrokerResponse } from './extension-native-api'
 import type { ExtensionInstallSource, ExtensionPackagePreview, ExtensionTrustLevel, ExtensionUpdateState, VastHubCatalogResult, VastHubExtensionDetails } from './extension-marketplace'
 import type { OnboardingState } from './onboarding'
 import type { VisualProfileValues } from './visual-profile'
@@ -9,6 +9,8 @@ export type ID = string
 
 export type ThemePreference = 'dark' | 'dim' | 'light' | 'system'
 export type SidebarDensity = 'comfortable' | 'compact'
+/** Interface motion when animations are on; Off is `animations: false`. */
+export type MotionPreference = 'standard' | 'enhanced'
 export type StartupBehavior = 'restore' | 'new-tab' | 'home'
 export type NewTabBehavior = 'vast' | 'search' | 'blank'
 export type LayoutMode = 'vertical' | 'horizontal' | 'purist'
@@ -155,6 +157,8 @@ export interface GuestNavigationState {
   title: string
   canGoBack: boolean
   canGoForward: boolean
+  /** Set when a same-document navigation replaced an entry that itself came from one (see replacedEntryUrl). */
+  replacedUrl?: string
 }
 
 export interface RecentlyClosedTab {
@@ -367,6 +371,8 @@ export interface BrowserSettings {
   }
   restorePreviousSession: boolean
   animations: boolean
+  /** How much interface motion plays while `animations` is on. */
+  motionLevel: MotionPreference
   openingAnimation: boolean
   openingAnimationSoundVolume: number
   privacy: {
@@ -797,16 +803,59 @@ export interface Command {
   perform: () => void | Promise<void>
 }
 
+// Installation lifecycle of the downloadable Video & Audio module. It is kept
+// separate from the backend process state in AvidaeStatus.state.
+export type AvidaeModuleState =
+  | 'not-installed'
+  | 'checking'
+  | 'downloading'
+  | 'verifying'
+  | 'installing'
+  | 'ready'
+  | 'repair-required'
+  | 'update-required'
+  | 'incompatible'
+  | 'unavailable'
+  | 'failed'
+  | 'cancelled'
+
+export type AvidaeModuleErrorCode =
+  | 'offline'
+  | 'not-published'
+  | 'disk-space'
+  | 'signature'
+  | 'integrity'
+  | 'archive'
+  | 'incompatible'
+  | 'busy'
+  | 'unknown'
+
+export interface AvidaeModuleStatus {
+  state: AvidaeModuleState
+  // True for development source checkouts that run the Python service directly.
+  development?: boolean
+  installedVersion?: string
+  availableVersion?: string
+  updateAvailable?: boolean
+  downloadSize?: number
+  installedSize?: number
+  transferredBytes?: number
+  totalBytes?: number
+  error?: string
+  errorCode?: AvidaeModuleErrorCode
+  canCancel: boolean
+}
+
 export interface AvidaeStatus {
   state: 'stopped' | 'starting' | 'running' | 'installing' | 'error'
   url?: string
   port?: number
   python?: string
-  runtimeBundled?: boolean
   error?: string
   logs: string[]
   sourcePath: string
   dataPath: string
+  module: AvidaeModuleStatus
 }
 
 export type VastNoticeSeverity = 'info' | 'important' | 'security'
@@ -983,6 +1032,8 @@ export interface VastApi {
     load: () => Promise<PersistedData>
     save: (data: PersistedData) => Promise<{ ok: boolean; error?: string }>
     flush: (data: PersistedData) => Promise<{ ok: boolean; error?: string }>
+    /** Clears history from storage backups; used after "Clear all history". */
+    scrubHistoryBackups: () => Promise<{ ok: boolean; scrubbed?: number; skipped?: number; error?: string }>
     exportData: () => Promise<{ ok: boolean; path?: string; error?: string }>
     importData: () => Promise<{ ok: boolean; data?: PersistedData; error?: string }>
     exportFullBackup: () => Promise<MigrationReport>
@@ -1043,7 +1094,9 @@ export interface VastApi {
     contributions: () => Promise<{ ok: boolean; contributions?: VastExtensionContributionSnapshot; error?: string }>
     prepareSurface: (id: string, kind: VastExtensionSurfaceKind, partition: string) => Promise<VastExtensionSurfaceResult>
     prepareSidebar: (key: string) => Promise<{ ok: boolean; surface?: { src: string; partition: string }; error?: string }>
-    dispatchContribution: (key: string, context?: Record<string, unknown>) => Promise<{ ok: boolean; error?: string }>
+    dispatchContribution: (key: string, context?: Record<string, unknown>) => Promise<{ ok: boolean; outcome?: VastContributionDispatchOutcome; error?: string }>
+    chromeContextMenu: (guestId: number) => Promise<{ ok: boolean; items?: Array<{ token: string; label: string; enabled: boolean; group?: string }>; error?: string }>
+    clickChromeContextMenu: (guestId: number, token: string) => Promise<{ ok: boolean; error?: string }>
     respondToUiRequest: (response: VastUiBrokerResponse) => Promise<{ ok: boolean; error?: string }>
     reportTabEvent: (name: 'tabs.onActivated' | 'tabs.onCreated' | 'tabs.onUpdated' | 'tabs.onRemoved', payload: unknown) => Promise<{ ok: boolean; error?: string }>
     onContributionsChanged: (callback: (snapshot: VastExtensionContributionSnapshot) => void) => () => void
@@ -1061,6 +1114,9 @@ export interface VastApi {
     start: () => Promise<AvidaeStatus>
     stop: () => Promise<AvidaeStatus>
     installDependencies: () => Promise<AvidaeStatus>
+    installModule: () => Promise<AvidaeStatus>
+    cancelModuleInstall: () => Promise<AvidaeStatus>
+    onModuleChanged: (callback: (module: AvidaeModuleStatus) => void) => () => void
   }
   notes: {
     exportMarkdown: (title: string, body: string) => Promise<{ ok: boolean; path?: string; error?: string }>
@@ -1202,6 +1258,14 @@ export interface VastApi {
       storageWriteDurationMs: number
       downloadProgressEvents: number
       downloadDurableWrites: number
+      extensionTabEventIpc?: number
+      nativeExtensionEvents?: number
+      nativeHostsCreated?: number
+      nativeHostsDestroyed?: number
+      /** Since the previous read; present when the performance report is enabled. */
+      eventLoopDelayP95Ms?: number
+      eventLoopDelayP99Ms?: number
+      eventLoopDelayMaxMs?: number
     }>
     getDefaultBrowserStatus: () => Promise<DefaultBrowserStatus>
     openDefaultBrowserSettings: () => Promise<{ ok: boolean; status?: DefaultBrowserStatus; error?: string }>

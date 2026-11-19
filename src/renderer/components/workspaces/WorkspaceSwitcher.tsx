@@ -1,14 +1,18 @@
 import { Palette, Plus, Trash2 } from 'lucide-react'
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { currentMotionLevel, repositionDuration } from '../../lib/motion'
 import { useBrowserStore } from '../../store/browser-store'
 import { WorkspaceAppearancePicker } from './WorkspaceAppearancePicker'
 import { WorkspaceIcon } from './WorkspaceIcon'
 
 const COLLAPSED_KEY = 'vast:workspace-switcher-collapsed'
-const MOVE_MS = 240
-const FADE_OUT_MS = 140
-const FADE_IN_MS = 200
 const EASE = 'cubic-bezier(0.2, 0.8, 0.2, 1)'
+
+// Rows travel a little longer than tab reordering: the whole list reshapes.
+function timings(): { move: number; fadeOut: number; fadeIn: number } {
+  const enhanced = currentMotionLevel() === 'enhanced'
+  return { move: repositionDuration() + 40, fadeOut: enhanced ? 150 : 120, fadeIn: enhanced ? 220 : 180 }
+}
 const NEW_WORKSPACE_ROW = '__new-workspace__'
 
 function readCollapsed(): boolean {
@@ -27,11 +31,7 @@ function writeCollapsed(collapsed: boolean): void {
   }
 }
 
-function motionAllowed(animations: boolean): boolean {
-  return animations && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
-interface RowBox { top: number; left: number; width: number; height: number }
+interface RowBox { top: number; left: number; width: number; height: number; opacity: number }
 
 // Layout snapshot taken just before a collapse/expand commits, so the layout
 // effect can animate every row from where it was (FLIP: transform/opacity only).
@@ -49,7 +49,6 @@ export function WorkspaceSwitcher({ compact, followRef }: { compact?: boolean; f
   const updateWorkspaceAppearance = useBrowserStore((state) => state.updateWorkspaceAppearance)
   const deleteWorkspace = useBrowserStore((state) => state.deleteWorkspace)
   const accentColor = useBrowserStore((state) => state.settings.accentColor)
-  const animations = useBrowserStore((state) => state.settings.animations)
   const privateWorkspaceDefault = useBrowserStore((state) => state.settings.privacy.privateWorkspaceDefault)
   const openPromptDialog = useBrowserStore((state) => state.openPromptDialog)
   const [appearanceWorkspaceId, setAppearanceWorkspaceId] = useState<string | null>(null)
@@ -72,20 +71,28 @@ export function WorkspaceSwitcher({ compact, followRef }: { compact?: boolean; f
 
   const snapshot = (kind: Transition['kind']): Transition | null => {
     const root = rootRef.current
-    if (!root || !motionAllowed(animations)) return null
+    if (!root || currentMotionLevel() === 'off') return null
+    // On-screen boxes, including any motion still playing, so an interrupted
+    // transition continues from what is visible.
     const rootRect = root.getBoundingClientRect()
     const boxes = new Map<string, RowBox>()
+    const moving = runningRef.current.length > 0
     for (const [id, element] of rowRefs.current) {
       const rect = element.getBoundingClientRect()
-      boxes.set(id, { top: rect.top - rootRect.top, left: rect.left - rootRect.left, width: rect.width, height: rect.height })
+      const opacity = moving ? Number(getComputedStyle(element).opacity) : 1
+      boxes.set(id, { top: rect.top - rootRect.top, left: rect.left - rootRect.left, width: rect.width, height: rect.height, opacity })
     }
     return { kind, boxes, rootHeight: rootRect.height }
   }
 
+  // The latest request always wins: a toggle during a running transition
+  // retargets from the current on-screen state instead of being ignored.
   const toggleCollapsed = (): void => {
-    if (runningRef.current.length > 0) return
     const next = !collapsed
     transitionRef.current = snapshot(next ? 'collapse' : 'expand')
+    for (const animation of runningRef.current) animation.cancel()
+    runningRef.current = []
+    if (!next) setExiting([])
     if (next) {
       setAppearanceWorkspaceId((current) => (current === activeWorkspace?.id ? current : null))
       const leaving = transitionRef.current
@@ -103,6 +110,7 @@ export function WorkspaceSwitcher({ compact, followRef }: { compact?: boolean; f
     transitionRef.current = null
     if (!transition || !root) return
     const rootRect = root.getBoundingClientRect()
+    const { move, fadeOut, fadeIn } = timings()
     const started: Animation[] = []
     const run = (element: Element | null | undefined, keyframes: Keyframe[], options: KeyframeAnimationOptions): void => {
       if (element) started.push(element.animate(keyframes, options))
@@ -113,24 +121,28 @@ export function WorkspaceSwitcher({ compact, followRef }: { compact?: boolean; f
       if (exiting.some((row) => row.id === id)) continue
       const before = transition.boxes.get(id)
       const top = element.getBoundingClientRect().top - rootRect.top
-      if (before) {
+      if (before && before.opacity > 0.98) {
         const dy = before.top - top
-        if (Math.abs(dy) > 0.5) run(element, [{ transform: `translateY(${dy}px)` }, { transform: 'translateY(0)' }], { duration: MOVE_MS, easing: EASE })
+        if (Math.abs(dy) > 0.5) run(element, [{ transform: `translateY(${dy}px)` }, { transform: 'translateY(0)' }], { duration: move, easing: EASE })
+      } else if (before) {
+        // Was fading out (an interrupted collapse): fade back from where it was.
+        const dy = before.top - top
+        run(element, [{ opacity: before.opacity, transform: `translateY(${dy}px)` }, { opacity: 1, transform: 'translateY(0)' }], { duration: fadeIn, easing: EASE })
       } else {
         // Revealed on expand: fade in with a slight settle, after the move starts.
-        run(element, [{ opacity: 0, transform: 'translateY(-6px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: FADE_IN_MS, delay: 60, easing: EASE, fill: 'backwards' })
+        run(element, [{ opacity: 0, transform: 'translateY(-6px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: fadeIn, delay: 60, easing: EASE, fill: 'backwards' })
       }
     }
 
     // Rows leaving fade out from where they were.
     for (const row of exiting) {
-      run(rowRefs.current.get(row.id), [{ opacity: 1, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(0.98)' }], { duration: FADE_OUT_MS, easing: 'ease-out', fill: 'forwards' })
+      run(rowRefs.current.get(row.id), [{ opacity: row.box.opacity, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(0.98)' }], { duration: fadeOut, easing: 'ease-out', fill: 'forwards' })
     }
 
     // Content below (the tab list) glides into or out of the freed space. It is
     // clipped by its own scroll container, so it never overlaps the footer.
     const shift = transition.rootHeight - rootRect.height
-    if (Math.abs(shift) > 0.5) run(followRef?.current, [{ transform: `translateY(${shift}px)` }, { transform: 'translateY(0)' }], { duration: MOVE_MS, easing: EASE })
+    if (Math.abs(shift) > 0.5) run(followRef?.current, [{ transform: `translateY(${shift}px)` }, { transform: 'translateY(0)' }], { duration: move, easing: EASE })
 
     runningRef.current = started
     let cancelled = false

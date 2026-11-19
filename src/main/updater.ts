@@ -1,5 +1,6 @@
 import { app } from 'electron/main'
-import { autoUpdater as platformUpdater, NsisUpdater, type AppUpdater } from 'electron-updater'
+import { AppImageUpdater, autoUpdater as platformUpdater, NsisUpdater, type AppUpdater } from 'electron-updater'
+import type { InstallOptions } from 'electron-updater/out/BaseUpdater'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
@@ -10,6 +11,7 @@ import { getBuildMetadata } from './build-info'
 import { createUpdaterStateMachine, redactUpdaterError } from './updater-state'
 import { windowRegistry } from './windows/WindowRegistry'
 import { pendingUpdatePath, stagePendingUpdate, updateCacheKey, type PendingUpdate } from './updater-pending'
+import { appImageUpdateBlocker, replaceAppImageInPlace } from './appimage-update'
 
 const updaterState = createUpdaterStateMachine()
 let updater: AppUpdater | undefined
@@ -82,6 +84,27 @@ async function createWindowsUpdater(): Promise<NsisUpdater> {
   return result
 }
 
+// electron-updater's AppImage install deletes the running file and, when the
+// file name carries a version, moves the update to a new name, which breaks
+// desktop entries. Replace the file atomically at the same path instead, and
+// do not run the new image: the next launch starts the new version.
+function createLinuxUpdater(): AppImageUpdater {
+  class VastAppImageUpdater extends AppImageUpdater {
+    protected override doInstall(_options: InstallOptions): boolean {
+      const installer = this.installerPath
+      try {
+        if (!process.env.APPIMAGE || !installer) throw new Error('The downloaded AppImage update is unavailable.')
+        replaceAppImageInPlace(process.env.APPIMAGE, installer)
+        return true
+      } catch (error) {
+        this.dispatchError(error instanceof Error ? error : new Error(String(error)))
+        return false
+      }
+    }
+  }
+  return new VastAppImageUpdater()
+}
+
 export async function setupAutoUpdater(): Promise<void> {
   if (initialized) return
   initialized = true
@@ -96,6 +119,7 @@ export async function setupAutoUpdater(): Promise<void> {
       reason = 'This is an unpacked Vast copy. Use the standalone updater with its explicit installation path.'
     }
   }
+  if (!reason && process.platform === 'linux') reason = appImageUpdateBlocker(process.env.APPIMAGE)
   const autoDownload = envFlag(process.env, 'VAST_UPDATE_AUTO_DOWNLOAD', true)
   const autoInstallOnQuit = envFlag(process.env, 'VAST_UPDATE_AUTO_INSTALL', true)
   diagnostics = {
@@ -111,7 +135,7 @@ export async function setupAutoUpdater(): Promise<void> {
   }
 
   try {
-    updater = process.platform === 'win32' ? await createWindowsUpdater() : platformUpdater
+    updater = process.platform === 'win32' ? await createWindowsUpdater() : process.platform === 'linux' ? createLinuxUpdater() : platformUpdater
   } catch (error) {
     diagnostics.enabled = false
     diagnostics.reason = 'Could not prepare the update cache.'

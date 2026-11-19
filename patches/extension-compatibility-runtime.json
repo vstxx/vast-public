@@ -1,22 +1,22 @@
 {
   "schemaVersion": 2,
   "electron": {
-    "version": "45.0.0",
-    "electronBaseCommit": "54f961b44b83e4ece81065ab60a182fd0c38c01e",
-    "chromiumVersion": "156.0.8078.48",
-    "chromiumBaseCommit": "2159036df483548399edeb8dad1d5a869e1eed7e",
-    "patchsetRevision": "electron-45.0.0-vast-r1",
-    "patchsetSha256": "98e36c20715957b3b0f489fc9c7c8e531e4ae3c58a3f3ff534dd26b6edf8b4cb",
+    "version": "45.3.4",
+    "electronBaseCommit": "f3d1a2f654d6e7ccdbc5ccdd022b147fa05f064e",
+    "chromiumVersion": "156.0.8078.100",
+    "chromiumBaseCommit": "46876a0c2df3492ed67a8846950ba6d37170b58c",
+    "patchsetRevision": "electron-45.3.4-vast-r1",
+    "patchsetSha256": "7d324faef4d2dae69ff0c9a05e8d88f4588d075adbc64f595e72fbcf86497987",
     "patches": [
       {
         "root": "electron",
         "path": "experiments/electron-45-patches/0004-electron-composed-webrequest-lifecycle.patch",
-        "sha256": "adb0ed9ae3a702c7fe42a8f22971893d8b426f6a5a27524c0e91ba391978af59"
+        "sha256": "352a34d861a54061858141857359fd173ce8bb8204b67d3b5327367889bbece7"
       },
       {
         "root": "chromium",
         "path": "experiments/electron-45-patches/0005-chromium-lifecycle-auth-support.patch",
-        "sha256": "873db23065e12a478da0650da094b1b0c5144c5fae254e583f6a9fbc71431267"
+        "sha256": "c28d200818324fb59618711b9328b64b4c98d109b0e6f3231c335e0bdccdee3f"
       },
       {
         "root": "electron",
@@ -43,15 +43,15 @@
       "platform": "win32",
       "arch": "x64",
       "fileName": "electron.exe",
-      "size": 249769472,
-      "sha256": "756a541e66b4d144c15cb41ab35f0d627d6cf997900f91fb5b072e09a06c3e67"
+      "size": 250072576,
+      "sha256": "976eb139a42d130f19dcaeadc4cf8fe7ebe0e06c33ae118ce14d916d3c3cba64"
     }
   },
   "ece": {
     "version": "4.9.0",
     "patchPath": "patches/electron-chrome-extensions-4.9.0-vast.patch",
-    "patchSha256": "65bb9d19842056f47b6867285950f2649b9db087235f8975ebba4226b3998625",
-    "runtimeSha256": "94adc4fdae9fbb2de85485c902a4c7ef84a5a070c6c204d30ca03a7901b1c74a",
+    "patchSha256": "4e73d95f7c1ee30a7d37d4ab81a308394c8d9d99841d61d9c1a5ae7e57e222d7",
+    "runtimeSha256": "6ee236b72b6974dfa6bc7beaabcaa50054af89a5d647ccc7d1f9ce15b05c37c0",
     "runtimeFiles": [
       "dist/chrome-extension-api.preload.js",
       "dist/cjs/index.js",

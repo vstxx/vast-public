@@ -8,5 +8,5 @@
     "npmIntegrity":  "sha512-4kLlh4sPPF0ieOy/Gw7A7KrmqB07megDLqOWAWXdFLAYu+2AeOGME6uOBa80NZLbKgTqBvrsVDZ+epdszRm/EQ==",
     "license":  "GPL-3.0",
     "patch":  "0001-vast-browser-compatibility.patch",
-    "patchSha256":  "a20a0828aa21ce35f11a48eba0ca81cb55e005b5b80b1cc16101eb45d05ecd8f"
+    "patchSha256":  "09ff9952410817f37cf908f9b717bae069e05e1efaf925dff929eba0a553fab6"
 }

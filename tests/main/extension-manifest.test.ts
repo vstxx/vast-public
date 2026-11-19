@@ -281,3 +281,39 @@ test('classifies supported, partial, and unsupported manifests explicitly', asyn
   unsupported.manifest.content_scripts = []
   assert.equal(analyzeExtensionCompatibility(unsupported).compatibility, 'unsupported')
 })
+
+test('a declarative-only Native layer needs no background and verifies every referenced file', async () => {
+  const root = await temporaryDirectory()
+  try {
+    await writeFile(join(root, 'popup.html'), '<!doctype html>', 'utf8')
+    await writeFile(join(root, 'icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>', 'utf8')
+    const vast = { api_version: 1, popup: 'popup.html', permissions: ['vast.toolbar', 'vast.commands'], contributes: { toolbar: [{ id: 'open', title: 'Open', icon: 'icon.svg', action: 'popup' }], commands: [{ id: 'open', title: 'Open', action: 'popup' }] } }
+    await writeFile(join(root, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Static', version: '1.0.0', vast }), 'utf8')
+    const validated = await validateExtensionManifest(root)
+    assert.equal(validated.kind, 'vast')
+    assert.equal(validated.nativeCompatibilityError, undefined)
+    assert.equal(validated.vast?.background, undefined)
+    assert.deepEqual(validated.vast?.contributes?.toolbar, [{ id: 'open', title: 'Open', icon: 'icon.svg', action: 'popup' }])
+
+    await writeFile(join(root, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Static', version: '1.0.0', vast: { ...vast, contributes: { toolbar: [{ id: 'open', title: 'Open', icon: 'missing.svg', action: 'popup' }] } } }), 'utf8')
+    assert.match((await validateExtensionManifest(root)).nativeCompatibilityError ?? '', /missing file: missing\.svg/)
+    await writeFile(join(root, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Static', version: '1.0.0', vast: { ...vast, contributes: { toolbar: [{ id: 'open', title: 'Open', action: 'event' }] } } }), 'utf8')
+    assert.match((await validateExtensionManifest(root)).nativeCompatibilityError ?? '', /no vast\.background/)
+    // A Native layer must still declare something to activate.
+    await writeFile(join(root, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Empty', version: '1.0.0', vast: { api_version: 1, permissions: ['vast.storage'] } }), 'utf8')
+    assert.match((await validateExtensionManifest(root)).nativeCompatibilityError ?? '', /must declare vast\.background, vast\.popup, vast\.options or vast\.contributes/)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('a hybrid declarative toolbar action may open the Chrome action popup', async () => {
+  const root = await temporaryDirectory()
+  try {
+    await writeFile(join(root, 'popup.html'), '<!doctype html>', 'utf8')
+    await writeFile(join(root, 'worker.js'), '', 'utf8')
+    await writeFile(join(root, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Hybrid', version: '1.0.0', background: { service_worker: 'worker.js' }, action: { default_popup: 'popup.html' }, vast: { api_version: 1, permissions: ['vast.toolbar'], contributes: { toolbar: [{ id: 'open', title: 'Open', action: 'popup' }] } } }), 'utf8')
+    const validated = await validateExtensionManifest(root)
+    assert.equal(validated.kind, 'hybrid')
+    assert.equal(validated.nativeCompatibilityError, undefined)
+    assert.deepEqual(validated.ui.popup, { runtime: 'chrome', path: 'popup.html' })
+  } finally { await rm(root, { recursive: true, force: true }) }
+})

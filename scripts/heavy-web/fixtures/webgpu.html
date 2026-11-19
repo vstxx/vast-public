@@ -1,0 +1,89 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Heavy WebGPU fixture</title>
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#000}canvas{display:block;width:100vw;height:100vh}</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script type="module">
+// Reports which adapter each powerPreference resolves to, then renders a
+// compute-driven particle field (?particles) every frame.
+const params = new URLSearchParams(location.search)
+const particles = Number(params.get('particles') || 2_000_000)
+const fixture = window.__fixture = { kind: 'webgpu', frames: [], recording: false, events: [], adapters: {}, hardwareConcurrency: navigator.hardwareConcurrency }
+const describe = (adapter) => adapter ? {
+  vendor: adapter.info?.vendor, architecture: adapter.info?.architecture, device: adapter.info?.device,
+  description: adapter.info?.description, isFallbackAdapter: adapter.info?.isFallbackAdapter ?? adapter.isFallbackAdapter
+} : null
+try {
+  if (!navigator.gpu) throw new Error('navigator.gpu unavailable')
+  for (const preference of ['default', 'low-power', 'high-performance']) {
+    fixture.adapters[preference] = describe(await navigator.gpu.requestAdapter(preference === 'default' ? undefined : { powerPreference: preference }))
+  }
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference: params.get('power') || undefined })
+  const device = await adapter.requestDevice()
+  const canvas = document.getElementById('c')
+  canvas.width = Math.round(innerWidth * devicePixelRatio)
+  canvas.height = Math.round(innerHeight * devicePixelRatio)
+  fixture.viewport = { width: innerWidth, height: innerHeight, dpr: devicePixelRatio, backing: [canvas.width, canvas.height] }
+  const context = canvas.getContext('webgpu')
+  const format = navigator.gpu.getPreferredCanvasFormat()
+  context.configure({ device, format, alphaMode: 'opaque' })
+  const state = device.createBuffer({ size: particles * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX })
+  const uniforms = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
+  const compute = device.createComputePipeline({ layout: 'auto', compute: { entryPoint: 'main', module: device.createShaderModule({ code: `
+    @group(0) @binding(0) var<storage, read_write> p: array<vec4f>;
+    @group(0) @binding(1) var<uniform> u: vec4f;
+    fn hash(n: u32) -> f32 { var x = n * 747796405u + 2891336453u; x = ((x >> ((x >> 28u) + 4u)) ^ x) * 277803737u; return f32((x >> 22u) ^ x) / 4294967295.0; }
+    @compute @workgroup_size(256) fn main(@builtin(global_invocation_id) id: vec3u) {
+      let i = id.x; if (i >= arrayLength(&p)) { return; }
+      var v = p[i];
+      if (v.w == 0.0) { v = vec4f(hash(i) * 2.0 - 1.0, hash(i + 7u) * 2.0 - 1.0, hash(i + 13u), 1.0); }
+      let a = u.x * (0.2 + v.z);
+      for (var k = 0; k < 24; k++) { v.x += 0.0004 * sin(a + v.y * 3.0 + f32(k)); v.y += 0.0004 * cos(a + v.x * 3.0 - f32(k)); }
+      v.x = clamp(v.x, -1.0, 1.0); v.y = clamp(v.y, -1.0, 1.0);
+      p[i] = v;
+    }` }) } })
+  const render = device.createRenderPipeline({ layout: 'auto', primitive: { topology: 'point-list' },
+    vertex: { entryPoint: 'vs', buffers: [{ arrayStride: 16, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x4' }] }], module: device.createShaderModule({ code: `
+      struct O { @builtin(position) p: vec4f, @location(0) c: vec3f };
+      @vertex fn vs(@location(0) v: vec4f) -> O { var o: O; o.p = vec4f(v.xy, 0.0, 1.0); o.c = vec3f(0.4 + v.z * 0.6, 0.5, 1.0 - v.z * 0.5); return o; }
+      @fragment fn fs(i: O) -> @location(0) vec4f { return vec4f(i.c, 1.0); }` }) },
+    fragment: { entryPoint: 'fs', targets: [{ format }], module: device.createShaderModule({ code: `
+      @fragment fn fs(@location(0) c: vec3f) -> @location(0) vec4f { return vec4f(c, 1.0); }` }) } })
+  const bind = device.createBindGroup({ layout: compute.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: state } }, { binding: 1, resource: { buffer: uniforms } }] })
+  const frame = (now) => {
+    // A <webview> lays out after load; render at the current viewport size.
+    const width = Math.round(innerWidth * devicePixelRatio)
+    const height = Math.round(innerHeight * devicePixelRatio)
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width
+      canvas.height = height
+      fixture.viewport = { width: innerWidth, height: innerHeight, dpr: devicePixelRatio, backing: [width, height] }
+    }
+    device.queue.writeBuffer(uniforms, 0, new Float32Array([now / 1000, 0, 0, 0]))
+    const encoder = device.createCommandEncoder()
+    const pass = encoder.beginComputePass()
+    pass.setPipeline(compute)
+    pass.setBindGroup(0, bind)
+    pass.dispatchWorkgroups(Math.ceil(particles / 256))
+    pass.end()
+    const draw = encoder.beginRenderPass({ colorAttachments: [{ view: context.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0.05, a: 1 } }] })
+    draw.setPipeline(render)
+    draw.setVertexBuffer(0, state)
+    draw.draw(particles)
+    draw.end()
+    device.queue.submit([encoder.finish()])
+    if (fixture.recording) fixture.frames.push(now)
+    requestAnimationFrame(frame)
+  }
+  requestAnimationFrame(frame)
+  fixture.ready = true
+} catch (error) {
+  fixture.error = String(error?.message || error)
+}
+</script>
+</body>
+</html>

@@ -122,7 +122,7 @@ const PATCHED_ECE_PERMISSION_ASSESSMENTS: Record<string, PermissionAssessment> =
   webNavigation: { status: 'supported', detail: 'Navigation events and frame lookups are provided by ECE for Vast tabs.' },
   contextMenus: {
     status: 'partial',
-    detail: 'Creation, removal, clicks, and visibility work; contextMenus.update remains unavailable.',
+    detail: 'Items appear in the Vast page menu of tabs in persistent workspaces and clicks reach the owning extension; contextMenus.update remains unavailable.',
     warning: 'chrome.contextMenus.update is unavailable; extensions that dynamically edit an existing menu item must recreate it.'
   },
   notifications: { status: 'supported', detail: 'Notification creation and lifecycle are provided by ECE.' },
@@ -238,7 +238,14 @@ function collectKeyFindings(manifest: ChromeExtensionManifest, profile: Extensio
   const csp = manifest.content_security_policy
   const extensionPagesCsp = csp && typeof csp === 'object' ? String((csp as Record<string, unknown>).extension_pages ?? '') : typeof csp === 'string' ? csp : ''
   if (extensionPagesCsp.includes('wasm-unsafe-eval')) {
-    findings.push({
+    // Measured on the patched runtime (2026-10-28): SIMD WebAssembly compiles and runs in offscreen
+    // documents and their dedicated workers, with packaged .wasm loaded from the extension.
+    findings.push(profile === 'patched-electron-ece' ? {
+      id: 'key:csp.wasm',
+      label: 'WebAssembly (wasm-unsafe-eval)',
+      status: 'supported',
+      detail: 'Packaged WebAssembly, including SIMD, runs in extension pages, offscreen documents and their workers.'
+    } : {
       id: 'key:csp.wasm',
       label: 'WebAssembly (wasm-unsafe-eval)',
       status: 'experimental',

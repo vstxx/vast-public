@@ -179,8 +179,41 @@ export function isDeclaredOptionalPermissionRequest(extension: Pick<Extension, '
     requestedOrigins.every((origin) => optionalOrigins.has(origin))
 }
 
+/** One chrome.contextMenus entry as the browser UI sees it: a label and an opaque one-shot token. */
+export interface ChromeContextMenuEntry { token: string; label: string; enabled: boolean; group?: string }
+
+// ECE gives a nested template array, or an Electron Menu ({ items }) once it has built one.
+interface EceMenuOption { label?: string; enabled?: boolean; type?: string; click?: () => void; submenu?: EceMenuOption[] | { items: EceMenuOption[] } }
+
+const CONTEXT_MENU_TTL_MS = 60_000
+const CONTEXT_MENU_LIMIT = 50
+
+/**
+ * Flattens ECE's menu template (extension groups become a label) and keeps
+ * the click closures in the main process; nothing executable crosses IPC.
+ */
+export function flattenChromeContextMenu(options: readonly EceMenuOption[], token: () => string = randomUUID): { entries: ChromeContextMenuEntry[]; clicks: Map<string, () => void> } {
+  const entries: ChromeContextMenuEntry[] = []
+  const clicks = new Map<string, () => void>()
+  const visit = (items: readonly EceMenuOption[], group?: string): void => {
+    for (const item of items) {
+      if (entries.length >= CONTEXT_MENU_LIMIT || item.type === 'separator') continue
+      const label = typeof item.label === 'string' ? item.label.replace(/&(?!&)/g, '').trim().slice(0, 100) : ''
+      const children = Array.isArray(item.submenu) ? item.submenu : Array.isArray(item.submenu?.items) ? item.submenu.items : null
+      if (children) { visit(children, label || group); continue }
+      if (!label || typeof item.click !== 'function') continue
+      const id = token()
+      clicks.set(id, item.click)
+      entries.push({ token: id, label, enabled: item.enabled !== false, ...(group ? { group: group.slice(0, 100) } : {}) })
+    }
+  }
+  visit(options)
+  return { entries, clicks }
+}
+
 interface EceInstance {
   addTab(tab: WebContents, window: BaseWindow): void
+  getContextMenuItems?(tab: WebContents, params: Electron.ContextMenuParams): EceMenuOption[]
   removeTab(tab: WebContents): void
   selectTab(tab: WebContents): void
 }
@@ -236,6 +269,7 @@ export class ExtensionCompatibilityRuntime {
   private readonly privacyStores = new Map<Session, ChromePrivacySettingsStore>()
   private readonly tabs = new Map<number, { contents: WebContents; window: BrowserWindow; instance: EceInstance }>()
   private readonly pendingTabs = new Map<string, PendingTab>()
+  private readonly contextMenus = new Map<number, { at: number; entries: ChromeContextMenuEntry[]; clicks: Map<string, () => void> }>()
   private vastTabNotificationDepth = 0
   private modulePromise?: Promise<EceModule>
   private initializationFailure?: Error
@@ -379,9 +413,37 @@ export class ExtensionCompatibilityRuntime {
       this.vastTabNotificationDepth--
     }
     this.tabs.set(contents.id, { contents, window, instance })
+    // chrome.contextMenus entries are resolved by ECE for this tab, in its own
+    // session, when the page menu opens; the browser UI renders them.
+    const captureContextMenu = (_event: Electron.Event, params: Electron.ContextMenuParams): void => {
+      if (!this.enabled || contents.isDestroyed()) return
+      try {
+        const menu = flattenChromeContextMenu(instance.getContextMenuItems?.(contents, params) ?? [])
+        if (menu.entries.length) this.contextMenus.set(contents.id, { at: Date.now(), ...menu }); else this.contextMenus.delete(contents.id)
+      } catch {
+        this.contextMenus.delete(contents.id)
+      }
+    }
+    contents.on('context-menu', captureContextMenu)
     contents.once('destroyed', () => {
       this.tabs.delete(contents.id)
+      this.contextMenus.delete(contents.id)
     })
+  }
+
+  contextMenuEntries(contents: WebContents): ChromeContextMenuEntry[] {
+    const menu = this.contextMenus.get(contents.id)
+    return menu && Date.now() - menu.at < CONTEXT_MENU_TTL_MS && this.tabs.has(contents.id) ? menu.entries.map((entry) => ({ ...entry })) : []
+  }
+
+  /** Runs one entry of the menu last opened in this tab; tokens are single-use. */
+  clickContextMenuEntry(contents: WebContents, token: string): boolean {
+    const menu = this.contextMenus.get(contents.id)
+    const click = menu && Date.now() - menu.at < CONTEXT_MENU_TTL_MS && this.tabs.has(contents.id) && !contents.isDestroyed() ? menu.clicks.get(token) : undefined
+    this.contextMenus.delete(contents.id)
+    if (!click) return false
+    click()
+    return true
   }
 
   selectTab(contents: WebContents): void {

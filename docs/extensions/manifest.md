@@ -29,10 +29,46 @@ Vast's toolbar extensions menu supports local custom UI declared through Manifes
 | --- | --- |
 | `api_version` | Must equal `1` |
 | `extension_id` | Optional while unpacked; required for a deliberately stable package identity |
-| `background` | Local `.js` or `.mjs` module inside the package |
+| `background` | Optional local `.js` or `.mjs` module inside the package; needed only for dynamic logic and `event` actions |
 | `popup` | Optional local HTML page displayed from the toolbar extensions menu |
 | `options` | Optional local HTML settings page displayed from the toolbar extensions menu |
 | `permissions` | Unique values from the documented v1 permission set |
+| `contributes` | Optional declarative UI (below) |
+
+A Native layer must declare at least one of `background`, `popup`, `options` or `contributes`.
+
+### Declarative contributions
+
+`vast.contributes` registers toolbar actions, command-palette entries, page-menu items and side panels from the manifest alone. Vast reads it after validation; no extension code runs and no background host is created. An extension that only needs these surfaces and a popup consumes no Native process at all.
+
+```json
+"vast": {
+  "api_version": 1,
+  "popup": "popup.html",
+  "permissions": ["vast.toolbar", "vast.commands", "vast.contextMenus", "vast.sidebar"],
+  "background": "background.js",
+  "contributes": {
+    "toolbar": [{ "id": "open", "title": "Open", "icon": "icons/16.svg", "action": "popup" }],
+    "commands": [{ "id": "open", "title": "Open panel", "action": "popup" }],
+    "context_menus": [{ "id": "selection", "title": "Use selection", "contexts": ["selection"], "action": "event" }],
+    "sidebar": [{ "id": "panel", "title": "Panel", "icon": "icons/16.svg", "page": "panel.html" }]
+  }
+}
+```
+
+| Section | Fields | Limit | Permission |
+| --- | --- | --- | --- |
+| `toolbar` | `id`, `title` (≤80), optional `icon`, `action` | 5 | `vast.toolbar` |
+| `commands` | `id`, `title` (≤100), optional `shortcut` (listed, not bound), `action` | 50 | `vast.commands` |
+| `context_menus` | `id`, `title` (≤100), optional `contexts`, `action: "event"` | 50 | `vast.contextMenus` |
+| `sidebar` | `id`, `title` (≤80), `page` (local HTML), optional `icon` | 5 | `vast.sidebar` |
+
+- `action` is one of two fixed values. `"popup"` opens the extension's `vast.popup` (or, for a hybrid, its Chrome `action.default_popup` in the active persistent workspace). `"event"` delivers `toolbar.onClicked`, `commands.onCommand` or `contextMenus.onClicked` to `vast.background` and requires one. Nothing else (URLs, scripts, function or channel names) is accepted.
+- `contexts` is a non-empty subset of `all`, `page`, `selection`, `link` with Chrome semantics (`page` applies only when there is no selection or link). It defaults to `["all"]`.
+- IDs match `[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}` and are unique per section. Icons are local PNG/SVG/WebP/JPEG/GIF/ICO files (toolbar icons ≤ 64 KB; SVG with scripts, event handlers or remote references falls back to the generic icon); side-panel pages are local HTML files. Every referenced file must exist in the package.
+- Each non-empty section needs its permission in `permissions`. Declaring is never granting: contributions appear only after approval, a section disappears at once when its permission is revoked, and an update that requests more permissions puts the whole Native layer into review until approved.
+- A manifest entry belongs to the installed extension that declares it. The extension's background cannot replace, edit or remove it and shares the per-section limit with it.
+- An invalid `contributes` disables only the Native layer with a diagnosable error, like an unknown permission; the Chrome layer of a hybrid keeps working. Vast versions before declarative support require `background` and report a declarative-only extension as unsupported instead of running it partially.
 
 Chrome permissions and Vast permissions are separate. A Chrome `storage` grant never grants `vast.storage`, and a Vast grant never widens a Chrome host permission.
 

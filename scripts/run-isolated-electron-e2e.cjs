@@ -1,11 +1,12 @@
 const { spawnSync } = require('node:child_process')
 const { basename, join, resolve } = require('node:path')
+const { defaultOutputPath } = require('./prepare-patched-electron-dist.cjs')
 
 const root = join(__dirname, '..')
 const npmCli = process.env.npm_execpath
 const target = basename(String(process.argv[2] ?? ''))
-const allowedTargets = new Set(['extensions-e2e.cjs', 'native-extensions-e2e.cjs', 'native-messaging-e2e.cjs', 'adblock-extension-e2e.cjs', 'fullscreen-appearance-e2e.cjs', 'tab-reorder-state-e2e.cjs'])
-const compatibilityTargets = new Set(['extensions-e2e.cjs', 'adblock-extension-e2e.cjs', 'native-messaging-e2e.cjs', 'fullscreen-appearance-e2e.cjs', 'tab-reorder-state-e2e.cjs'])
+const allowedTargets = new Set(['extensions-e2e.cjs', 'native-extensions-e2e.cjs', 'native-messaging-e2e.cjs', 'adblock-extension-e2e.cjs', 'fullscreen-appearance-e2e.cjs', 'tab-reorder-state-e2e.cjs', 'translator-e2e.cjs'])
+const compatibilityTargets = new Set(['extensions-e2e.cjs', 'adblock-extension-e2e.cjs', 'native-messaging-e2e.cjs', 'fullscreen-appearance-e2e.cjs', 'tab-reorder-state-e2e.cjs', 'translator-e2e.cjs'])
 
 if (!npmCli) throw new Error('npm_execpath is required to build the Electron E2E runtime.')
 if (!allowedTargets.has(target)) throw new Error(`Unsupported isolated Electron E2E target: ${target || '(missing)'}`)
@@ -36,7 +37,7 @@ if (compatibilityTargets.has(target)) {
   isolatedEnvironment.VAST_EXTENSION_COMPATIBILITY = '1'
   isolatedEnvironment.VAST_PATCHED_ELECTRON_COMPAT = '1'
   isolatedEnvironment.VAST_PATCHED_ELECTRON_DIST = resolve(
-    process.env.VAST_PATCHED_ELECTRON_DIST || 'D:\\VastElectron45\\src\\out\\VastRelease'
+    process.env.VAST_PATCHED_ELECTRON_DIST || defaultOutputPath(require('../patches/extension-compatibility-runtime.json'))
   )
   run(process.execPath, [join('scripts', 'verify-extension-compat-runtime.cjs')], isolatedEnvironment)
 }

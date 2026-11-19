@@ -23,6 +23,18 @@ test('approved ECE preload never logs extension API arguments or results', async
   assert.match(preload, /\[VastCompat\] Receiving end does not exist method=\$\{fnName\}/)
 })
 
+// Chrome keeps an MV3 worker alive while its native port is open. Without this, an idle worker
+// is stopped after 30 s and drops every runtime port with it (iCloud Passwords then leaves its
+// in-page completion box on screen with no channel left to hide it).
+test('ECE keeps a service worker alive for exactly the lifetime of its native messaging port', async () => {
+  for (const path of [patchPath, sourcePatchPath, cjsRuntimePath, esmRuntimePath]) {
+    const source = await readFile(path, 'utf8')
+    assert.match(source, /if \(keepAlive\) \{\s*(?:\+\s*)?this\.sender\.ipc\.on\([\s\S]{0,200}?typeof sender\.startTask === ["']function["']/, path)
+    assert.match(source, /this\.keepAliveTask = sender\.startTask\(\)/, path)
+    assert.match(source, /const keepAliveTask = this\.keepAliveTask;?\s*(?:\+\s*)?this\.keepAliveTask = (?:void 0|undefined)[\s\S]{0,120}?keepAliveTask\?\.end\(\)/, path)
+  }
+})
+
 test('ECE preload recognizes extension subframes by runtime identity before their final URL is visible', async () => {
   const preload = await readFile(preloadPath, 'utf8')
 

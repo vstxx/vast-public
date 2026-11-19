@@ -54,6 +54,8 @@ import { IconButton } from '../ui/IconButton'
 import { VastButton } from '../ui/VastButton'
 import { VastMenuItem } from '../ui/VastMenuItem'
 import { ExtensionsToolbarMenu } from './ExtensionsToolbarMenu'
+import { usePresence, useRetained } from '../../lib/motion'
+import { useDismiss } from '../../lib/use-dismiss'
 
 interface AddressSuggestion {
   type: 'Bookmark' | 'History' | 'Search'
@@ -196,6 +198,14 @@ export function AddressBar({
     }
     return matchedItems
   }, [bookmarks, defaultSearchEngine, edited, focused, history, value])
+  // The list itself updates instantly per keystroke; only the container
+  // reveals and withdraws, and while it withdraws it shows its last results.
+  const suggestionsPresence = usePresence(suggestions.length > 0)
+  const shownSuggestions = useRetained(suggestions.length > 0 ? suggestions : null, suggestionsPresence.mounted) ?? []
+  const siteInfoPresence = usePresence(siteInfoOpen && Boolean(activeTab))
+  const overflowPresence = usePresence(overflowOpen)
+  const overflowRef = useRef<HTMLDivElement | null>(null)
+  useDismiss(overflowOpen, overflowRef, () => setOverflowOpen(false))
 
   useEffect(() => {
     setSelectedSuggestion(-1)
@@ -291,8 +301,8 @@ export function AddressBar({
       )}
       <div className={`address-bar-controls no-drag flex items-center gap-1 ${compact ? 'is-compact' : ''}`}>
         {extensionToolbar.slice(0, 3).map((action) => (
-          <IconButton key={action.key} tooltip={`${action.title} — ${action.extensionName}`} disabled={action.enabled === false} onClick={() => { void window.vast.extensions.dispatchContribution(action.key) }}>
-            <Puzzle className="h-4 w-4" />
+          <IconButton key={action.key} tooltip={`${action.title} — ${action.extensionName}`} disabled={action.enabled === false || !action.available} onClick={() => { void window.vast.extensions.dispatchContribution(action.key) }}>
+            {action.iconDataUrl ? <img src={action.iconDataUrl} alt="" draggable={false} className="h-4 w-4 object-contain" /> : <Puzzle className="h-4 w-4" />}
           </IconButton>
         ))}
         <IconButton tooltip="Back" disabled={!activeTab?.canGoBack} onClick={runtime.goBack}>
@@ -406,9 +416,9 @@ export function AddressBar({
           </div>
         </div>
 
-        {suggestions.length > 0 && (
-          <div className="absolute left-0 right-0 top-14 overflow-hidden vast-float rounded-card border border-white/10 p-2 shadow-glass">
-            {suggestions.map((item, index) => (
+        {suggestionsPresence.mounted && (
+          <div ref={suggestionsPresence.ref('suggest')} data-address-suggestions="" className="absolute left-0 right-0 top-14 origin-top overflow-hidden vast-float rounded-card border border-white/10 p-2 shadow-glass">
+            {shownSuggestions.map((item, index) => (
               <button
                 type="button"
                 key={`${item.type}-${item.url}`}
@@ -432,8 +442,8 @@ export function AddressBar({
             ))}
           </div>
         )}
-        {siteInfoOpen && activeTab && (
-          <div className="absolute left-0 top-14 z-40 w-[min(24rem,calc(100vw-2rem))] overflow-hidden vast-float rounded-card border border-white/10 p-3 text-sm text-white shadow-glass">
+        {siteInfoPresence.mounted && activeTab && (
+          <div ref={siteInfoPresence.ref('menu')} className="absolute left-0 top-14 z-40 origin-top-left w-[min(24rem,calc(100vw-2rem))] overflow-hidden vast-float rounded-card border border-white/10 p-3 text-sm text-white shadow-glass">
             <div className="flex items-start gap-3">
               <div className={`grid h-9 w-9 place-items-center rounded-control ${siteInfo?.secure ? 'bg-vast-cyan/10 text-vast-cyan' : siteInfo?.kind === 'internal' ? 'bg-white/[0.07] text-vast-soft' : 'bg-vast-amber/10 text-vast-amber'}`}>
                 {siteInfo?.secure ? <Lock className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}
@@ -529,7 +539,7 @@ export function AddressBar({
         >
           <PanelRightOpen className={`h-4 w-4 transition-transform duration-150 ${sidePanelOpen ? 'rotate-180' : ''}`} />
         </IconButton>
-        <div className="relative">
+        <div ref={overflowRef} className="relative">
           <IconButton tooltip="More browser tools" active={overflowOpen} onClick={() => {
             setExtensionsOpen(false)
             setSiteInfoOpen(false)
@@ -537,9 +547,9 @@ export function AddressBar({
           }}>
             <MoreHorizontal className="h-4 w-4" />
           </IconButton>
-          {overflowOpen && (
-            <div className="browser-tools-menu absolute right-0 top-11 z-40 max-h-[72vh] w-72 overflow-y-auto vast-float rounded-card border border-white/10 p-2 shadow-glass">
-              {extensionToolbar.slice(3).map((action) => <OverflowAction key={action.key} label={`${action.title} · ${action.extensionName}`} icon={Puzzle} disabled={action.enabled === false} onClick={() => { void window.vast.extensions.dispatchContribution(action.key) }} onClose={() => setOverflowOpen(false)} />)}
+          {overflowPresence.mounted && (
+            <div ref={overflowPresence.ref('menu')} role="menu" aria-label="More browser tools" className="browser-tools-menu absolute right-0 top-11 z-40 origin-top-right max-h-[72vh] w-72 overflow-y-auto vast-float rounded-card border border-white/10 p-2 shadow-glass">
+              {extensionToolbar.slice(3).map((action) => <OverflowAction key={action.key} label={`${action.title} · ${action.extensionName}`} icon={Puzzle} disabled={action.enabled === false || !action.available} onClick={() => { void window.vast.extensions.dispatchContribution(action.key) }} onClose={() => setOverflowOpen(false)} />)}
               <OverflowAction label="Incognito window" icon={EyeOff} onClick={runtime.openIncognitoWindow} onClose={() => setOverflowOpen(false)} />
               <>
                 <OverflowAction label="Video & Audio" icon={VideoAudioMark} badge={featureBadge(featureStates.avidae)} unavailable={!featureStates.avidae.available} onClick={() => runtime.openUrlInNewTab(INTERNAL_AVIDAE_URL)} onClose={() => setOverflowOpen(false)} />

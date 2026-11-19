@@ -1,0 +1,36 @@
+Translator for Vast — third-party components and source notices
+
+Translator for Vast is original Vast integration code licensed GPL-3.0-or-later
+(LICENSE.txt), with parts adapted from Glossa. The components below keep their
+own licenses; this notice and the files in licenses/ ship in every package.
+
+GLOSSA — MIT
+Copyright (c) 2026 SysAdminDoc
+Source: https://github.com/SysAdminDoc/Glossa (revision 8361bc28f91f92c9884b474466dd57d0610bb94b)
+Adapted files carry a header naming their origin: DOM segmentation, visibility
+scheduling, restore bookkeeping, engine worker, text preparation and Bergamot
+typings. License text: licenses/Glossa-MIT.txt
+
+BERGAMOT TRANSLATOR (WebAssembly engine and Emscripten glue) — MPL-2.0
+bergamot-translator.js and bergamot-translator.wasm are unmodified Mozilla files.
+Release: v0.6.0+eea6e5a8 (Firefox Remote Settings translations-wasm-v2, version 4.0)
+Glue source: https://github.com/mozilla-firefox/firefox/blob/48d55cf7ec80093903e2ef7f58b61a84a22ef716/toolkit/components/translations/bergamot-translator/bergamot-translator.js
+Engine source: https://github.com/mozilla/translations (inference/) and
+https://github.com/browsermt/bergamot-translator
+SHA-256 bergamot-translator.wasm: f38ef807636a7c994afedaab7ff8ffe0d590d21897f05139f747b80fd7bbe926
+SHA-256 bergamot-translator.js:   faff1ef6285b0d26f01787776fd49299dfb756ecb9688aa990c250e66797b47d
+License text: licenses/MPL-2.0.txt
+
+LANGUAGE MODELS
+No language model ships in this package. Models are downloaded on request from
+Mozilla's public model storage and verified against the SHA-256 values in
+catalog/models.json, which were taken from Mozilla's Remote Settings
+"translations-models-v2" collection and cross-checked against Mozilla's model
+registry. The models are published by Mozilla for Firefox Translations
+(https://github.com/mozilla/translations, MPL-2.0 training and inference code).
+This extension does not redistribute them; each user downloads them directly
+from Mozilla's storage.
+
+LANGUAGE DETECTION
+Page language detection uses the browser's built-in chrome.i18n.detectLanguage
+(Chromium CLD3); no detector code is bundled.

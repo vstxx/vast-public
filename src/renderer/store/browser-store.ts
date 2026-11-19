@@ -26,7 +26,7 @@ import type {
   Workspace
 } from '../../shared/types'
 import { createId } from '../lib/id'
-import { displayUrl, getSearchEngine, isInternalUrl, titleFromUrl, webOriginFor } from '../lib/url'
+import { displayUrl, getSearchEngine, isInternalUrl, matchesInternalUrl, titleFromUrl, webOriginFor } from '../lib/url'
 import { isInactiveTabUnloadCandidate, restoredTabLifecycle } from './tab-lifecycle'
 import { cleanTrackingUrl } from '../../shared/url-cleaning'
 import { DEFAULT_WORKSPACE_IDENTITY } from '../../shared/workspace-identity'
@@ -34,6 +34,8 @@ import { routeTopLevelNavigationUrl, sanitizeRestoredTopLevelUrl } from '../../s
 import { shouldRestoreTabsOnStartup } from '../../shared/startup-recovery'
 import { findOwnTabBookmark } from '../../shared/bookmark-identity'
 import { applyOnboardingStart } from './onboarding-hydration'
+import { ONBOARDING_STATE_REVISION } from '../../shared/onboarding'
+import { mergeRestoredHistory } from '../lib/history-deletion'
 
 type SettingsPatch = Omit<Partial<BrowserSettings>, 'appearance' | 'advanced' | 'privacy' | 'spoofing' | 'security' | 'network' | 'labs' | 'newTab' | 'sidePanel' | 'extensionMenu' | 'commandPalette' | 'keyboardShortcuts'> & {
   appearance?: Partial<BrowserSettings['appearance']>
@@ -113,8 +115,12 @@ interface BrowserState extends PersistedData {
   moveTab: (draggedId: ID, targetId: ID) => void
   moveTabToGroup: (tabId: ID, groupId?: ID) => void
   togglePinnedTab: (tabId: ID) => void
-  addHistoryEntry: (entry: Pick<HistoryEntry, 'title' | 'url' | 'favicon' | 'workspaceId'>) => void
+  /** With replacesUrl, rewrites that entry in place (a replaced session-history entry) instead of adding a visit. */
+  addHistoryEntry: (entry: Pick<HistoryEntry, 'title' | 'url' | 'favicon' | 'workspaceId'> & { replacesUrl?: string }) => void
   clearHistory: () => void
+  /** Removes the given entries and returns them so the caller can offer Undo. */
+  removeHistoryEntries: (ids: readonly ID[]) => HistoryEntry[]
+  restoreHistoryEntries: (entries: readonly HistoryEntry[]) => void
   addBookmark: (bookmark: Pick<Bookmark, 'title' | 'url' | 'favicon' | 'workspaceId' | 'folderId'>) => void
   updateBookmark: (bookmarkId: ID, patch: Partial<Pick<Bookmark, 'title' | 'url' | 'folderId'>>) => void
   removeBookmark: (bookmarkId: ID) => void
@@ -841,7 +847,11 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
       const cleanUrl = state.settings.privacy.stripTrackingParameters
         ? cleanTrackingUrl(routedUrl, state.settings.privacy.stripAffiliateParameters).url
         : routedUrl
+      const leavesOnboarding = !state.onboarding?.completed &&
+        state.tabs.some((tab) => tab.id === tabId && matchesInternalUrl(tab.url, INTERNAL_ONBOARDING_URL)) &&
+        !matchesInternalUrl(cleanUrl, INTERNAL_ONBOARDING_URL)
       return {
+      ...(leavesOnboarding ? { onboarding: { completed: true, revision: ONBOARDING_STATE_REVISION } } : {}),
       tabs: state.tabs.map((tab) =>
         tab.id === tabId
           ? (() => {
@@ -871,6 +881,10 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
     const state = get()
     const tab = state.tabs.find((item) => item.id === tabId)
     if (!tab) return
+    // Closing onboarding dismisses it; it is never forced on the next launch.
+    if (!state.onboarding?.completed && matchesInternalUrl(tab.url, INTERNAL_ONBOARDING_URL)) {
+      set({ onboarding: { completed: true, revision: ONBOARDING_STATE_REVISION } })
+    }
     const workspace = state.workspaces.find((item) => item.id === tab.workspaceId)
     const identityWorkspace = state.workspaces.find((item) => item.id === tab.identityWorkspaceId) ?? workspace
     const ephemeralIdentity = identityWorkspace?.identity?.sessionMode === 'ephemeral' || identityWorkspace?.isPrivate
@@ -970,6 +984,11 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
     }
     const now = Date.now()
     set((state) => {
+      const replaced = entry.replacesUrl ? state.history.find((item) => item.url === entry.replacesUrl) : undefined
+      if (replaced) {
+        const nextEntry: HistoryEntry = { ...replaced, url: entry.url, title: entry.title || replaced.title, favicon: entry.favicon || replaced.favicon, lastVisitedAt: now }
+        return { history: [nextEntry, ...state.history.filter((item) => item.url !== entry.url && item.url !== entry.replacesUrl)] }
+      }
       const existing = state.history.find((item) => item.url === entry.url)
       const nextEntry: HistoryEntry = existing
         ? {
@@ -996,6 +1015,17 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
   },
 
   clearHistory: () => set({ history: [] }),
+
+  removeHistoryEntries: (ids) => {
+    const remove = new Set(ids)
+    const removed = get().history.filter((entry) => remove.has(entry.id))
+    if (removed.length) set((state) => ({ history: state.history.filter((entry) => !remove.has(entry.id)) }))
+    return removed
+  },
+
+  restoreHistoryEntries: (entries) => {
+    if (entries.length) set((state) => ({ history: mergeRestoredHistory(state.history, entries) }))
+  },
 
   addBookmark: (bookmark) => {
     if (get().bookmarks.some((item) => item.url === bookmark.url && item.folderId === bookmark.folderId &&
@@ -1555,7 +1585,7 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
     }))
   },
 
-  completeOnboarding: () => set({ onboarding: { completed: true } }),
+  completeOnboarding: () => set({ onboarding: { completed: true, revision: ONBOARDING_STATE_REVISION } }),
 
 }))
 

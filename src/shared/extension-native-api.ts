@@ -1,3 +1,5 @@
+import type { VastContextMenuContext, VastDeclarativeAction, VastDeclarativeContributions } from './extension-native-contributions.ts'
+
 export const VAST_NATIVE_API_VERSION = 1 as const
 
 export const VAST_NATIVE_PERMISSIONS = [
@@ -14,7 +16,8 @@ export const VAST_NATIVE_PERMISSIONS = [
 
 export type VastNativePermission = typeof VAST_NATIVE_PERMISSIONS[number]
 export type VastExtensionKind = 'chrome' | 'vast' | 'hybrid'
-export type VastNativeRuntimeState = 'not-applicable' | 'pending-permission' | 'starting' | 'running' | 'stopped' | 'error'
+/** `idle`: the Native layer is active (declarative UI, popup, options) and declares no background. */
+export type VastNativeRuntimeState = 'not-applicable' | 'pending-permission' | 'idle' | 'starting' | 'running' | 'stopped' | 'error'
 
 export interface VastPermissionMetadata {
   id: VastNativePermission
@@ -42,6 +45,7 @@ export interface VastExtensionManifestSection {
   popup?: string
   options?: string
   permissions: VastNativePermission[]
+  contributes?: VastDeclarativeContributions
 }
 
 export interface VastExtensionTab {
@@ -76,7 +80,7 @@ export interface VastThemeTokens {
 export interface VastToolbarAction { id: string; title: string; icon?: string; enabled?: boolean; badge?: string }
 export interface VastSidebarPanel { id: string; title: string; icon?: string; page: string }
 export interface VastExtensionCommand { id: string; title: string; shortcut?: string }
-export interface VastContextMenuItem { id: string; title: string }
+export interface VastContextMenuItem { id: string; title: string; contexts?: VastContextMenuContext[] }
 export interface VastNotificationOptions { title: string; message: string }
 
 export type VastNativeEventName =
@@ -139,14 +143,26 @@ export interface VastNativeExtensionApi {
   notifications: { create(options: VastNotificationOptions): Promise<void> }
 }
 
+/**
+ * Every row is owned by `extensionId`. `source` says whether the manifest
+ * (static, no code ran) or the running background registered it; `available`
+ * is false while the action has no receiver, so the UI must not offer it.
+ */
+export interface VastContributionRow { extensionId: string; extensionName: string; key: string; source: 'manifest' | 'runtime'; action: VastDeclarativeAction; available: boolean }
+
 export interface VastExtensionContributionSnapshot {
   revision: number
   theme?: { extensionId: string; tokens: VastThemeTokens }
-  toolbar: Array<VastToolbarAction & { extensionId: string; extensionName: string; key: string }>
-  sidebar: Array<VastSidebarPanel & { extensionId: string; extensionName: string; key: string; resourceUrl: string }>
-  commands: Array<VastExtensionCommand & { extensionId: string; extensionName: string; key: string; shortcutAccepted: boolean }>
-  contextMenus: Array<VastContextMenuItem & { extensionId: string; extensionName: string; key: string }>
+  toolbar: Array<VastToolbarAction & VastContributionRow & { iconDataUrl?: string }>
+  sidebar: Array<VastSidebarPanel & VastContributionRow & { resourceUrl: string }>
+  commands: Array<VastExtensionCommand & VastContributionRow & { shortcutAccepted: boolean }>
+  contextMenus: Array<VastContextMenuItem & VastContributionRow>
+  /** True only while a running background holds vast.tabs.read; the browser UI reports tab events only then. */
+  nativeTabEvents: boolean
 }
+
+/** Outcome of a contribution activation: an event reached a listener, or the owner's popup was asked to open. */
+export type VastContributionDispatchOutcome = 'delivered' | 'popup'
 
 export type VastUiBrokerOperation =
   | 'tabs.query' | 'tabs.get' | 'tabs.create' | 'tabs.update' | 'tabs.reload' | 'tabs.close' | 'tabs.activate'

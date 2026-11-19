@@ -309,7 +309,7 @@ index 67d3be4..83d2afd 100644
    }
  })();
 diff --git a/dist/cjs/index.js b/dist/cjs/index.js
-index b4242b0..f633e25 100644
+index b4242b0..7862545 100644
 --- a/dist/cjs/index.js
 +++ b/dist/cjs/index.js
 @@ -149,6 +149,10 @@ var _PopupView = class _PopupView extends import_node_events.EventEmitter {
@@ -507,7 +507,7 @@ index b4242b0..f633e25 100644
        ])).map((result) => result.status === "fulfilled" ? result.value : void 0).filter(Boolean);
        break;
      }
-@@ -1817,44 +1877,90 @@ async function getConfigSearchPaths(application) {
+@@ -1817,162 +1877,374 @@ async function getConfigSearchPaths(application) {
  }
  async function readNativeMessagingHostConfig(application) {
    const searchPaths = await getConfigSearchPaths(application);
@@ -613,7 +613,14 @@ index b4242b0..f633e25 100644
      this.sender = sender;
      if (keepAlive) {
        this.sender.ipc.on(`crx-native-msg-${connectionId}`, this.receiveExtensionMessage);
-@@ -1862,117 +1968,269 @@ var NativeMessagingHost = class {
++      if (typeof sender.startTask === "function") {
++        try {
++          this.keepAliveTask = sender.startTask();
++        } catch {
++          // Chrome keeps a worker alive while its native port is open; a stopping worker cannot be kept.
++        }
++      }
+     }
      this.connectionId = connectionId;
      this.ready = this.launch(application, extensionId);
    }
@@ -669,6 +676,13 @@ index b4242b0..f633e25 100644
 +      }
      }
      this.sender = void 0;
++    const keepAliveTask = this.keepAliveTask;
++    this.keepAliveTask = void 0;
++    try {
++      keepAliveTask?.end();
++    } catch {
++      // The worker may already have been destroyed.
++    }
 +    const onDestroyed = this.onDestroyed;
 +    this.onDestroyed = void 0;
 +    onDestroyed?.();
@@ -709,13 +723,13 @@ index b4242b0..f633e25 100644
 -      this.destroy();
 -      return;
 +      throw new Error(`Native messaging host executable was not found for ${application}.`);
++    }
++    if (this.destroyed) {
++      throw new Error("Native messaging sender stopped before the host started.");
      }
 -    d7("launch: spawning %s for %s", config.path, extensionId);
 -    this.process = (0, import_node_child_process.spawn)(config.path, [extensionUrl], {
 -      shell: false
-+    if (this.destroyed) {
-+      throw new Error("Native messaging sender stopped before the host started.");
-+    }
 +    d7("launch: spawning host for %s", extensionId);
 +    const args = process.platform === "win32" ? [extensionUrl, "--parent-window=0"] : [extensionUrl];
 +    this.process = (0, import_node_child_process.spawn)(executablePath, args, {
@@ -807,7 +821,10 @@ index b4242b0..f633e25 100644
 +  releaseQueuedFrame(frame) {
 +    this.queuedMessageCount -= 1;
 +    this.queuedMessageBytes -= frame.length;
-+  }
+   }
+-  sendAndReceive(message) {
+-    this.send(message);
+-    return new Promise((resolve) => {
 +  writeFrame(frame) {
 +    if (this.writeBlocked) {
 +      this.queueFrame(this.writeQueue, frame);
@@ -821,10 +838,7 @@ index b4242b0..f633e25 100644
 +      this.writeBlocked = true;
 +      stdin.once("drain", this.flushWriteQueue);
 +    }
-   }
--  sendAndReceive(message) {
--    this.send(message);
--    return new Promise((resolve) => {
++  }
 +  async sendAndReceive(message) {
 +    await this.ready;
 +    if (this.destroyed || !this.connected) throw new Error("Native messaging host is disconnected.");
@@ -924,7 +938,7 @@ index b4242b0..f633e25 100644
      };
      this.openOptionsPage = async ({ extension }) => {
        const manifest = getExtensionManifest(extension);
-@@ -2614,49 +2872,86 @@ function readLoadedExtensionManifest(ctx, extension) {
+@@ -2614,49 +2886,86 @@ function readLoadedExtensionManifest(ctx, extension) {
  }
  
  // src/browser/api/permissions.ts
@@ -1000,26 +1014,26 @@ index b4242b0..f633e25 100644
 -        ...extension.manifest.optional_permissions || []
 -      ]);
 -      if (request.permissions && !request.permissions.every((p) => declaredPermissions.has(p))) {
--        throw new Error("Permissions request includes undeclared permission");
--      }
--      const granted = await this.ctx.store.requestPermissions(extension, request);
--      if (!granted) return false;
 +      const optionalPermissions = new Set(extension.manifest.optional_permissions || []);
 +      const optionalOrigins = new Set(extension.manifest.optional_host_permissions || []);
-       const permissions = this.permissionMap.get(extension.id);
++      const permissions = this.permissionMap.get(extension.id);
++      const added = {
++        permissions: (request.permissions || []).filter((permission) => !permissions.permissions.includes(permission)),
++        origins: (request.origins || []).filter((origin) => !permissions.origins.some((granted) => permissionOriginPatternCovers(granted, origin)))
++      };
++      if (added.permissions.some((permission) => !optionalPermissions.has(permission))) {
+         throw new Error("Permissions request includes undeclared permission");
+       }
+-      const granted = await this.ctx.store.requestPermissions(extension, request);
+-      if (!granted) return false;
+-      const permissions = this.permissionMap.get(extension.id);
 -      if (request.origins) {
 -        for (const origin of request.origins) {
 -          if (!permissions.origins.includes(origin)) {
 -            permissions.origins.push(origin);
 -          }
 -        }
-+      const added = {
-+        permissions: (request.permissions || []).filter((permission) => !permissions.permissions.includes(permission)),
-+        origins: (request.origins || []).filter((origin) => !permissions.origins.some((granted) => permissionOriginPatternCovers(granted, origin)))
-+      };
-+      if (added.permissions.some((permission) => !optionalPermissions.has(permission))) {
-+        throw new Error("Permissions request includes undeclared permission");
-       }
+-      }
 -      if (request.permissions) {
 -        for (const permission of request.permissions) {
 -          if (!permissions.permissions.includes(permission)) {
@@ -1037,7 +1051,7 @@ index b4242b0..f633e25 100644
        return true;
      };
      const handle = this.ctx.router.apiHandler();
-@@ -2675,13 +2970,65 @@ var PermissionsAPI = class {
+@@ -2675,13 +2984,65 @@ var PermissionsAPI = class {
    }
    processExtension(extension) {
      const manifest = extension.manifest;
@@ -1105,7 +1119,7 @@ index b4242b0..f633e25 100644
  // src/browser/index.ts
  function checkVersion() {
    const electronVersion = process.versions.electron;
-@@ -2764,6 +3111,7 @@ var ElectronChromeExtensions = class _ElectronChromeExtensions extends import_no
+@@ -2764,6 +3125,7 @@ var ElectronChromeExtensions = class _ElectronChromeExtensions extends import_no
        cookies: new CookiesAPI(this.ctx),
        notifications: new NotificationsAPI(this.ctx),
        permissions: new PermissionsAPI(this.ctx),
@@ -1114,7 +1128,7 @@ index b4242b0..f633e25 100644
        tabs: new TabsAPI(this.ctx),
        webNavigation: new WebNavigationAPI(this.ctx),
 diff --git a/dist/esm/index.mjs b/dist/esm/index.mjs
-index dc598ce..48c5e04 100644
+index dc598ce..4acf186 100644
 --- a/dist/esm/index.mjs
 +++ b/dist/esm/index.mjs
 @@ -112,6 +112,10 @@ var _PopupView = class _PopupView extends EventEmitter {
@@ -1312,7 +1326,7 @@ index dc598ce..48c5e04 100644
        ])).map((result) => result.status === "fulfilled" ? result.value : void 0).filter(Boolean);
        break;
      }
-@@ -1780,44 +1840,90 @@ async function getConfigSearchPaths(application) {
+@@ -1780,162 +1840,374 @@ async function getConfigSearchPaths(application) {
  }
  async function readNativeMessagingHostConfig(application) {
    const searchPaths = await getConfigSearchPaths(application);
@@ -1418,7 +1432,14 @@ index dc598ce..48c5e04 100644
      this.sender = sender;
      if (keepAlive) {
        this.sender.ipc.on(`crx-native-msg-${connectionId}`, this.receiveExtensionMessage);
-@@ -1825,117 +1931,269 @@ var NativeMessagingHost = class {
++      if (typeof sender.startTask === "function") {
++        try {
++          this.keepAliveTask = sender.startTask();
++        } catch {
++          // Chrome keeps a worker alive while its native port is open; a stopping worker cannot be kept.
++        }
++      }
+     }
      this.connectionId = connectionId;
      this.ready = this.launch(application, extensionId);
    }
@@ -1474,6 +1495,13 @@ index dc598ce..48c5e04 100644
 +      }
      }
      this.sender = void 0;
++    const keepAliveTask = this.keepAliveTask;
++    this.keepAliveTask = void 0;
++    try {
++      keepAliveTask?.end();
++    } catch {
++      // The worker may already have been destroyed.
++    }
 +    const onDestroyed = this.onDestroyed;
 +    this.onDestroyed = void 0;
 +    onDestroyed?.();
@@ -1514,13 +1542,13 @@ index dc598ce..48c5e04 100644
 -      this.destroy();
 -      return;
 +      throw new Error(`Native messaging host executable was not found for ${application}.`);
++    }
++    if (this.destroyed) {
++      throw new Error("Native messaging sender stopped before the host started.");
      }
 -    d7("launch: spawning %s for %s", config.path, extensionId);
 -    this.process = spawn2(config.path, [extensionUrl], {
 -      shell: false
-+    if (this.destroyed) {
-+      throw new Error("Native messaging sender stopped before the host started.");
-+    }
 +    d7("launch: spawning host for %s", extensionId);
 +    const args = process.platform === "win32" ? [extensionUrl, "--parent-window=0"] : [extensionUrl];
 +    this.process = spawn2(executablePath, args, {
@@ -1612,7 +1640,10 @@ index dc598ce..48c5e04 100644
 +  releaseQueuedFrame(frame) {
 +    this.queuedMessageCount -= 1;
 +    this.queuedMessageBytes -= frame.length;
-+  }
+   }
+-  sendAndReceive(message) {
+-    this.send(message);
+-    return new Promise((resolve) => {
 +  writeFrame(frame) {
 +    if (this.writeBlocked) {
 +      this.queueFrame(this.writeQueue, frame);
@@ -1626,10 +1657,7 @@ index dc598ce..48c5e04 100644
 +      this.writeBlocked = true;
 +      stdin.once("drain", this.flushWriteQueue);
 +    }
-   }
--  sendAndReceive(message) {
--    this.send(message);
--    return new Promise((resolve) => {
++  }
 +  async sendAndReceive(message) {
 +    await this.ready;
 +    if (this.destroyed || !this.connected) throw new Error("Native messaging host is disconnected.");
@@ -1729,7 +1757,7 @@ index dc598ce..48c5e04 100644
      };
      this.openOptionsPage = async ({ extension }) => {
        const manifest = getExtensionManifest(extension);
-@@ -2577,49 +2835,86 @@ function readLoadedExtensionManifest(ctx, extension) {
+@@ -2577,49 +2849,86 @@ function readLoadedExtensionManifest(ctx, extension) {
  }
  
  // src/browser/api/permissions.ts
@@ -1805,26 +1833,26 @@ index dc598ce..48c5e04 100644
 -        ...extension.manifest.optional_permissions || []
 -      ]);
 -      if (request.permissions && !request.permissions.every((p) => declaredPermissions.has(p))) {
--        throw new Error("Permissions request includes undeclared permission");
--      }
--      const granted = await this.ctx.store.requestPermissions(extension, request);
--      if (!granted) return false;
 +      const optionalPermissions = new Set(extension.manifest.optional_permissions || []);
 +      const optionalOrigins = new Set(extension.manifest.optional_host_permissions || []);
-       const permissions = this.permissionMap.get(extension.id);
++      const permissions = this.permissionMap.get(extension.id);
++      const added = {
++        permissions: (request.permissions || []).filter((permission) => !permissions.permissions.includes(permission)),
++        origins: (request.origins || []).filter((origin) => !permissions.origins.some((granted) => permissionOriginPatternCovers(granted, origin)))
++      };
++      if (added.permissions.some((permission) => !optionalPermissions.has(permission))) {
+         throw new Error("Permissions request includes undeclared permission");
+       }
+-      const granted = await this.ctx.store.requestPermissions(extension, request);
+-      if (!granted) return false;
+-      const permissions = this.permissionMap.get(extension.id);
 -      if (request.origins) {
 -        for (const origin of request.origins) {
 -          if (!permissions.origins.includes(origin)) {
 -            permissions.origins.push(origin);
 -          }
 -        }
-+      const added = {
-+        permissions: (request.permissions || []).filter((permission) => !permissions.permissions.includes(permission)),
-+        origins: (request.origins || []).filter((origin) => !permissions.origins.some((granted) => permissionOriginPatternCovers(granted, origin)))
-+      };
-+      if (added.permissions.some((permission) => !optionalPermissions.has(permission))) {
-+        throw new Error("Permissions request includes undeclared permission");
-       }
+-      }
 -      if (request.permissions) {
 -        for (const permission of request.permissions) {
 -          if (!permissions.permissions.includes(permission)) {
@@ -1842,7 +1870,7 @@ index dc598ce..48c5e04 100644
        return true;
      };
      const handle = this.ctx.router.apiHandler();
-@@ -2638,13 +2933,65 @@ var PermissionsAPI = class {
+@@ -2638,13 +2947,65 @@ var PermissionsAPI = class {
    }
    processExtension(extension) {
      const manifest = extension.manifest;
@@ -1910,7 +1938,7 @@ index dc598ce..48c5e04 100644
  // src/browser/index.ts
  function checkVersion() {
    const electronVersion = process.versions.electron;
-@@ -2727,6 +3074,7 @@ var ElectronChromeExtensions = class _ElectronChromeExtensions extends EventEmit
+@@ -2727,6 +3088,7 @@ var ElectronChromeExtensions = class _ElectronChromeExtensions extends EventEmit
        cookies: new CookiesAPI(this.ctx),
        notifications: new NotificationsAPI(this.ctx),
        permissions: new PermissionsAPI(this.ctx),

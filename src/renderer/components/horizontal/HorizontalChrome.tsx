@@ -21,7 +21,9 @@ import type { Bookmark as BookmarkModel, BookmarkFolder, Tab, TabGroup, Workspac
 import { useBrowserRuntime } from '../../app/browser-runtime'
 import { openTabContextMenu } from '../../lib/context-menu'
 import { displayUrl } from '../../lib/url'
+import { usePresence } from '../../lib/motion'
 import { useTabMotion } from '../../lib/tab-motion'
+import { useDismiss } from '../../lib/use-dismiss'
 import { beginTabDrag, consumeTabDrop, recordTabDrop } from '../../lib/tab-drag-session'
 import { selectActiveTab, selectActiveWorkspace, useBrowserStore } from '../../store/browser-store'
 import { AddressBar } from '../browser/AddressBar'
@@ -94,9 +96,12 @@ export function WorkspacePopover({
   const openPromptDialog = useBrowserStore((state) => state.openPromptDialog)
 
   const purist = variant === 'purist'
+  const presence = usePresence(open)
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  useDismiss(open, rootRef, onClose)
 
   return (
-    <div className={`no-drag relative h-10 w-fit shrink-0 ${purist ? 'purist-workspace-popover' : ''}`}>
+    <div ref={rootRef} className={`no-drag relative h-10 w-fit shrink-0 ${purist ? 'purist-workspace-popover' : ''}`}>
       <button
         type="button"
         onClick={onToggle}
@@ -123,8 +128,8 @@ export function WorkspacePopover({
         {!purist && <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-vast-soft transition ${open ? 'rotate-180' : ''}`} />}
       </button>
 
-      {open && (
-        <div className="absolute left-0 top-10 z-50 w-80 overflow-hidden rounded-card vast-float border border-white/10 p-2 shadow-glass" data-testid="workspace-popover">
+      {presence.mounted && (
+        <div ref={presence.ref('menu')} className="absolute left-0 top-10 z-50 w-80 origin-top-left overflow-hidden rounded-card vast-float border border-white/10 p-2 shadow-glass" data-testid="workspace-popover">
           <div className="px-3 pb-3 pt-2">
             <h2 className="text-2xl font-semibold leading-tight tracking-tight text-white" data-testid="workspace-popover-heading">Workspaces</h2>
           </div>
@@ -239,10 +244,15 @@ function HorizontalTabBar(): JSX.Element {
     return () => window.removeEventListener('resize', position)
   }, [overflowOpen])
 
-  const closeOverflow = (): void => {
-    setOverflowOpen(false)
-    setOverflowQuery('')
-  }
+  // The query is cleared when the list opens, not when it closes, so the list
+  // does not change under its own exit motion.
+  const closeOverflow = (): void => setOverflowOpen(false)
+  const overflowPresence = usePresence(overflowOpen)
+  const overflowMotionRef = overflowPresence.ref('menu')
+  const setOverflowMenu = useCallback((element: HTMLDivElement | null) => {
+    overflowMenuRef.current = element
+    overflowMotionRef(element)
+  }, [overflowMotionRef])
 
   useEffect(() => {
     closeOverflow()
@@ -535,7 +545,13 @@ function HorizontalTabBar(): JSX.Element {
         <div ref={overflowRef} className="no-drag relative shrink-0 translate-y-1 self-center">
           <button
             type="button"
-            onClick={() => overflowOpen ? closeOverflow() : setOverflowOpen(true)}
+            onClick={() => {
+              if (overflowOpen) closeOverflow()
+              else {
+                setOverflowQuery('')
+                setOverflowOpen(true)
+              }
+            }}
             aria-label={`All ${workspaceTabs.length} tabs`}
             aria-haspopup="dialog"
             aria-expanded={overflowOpen}
@@ -545,8 +561,8 @@ function HorizontalTabBar(): JSX.Element {
             <MoreHorizontal className="h-4 w-4" />
             {workspaceTabs.length}
           </button>
-          {overflowOpen && createPortal(
-            <div ref={overflowMenuRef} role="dialog" aria-label={`Tabs in ${workspace?.name ?? 'workspace'}`} style={overflowPosition} className="no-drag fixed z-100 flex w-80 max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-card vast-float border border-white/10 p-2 shadow-glass">
+          {overflowPresence.mounted && createPortal(
+            <div ref={setOverflowMenu} role="dialog" aria-label={`Tabs in ${workspace?.name ?? 'workspace'}`} style={overflowPosition} className="no-drag fixed z-100 flex w-80 max-w-[calc(100vw-16px)] origin-top-right flex-col overflow-hidden rounded-card vast-float border border-white/10 p-2 shadow-glass">
               <div className="flex items-center justify-between px-3 py-2">
                 <span className="text-[13px] font-semibold text-white">Tabs in {workspace?.name ?? 'workspace'}</span>
                 <span className="text-[13px] text-vast-soft">{workspaceTabs.length}</span>

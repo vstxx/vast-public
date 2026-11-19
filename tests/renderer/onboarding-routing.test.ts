@@ -24,5 +24,5 @@ test('New Tab searches bare internal aliases but honors explicit vast URLs and t
 })
 
 test('a fresh DEFAULT_DATA ships onboarding incomplete; existing profiles migrate complete', () => {
-  assert.deepEqual(DEFAULT_DATA.onboarding, { completed: false })
+  assert.deepEqual(DEFAULT_DATA.onboarding, { completed: false, revision: 1 })
 })

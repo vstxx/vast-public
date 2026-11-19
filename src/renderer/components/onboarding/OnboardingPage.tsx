@@ -263,6 +263,40 @@ export function OnboardingPage(): JSX.Element {
     finally { setExtensionBusy(false) }
   }, [committedReceipt, extensionBusy, pendingExtensionIds, refreshExtensionImport])
 
+  // Declines every remaining imported extension; the imported bookmarks and
+  // history stay, exactly as when skipping them one by one.
+  const declineRemainingExtensions = useCallback(async (): Promise<void> => {
+    if (!committedReceipt || extensionBusy) return
+    setExtensionBusy(true)
+    setExtensionError(null)
+    try {
+      for (const id of pendingExtensionIds) await window.vast.importer.declineExtension(committedReceipt.operationId, id)
+      await refreshExtensionImport()
+    } catch (error) { setExtensionError(error instanceof Error ? error.message : 'Could not skip the remaining extensions.') }
+    finally { setExtensionBusy(false) }
+  }, [committedReceipt, extensionBusy, pendingExtensionIds, refreshExtensionImport])
+
+  // Leaves onboarding without changing any setting; it will not open again.
+  const skipSetup = useCallback(async (): Promise<void> => {
+    if (completingRef.current) return
+    completingRef.current = true
+    setCompleting(true)
+    try {
+      completeOnboarding()
+      const state = useBrowserStore.getState()
+      const workspace = state.workspaces.find((entry) => entry.id === state.activeWorkspaceId)
+      const tab = state.tabs.find((entry) => entry.id === workspace?.activeTabId)
+      if (tab && matchesInternalUrl(tab.url, INTERNAL_ONBOARDING_URL)) state.navigateTab(tab.id, INTERNAL_NEW_TAB_URL)
+      const saved = await window.vast.storage.flush(useBrowserStore.getState().toPersistedData())
+      if (!saved.ok) throw new Error(saved.error ?? 'Could not save.')
+    } catch (error) {
+      console.error('[onboarding] Skipping could not be persisted:', error)
+    } finally {
+      completingRef.current = false
+      setCompleting(false)
+    }
+  }, [completeOnboarding])
+
   const finish = useCallback(async (): Promise<void> => {
     if (completingRef.current) return
     completingRef.current = true
@@ -294,7 +328,10 @@ export function OnboardingPage(): JSX.Element {
       const importStatus = await window.vast.importer.status()
       setPendingExtensionIds(importStatus.pendingExtensionIds)
       setExtensionResults(importStatus.extensionReceipts)
-      if (importStatus.pendingExtensionIds.length) return
+      if (importStatus.pendingExtensionIds.length) {
+        setFinishError('Review or skip the remaining imported extensions to finish setup.')
+        return
+      }
       completeOnboarding()
       const state = useBrowserStore.getState()
       const completedSave = await window.vast.storage.flush(state.toPersistedData())
@@ -350,6 +387,9 @@ export function OnboardingPage(): JSX.Element {
                 <VastButton variant="secondary" data-testid="onboarding-use-defaults" onClick={applyDefaults}>Use defaults</VastButton>
                 <VastButton variant="primary" data-testid="onboarding-configure" icon={<ArrowRight className="h-4 w-4" />} onClick={() => setStep(1)}>Configure</VastButton>
               </div>
+              <button type="button" className="onboarding-skip" data-testid="onboarding-skip" disabled={completing} onClick={() => void skipSetup()}>
+                Skip setup
+              </button>
             </section>
           )}
           {step === 1 && (
@@ -511,6 +551,7 @@ export function OnboardingPage(): JSX.Element {
                 {extensionError && <div className="onboarding-note onboarding-note--warning" role="alert">{extensionError}</div>}
                 <div className="onboarding-actions">
                   <VastButton variant="secondary" disabled={extensionBusy} onClick={() => void declineExtension()}>Skip extension</VastButton>
+                  {pendingExtensionIds.length > 1 && <VastButton variant="secondary" disabled={extensionBusy} data-testid="onboarding-skip-remaining-extensions" onClick={() => void declineRemainingExtensions()}>Skip all {pendingExtensionIds.length}</VastButton>}
                   {extensionPreview?.extensionId === pendingExtensionIds[0]
                     ? <VastButton variant="primary" disabled={extensionBusy} onClick={() => void confirmExtension()}>Install and approve listed permissions</VastButton>
                     : <VastButton variant="primary" disabled={extensionBusy} onClick={() => void prepareExtension()}>Review extension</VastButton>}

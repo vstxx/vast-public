@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { verifyBundledAvidaeRuntime } from '../../src/main/avidae-runtime.ts'
+import { verifyAvidaeRuntime } from '../../src/main/avidae-runtime.ts'
+
+const expected = { moduleVersion: '1.0.0', hostApi: 1 }
 
 function digest(value: string): string {
   return createHash('sha256').update(value).digest('hex')
@@ -38,8 +40,12 @@ async function fixture(): Promise<{ resources: string; root: string; manifestPat
   await writeFile(join(root, 'ffmpeg-build-provenance.json'), files['ffmpeg-build-provenance.json'])
   const manifestPath = join(root, 'runtime-manifest.json')
   await writeFile(manifestPath, JSON.stringify({
-    schemaVersion: 3,
+    schemaVersion: 4,
+    moduleId: 'vast-video-audio',
+    moduleVersion: '1.0.0',
+    hostApi: 1,
     runtimeVersion: 'test-runtime',
+    files: Object.keys(files).sort().map((path) => ({ path, sha256: digest(files[path]), size: files[path].length })),
     executable: { path: 'app/VastVideoAudio.exe', sha256: digest(files['app/VastVideoAudio.exe']), size: files['app/VastVideoAudio.exe'].length },
     ffmpeg: { path: 'media/ffmpeg.exe', sha256: digest(files['media/ffmpeg.exe']), size: files['media/ffmpeg.exe'].length },
     ffprobe: { path: 'media/ffprobe.exe', sha256: digest(files['media/ffprobe.exe']), size: files['media/ffprobe.exe'].length },
@@ -60,12 +66,12 @@ async function fixture(): Promise<{ resources: string; root: string; manifestPat
 test('packaged Video & Audio runtime verifies every executable before use', async () => {
   const item = await fixture()
   try {
-    const runtime = await verifyBundledAvidaeRuntime(item.resources)
-    assert.equal(runtime.label, 'Bundled runtime test-runtime')
+    const runtime = await verifyAvidaeRuntime(item.root, expected)
+    assert.equal(runtime.label, 'Video & Audio module 1.0.0 (test-runtime)')
     assert.equal(runtime.executable, join(item.root, 'app', 'VastVideoAudio.exe'))
     assert.equal(runtime.chromiumExecutable, join(item.root, 'ms-playwright', 'chromium', 'chrome.exe'))
     await writeFile(runtime.ffmpeg, 'evil!!')
-    await assert.rejects(() => verifyBundledAvidaeRuntime(item.resources), /FFmpeg failed its integrity check/)
+    await assert.rejects(() => verifyAvidaeRuntime(item.root, expected), /FFmpeg failed its integrity check/)
   } finally {
     await rm(item.resources, { recursive: true, force: true })
   }
@@ -75,8 +81,20 @@ test('packaged Video & Audio ignores an unreferenced headless shell left by an o
   const item = await fixture()
   try {
     await mkdir(join(item.root, 'ms-playwright', 'chromium_headless_shell-1234'), { recursive: true })
-    const runtime = await verifyBundledAvidaeRuntime(item.resources)
+    const runtime = await verifyAvidaeRuntime(item.root, expected)
     assert.equal(runtime.chromiumExecutable, join(item.root, 'ms-playwright', 'chromium', 'chrome.exe'))
+  } finally {
+    await rm(item.resources, { recursive: true, force: true })
+  }
+})
+
+test('installed Video & Audio runtime must match its installation record and inventory', async () => {
+  const item = await fixture()
+  try {
+    await assert.rejects(() => verifyAvidaeRuntime(item.root, { moduleVersion: '1.0.1', hostApi: 1 }), /installation record/)
+    await assert.rejects(() => verifyAvidaeRuntime(item.root, { moduleVersion: '1.0.0', hostApi: 2 }), /installation record/)
+    await rm(join(item.root, 'ms-playwright', 'chromium', 'chrome.exe'))
+    await assert.rejects(() => verifyAvidaeRuntime(item.root, expected), /missing or changed/)
   } finally {
     await rm(item.resources, { recursive: true, force: true })
   }
@@ -88,7 +106,7 @@ test('packaged Video & Audio runtime rejects path traversal in its manifest', as
     const manifest = JSON.parse(await readFile(item.manifestPath, 'utf8'))
     manifest.executable.path = '../outside.exe'
     await writeFile(item.manifestPath, JSON.stringify(manifest))
-    await assert.rejects(() => verifyBundledAvidaeRuntime(item.resources), /unsafe path/)
+    await assert.rejects(() => verifyAvidaeRuntime(item.root, expected), /unsafe path/)
   } finally {
     await rm(item.resources, { recursive: true, force: true })
   }

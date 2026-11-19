@@ -1,13 +1,16 @@
 import { DEFAULT_SETTINGS } from './constants.ts'
 import { resolveLayoutMode } from './layout-mode.ts'
-import type { BrowserSettings, LayoutMode, NewTabBackground, SidebarDensity, ThemePreference } from './types'
+import type { BrowserSettings, LayoutMode, MotionPreference, NewTabBackground, SidebarDensity, ThemePreference } from './types'
 
 // Visual Profiles: portable snapshots of the Settings > Appearance page and
 // nothing else. FIELDS is the maintained allowlist; a control added to the
 // Appearance page must be added here (and to its round-trip test).
 
 export const VISUAL_PROFILE_FORMAT = 'vast.visual-profile'
-export const VISUAL_PROFILE_VERSION = 1
+// Version 2 added motionLevel. Version 1 files still import (as Standard
+// motion); older Vast builds refuse version 2 files as "made by a newer version".
+export const VISUAL_PROFILE_VERSION = 2
+export const VISUAL_PROFILE_MIN_VERSION = 1
 export const VISUAL_PROFILE_EXTENSION = 'vastvisual'
 export const VISUAL_PROFILE_NAME_MAX = 48
 /** Upper bound for a whole `.vastvisual` file, checked before parsing. */
@@ -26,6 +29,7 @@ export interface VisualProfileValues {
   surfaceTintColor: string
   forceDarkModeWebsites: boolean
   animations: boolean
+  motionLevel: MotionPreference
   openingAnimation: boolean
   openingAnimationSoundVolume: number
   bookmarksBarVisible: boolean
@@ -65,6 +69,7 @@ export const VISUAL_PROFILE_FIELDS: Readonly<Record<keyof VisualProfileValues, F
   surfaceTintColor: { kind: 'color' },
   forceDarkModeWebsites: { kind: 'boolean' },
   animations: { kind: 'boolean' },
+  motionLevel: { kind: 'enum', values: ['standard', 'enhanced'] },
   openingAnimation: { kind: 'boolean' },
   openingAnimationSoundVolume: percent,
   bookmarksBarVisible: { kind: 'boolean' },
@@ -88,6 +93,8 @@ export const VISUAL_PROFILE_FIELDS: Readonly<Record<keyof VisualProfileValues, F
 })
 
 const FIELD_KEYS = Object.keys(VISUAL_PROFILE_FIELDS) as Array<keyof VisualProfileValues>
+/** Fields newer than version 1: absent in older files and stored profiles, so they take these values. */
+const ADDED_FIELD_DEFAULTS: Partial<VisualProfileValues> = { motionLevel: 'standard' }
 const COLOR = /^#[0-9a-f]{6}$/i
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -113,8 +120,9 @@ export function parseVisualProfileValues(input: unknown): VisualProfileValues {
   if (unexpected !== undefined) throw new Error(`Unsupported appearance setting "${unexpected.slice(0, 40)}".`)
   const values: Record<string, unknown> = {}
   for (const key of FIELD_KEYS) {
-    if (!Object.hasOwn(input, key)) throw new Error(`Missing appearance setting "${key}".`)
-    const value = input[key]
+    const added = Object.hasOwn(ADDED_FIELD_DEFAULTS, key)
+    if (!Object.hasOwn(input, key) && !added) throw new Error(`Missing appearance setting "${key}".`)
+    const value = Object.hasOwn(input, key) ? input[key] : ADDED_FIELD_DEFAULTS[key]
     if (!validField(VISUAL_PROFILE_FIELDS[key], value)) throw new Error(`Invalid value for appearance setting "${key}".`)
     values[key] = VISUAL_PROFILE_FIELDS[key].kind === 'color' ? (value as string).toLowerCase() : value
   }
@@ -131,6 +139,7 @@ function readFromSettings(settings: BrowserSettings): Record<keyof VisualProfile
     surfaceTintColor: settings.appearance.surfaceTintColor,
     forceDarkModeWebsites: settings.appearance.forceDarkModeWebsites,
     animations: settings.animations,
+    motionLevel: settings.motionLevel,
     openingAnimation: settings.openingAnimation,
     openingAnimationSoundVolume: settings.openingAnimationSoundVolume,
     bookmarksBarVisible: settings.bookmarksBarVisible,
@@ -184,6 +193,7 @@ export function visualProfileSettingsPatch(values: VisualProfileValues) {
     layoutMode: values.layoutMode,
     accentColor: values.accentColor,
     animations: values.animations,
+    motionLevel: values.motionLevel,
     openingAnimation: values.openingAnimation,
     openingAnimationSoundVolume: values.openingAnimationSoundVolume,
     bookmarksBarVisible: values.bookmarksBarVisible,
@@ -274,11 +284,14 @@ export function parseVisualProfileDocument(text: string): VisualProfileDocument 
   if (parsed.format !== VISUAL_PROFILE_FORMAT) throw new Error('This file is not a Vast visual profile.')
   if (typeof parsed.version !== 'number' || !Number.isInteger(parsed.version)) throw new Error('This visual profile has an invalid version.')
   if (parsed.version > VISUAL_PROFILE_VERSION) throw new Error('This visual profile was made by a newer version of Vast.')
-  if (parsed.version !== VISUAL_PROFILE_VERSION) throw new Error('This visual profile version is not supported.')
+  if (parsed.version < VISUAL_PROFILE_MIN_VERSION) throw new Error('This visual profile version is not supported.')
   const allowed = new Set(['format', 'version', 'name', 'appearance', 'image'])
   const unexpected = Object.keys(parsed).find((key) => !allowed.has(key))
   if (unexpected !== undefined) throw new Error(`This visual profile contains an unsupported field "${unexpected.slice(0, 40)}".`)
   const name = normalizeVisualProfileName(parsed.name)
+  if (parsed.version === 1 && isPlainObject(parsed.appearance) && Object.keys(ADDED_FIELD_DEFAULTS).some((key) => Object.hasOwn(parsed.appearance as object, key))) {
+    throw new Error('This visual profile contains settings its version does not support.')
+  }
   const values = parseVisualProfileValues(parsed.appearance)
   if (parsed.image === undefined) return { name, values }
   if (values.newTabBackground !== 'custom') throw new Error('This visual profile carries an image it does not use.')

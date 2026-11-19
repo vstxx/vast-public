@@ -6,7 +6,7 @@ on:
       expected_version:
         description: Exact package version to publish as an unsigned release
         required: true
-        default: 0.5.5
+        default: 0.6.0
         type: string
       publish:
         description: Publish the verified candidate (false only builds and verifies)
@@ -48,8 +48,8 @@ jobs:
       VAST_PUBLIC_UNSIGNED_RELEASE: '1'
       VAST_UNSIGNED_RELEASE_ACK: ${{ inputs.risk_ack }}
       VAST_RELEASE_REPO: vstxx/vast-public
-      VAST_PREVIOUS_VERSION: 0.5.0
-      VAST_PREVIOUS_RELEASE_BASE_URL: https://github.com/vstxx/vast-public/releases/download/v0.5.0
+      VAST_PREVIOUS_VERSION: 0.5.5
+      VAST_PREVIOUS_RELEASE_BASE_URL: https://github.com/vstxx/vast-public/releases/download/v0.5.5
       VAST_PREVIOUS_SIGNATURE_POLICY: unsigned
       VAST_CURRENT_SIGNATURE_POLICY: unsigned
       VAST_UPDATE_ENABLED: '1'
@@ -157,15 +157,10 @@ jobs:
           # Packaged ECE is verified against the approved patched source, which
           # every run (including a resumed publication) must apply itself.
           npm run extension:compat:prepare
-          if ($env:VAST_RESUME_RUN_ID -eq '') { python -m pip install -r resources/avidae/requirements.txt -r resources/avidae/requirements-build.txt }
+          if ($env:VAST_RESUME_RUN_ID -eq '') { python -m pip install -r resources/avidae/requirements.txt }
       - name: Restore exact patched Electron runtime
         if: inputs.resume_run_id == ''
         uses: ./.github/actions/prepare-patched-electron
-        with:
-          github-token: ${{ github.token }}
-      - name: Restore or build pinned Vast FFmpeg with corresponding source
-        if: inputs.resume_run_id == ''
-        uses: ./.github/actions/prepare-ffmpeg
         with:
           github-token: ${{ github.token }}
 
@@ -201,9 +196,6 @@ jobs:
       - name: Verify production Extensions Hub trust compatibility
         if: inputs.resume_run_id == ''
         run: npm run hub:verify:production
-      - name: Prepare self-contained Video & Audio runtime
-        if: inputs.resume_run_id == ''
-        run: npm run avidae:runtime:prepare
       - name: Build explicitly unsigned public release
         if: inputs.resume_run_id == ''
         run: npm run dist:upgrader
@@ -227,7 +219,7 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           powershell -NoProfile -ExecutionPolicy Bypass -File tests/windows-clean-uninstall.test.ps1 -InstallerPath "release/Installer/Vast-Setup-$version.exe"
-      - name: Verify real public 0.5.0 to local candidate upgrade
+      - name: Verify real public 0.5.5 to local candidate upgrade
         if: inputs.resume_run_id == ''
         shell: pwsh
         run: |
@@ -288,10 +280,10 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           $notes = Join-Path $env:RUNNER_TEMP 'vast-unsigned-release-notes.md'
-          $releaseDetailsPath = 'docs/PUBLIC_RELEASE_0.5.5.md'
+          $releaseDetailsPath = 'docs/PUBLIC_RELEASE_0.6.0.md'
           if (-not (Test-Path -LiteralPath $releaseDetailsPath)) { throw "Missing release notes: $releaseDetailsPath" }
-          $releaseDetails = Get-Content -Raw -Encoding utf8 'docs/PUBLIC_RELEASE_0.5.5.md'
-          if ($releaseDetails.Contains('RELEASE_NOTES_DRAFT')) { throw 'Complete the 0.5.5 release notes before publication.' }
+          $releaseDetails = Get-Content -Raw -Encoding utf8 'docs/PUBLIC_RELEASE_0.6.0.md'
+          if ($releaseDetails.Contains('RELEASE_NOTES_DRAFT')) { throw 'Complete the 0.6.0 release notes before publication.' }
           @(
             "# Vast $version — PUBLIC UNSIGNED RELEASE",
             "",
@@ -305,6 +297,14 @@ jobs:
             $releaseDetails
           ) | Set-Content -LiteralPath $notes -Encoding utf8
           node scripts/publish-release-assets.cjs $notes
+      - name: Attach the verified Linux AppImage from the same candidate run
+        if: inputs.publish && env.VAST_RELEASE_ALREADY_PUBLIC != 'true'
+        shell: pwsh
+        env:
+          CANDIDATE_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.VAST_RELEASE_TOKEN }}
+          CANDIDATE_RUN_ID: ${{ inputs.resume_run_id }}
+        run: node scripts/linux-release-candidate.cjs attach
       - name: Re-download and verify draft assets
         if: inputs.publish && env.VAST_RELEASE_ALREADY_PUBLIC != 'true'
         env:
@@ -336,3 +336,19 @@ jobs:
           CANDIDATE_RUN_ID: ${{ inputs.resume_run_id }}
           VAST_CANDIDATE_PUBLICATION_VERIFIED: '1'
         run: node scripts/private-release-candidate.cjs cleanup
+      - name: Remove the private Linux candidate after verified public publication
+        if: inputs.publish
+        env:
+          CANDIDATE_TOKEN: ${{ github.token }}
+        run: node scripts/linux-release-candidate.cjs cleanup
+
+  linux-appimage:
+    # Built and verified with each candidate, then kept as a private draft
+    # release; publishing that candidate attaches it to the public release.
+    if: inputs.resume_run_id == ''
+    uses: ./.github/workflows/linux-appimage.yml
+    with:
+      expected_version: ${{ inputs.expected_version }}
+      channel: ${{ inputs.channel }}
+      risk_ack: ${{ inputs.risk_ack }}
+      store_candidate: true

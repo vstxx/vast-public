@@ -52,7 +52,7 @@ const groups: Record<SettingsSearchSectionId, readonly SearchDefinition[]> = {
     ['Gradients', 'gradient intensity przejscia kolorow'],
     ['Panel opacity', 'panel transparency przezroczystosc panelu'],
     ['Saturation', 'color intensity nasycenie'],
-    ['Animations', 'motion transitions ruch animacje'],
+    ['Motion', 'animations motion transitions enhanced standard off reduced ruch animacje'],
     ['Opening animation', 'startup splash launch animation animacja startowa'],
     ['Opening sound', 'startup audio launch sound dzwiek startowy'],
     ['Bookmarks bar', 'favorites bar pasek zakladek ulubione'],

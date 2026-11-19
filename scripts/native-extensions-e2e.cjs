@@ -94,9 +94,18 @@ async function main() {
   fs.writeFileSync(path.join(fixturePath, 'popup.js'), "const state = await vast.storage.local.get('started'); document.querySelector('#state').textContent = state.started ? 'Storage connected' : 'Storage unavailable'\n", 'utf8')
   fs.writeFileSync(path.join(fixturePath, 'options.html'), '<!doctype html><html><head><meta charset="utf-8"><title>Native options</title></head><body data-native-options="ready">Native options</body></html>', 'utf8')
   fs.appendFileSync(path.join(fixturePath, 'vast-background.js'), `\nlet networkBlocked=false;try{await fetch('http://127.0.0.1:${probePort}/probe')}catch{networkBlocked=true}\nlet tabsReadDenied=false;try{await vast.tabs.query({})}catch{tabsReadDenied=true}\nawait vast.storage.local.set({sandbox:{requireType:typeof globalThis.require,processType:typeof globalThis.process,ipcRendererType:typeof globalThis.ipcRenderer},networkBlocked,tabsReadDenied,popupBlocked:window.open('https://example.com')===null})\n`)
+  const staticPath = path.join(testRoot, 'static-extension')
+  fs.mkdirSync(path.join(staticPath, 'assets'), { recursive: true })
+  fs.copyFileSync(path.join(sourceFixture, 'assets', 'icon.svg'), path.join(staticPath, 'assets', 'icon.svg'))
+  fs.writeFileSync(path.join(staticPath, 'popup.html'), '<!doctype html><html><head><meta charset="utf-8"><title>Static popup</title></head><body data-static-popup="ready">Static popup</body></html>', 'utf8')
+  fs.writeFileSync(path.join(staticPath, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Vast Static Basic', version: '1.0.0', vast: { api_version: 1, popup: 'popup.html', permissions: ['vast.toolbar', 'vast.commands'], contributes: {
+    toolbar: [{ id: 'hello', title: 'Static hello', icon: 'assets/icon.svg', action: 'popup' }],
+    commands: [{ id: 'hello', title: 'Static hello command', action: 'popup' }]
+  } } }, null, 2))
+  const staticId = idFor(staticPath)
   const extensionId = idFor(fixturePath); const now = Date.now(); const registryDir = path.join(userDataDir, 'Extensions')
   fs.mkdirSync(registryDir, { recursive: true })
-  fs.writeFileSync(path.join(registryDir, 'registry.json'), `${JSON.stringify({ schemaVersion: 2, extensions: [{ id: extensionId, name: 'Vast Native Basic', version: '1.0.0', description: 'Deterministic Vast Native API v1 fixture.', path: fixturePath, enabled: true, source: 'unpacked', runtime: 'vast', manifestVersion: 3, installedAt: now, updatedAt: now, allowFileAccess: false, grantedPermissions: ['vast.storage','vast.theme','vast.toolbar','vast.sidebar','vast.commands','vast.contextMenus','vast.notifications'] }] }, null, 2)}\n`)
+  fs.writeFileSync(path.join(registryDir, 'registry.json'), `${JSON.stringify({ schemaVersion: 2, extensions: [{ id: extensionId, name: 'Vast Native Basic', version: '1.0.0', description: 'Deterministic Vast Native API v1 fixture.', path: fixturePath, enabled: true, source: 'unpacked', runtime: 'vast', manifestVersion: 3, installedAt: now, updatedAt: now, allowFileAccess: false, grantedPermissions: ['vast.storage','vast.theme','vast.toolbar','vast.sidebar','vast.commands','vast.contextMenus','vast.notifications'] }, { id: staticId, name: 'Vast Static Basic', version: '1.0.0', path: staticPath, enabled: true, source: 'unpacked', runtime: 'vast', manifestVersion: 3, installedAt: now, updatedAt: now, allowFileAccess: false, grantedPermissions: ['vast.toolbar', 'vast.commands'] }] }, null, 2)}\n`)
   const port = 10040 + Math.floor(Math.random() * 200); const stdout = []; const stderr = []; const env = { ...process.env, VAST_TEST_USER_DATA_DIR: userDataDir, VAST_RELAY_ENABLED: '0', VAST_RELAY_TEST_OFFLINE: '1' }; delete env.ELECTRON_RUN_AS_NODE
   child = spawn(electronExecutable, [`--remote-debugging-port=${port}`, root], { cwd: root, windowsHide: true, env, stdio: ['ignore', 'pipe', 'pipe'] })
   child.stdout.on('data', (data) => stdout.push(String(data))); child.stderr.on('data', (data) => stderr.push(String(data)))
@@ -105,7 +114,7 @@ async function main() {
   const nativeExtension = info.extensions.find((extension) => extension.id === extensionId)
   assert(nativeExtension.kind === 'vast', 'Native extension kind was not exposed.')
   assert(nativeExtension.ui.popup && nativeExtension.ui.options, 'Native custom popup and options surfaces were not exposed.')
-  const contributions = await until(() => renderer.eval('window.vast.extensions.contributions()'), (value) => value?.contributions?.toolbar?.length === 1 && value?.contributions?.sidebar?.length === 1 && value?.contributions?.commands?.length === 1, 'native contributions')
+  const contributions = await until(() => renderer.eval('window.vast.extensions.contributions()'), (value) => value?.contributions?.toolbar?.length === 2 && value?.contributions?.sidebar?.length === 1 && value?.contributions?.commands?.length === 2, 'native contributions')
   assert(contributions.contributions.theme.tokens.accentColor === '#8b5cf6', 'Theme overlay was not registered.')
   const storageFile = path.join(userDataDir, 'Extensions', 'Data', extensionId, 'storage.json')
   const stored = await until(async () => JSON.parse(fs.readFileSync(storageFile, 'utf8')), (value) => value?.sandbox?.requireType === 'undefined' && value?.networkBlocked === true && value?.tabsReadDenied === true && value?.popupBlocked === true, 'sandbox evidence')
@@ -136,6 +145,46 @@ async function main() {
     return view.executeJavaScript("(async()=>{for(let attempt=0;attempt<100;attempt+=1){const storage=document.querySelector('#state')?.textContent;if(typeof globalThis.vast?.storage?.local?.get==='function'&&document.body.dataset.nativePopup==='ready'&&storage==='Storage connected')return {ready:true,storage,hasVast:true,requireType:typeof require};await new Promise(resolve=>setTimeout(resolve,50))}throw new Error('Vast popup API was not ready')})()", true);
   })()`)
   assert(popupCheck.ready && popupCheck.storage === 'Storage connected' && popupCheck.hasVast && popupCheck.requireType === 'undefined', 'Native toolbar popup was not isolated, authenticated, or connected to owner storage.')
+  // Declarative-only: active without any hidden host, icon resolved, popup action routed.
+  const staticInfo = (await renderer.eval('window.vast.extensions.list()')).extensions.find((extension) => extension.id === staticId)
+  assert(staticInfo?.native.state === 'idle', `Declarative extension state was ${staticInfo?.native.state}.`)
+  const hostTargets = async () => (await json(`http://127.0.0.1:${port}/json/list`)).filter((item) => item.url.endsWith('/__vast_background__.html'))
+  assert((await hostTargets()).length === 1 && !(await hostTargets()).some((item) => item.url.includes(staticId)), 'A declarative-only extension started a Native background host.')
+  const staticToolbar = contributions.contributions.toolbar.find((item) => item.extensionId === staticId)
+  assert(staticToolbar.source === 'manifest' && staticToolbar.available && /^data:image\/svg\+xml;base64,/.test(staticToolbar.iconDataUrl), 'Declarative toolbar action is missing its verified icon or availability.')
+  assert(contributions.contributions.nativeTabEvents === false, 'Tab events were requested although no extension may read tabs.')
+  const popupDispatch = await renderer.eval(`window.vast.extensions.dispatchContribution('${staticToolbar.key}')`)
+  assert(popupDispatch.ok && popupDispatch.outcome === 'popup', `Declarative popup action failed: ${JSON.stringify(popupDispatch)}`)
+  await until(async () => (await json(`http://127.0.0.1:${port}/json/list`)).some((item) => item.url === `vast-extension://${staticId}/popup.html`), Boolean, 'declarative popup surface')
+
+  // Event actions resolve only when the background's listener received them.
+  const legacyToolbar = contributions.contributions.toolbar.find((item) => item.extensionId === extensionId)
+  assert(legacyToolbar.source === 'runtime' && legacyToolbar.available, 'Runtime toolbar action is not available while its host runs.')
+  const delivered = await renderer.eval(`window.vast.extensions.dispatchContribution('${legacyToolbar.key}')`)
+  assert(delivered.ok && delivered.outcome === 'delivered', `Toolbar event was not delivered: ${JSON.stringify(delivered)}`)
+  const legacyCommand = contributions.contributions.commands.find((item) => item.extensionId === extensionId)
+  const unheard = await renderer.eval(`window.vast.extensions.dispatchContribution('${legacyCommand.key}')`)
+  assert(!unheard.ok && /not listening/.test(unheard.error), `A command without a listener was reported as executed: ${JSON.stringify(unheard)}`)
+
+  // A redundant enable keeps the running host instead of restarting it.
+  const hostBefore = (await hostTargets())[0].id
+  await renderer.eval(`window.vast.extensions.enable('${extensionId}')`)
+  await renderer.eval(`window.vast.extensions.enable('${extensionId}')`)
+  assert((await hostTargets()).length === 1 && (await hostTargets())[0].id === hostBefore, 'Enabling a running extension restarted its Native host.')
+
+  // A crashed host drops its runtime contributions and rejects actions; the
+  // declarative extension is unaffected; reload restores the host.
+  await host.send('Page.crash').catch(() => undefined)
+  await until(() => renderer.eval('window.vast.extensions.list()'), (value) => value?.extensions?.find((extension) => extension.id === extensionId)?.native?.state === 'error', 'crash state')
+  const afterCrash = await renderer.eval('window.vast.extensions.contributions()')
+  assert(!afterCrash.contributions.toolbar.some((item) => item.extensionId === extensionId) && afterCrash.contributions.toolbar.some((item) => item.extensionId === staticId), 'Crash cleanup removed the wrong contributions.')
+  const staleDispatch = await renderer.eval(`window.vast.extensions.dispatchContribution('${legacyToolbar.key}')`)
+  assert(!staleDispatch.ok, 'A stale contribution of a crashed host was dispatched.')
+  await renderer.eval(`window.vast.extensions.reload('${extensionId}')`)
+  await until(() => renderer.eval('window.vast.extensions.contributions()'), (value) => value?.contributions?.toolbar?.some((item) => item.extensionId === extensionId && item.available), 'host restored after reload')
+
+  await renderer.eval(`window.vast.extensions.disable('${staticId}')`)
+  assert(!(await renderer.eval('window.vast.extensions.contributions()')).contributions.toolbar.some((item) => item.extensionId === staticId), 'Disabling a declarative extension left its contributions.')
   await renderer.eval(`window.vast.extensions.disable('${extensionId}')`)
   await until(() => renderer.eval('window.vast.extensions.contributions()'), (value) => value?.contributions?.toolbar?.length === 0 && !value?.contributions?.theme, 'contribution cleanup')
   await renderer.eval(`window.vast.extensions.remove('${extensionId}')`)
@@ -143,7 +192,7 @@ async function main() {
   assert(fs.existsSync(fixturePath), 'Uninstall deleted the unpacked source directory.')
   host.close(); renderer.close(); await stop()
   assert(!stderr.some((line) => /uncaught|unhandled rejection/i.test(line)), `Unexpected Electron stderr: ${stderr.join('')}`)
-  console.log('PASS Vast native extensions Electron E2E: isolated host/sidebar/custom popup, authenticated API storage, denied tab metadata without permission, contributions, network/popup blocking, sandbox globals, disable cleanup, and uninstall cleanup.')
+  console.log('PASS Vast native extensions Electron E2E: isolated host/sidebar/custom popup, authenticated API storage, denied tab metadata without permission, contributions, network/popup blocking, sandbox globals, declarative-only UI without a host, acknowledged event delivery, no-listener rejection, no restart on redundant enable, crash cleanup and recovery, no tab events without a subscriber, disable cleanup, and uninstall cleanup.')
 }
 
 async function cleanup() {

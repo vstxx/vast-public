@@ -50,7 +50,11 @@ function inventory(directory, info) {
       else if (entry.isSymbolicLink() || (!paths.includes(name) && !intermediates.has(name.slice('release/'.length)))) throw new Error(`Unexpected candidate deliverable: ${name}`)
     }
   }
-  for (const folder of ['Installer', 'Updater', 'Downloads', 'Checksums', 'Docs', 'Source']) scan(`release/${folder}`)
+  // Source/ is empty since FFmpeg source moved to the Video & Audio module
+  // release; anything that appears there is still rejected as unexpected.
+  for (const folder of ['Installer', 'Updater', 'Downloads', 'Checksums', 'Docs', 'Source']) {
+    if (fs.existsSync(path.join(directory, 'release', folder))) scan(`release/${folder}`)
+  }
   return paths.map(relative => {
     const file = regularFile(directory, relative)
     return { path: relative, asset: path.posix.basename(relative), sha256: digest(file), bytes: fs.statSync(file).size }

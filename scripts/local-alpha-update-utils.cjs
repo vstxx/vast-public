@@ -1,6 +1,7 @@
 const { createHash } = require('node:crypto')
 const { createReadStream, existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync } = require('node:fs')
 const { isAbsolute, join, relative, resolve, sep } = require('node:path')
+const { LOCAL_ALPHA_VERSION } = require('./local-alpha-version.cjs')
 
 function resolveDailyProfile(appData) {
   if (!appData || !isAbsolute(appData)) throw new Error('APPDATA must be an absolute path.')
@@ -24,7 +25,7 @@ function resolveDailyProfile(appData) {
 }
 
 function assertAlphaMetadata(metadata, version, sourceCommit) {
-  if (!/^0\.5\.0-alpha\.[1-9][0-9]*$/.test(version)) throw new Error('The local alpha version must be 0.5.0-alpha.N.')
+  if (!LOCAL_ALPHA_VERSION.test(String(version))) throw new Error('The local alpha version must be X.Y.Z or X.Y.Z-alpha.N.')
   if (!/^[a-f0-9]{40}$/.test(sourceCommit)) throw new Error('The source commit must be a full Git SHA.')
   if (metadata.version !== version || metadata.releaseChannel !== 'alpha' || metadata.distributionChannel !== 'direct') {
     throw new Error('The package is not the requested local alpha version.')
