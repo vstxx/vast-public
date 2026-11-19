@@ -1,6 +1,6 @@
 <div align="center">
   <img src="assets/logos/vasticon.png" alt="Vast Browser" width="96" />
-  <h1>Vast Browser</h1>
+  <h1>Vast Browser (Deprecated)</h1>
   <p><strong>A local-first desktop browser built for deep customization and fast workflows.</strong></p>
   <p>
     <a href="https://vastbrowser.com">Website</a> ·
@@ -30,6 +30,8 @@ Vast combines Chromium page rendering through Electron with a React application 
 
 Windows x64 is the current release-supported target. Published installers and portable builds are available on the [Releases](https://github.com/vstxx/vast-public/releases) page.
 
+The current stable Direct release is [Vast 0.5.5](https://github.com/vstxx/vast-public/releases/tag/v0.5.5). Direct installs on 0.4.3 and later update to 0.5.5 through `stable-v2.yml`; installs on 0.4.2 require a one-time manual upgrade. 0.5.4 was withdrawn on its release day and replaced by 0.5.5. Vast 0.5.5 is also available in [Microsoft Store](https://apps.microsoft.com/detail/9MTWRJCKMDTX) (Store package 1.2.13.0), which delivers its own updates.
+
 For most users, use `Vast-Setup-<version>.exe`. The portable build is named `Vast-<version>-Portable.exe`. Other release assets are used by the updater, integrity verification, or third-party source-compliance process.
 
 Always read the signature note attached to the specific release. Some direct Vast releases are intentionally distributed without Authenticode signing; Windows can therefore show an **Unknown publisher** or SmartScreen warning. Official releases include checksums and provenance metadata so the downloaded bytes can be verified independently.
@@ -44,9 +46,11 @@ The complete model is documented in [docs/PRIVACY.md](docs/PRIVACY.md).
 
 ## Project status
 
-Vast is under active development. Windows x64 is the primary release target. A Linux x64 AppImage is built and verified with each release; see [docs/LINUX.md](docs/LINUX.md) for installation and updates. A macOS target exists in the Electron configuration but is not release-supported.
+Vast is under active development. Windows x64 is the continuously exercised release target. macOS and Linux targets exist in the Electron configuration, but they are not currently release-supported or continuously verified.
 
-Optional Labs features are off on fresh profiles and require local opt-in. Current Labs surfaces include Video & Audio, Network Devices, Automation, Advanced Diagnostics, and Spoofing. Turning a Labs feature off hides and blocks that feature without deleting its local data.
+Fresh onboarding presents the individual Labs features as selected. Current Labs surfaces include Video & Audio, Network Devices, Automation, Advanced Diagnostics, and Spoofing. Each Labs feature has its own local gate; the generic settings fallback remains fail closed, and the global `labs.enabled` setting does not grant access by itself. Turning an individual feature off hides and blocks it without deleting its local data.
+
+The Chrome Web Store can be browsed inside Vast, with installs through the browser-owned **Install in Vast** button or a pasted listing URL. Manifest V2 extensions that block web requests stay installed but are not loaded on the current browser engine. Vast's built-in Password Manager is retired; external password manager extensions have smoke-test evidence only, so full compatibility is not claimed.
 
 The repository also contains an experimental Chromium-port overlay under `chromium-port/`. It is a separate engineering track and is not the desktop package distributed from current releases.
 
@@ -74,8 +78,6 @@ Run the application:
 ```bash
 npm run dev
 ```
-
-`npm run dev` starts this checkout on the approved patched Electron runtime prepared by `scripts/prepare-patched-electron-dist.cjs` (override with `VAST_PATCHED_ELECTRON_DIST`). `npm run dev:stock` starts it on the npm Electron instead.
 
 Build without producing an installer:
 
